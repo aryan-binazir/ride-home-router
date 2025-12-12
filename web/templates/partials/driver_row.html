@@ -1,0 +1,36 @@
+{{define "driver_row"}}
+<tr id="driver-{{.ID}}">
+    <td>{{.Name}}</td>
+    <td>{{.Address}}</td>
+    <td>{{.VehicleCapacity}}</td>
+    <td>
+        {{if .IsInstituteVehicle}}
+            <span class="text-warning">Institute Vehicle</span>
+        {{else}}
+            Personal
+        {{end}}
+    </td>
+    <td class="text-muted">
+        {{if .Coords}}
+        {{printf "%.4f, %.4f" .Coords.Lat .Coords.Lng}}
+        {{end}}
+    </td>
+    <td>
+        <div class="table-actions">
+            <button class="btn btn-sm btn-outline"
+                    hx-get="/api/v1/drivers/{{.ID}}/edit"
+                    hx-target="#driver-form-container"
+                    hx-swap="innerHTML">
+                Edit
+            </button>
+            <button class="btn btn-sm btn-danger"
+                    hx-delete="/api/v1/drivers/{{.ID}}"
+                    hx-target="#driver-{{.ID}}"
+                    hx-swap="outerHTML swap:1s"
+                    hx-confirm="Are you sure you want to delete {{.Name}}?">
+                Delete
+            </button>
+        </div>
+    </td>
+</tr>
+{{end}}

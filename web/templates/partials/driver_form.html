@@ -1,0 +1,72 @@
+{{define "driver_form"}}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">{{if .Driver.ID}}Edit{{else}}Add New{{end}} Driver</h3>
+        <button class="btn btn-sm btn-outline"
+                onclick="document.getElementById('driver-form-container').innerHTML = ''">
+            Cancel
+        </button>
+    </div>
+
+    <form {{if .Driver.ID}}
+            hx-put="/api/v1/drivers/{{.Driver.ID}}"
+          {{else}}
+            hx-post="/api/v1/drivers"
+          {{end}}
+          hx-target="#drivers-list"
+          hx-swap="innerHTML"
+          hx-indicator="#driver-form-loading">
+
+        <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text"
+                   name="name"
+                   class="form-input"
+                   value="{{.Driver.Name}}"
+                   placeholder="Full name"
+                   required>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Address</label>
+            <input type="text"
+                   name="address"
+                   class="form-input"
+                   value="{{.Driver.Address}}"
+                   placeholder="Full address including city and country"
+                   required>
+            <div class="form-help">Address will be geocoded automatically</div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Vehicle Capacity</label>
+            <input type="number"
+                   name="vehicle_capacity"
+                   class="form-input"
+                   value="{{if .Driver.VehicleCapacity}}{{.Driver.VehicleCapacity}}{{else}}4{{end}}"
+                   min="1"
+                   max="50"
+                   required>
+            <div class="form-help">Number of passengers this vehicle can carry</div>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox"
+                       name="is_institute_vehicle"
+                       value="true"
+                       {{if .Driver.IsInstituteVehicle}}checked{{end}}>
+                <span>This is the institute vehicle</span>
+            </label>
+            <div class="form-help">Only one institute vehicle allowed</div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">
+                {{if .Driver.ID}}Update{{else}}Add{{end}} Driver
+            </button>
+            <span class="loading htmx-indicator" id="driver-form-loading"></span>
+        </div>
+    </form>
+</div>
+{{end}}

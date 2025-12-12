@@ -1,0 +1,179 @@
+{{define "content"}}
+<h2>Plan Event</h2>
+
+<form id="event-form">
+    <!-- Participants Section -->
+    <section class="section">
+        <div class="section-header">
+            <h3 class="section-title">Select Participants</h3>
+            <button type="button" class="btn btn-sm btn-outline" onclick="selectAllParticipants()">Select All</button>
+        </div>
+
+        {{if .Participants}}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"></th>
+                        <th>Name</th>
+                        <th>Address</th>
+                    </tr>
+                </thead>
+                <tbody id="participants-selection">
+                    {{range .Participants}}
+                    <tr>
+                        <td>
+                            <input type="checkbox"
+                                   name="participant_ids"
+                                   value="{{.ID}}"
+                                   class="form-checkbox participant-checkbox">
+                        </td>
+                        <td>{{.Name}}</td>
+                        <td class="text-muted">{{.Address}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <h3>No participants found</h3>
+            <p>Add participants in the <a href="/participants">Participants</a> page first.</p>
+        </div>
+        {{end}}
+    </section>
+
+    <!-- Drivers Section -->
+    <section class="section">
+        <div class="section-header">
+            <h3 class="section-title">Select Available Drivers</h3>
+            <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select All</button>
+        </div>
+
+        {{if .Drivers}}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"></th>
+                        <th>Name</th>
+                        <th>Address</th>
+                        <th>Capacity</th>
+                        <th>Type</th>
+                    </tr>
+                </thead>
+                <tbody id="drivers-selection">
+                    {{range .Drivers}}
+                    <tr>
+                        <td>
+                            <input type="checkbox"
+                                   name="driver_ids"
+                                   value="{{.ID}}"
+                                   class="form-checkbox driver-checkbox"
+                                   {{if .IsInstituteVehicle}}data-institute="true"{{end}}>
+                        </td>
+                        <td>{{.Name}}</td>
+                        <td class="text-muted">{{.Address}}</td>
+                        <td>{{.VehicleCapacity}}</td>
+                        <td>
+                            {{if .IsInstituteVehicle}}
+                                <span class="text-warning">Institute Vehicle</span>
+                            {{else}}
+                                Personal
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Institute Vehicle Driver Selection -->
+        {{if .HasInstituteVehicle}}
+        <div id="institute-driver-section" class="mt-3 hidden">
+            <div class="card">
+                <div class="form-group">
+                    <label class="form-label">Who will drive the institute vehicle?</label>
+                    <select name="institute_vehicle_driver_id" class="form-select" id="institute-vehicle-driver">
+                        <option value="">Select driver...</option>
+                        {{range .Drivers}}
+                        {{if not .IsInstituteVehicle}}
+                        <option value="{{.ID}}">{{.Name}}</option>
+                        {{end}}
+                        {{end}}
+                    </select>
+                    <div class="form-help">Required when institute vehicle might be needed</div>
+                </div>
+            </div>
+        </div>
+        {{end}}
+        {{else}}
+        <div class="empty-state">
+            <h3>No drivers found</h3>
+            <p>Add drivers in the <a href="/drivers">Drivers</a> page first.</p>
+        </div>
+        {{end}}
+    </section>
+
+    <!-- Action Buttons -->
+    <div class="d-flex justify-between align-center mt-4">
+        <button type="button"
+                class="btn btn-secondary"
+                onclick="clearSelections()">
+            Clear All
+        </button>
+        <button type="button"
+                class="btn btn-primary btn-lg"
+                hx-post="/api/v1/routes/calculate"
+                hx-include="#event-form"
+                hx-target="#results-section"
+                hx-indicator="#loading-indicator"
+                id="calculate-btn">
+            Calculate Routes
+            <span class="loading htmx-indicator" id="loading-indicator"></span>
+        </button>
+    </div>
+</form>
+
+<!-- Results Section -->
+<div id="results-section" class="routes-container"></div>
+
+<script>
+    function selectAllParticipants() {
+        document.querySelectorAll('.participant-checkbox').forEach(cb => cb.checked = true);
+    }
+
+    function selectAllDrivers() {
+        document.querySelectorAll('.driver-checkbox').forEach(cb => cb.checked = true);
+        checkInstituteVehicle();
+    }
+
+    function clearSelections() {
+        document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        document.getElementById('results-section').innerHTML = '';
+        checkInstituteVehicle();
+    }
+
+    function checkInstituteVehicle() {
+        const instituteSection = document.getElementById('institute-driver-section');
+        if (!instituteSection) return;
+
+        const instituteChecked = document.querySelector('input[data-institute="true"]:checked');
+        if (instituteChecked) {
+            instituteSection.classList.remove('hidden');
+        } else {
+            instituteSection.classList.add('hidden');
+        }
+    }
+
+    // Listen for changes on driver checkboxes
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('driver-checkbox')) {
+            checkInstituteVehicle();
+        }
+    });
+
+    // Initialize on page load
+    checkInstituteVehicle();
+</script>
+{{end}}

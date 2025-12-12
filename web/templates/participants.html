@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="section-header">
+    <h2>Participant Roster</h2>
+    <button class="btn btn-primary"
+            hx-get="/api/v1/participants/new"
+            hx-target="#participant-form-container"
+            hx-swap="innerHTML">
+        Add Participant
+    </button>
+</div>
+
+<!-- Form Container (for add/edit forms) -->
+<div id="participant-form-container" class="mb-4"></div>
+
+<!-- Error Container -->
+<div id="error-container"></div>
+
+<!-- Participants List -->
+<div id="participants-list" class="table-container">
+    {{template "participant_list" .}}
+</div>
+{{end}}

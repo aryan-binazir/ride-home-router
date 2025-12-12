@@ -1,0 +1,26 @@
+{{define "driver_list"}}
+{{if .Drivers}}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Address</th>
+            <th>Capacity</th>
+            <th>Type</th>
+            <th>Coordinates</th>
+            <th style="width: 150px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody id="drivers-tbody">
+        {{range .Drivers}}
+        {{template "driver_row" .}}
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <h3>No drivers yet</h3>
+    <p>Click "Add Driver" to get started.</p>
+</div>
+{{end}}
+{{end}}

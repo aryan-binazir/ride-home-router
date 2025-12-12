@@ -1,0 +1,70 @@
+{{define "event_detail"}}
+{{if .Assignments}}
+<div class="mt-3">
+    <h4>Route Details</h4>
+
+    {{$currentDriver := ""}}
+    {{range .Assignments}}
+        {{if ne .DriverName $currentDriver}}
+            {{if ne $currentDriver ""}}
+                </div></div>
+            {{end}}
+            <div class="route-card {{if .UsedInstituteVehicle}}institute-vehicle{{end}} mt-3">
+                <div class="route-header">
+                    <div class="driver-info">
+                        <h4>
+                            {{.DriverName}}
+                            {{if .UsedInstituteVehicle}}
+                            <span class="text-warning">(Institute Vehicle)</span>
+                            {{end}}
+                        </h4>
+                        <p>{{.DriverAddress}}</p>
+                    </div>
+                </div>
+                <div class="route-stops">
+            {{$currentDriver = .DriverName}}
+        {{end}}
+
+        <div class="stop-item">
+            <div class="stop-number">{{add .RouteOrder 1}}</div>
+            <div class="stop-details">
+                <h4>{{.ParticipantName}}</h4>
+                <p>{{.ParticipantAddress}}</p>
+            </div>
+            <div class="stop-distance">
+                {{printf "%.2f km" (divideFloat .DistanceFromPrev 1000)}}
+            </div>
+        </div>
+    {{end}}
+    {{if ne $currentDriver ""}}
+        </div></div>
+    {{end}}
+
+    {{if .Summary}}
+    <div class="route-summary mt-3">
+        <h4>Event Summary</h4>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="label">Participants</div>
+                <div class="value">{{.Summary.TotalParticipants}}</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">Drivers</div>
+                <div class="value">{{.Summary.TotalDrivers}}</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">Total Distance</div>
+                <div class="value">{{printf "%.1f km" (divideFloat .Summary.TotalDistanceMeters 1000)}}</div>
+            </div>
+            {{if .Summary.UsedInstituteVehicle}}
+            <div class="summary-item">
+                <div class="label">Driver</div>
+                <div class="value">{{.Summary.InstituteVehicleDriverName}}</div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+{{end}}

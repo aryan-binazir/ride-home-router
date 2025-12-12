@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{if .Title}}{{.Title}} - {{end}}Ride Home Router</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/htmx.min.js"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1>Ride Home Router</h1>
+            <nav class="nav">
+                <a href="/" {{if eq .ActivePage "home"}}class="active"{{end}}>Event Planning</a>
+                <a href="/participants" {{if eq .ActivePage "participants"}}class="active"{{end}}>Participants</a>
+                <a href="/drivers" {{if eq .ActivePage "drivers"}}class="active"{{end}}>Drivers</a>
+                <a href="/history" {{if eq .ActivePage "history"}}class="active"{{end}}>History</a>
+                <a href="/settings" {{if eq .ActivePage "settings"}}class="active"{{end}}>Settings</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="main">
+            {{template "content" .}}
+        </div>
+    </main>
+</body>
+</html>

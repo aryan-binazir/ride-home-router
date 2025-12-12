@@ -1,0 +1,28 @@
+{{define "participant_row"}}
+<tr id="participant-{{.ID}}">
+    <td>{{.Name}}</td>
+    <td>{{.Address}}</td>
+    <td class="text-muted">
+        {{if .Coords}}
+        {{printf "%.4f, %.4f" .Coords.Lat .Coords.Lng}}
+        {{end}}
+    </td>
+    <td>
+        <div class="table-actions">
+            <button class="btn btn-sm btn-outline"
+                    hx-get="/api/v1/participants/{{.ID}}/edit"
+                    hx-target="#participant-form-container"
+                    hx-swap="innerHTML">
+                Edit
+            </button>
+            <button class="btn btn-sm btn-danger"
+                    hx-delete="/api/v1/participants/{{.ID}}"
+                    hx-target="#participant-{{.ID}}"
+                    hx-swap="outerHTML swap:1s"
+                    hx-confirm="Are you sure you want to delete {{.Name}}?">
+                Delete
+            </button>
+        </div>
+    </td>
+</tr>
+{{end}}

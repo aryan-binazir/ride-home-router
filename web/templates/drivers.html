@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="section-header">
+    <h2>Driver Roster</h2>
+    <button class="btn btn-primary"
+            hx-get="/api/v1/drivers/new"
+            hx-target="#driver-form-container"
+            hx-swap="innerHTML">
+        Add Driver
+    </button>
+</div>
+
+<!-- Form Container (for add/edit forms) -->
+<div id="driver-form-container" class="mb-4"></div>
+
+<!-- Error Container -->
+<div id="error-container"></div>
+
+<!-- Drivers List -->
+<div id="drivers-list" class="table-container">
+    {{template "driver_list" .}}
+</div>
+{{end}}

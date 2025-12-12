@@ -1,0 +1,224 @@
+package distance
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
+)
+
+// DistanceResult contains the result of a distance calculation
+type DistanceResult struct {
+	DistanceMeters float64
+	DurationSecs   float64
+}
+
+// DistanceCalculator provides distance calculations between coordinates
+type DistanceCalculator interface {
+	GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error)
+	GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error)
+	GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]DistanceResult, error)
+	PrewarmCache(ctx context.Context, points []models.Coordinates) error
+}
+
+// ErrDistanceCalculationFailed is returned when OSRM API fails
+type ErrDistanceCalculationFailed struct {
+	Origin models.Coordinates
+	Dest   models.Coordinates
+	Reason string
+}
+
+func (e *ErrDistanceCalculationFailed) Error() string {
+	return fmt.Sprintf("distance calculation failed: %s", e.Reason)
+}
+
+type osrmCalculator struct {
+	baseURL    string
+	httpClient *http.Client
+	cache      database.DistanceCacheRepository
+}
+
+type osrmTableResponse struct {
+	Code      string      `json:"code"`
+	Distances [][]float64 `json:"distances"`
+	Durations [][]float64 `json:"durations"`
+}
+
+// NewOSRMCalculator creates a new OSRM distance calculator with caching
+func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculator {
+	return &osrmCalculator{
+		baseURL: "https://router.project-osrm.org",
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		cache: cache,
+	}
+}
+
+func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error) {
+	cached, err := c.cache.Get(ctx, origin, dest)
+	if err != nil {
+		return nil, err
+	}
+	if cached != nil {
+		return &DistanceResult{
+			DistanceMeters: cached.DistanceMeters,
+			DurationSecs:   cached.DurationSecs,
+		}, nil
+	}
+
+	results, err := c.GetDistancesFromPoint(ctx, origin, []models.Coordinates{dest})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(results) == 0 {
+		return nil, &ErrDistanceCalculationFailed{
+			Origin: origin,
+			Dest:   dest,
+			Reason: "no results returned",
+		}
+	}
+
+	return &results[0], nil
+}
+
+func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error) {
+	n := len(points)
+	if n == 0 {
+		return [][]DistanceResult{}, nil
+	}
+
+	matrix := make([][]DistanceResult, n)
+	for i := range matrix {
+		matrix[i] = make([]DistanceResult, n)
+	}
+
+	var missingPairs []struct {
+		i, j int
+		models.Coordinates
+		dest models.Coordinates
+	}
+
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if i == j {
+				matrix[i][j] = DistanceResult{DistanceMeters: 0, DurationSecs: 0}
+				continue
+			}
+
+			cached, err := c.cache.Get(ctx, points[i], points[j])
+			if err != nil {
+				return nil, err
+			}
+			if cached != nil {
+				matrix[i][j] = DistanceResult{
+					DistanceMeters: cached.DistanceMeters,
+					DurationSecs:   cached.DurationSecs,
+				}
+			} else {
+				missingPairs = append(missingPairs, struct {
+					i, j int
+					models.Coordinates
+					dest models.Coordinates
+				}{i, j, points[i], points[j]})
+			}
+		}
+	}
+
+	if len(missingPairs) == 0 {
+		return matrix, nil
+	}
+
+	coords := make([]string, n)
+	for i, p := range points {
+		coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
+	}
+
+	coordsStr := strings.Join(coords, ";")
+	queryURL := fmt.Sprintf("%s/table/v1/driving/%s?annotations=distance,duration", c.baseURL, coordsStr)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+	if err != nil {
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, &ErrDistanceCalculationFailed{
+			Reason: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var osrmResp osrmTableResponse
+	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+	}
+
+	if osrmResp.Code != "Ok" {
+		return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("OSRM error: %s", osrmResp.Code)}
+	}
+
+	var cacheEntries []models.DistanceCacheEntry
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if i != j && osrmResp.Distances[i][j] > 0 {
+				matrix[i][j] = DistanceResult{
+					DistanceMeters: osrmResp.Distances[i][j],
+					DurationSecs:   osrmResp.Durations[i][j],
+				}
+
+				cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
+					Origin:         points[i],
+					Destination:    points[j],
+					DistanceMeters: osrmResp.Distances[i][j],
+					DurationSecs:   osrmResp.Durations[i][j],
+				})
+			}
+		}
+	}
+
+	if len(cacheEntries) > 0 {
+		if err := c.cache.SetBatch(ctx, cacheEntries); err != nil {
+			return nil, err
+		}
+	}
+
+	return matrix, nil
+}
+
+func (c *osrmCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]DistanceResult, error) {
+	if len(destinations) == 0 {
+		return []DistanceResult{}, nil
+	}
+
+	allPoints := append([]models.Coordinates{origin}, destinations...)
+	matrix, err := c.GetDistanceMatrix(ctx, allPoints)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]DistanceResult, len(destinations))
+	for i := range destinations {
+		results[i] = matrix[0][i+1]
+	}
+
+	return results, nil
+}
+
+func (c *osrmCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
+	_, err := c.GetDistanceMatrix(ctx, points)
+	return err
+}

@@ -1,0 +1,24 @@
+{{define "participant_list"}}
+{{if .Participants}}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Address</th>
+            <th>Coordinates</th>
+            <th style="width: 150px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody id="participants-tbody">
+        {{range .Participants}}
+        {{template "participant_row" .}}
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <h3>No participants yet</h3>
+    <p>Click "Add Participant" to get started.</p>
+</div>
+{{end}}
+{{end}}

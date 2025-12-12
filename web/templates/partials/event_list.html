@@ -1,0 +1,63 @@
+{{define "event_list"}}
+{{if .Events}}
+<div class="mb-3">
+    <p class="text-muted">Showing {{len .Events}} of {{.Total}} events</p>
+</div>
+
+{{range .Events}}
+<div class="event-item"
+     hx-get="/api/v1/events/{{.ID}}"
+     hx-target="#event-detail-{{.ID}}"
+     hx-swap="innerHTML"
+     hx-trigger="click once">
+    <div class="event-header">
+        <div class="event-date">{{formatDate .EventDate}}</div>
+        <button class="btn btn-sm btn-danger"
+                hx-delete="/api/v1/events/{{.ID}}"
+                hx-target="closest .event-item"
+                hx-swap="outerHTML swap:1s"
+                hx-confirm="Are you sure you want to delete this event?"
+                onclick="event.stopPropagation()">
+            Delete
+        </button>
+    </div>
+
+    {{if .Summary}}
+    <div class="event-meta">
+        <span>{{.Summary.TotalParticipants}} participants</span>
+        <span>{{.Summary.TotalDrivers}} drivers</span>
+        <span>{{printf "%.1f km" (divideFloat .Summary.TotalDistanceMeters 1000)}}</span>
+        {{if .Summary.UsedInstituteVehicle}}
+        <span class="text-warning">Institute Vehicle Used</span>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if .Notes}}
+    <div class="mt-2">
+        <p class="text-muted">{{.Notes}}</p>
+    </div>
+    {{end}}
+
+    <div id="event-detail-{{.ID}}" class="event-details hidden"></div>
+</div>
+{{end}}
+
+{{if gt .Total (len .Events)}}
+<div class="text-center mt-3">
+    <button class="btn btn-outline"
+            hx-get="/api/v1/events?offset={{len .Events}}&limit=20"
+            hx-target="#events-list"
+            hx-swap="beforeend">
+        Load More
+    </button>
+</div>
+{{end}}
+
+{{else}}
+<div class="empty-state">
+    <h3>No events yet</h3>
+    <p>Calculate and save your first route in the <a href="/">Event Planning</a> page.</p>
+</div>
+{{end}}
+{{end}}
