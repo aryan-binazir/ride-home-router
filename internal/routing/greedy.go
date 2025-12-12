@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -46,7 +47,10 @@ func NewGreedyRouter(distanceCalc distance.DistanceCalculator) Router {
 }
 
 func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest) (*models.RoutingResult, error) {
+	log.Printf("[ROUTING] Starting calculation: participants=%d drivers=%d institute_vehicle=%v", len(req.Participants), len(req.Drivers), req.InstituteVehicle != nil)
+
 	if len(req.Participants) == 0 {
+		log.Printf("[ROUTING] No participants to route")
 		return &models.RoutingResult{
 			Routes:   []models.CalculatedRoute{},
 			Summary:  models.RoutingSummary{TotalParticipants: 0, TotalDriversUsed: 0},
@@ -83,6 +87,7 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 			return nil, err
 		}
 		if len(route.Stops) > 0 {
+			log.Printf("[ROUTING] Assigned to driver %s: participants=%d distance=%.0f", driver.Name, len(route.Stops), route.TotalDropoffDistanceMeters)
 			routes = append(routes, *route)
 		}
 	}
@@ -93,6 +98,7 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 			return nil, err
 		}
 		if len(route.Stops) > 0 {
+			log.Printf("[ROUTING] Assigned to institute vehicle: participants=%d distance=%.0f", len(route.Stops), route.TotalDropoffDistanceMeters)
 			routes = append(routes, *route)
 		}
 	}
@@ -111,6 +117,7 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 			totalCapacity += req.InstituteVehicle.VehicleCapacity
 		}
 
+		log.Printf("[ERROR] Routing failed: unassigned=%d total_capacity=%d total_participants=%d", len(unassigned), totalCapacity, len(req.Participants))
 		return nil, &ErrRoutingFailed{
 			Reason:            "Cannot assign all participants to available drivers",
 			UnassignedCount:   len(unassigned),
@@ -129,6 +136,7 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 		}
 	}
 
+	log.Printf("[ROUTING] Calculation complete: drivers_used=%d total_distance=%.0f institute_vehicle=%v", driversUsed, totalDropoffDistance, usedInstituteVehicle)
 	return &models.RoutingResult{
 		Routes: routes,
 		Summary: models.RoutingSummary{

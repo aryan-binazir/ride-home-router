@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -65,9 +66,11 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 	}
 
 	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&limit=1", g.baseURL, url.QueryEscape(address))
+	log.Printf("[GEOCODING] Request: address=%s url=%s", address, queryURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
+		log.Printf("[ERROR] Failed to create geocoding request: address=%s err=%v", address, err)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: err.Error()}
 	}
 
@@ -75,12 +78,14 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
+		log.Printf("[ERROR] Geocoding API request failed: address=%s err=%v", address, err)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: err.Error()}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[ERROR] Geocoding API error: address=%s status=%d body=%s", address, resp.StatusCode, string(body))
 		return nil, &ErrGeocodingFailed{
 			Address: address,
 			Reason:  fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
@@ -89,22 +94,27 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 
 	var results []nominatimResponse
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		log.Printf("[ERROR] Failed to decode geocoding response: address=%s err=%v", address, err)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: err.Error()}
 	}
 
 	if len(results) == 0 {
+		log.Printf("[ERROR] No geocoding results found: address=%s", address)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: "no results found"}
 	}
 
 	result := results[0]
 	var lat, lng float64
 	if _, err := fmt.Sscanf(result.Lat, "%f", &lat); err != nil {
+		log.Printf("[ERROR] Invalid latitude in geocoding response: address=%s lat=%s err=%v", address, result.Lat, err)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: "invalid latitude"}
 	}
 	if _, err := fmt.Sscanf(result.Lon, "%f", &lng); err != nil {
+		log.Printf("[ERROR] Invalid longitude in geocoding response: address=%s lng=%s err=%v", address, result.Lon, err)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: "invalid longitude"}
 	}
 
+	log.Printf("[GEOCODING] Response: address=%s lat=%.6f lng=%.6f display_name=%s", address, lat, lng, result.DisplayName)
 	return &GeocodingResult{
 		Coords: models.Coordinates{
 			Lat: lat,
@@ -120,6 +130,7 @@ func (g *nominatimGeocoder) GeocodeWithRetry(ctx context.Context, address string
 	for i := 0; i < maxRetries; i++ {
 		result, err := g.Geocode(ctx, address)
 		if err == nil {
+			log.Printf("[GEOCODING] Success after %d attempt(s): address=%s", i+1, address)
 			return result, nil
 		}
 
@@ -127,6 +138,7 @@ func (g *nominatimGeocoder) GeocodeWithRetry(ctx context.Context, address string
 
 		if i < maxRetries-1 {
 			backoff := time.Duration(1<<uint(i)) * time.Second
+			log.Printf("[GEOCODING] Retry %d/%d: address=%s backoff=%v err=%v", i+1, maxRetries, address, backoff, err)
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -135,5 +147,6 @@ func (g *nominatimGeocoder) GeocodeWithRetry(ctx context.Context, address string
 		}
 	}
 
+	log.Printf("[ERROR] Geocoding failed after %d retries: address=%s err=%v", maxRetries, address, lastErr)
 	return nil, lastErr
 }

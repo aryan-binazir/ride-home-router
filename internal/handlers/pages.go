@@ -1,0 +1,126 @@
+package handlers
+
+import (
+	"net/http"
+
+	"ride-home-router/internal/models"
+)
+
+// PageData contains common data for all pages
+type PageData struct {
+	Title      string
+	ActivePage string
+}
+
+// HandleIndexPage handles GET /
+func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
+	participants, err := h.DB.ParticipantRepository.List(r.Context(), "")
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	drivers, err := h.DB.DriverRepository.List(r.Context(), "")
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	hasInstituteVehicle := false
+	for _, d := range drivers {
+		if d.IsInstituteVehicle {
+			hasInstituteVehicle = true
+			break
+		}
+	}
+
+	data := map[string]interface{}{
+		"Title":               "Event Planning",
+		"ActivePage":          "home",
+		"Participants":        participants,
+		"Drivers":             drivers,
+		"HasInstituteVehicle": hasInstituteVehicle,
+	}
+
+	h.renderTemplate(w, "index.html", data)
+}
+
+// HandleParticipantsPage handles GET /participants
+func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request) {
+	participants, err := h.DB.ParticipantRepository.List(r.Context(), "")
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	data := map[string]interface{}{
+		"Title":        "Participants",
+		"ActivePage":   "participants",
+		"Participants": participants,
+	}
+
+	h.renderTemplate(w, "participants.html", data)
+}
+
+// HandleDriversPage handles GET /drivers
+func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
+	drivers, err := h.DB.DriverRepository.List(r.Context(), "")
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	data := map[string]interface{}{
+		"Title":      "Drivers",
+		"ActivePage": "drivers",
+		"Drivers":    drivers,
+	}
+
+	h.renderTemplate(w, "drivers.html", data)
+}
+
+// HandleSettingsPage handles GET /settings
+func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.DB.SettingsRepository.Get(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	// Create a view model with Coords method
+	type SettingsView struct {
+		InstituteAddress string
+		InstituteCoords  models.Coordinates
+	}
+
+	settingsView := SettingsView{
+		InstituteAddress: settings.InstituteAddress,
+		InstituteCoords:  settings.GetCoords(),
+	}
+
+	data := map[string]interface{}{
+		"Title":      "Settings",
+		"ActivePage": "settings",
+		"Settings":   settingsView,
+	}
+
+	h.renderTemplate(w, "settings.html", data)
+}
+
+// HandleHistoryPage handles GET /history
+func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
+	events, total, err := h.DB.EventRepository.List(r.Context(), 20, 0)
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	data := map[string]interface{}{
+		"Title":      "Event History",
+		"ActivePage": "history",
+		"Events":     events,
+		"Total":      total,
+	}
+
+	h.renderTemplate(w, "history.html", data)
+}

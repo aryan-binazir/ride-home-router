@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -77,8 +78,10 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Printf("[HTTP] GET /api/v1/events: limit=%d offset=%d", limit, offset)
 	events, total, err := h.DB.EventRepository.List(r.Context(), limit, offset)
 	if err != nil {
+		log.Printf("[ERROR] Failed to list events: limit=%d offset=%d err=%v", limit, offset, err)
 		h.handleInternalError(w, err)
 		return
 	}
@@ -113,17 +116,21 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		log.Printf("[HTTP] GET /api/v1/events/{id}: invalid_id=%s err=%v", idStr, err)
 		h.handleValidationError(w, "Invalid event ID")
 		return
 	}
 
+	log.Printf("[HTTP] GET /api/v1/events/{id}: id=%d", id)
 	event, assignments, summary, err := h.DB.EventRepository.GetByID(r.Context(), id)
 	if err != nil {
+		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
 		return
 	}
 
 	if event == nil {
+		log.Printf("[HTTP] Event not found: id=%d", id)
 		h.handleNotFound(w, "Event not found")
 		return
 	}
@@ -147,22 +154,26 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
 		h.handleValidationError(w, "Invalid request body")
 		return
 	}
 
 	if req.EventDate == "" {
+		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
 		h.handleValidationError(w, "Event date is required")
 		return
 	}
 
 	if req.Routes == nil {
+		log.Printf("[HTTP] POST /api/v1/events: missing routes")
 		h.handleValidationError(w, "Routes are required")
 		return
 	}
 
 	eventDate, err := time.Parse("2006-01-02", req.EventDate)
 	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", req.EventDate, err)
 		h.handleValidationError(w, "Invalid event date format (use YYYY-MM-DD)")
 		return
 	}
@@ -210,10 +221,12 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	event, err = h.DB.EventRepository.Create(r.Context(), event, assignments, summary)
 	if err != nil {
+		log.Printf("[ERROR] Failed to create event: date=%s participants=%d err=%v", req.EventDate, len(assignments), err)
 		h.handleInternalError(w, err)
 		return
 	}
 
+	log.Printf("[HTTP] Created event: id=%d date=%s assignments=%d", event.ID, event.EventDate.Format("2006-01-02"), len(assignments))
 	h.writeJSON(w, http.StatusCreated, event)
 }
 
@@ -222,20 +235,25 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		log.Printf("[HTTP] DELETE /api/v1/events/{id}: invalid_id=%s err=%v", idStr, err)
 		h.handleValidationError(w, "Invalid event ID")
 		return
 	}
 
+	log.Printf("[HTTP] DELETE /api/v1/events/{id}: id=%d", id)
 	err = h.DB.EventRepository.Delete(r.Context(), id)
 	if h.checkNotFound(err) {
+		log.Printf("[HTTP] Event not found for delete: id=%d", id)
 		h.handleNotFound(w, "Event not found")
 		return
 	}
 	if err != nil {
+		log.Printf("[ERROR] Failed to delete event: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
 		return
 	}
 
+	log.Printf("[HTTP] Deleted event: id=%d", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

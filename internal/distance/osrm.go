@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -67,6 +68,7 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 		return nil, err
 	}
 	if cached != nil {
+		log.Printf("[OSRM] Cache hit: origin=(%.6f,%.6f) dest=(%.6f,%.6f) distance=%.0f", origin.Lat, origin.Lng, dest.Lat, dest.Lng, cached.DistanceMeters)
 		return &DistanceResult{
 			DistanceMeters: cached.DistanceMeters,
 			DurationSecs:   cached.DurationSecs,
@@ -79,6 +81,7 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 	}
 
 	if len(results) == 0 {
+		log.Printf("[ERROR] Distance calculation returned no results: origin=(%.6f,%.6f) dest=(%.6f,%.6f)", origin.Lat, origin.Lng, dest.Lat, dest.Lng)
 		return nil, &ErrDistanceCalculationFailed{
 			Origin: origin,
 			Dest:   dest,
@@ -86,6 +89,7 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 		}
 	}
 
+	log.Printf("[OSRM] Distance calculated: origin=(%.6f,%.6f) dest=(%.6f,%.6f) distance=%.0f", origin.Lat, origin.Lng, dest.Lat, dest.Lng, results[0].DistanceMeters)
 	return &results[0], nil
 }
 
@@ -133,9 +137,11 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 	}
 
 	if len(missingPairs) == 0 {
+		log.Printf("[OSRM] Distance matrix all cached: points=%d", n)
 		return matrix, nil
 	}
 
+	log.Printf("[OSRM] Distance matrix request: points=%d cached=%d missing=%d", n, n*n-len(missingPairs), len(missingPairs))
 	coords := make([]string, n)
 	for i, p := range points {
 		coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
@@ -146,17 +152,20 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
+		log.Printf("[ERROR] Failed to create OSRM request: points=%d err=%v", n, err)
 		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.Printf("[ERROR] OSRM API request failed: points=%d err=%v", n, err)
 		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[ERROR] OSRM API error: points=%d status=%d body=%s", n, resp.StatusCode, string(body))
 		return nil, &ErrDistanceCalculationFailed{
 			Reason: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
 		}
@@ -164,12 +173,16 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 
 	var osrmResp osrmTableResponse
 	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
+		log.Printf("[ERROR] Failed to decode OSRM response: points=%d err=%v", n, err)
 		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 	}
 
 	if osrmResp.Code != "Ok" {
+		log.Printf("[ERROR] OSRM returned error code: points=%d code=%s", n, osrmResp.Code)
 		return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("OSRM error: %s", osrmResp.Code)}
 	}
+
+	log.Printf("[OSRM] Distance matrix response: points=%d code=%s", n, osrmResp.Code)
 
 	var cacheEntries []models.DistanceCacheEntry
 	for i := 0; i < n; i++ {

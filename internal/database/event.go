@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 
 	"ride-home-router/internal/models"
 )
@@ -117,6 +118,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 func (r *eventRepository) Create(ctx context.Context, event *models.Event, assignments []models.EventAssignment, summary *models.EventSummary) (*models.Event, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("[DB] Failed to begin event create transaction: err=%v", err)
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -124,6 +126,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, assig
 	eventQuery := `INSERT INTO events (event_date, notes) VALUES (?, ?) RETURNING id, created_at`
 	err = tx.QueryRowContext(ctx, eventQuery, event.EventDate, event.Notes).Scan(&event.ID, &event.CreatedAt)
 	if err != nil {
+		log.Printf("[DB] Failed to create event: date=%s err=%v", event.EventDate.Format("2006-01-02"), err)
 		return nil, fmt.Errorf("failed to create event: %w", err)
 	}
 
@@ -137,6 +140,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, assig
 			_, err := tx.ExecContext(ctx, assignmentQuery, event.ID, a.DriverID, a.DriverName, a.DriverAddress, a.RouteOrder,
 				a.ParticipantID, a.ParticipantName, a.ParticipantAddress, a.DistanceFromPrev, a.UsedInstituteVehicle)
 			if err != nil {
+				log.Printf("[DB] Failed to create assignment: event_id=%d driver_id=%d err=%v", event.ID, a.DriverID, err)
 				return nil, fmt.Errorf("failed to create assignment: %w", err)
 			}
 		}
@@ -154,13 +158,16 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, assig
 	_, err = tx.ExecContext(ctx, summaryQuery, event.ID, summary.TotalParticipants, summary.TotalDrivers,
 		summary.TotalDistanceMeters, summary.UsedInstituteVehicle, instituteDriverName)
 	if err != nil {
+		log.Printf("[DB] Failed to create event summary: event_id=%d err=%v", event.ID, err)
 		return nil, fmt.Errorf("failed to create event summary: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
+		log.Printf("[DB] Failed to commit event create transaction: err=%v", err)
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	log.Printf("[DB] Created event: id=%d date=%s assignments=%d", event.ID, event.EventDate.Format("2006-01-02"), len(assignments))
 	return event, nil
 }
 
@@ -169,17 +176,21 @@ func (r *eventRepository) Delete(ctx context.Context, id int64) error {
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
+		log.Printf("[DB] Failed to delete event: id=%d err=%v", id, err)
 		return fmt.Errorf("failed to delete event: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
+		log.Printf("[DB] Failed to get rows affected for delete: id=%d err=%v", id, err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	if rows == 0 {
+		log.Printf("[DB] Event not found for delete: id=%d", id)
 		return sql.ErrNoRows
 	}
 
+	log.Printf("[DB] Deleted event: id=%d", id)
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 
 	"ride-home-router/internal/models"
@@ -112,9 +113,11 @@ func (r *participantRepository) Create(ctx context.Context, p *models.Participan
 
 	err := r.db.QueryRowContext(ctx, query, p.Name, p.Address, p.Lat, p.Lng).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
+		log.Printf("[DB] Failed to create participant: name=%s address=%s err=%v", p.Name, p.Address, err)
 		return nil, fmt.Errorf("failed to create participant: %w", err)
 	}
 
+	log.Printf("[DB] Created participant: id=%d name=%s address=%s", p.ID, p.Name, p.Address)
 	return p, nil
 }
 
@@ -123,12 +126,15 @@ func (r *participantRepository) Update(ctx context.Context, p *models.Participan
 
 	err := r.db.QueryRowContext(ctx, query, p.Name, p.Address, p.Lat, p.Lng, p.ID).Scan(&p.UpdatedAt)
 	if err == sql.ErrNoRows {
+		log.Printf("[DB] Participant not found for update: id=%d", p.ID)
 		return nil, nil
 	}
 	if err != nil {
+		log.Printf("[DB] Failed to update participant: id=%d err=%v", p.ID, err)
 		return nil, fmt.Errorf("failed to update participant: %w", err)
 	}
 
+	log.Printf("[DB] Updated participant: id=%d name=%s", p.ID, p.Name)
 	return p, nil
 }
 
@@ -137,17 +143,21 @@ func (r *participantRepository) Delete(ctx context.Context, id int64) error {
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
+		log.Printf("[DB] Failed to delete participant: id=%d err=%v", id, err)
 		return fmt.Errorf("failed to delete participant: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
+		log.Printf("[DB] Failed to get rows affected for delete: id=%d err=%v", id, err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	if rows == 0 {
+		log.Printf("[DB] Participant not found for delete: id=%d", id)
 		return sql.ErrNoRows
 	}
 
+	log.Printf("[DB] Deleted participant: id=%d", id)
 	return nil
 }

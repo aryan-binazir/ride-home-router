@@ -128,6 +128,7 @@
                 hx-include="#event-form"
                 hx-target="#results-section"
                 hx-indicator="#loading-indicator"
+                onclick="return validateBeforeCalculate()"
                 id="calculate-btn">
             Calculate Routes
             <span class="loading htmx-indicator" id="loading-indicator"></span>
@@ -164,6 +165,26 @@
         } else {
             instituteSection.classList.add('hidden');
         }
+    }
+
+    function validateBeforeCalculate() {
+        const participants = document.querySelectorAll('.participant-checkbox:checked');
+        const drivers = document.querySelectorAll('.driver-checkbox:checked');
+        const resultsSection = document.getElementById('results-section');
+
+        if (participants.length === 0 && drivers.length === 0) {
+            resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one participant and one driver.</div>';
+            return false;
+        }
+        if (participants.length === 0) {
+            resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one participant.</div>';
+            return false;
+        }
+        if (drivers.length === 0) {
+            resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one driver.</div>';
+            return false;
+        }
+        return true;
     }
 
     // Listen for changes on driver checkboxes

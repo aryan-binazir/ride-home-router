@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"log"
 	"net/http"
 
 	"ride-home-router/internal/database"
@@ -12,12 +14,20 @@ import (
 	"ride-home-router/internal/routing"
 )
 
+// TemplateSet holds base templates and page templates separately
+type TemplateSet struct {
+	Base  *template.Template
+	Pages map[string]string
+	Funcs template.FuncMap
+}
+
 // Handler provides common handler utilities and dependencies
 type Handler struct {
 	DB           *database.DB
 	Geocoder     geocoding.Geocoder
 	DistanceCalc distance.DistanceCalculator
 	Router       routing.Router
+	Templates    *TemplateSet
 }
 
 // ErrorResponse represents an API error
@@ -65,6 +75,17 @@ func (h *Handler) handleValidationError(w http.ResponseWriter, message string) {
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
 }
 
+// handleValidationErrorHTMX handles 400 errors with htmx support
+func (h *Handler) handleValidationErrorHTMX(w http.ResponseWriter, r *http.Request, message string) {
+	if h.isHTMX(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, message)
+		return
+	}
+	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
+}
+
 // handleGeocodingError handles 422 errors for geocoding failures
 func (h *Handler) handleGeocodingError(w http.ResponseWriter, err error) {
 	h.writeError(w, http.StatusUnprocessableEntity, "GEOCODING_FAILED", err.Error(), nil)
@@ -90,11 +111,59 @@ func (h *Handler) handleConflict(w http.ResponseWriter, message string) {
 
 // handleInternalError handles 500 errors
 func (h *Handler) handleInternalError(w http.ResponseWriter, err error) {
-	fmt.Printf("Internal error: %v\n", err)
+	log.Printf("[ERROR] Internal error: %v", err)
 	h.writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An error occurred. Please try again.", nil)
 }
 
 // checkNotFound checks if an error is a not found error
 func (h *Handler) checkNotFound(err error) bool {
 	return err == sql.ErrNoRows
+}
+
+// renderTemplate renders an HTML template
+func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Always clone to avoid "cannot Clone after executed" error
+	tmpl, err := h.Templates.Base.Clone()
+	if err != nil {
+		log.Printf("[ERROR] Template clone error: template=%s err=%v", name, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if this is a page template (has content in Pages map)
+	if pageContent, ok := h.Templates.Pages[name]; ok {
+		// Parse the page template (which defines "content")
+		_, err = tmpl.New(name).Parse(pageContent)
+		if err != nil {
+			log.Printf("[ERROR] Template parse error: template=%s err=%v", name, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		// Execute layout.html (which includes {{template "content" .}})
+		if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+			log.Printf("[ERROR] Template execute error: template=%s err=%v", name, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// For partials, execute from the cloned template
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+		log.Printf("[ERROR] Template partial error: template=%s err=%v", name, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+// renderError renders an error response (JSON for API, HTML for htmx)
+func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error) {
+	if h.isHTMX(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, err.Error())
+		return
+	}
+	h.handleInternalError(w, err)
 }

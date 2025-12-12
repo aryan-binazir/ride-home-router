@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
@@ -19,20 +22,63 @@ type CalculateRoutesRequest struct {
 func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) {
 	var req CalculateRoutesRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationError(w, "Invalid request body")
-		return
+	contentType := r.Header.Get("Content-Type")
+
+	// Handle form data (from htmx)
+	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
+		if err := r.ParseForm(); err != nil {
+			log.Printf("[HTTP] POST /api/v1/routes/calculate: form_parse_error err=%v", err)
+			h.handleValidationError(w, "Invalid form data")
+			return
+		}
+
+		// Parse participant_ids (multiple values with same name)
+		for _, idStr := range r.Form["participant_ids"] {
+			id, err := strconv.ParseInt(idStr, 10, 64)
+			if err == nil {
+				req.ParticipantIDs = append(req.ParticipantIDs, id)
+			}
+		}
+
+		// Parse driver_ids (multiple values with same name)
+		for _, idStr := range r.Form["driver_ids"] {
+			id, err := strconv.ParseInt(idStr, 10, 64)
+			if err == nil {
+				req.DriverIDs = append(req.DriverIDs, id)
+			}
+		}
+
+		// Parse institute_vehicle_driver_id (single value)
+		if idStr := r.FormValue("institute_vehicle_driver_id"); idStr != "" {
+			id, err := strconv.ParseInt(idStr, 10, 64)
+			if err == nil {
+				req.InstituteVehicleDriverID = id
+			}
+		}
+
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
+	} else {
+		// Handle JSON
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("[HTTP] POST /api/v1/routes/calculate: invalid_json err=%v", err)
+			h.handleValidationError(w, "Invalid request body")
+			return
+		}
 	}
 
 	if len(req.ParticipantIDs) == 0 {
-		h.handleValidationError(w, "At least one participant is required")
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing participants")
+		h.handleValidationErrorHTMX(w, r, "Please select at least one participant.")
 		return
 	}
 
 	if len(req.DriverIDs) == 0 {
-		h.handleValidationError(w, "At least one driver is required")
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing drivers")
+		h.handleValidationErrorHTMX(w, r, "Please select at least one driver.")
 		return
 	}
+
+	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d", len(req.ParticipantIDs), len(req.DriverIDs))
 
 	settings, err := h.DB.SettingsRepository.Get(r.Context())
 	if err != nil {
@@ -41,7 +87,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if settings.InstituteAddress == "" {
-		h.handleValidationError(w, "Institute address not configured")
+		h.handleValidationErrorHTMX(w, r, "Institute address not configured. Please set it in Settings.")
 		return
 	}
 
@@ -90,11 +136,24 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
 	if err != nil {
-		if _, ok := err.(*routing.ErrRoutingFailed); ok {
+		if rerr, ok := err.(*routing.ErrRoutingFailed); ok {
+			log.Printf("[ERROR] Routing failed: participants=%d unassigned=%d capacity=%d reason=%s", rerr.TotalParticipants, rerr.UnassignedCount, rerr.TotalCapacity, rerr.Reason)
 			h.handleRoutingError(w, err)
 			return
 		}
+		log.Printf("[ERROR] Route calculation failed: err=%v", err)
 		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
+
+	// Return HTML for htmx, JSON for API calls
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "route_results.html", map[string]interface{}{
+			"Routes":  result.Routes,
+			"Summary": result.Summary,
+		})
 		return
 	}
 
@@ -108,21 +167,26 @@ func (h *Handler) HandleGeocodeAddress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[HTTP] POST /api/v1/geocode: invalid_body err=%v", err)
 		h.handleValidationError(w, "Invalid request body")
 		return
 	}
 
 	if req.Address == "" {
+		log.Printf("[HTTP] POST /api/v1/geocode: missing address")
 		h.handleValidationError(w, "Address is required")
 		return
 	}
 
+	log.Printf("[HTTP] POST /api/v1/geocode: address=%s", req.Address)
 	result, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
+		log.Printf("[ERROR] Failed to geocode address: address=%s err=%v", req.Address, err)
 		h.handleGeocodingError(w, err)
 		return
 	}
 
+	log.Printf("[HTTP] Geocoded address: address=%s lat=%.6f lng=%.6f", req.Address, result.Coords.Lat, result.Coords.Lng)
 	response := map[string]interface{}{
 		"address":      req.Address,
 		"lat":          result.Coords.Lat,

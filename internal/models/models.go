@@ -24,6 +24,11 @@ func (p *Participant) GetCoords() Coordinates {
 	return Coordinates{Lat: p.Lat, Lng: p.Lng}
 }
 
+// Coords returns the coordinates for template use
+func (p *Participant) Coords() Coordinates {
+	return Coordinates{Lat: p.Lat, Lng: p.Lng}
+}
+
 // Driver represents a person who can drive participants home
 type Driver struct {
 	ID                 int64     `json:"id"`
@@ -39,6 +44,11 @@ type Driver struct {
 
 // GetCoords returns the coordinates of the driver
 func (d *Driver) GetCoords() Coordinates {
+	return Coordinates{Lat: d.Lat, Lng: d.Lng}
+}
+
+// Coords returns the coordinates for template use
+func (d *Driver) Coords() Coordinates {
 	return Coordinates{Lat: d.Lat, Lng: d.Lng}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 
 	"ride-home-router/internal/models"
@@ -128,9 +129,11 @@ func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*model
 
 	err := r.db.QueryRowContext(ctx, query, d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.IsInstituteVehicle).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
+		log.Printf("[DB] Failed to create driver: name=%s address=%s err=%v", d.Name, d.Address, err)
 		return nil, fmt.Errorf("failed to create driver: %w", err)
 	}
 
+	log.Printf("[DB] Created driver: id=%d name=%s capacity=%d institute=%v", d.ID, d.Name, d.VehicleCapacity, d.IsInstituteVehicle)
 	return d, nil
 }
 
@@ -139,12 +142,15 @@ func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*model
 
 	err := r.db.QueryRowContext(ctx, query, d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.IsInstituteVehicle, d.ID).Scan(&d.UpdatedAt)
 	if err == sql.ErrNoRows {
+		log.Printf("[DB] Driver not found for update: id=%d", d.ID)
 		return nil, nil
 	}
 	if err != nil {
+		log.Printf("[DB] Failed to update driver: id=%d err=%v", d.ID, err)
 		return nil, fmt.Errorf("failed to update driver: %w", err)
 	}
 
+	log.Printf("[DB] Updated driver: id=%d name=%s capacity=%d", d.ID, d.Name, d.VehicleCapacity)
 	return d, nil
 }
 
@@ -153,17 +159,21 @@ func (r *driverRepository) Delete(ctx context.Context, id int64) error {
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
+		log.Printf("[DB] Failed to delete driver: id=%d err=%v", id, err)
 		return fmt.Errorf("failed to delete driver: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
+		log.Printf("[DB] Failed to get rows affected for delete: id=%d err=%v", id, err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	if rows == 0 {
+		log.Printf("[DB] Driver not found for delete: id=%d", id)
 		return sql.ErrNoRows
 	}
 
+	log.Printf("[DB] Deleted driver: id=%d", id)
 	return nil
 }

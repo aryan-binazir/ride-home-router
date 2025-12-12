@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strconv"
 
 	"ride-home-router/internal/models"
@@ -57,6 +58,7 @@ func (r *settingsRepository) Get(ctx context.Context) (*models.Settings, error) 
 func (r *settingsRepository) Update(ctx context.Context, s *models.Settings) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("[DB] Failed to begin settings update transaction: err=%v", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -64,20 +66,25 @@ func (r *settingsRepository) Update(ctx context.Context, s *models.Settings) err
 	query := `INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`
 
 	if _, err := tx.ExecContext(ctx, query, "institute_address", s.InstituteAddress); err != nil {
+		log.Printf("[DB] Failed to update institute_address: err=%v", err)
 		return fmt.Errorf("failed to update institute_address: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, query, "institute_lat", fmt.Sprintf("%f", s.InstituteLat)); err != nil {
+		log.Printf("[DB] Failed to update institute_lat: err=%v", err)
 		return fmt.Errorf("failed to update institute_lat: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, query, "institute_lng", fmt.Sprintf("%f", s.InstituteLng)); err != nil {
+		log.Printf("[DB] Failed to update institute_lng: err=%v", err)
 		return fmt.Errorf("failed to update institute_lng: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
+		log.Printf("[DB] Failed to commit settings transaction: err=%v", err)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	log.Printf("[DB] Updated settings: address=%s lat=%.6f lng=%.6f", s.InstituteAddress, s.InstituteLat, s.InstituteLng)
 	return nil
 }
