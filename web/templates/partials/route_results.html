@@ -26,11 +26,17 @@
                 <div class="stat">
                     <strong>Dropoff Distance:</strong> {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
                 </div>
-                {{if not .UsedInstituteVehicle}}
                 <div class="stat">
-                    <strong>To Home:</strong> {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
+                    {{if .UsedInstituteVehicle}}
+                    <strong>Return to Institute:</strong>
+                    {{else}}
+                    <strong>To Home:</strong>
+                    {{end}}
+                    {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
                 </div>
-                {{end}}
+                <div class="stat">
+                    <strong>Total:</strong> {{formatDistance .TotalDistanceMeters $useMiles}}
+                </div>
             </div>
         </div>
 
@@ -70,7 +76,7 @@
             </div>
             <div class="summary-item">
                 <div class="label">Total Distance</div>
-                <div class="value">{{formatDistance .Summary.TotalDropoffDistanceMeters .UseMiles}}</div>
+                <div class="value">{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}</div>
             </div>
             {{if .Summary.UsedInstituteVehicle}}
             <div class="summary-item">

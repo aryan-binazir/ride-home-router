@@ -45,6 +45,13 @@ type greedyRouter struct {
 	distanceCalc distance.DistanceCalculator
 }
 
+type routeBuilder struct {
+	driver             *models.Driver
+	stops              []*models.Participant
+	isInstituteVehicle bool
+	instituteDriverID  int64
+}
+
 // NewGreedyRouter creates a new greedy nearest-neighbor router
 func NewGreedyRouter(distanceCalc distance.DistanceCalculator) Router {
 	return &greedyRouter{
@@ -86,7 +93,7 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 		unassigned[req.Participants[i].ID] = &req.Participants[i]
 	}
 
-	// Shuffle drivers for fairness
+	// Shuffle drivers for fairness (randomizes tie-breaking)
 	drivers := make([]*models.Driver, len(req.Drivers))
 	for i := range req.Drivers {
 		drivers[i] = &req.Drivers[i]
@@ -97,12 +104,6 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 	log.Printf("[ROUTING] Shuffled driver order: %v", driverNames(drivers))
 
 	// Initialize route builders for each driver
-	type routeBuilder struct {
-		driver             *models.Driver
-		stops              []*models.Participant
-		isInstituteVehicle bool
-		instituteDriverID  int64
-	}
 	builders := make([]*routeBuilder, 0, len(drivers))
 	for _, d := range drivers {
 		builders = append(builders, &routeBuilder{
@@ -111,24 +112,28 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 		})
 	}
 
-	// Phase 1: Seeding - spread drivers geographically
-	log.Printf("[ROUTING] Phase 1: Seeding drivers")
-	allAssignedCoords := []models.Coordinates{}
+	// Phase 1: Seeding - spread drivers geographically, considering driver homes
+	log.Printf("[ROUTING] Phase 1: Seeding drivers (with home-aware assignment)")
 
-	for i, builder := range builders {
-		if len(unassigned) == 0 {
-			break
-		}
+	// Step 1: Collect spread-out seeds using farthest-from-all
+	numSeeds := len(builders)
+	if numSeeds > len(unassigned) {
+		numSeeds = len(unassigned)
+	}
 
+	seeds := make([]*models.Participant, 0, numSeeds)
+	seedCoords := []models.Coordinates{}
+
+	for i := 0; i < numSeeds; i++ {
 		var seed *models.Participant
 		var err error
 
 		if i == 0 {
-			// First driver: nearest to institute
+			// First seed: nearest to institute
 			seed, _, err = r.findNearestParticipant(ctx, req.InstituteCoords, unassigned)
 		} else {
-			// Subsequent drivers: farthest from all assigned participants
-			seed, err = r.findFarthestFromAll(ctx, allAssignedCoords, unassigned)
+			// Subsequent seeds: farthest from all already-selected seeds
+			seed, err = r.findFarthestFromAll(ctx, seedCoords, unassigned)
 		}
 
 		if err != nil {
@@ -138,10 +143,41 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 			break
 		}
 
-		builder.stops = append(builder.stops, seed)
-		allAssignedCoords = append(allAssignedCoords, seed.GetCoords())
+		seeds = append(seeds, seed)
+		seedCoords = append(seedCoords, seed.GetCoords())
 		delete(unassigned, seed.ID)
-		log.Printf("[ROUTING] Seeded driver %s with participant %s", builder.driver.Name, seed.Name)
+	}
+
+	// Step 2: Assign seeds to drivers from the seed's perspective
+	// Each seed goes to the driver whose home is closest to it (avoids driver A stealing seed B really needs)
+	assignedDrivers := make(map[int]bool)
+	for seedIdx, seed := range seeds {
+		bestBuilderIdx := -1
+		bestDist := -1.0
+
+		for builderIdx, builder := range builders {
+			if assignedDrivers[builderIdx] {
+				continue
+			}
+
+			// Distance from seed to this driver's home
+			dist, err := r.distanceCalc.GetDistance(ctx, seed.GetCoords(), builder.driver.GetCoords())
+			if err != nil {
+				return nil, err
+			}
+
+			if bestDist < 0 || dist.DistanceMeters < bestDist {
+				bestDist = dist.DistanceMeters
+				bestBuilderIdx = builderIdx
+			}
+		}
+
+		if bestBuilderIdx >= 0 {
+			builders[bestBuilderIdx].stops = append(builders[bestBuilderIdx].stops, seed)
+			assignedDrivers[bestBuilderIdx] = true
+			log.Printf("[ROUTING] Seeded driver %s with participant %s (seed %d, %.0fm from driver home)",
+				builders[bestBuilderIdx].driver.Name, seed.Name, seedIdx+1, bestDist)
+		}
 	}
 
 	// Phase 2: Greedy clustering - each driver picks nearest to their cluster
@@ -228,8 +264,9 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 		}
 	}
 
-	// Build final routes with distances
-	var routes []models.CalculatedRoute
+	// Phase 3: Build routes with ordering and 2-opt
+	log.Printf("[ROUTING] Phase 3: Building ordered routes with 2-opt")
+	routes := make([]models.CalculatedRoute, 0, len(builders))
 	for _, builder := range builders {
 		if len(builder.stops) == 0 {
 			continue
@@ -239,27 +276,37 @@ func (r *greedyRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest)
 		if err != nil {
 			return nil, err
 		}
-		log.Printf("[ROUTING] Final route for %s: participants=%d distance=%.0f", builder.driver.Name, len(route.Stops), route.TotalDropoffDistanceMeters)
+		log.Printf("[ROUTING] Built route for %s: participants=%d distance=%.0f", builder.driver.Name, len(route.Stops), route.TotalDropoffDistanceMeters)
 		routes = append(routes, *route)
 	}
 
+	// Phase 4: Inter-route boundary optimization (now working on ordered routes)
+	log.Printf("[ROUTING] Phase 4: Inter-route boundary swaps")
+	routes, err := r.interRouteOptimizeOrdered(ctx, req.InstituteCoords, routes)
+	if err != nil {
+		return nil, err
+	}
+
 	totalDropoffDistance := 0.0
+	totalDistance := 0.0
 	driversUsed := len(routes)
 	usedInstituteVehicle := false
 	for _, route := range routes {
 		totalDropoffDistance += route.TotalDropoffDistanceMeters
+		totalDistance += route.TotalDistanceMeters
 		if route.UsedInstituteVehicle {
 			usedInstituteVehicle = true
 		}
 	}
 
-	log.Printf("[ROUTING] Calculation complete: drivers_used=%d total_distance=%.0f institute_vehicle=%v", driversUsed, totalDropoffDistance, usedInstituteVehicle)
+	log.Printf("[ROUTING] Calculation complete: drivers_used=%d dropoff_distance=%.0f total_distance=%.0f institute_vehicle=%v", driversUsed, totalDropoffDistance, totalDistance, usedInstituteVehicle)
 	return &models.RoutingResult{
 		Routes: routes,
 		Summary: models.RoutingSummary{
 			TotalParticipants:          len(req.Participants),
 			TotalDriversUsed:           driversUsed,
 			TotalDropoffDistanceMeters: totalDropoffDistance,
+			TotalDistanceMeters:        totalDistance,
 			UsedInstituteVehicle:       usedInstituteVehicle,
 			UnassignedParticipants:     []int64{},
 		},
@@ -451,33 +498,48 @@ func (r *greedyRouter) buildRouteWithDistances(
 	}
 
 	// Order stops using nearest-neighbor from institute
+	ordered := make([]*models.Participant, 0, len(participants))
 	remaining := make(map[int64]*models.Participant)
 	for _, p := range participants {
 		remaining[p.ID] = p
 	}
 
 	currentLocation := instituteCoords
-	cumulativeDistance := 0.0
-
 	for len(remaining) > 0 {
-		nearest, distanceToNearest, err := r.findNearestParticipant(ctx, currentLocation, remaining)
+		nearest, _, err := r.findNearestParticipant(ctx, currentLocation, remaining)
 		if err != nil {
 			return nil, err
 		}
 		if nearest == nil {
 			break
 		}
-
-		cumulativeDistance += distanceToNearest
-		route.Stops = append(route.Stops, models.RouteStop{
-			Order:                    len(route.Stops),
-			Participant:              nearest,
-			DistanceFromPrevMeters:   distanceToNearest,
-			CumulativeDistanceMeters: cumulativeDistance,
-		})
-
+		ordered = append(ordered, nearest)
 		delete(remaining, nearest.ID)
 		currentLocation = nearest.GetCoords()
+	}
+
+	// Apply 2-opt optimization
+	ordered, err := r.twoOptOptimize(ctx, instituteCoords, ordered)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build final route with distances
+	cumulativeDistance := 0.0
+	currentLocation = instituteCoords
+	for i, p := range ordered {
+		distResult, err := r.distanceCalc.GetDistance(ctx, currentLocation, p.GetCoords())
+		if err != nil {
+			return nil, err
+		}
+		cumulativeDistance += distResult.DistanceMeters
+		route.Stops = append(route.Stops, models.RouteStop{
+			Order:                    i,
+			Participant:              p,
+			DistanceFromPrevMeters:   distResult.DistanceMeters,
+			CumulativeDistanceMeters: cumulativeDistance,
+		})
+		currentLocation = p.GetCoords()
 	}
 
 	route.TotalDropoffDistanceMeters = cumulativeDistance
@@ -497,7 +559,253 @@ func (r *greedyRouter) buildRouteWithDistances(
 			return nil, err
 		}
 		route.DistanceToDriverHomeMeters = distResult.DistanceMeters
+		route.TotalDistanceMeters = route.TotalDropoffDistanceMeters + route.DistanceToDriverHomeMeters
 	}
 
 	return route, nil
+}
+
+// interRouteOptimizeOrdered optimizes routes after they've been ordered
+// Works on the actual geographic boundaries (last stop in ordered route)
+func (r *greedyRouter) interRouteOptimizeOrdered(
+	ctx context.Context,
+	instituteCoords models.Coordinates,
+	routes []models.CalculatedRoute,
+) ([]models.CalculatedRoute, error) {
+	if len(routes) < 2 {
+		return routes, nil
+	}
+
+	improved := true
+	iterations := 0
+	maxIterations := 50
+
+	for improved && iterations < maxIterations {
+		improved = false
+		iterations++
+
+		for i := 0; i < len(routes); i++ {
+			for j := i + 1; j < len(routes); j++ {
+				// Try relocating last stop from route i to route j
+				if len(routes[i].Stops) > 1 && len(routes[j].Stops) < routes[j].Driver.VehicleCapacity {
+					newRoutes, didImprove, err := r.tryRelocateLastOrdered(ctx, instituteCoords, routes, i, j)
+					if err != nil {
+						return nil, err
+					}
+					if didImprove {
+						routes = newRoutes
+						improved = true
+						log.Printf("[ROUTING] Relocated last stop from %s to %s", routes[i].Driver.Name, routes[j].Driver.Name)
+					}
+				}
+
+				// Try relocating last stop from route j to route i
+				if len(routes[j].Stops) > 1 && len(routes[i].Stops) < routes[i].Driver.VehicleCapacity {
+					newRoutes, didImprove, err := r.tryRelocateLastOrdered(ctx, instituteCoords, routes, j, i)
+					if err != nil {
+						return nil, err
+					}
+					if didImprove {
+						routes = newRoutes
+						improved = true
+						log.Printf("[ROUTING] Relocated last stop from %s to %s", routes[j].Driver.Name, routes[i].Driver.Name)
+					}
+				}
+
+				// Try swapping last stops between routes
+				if len(routes[i].Stops) >= 1 && len(routes[j].Stops) >= 1 {
+					newRoutes, didImprove, err := r.trySwapLastOrdered(ctx, instituteCoords, routes, i, j)
+					if err != nil {
+						return nil, err
+					}
+					if didImprove {
+						routes = newRoutes
+						improved = true
+						log.Printf("[ROUTING] Swapped last stops between %s and %s", routes[i].Driver.Name, routes[j].Driver.Name)
+					}
+				}
+			}
+		}
+	}
+
+	if iterations > 1 {
+		log.Printf("[ROUTING] Inter-route optimization completed after %d iterations", iterations)
+	}
+
+	return routes, nil
+}
+
+// tryRelocateLastOrdered moves the last stop from routes[srcIdx] to routes[destIdx]
+// Returns modified routes slice, whether improvement was made, and any error
+func (r *greedyRouter) tryRelocateLastOrdered(
+	ctx context.Context,
+	instituteCoords models.Coordinates,
+	routes []models.CalculatedRoute,
+	srcIdx, destIdx int,
+) ([]models.CalculatedRoute, bool, error) {
+	srcRoute := &routes[srcIdx]
+	destRoute := &routes[destIdx]
+
+	if len(srcRoute.Stops) < 2 {
+		return routes, false, nil
+	}
+
+	currentTotal := srcRoute.TotalDropoffDistanceMeters + destRoute.TotalDropoffDistanceMeters
+
+	// Extract participants for rebuilding
+	lastStop := srcRoute.Stops[len(srcRoute.Stops)-1]
+
+	srcParticipants := make([]*models.Participant, len(srcRoute.Stops)-1)
+	for i := 0; i < len(srcRoute.Stops)-1; i++ {
+		srcParticipants[i] = srcRoute.Stops[i].Participant
+	}
+
+	destParticipants := make([]*models.Participant, len(destRoute.Stops)+1)
+	for i := 0; i < len(destRoute.Stops); i++ {
+		destParticipants[i] = destRoute.Stops[i].Participant
+	}
+	destParticipants[len(destRoute.Stops)] = lastStop.Participant
+
+	// Rebuild both routes with 2-opt
+	newSrc, err := r.buildRouteWithDistances(ctx, srcRoute.Driver, instituteCoords, srcParticipants, srcRoute.UsedInstituteVehicle, srcRoute.InstituteVehicleDriverID)
+	if err != nil {
+		return nil, false, err
+	}
+	newDest, err := r.buildRouteWithDistances(ctx, destRoute.Driver, instituteCoords, destParticipants, destRoute.UsedInstituteVehicle, destRoute.InstituteVehicleDriverID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	newTotal := newSrc.TotalDropoffDistanceMeters + newDest.TotalDropoffDistanceMeters
+
+	if newTotal < currentTotal {
+		routes[srcIdx] = *newSrc
+		routes[destIdx] = *newDest
+		return routes, true, nil
+	}
+
+	return routes, false, nil
+}
+
+// trySwapLastOrdered swaps the last stops between routes[idxA] and routes[idxB]
+func (r *greedyRouter) trySwapLastOrdered(
+	ctx context.Context,
+	instituteCoords models.Coordinates,
+	routes []models.CalculatedRoute,
+	idxA, idxB int,
+) ([]models.CalculatedRoute, bool, error) {
+	routeA := &routes[idxA]
+	routeB := &routes[idxB]
+
+	if len(routeA.Stops) < 1 || len(routeB.Stops) < 1 {
+		return routes, false, nil
+	}
+
+	currentTotal := routeA.TotalDropoffDistanceMeters + routeB.TotalDropoffDistanceMeters
+
+	lastA := routeA.Stops[len(routeA.Stops)-1].Participant
+	lastB := routeB.Stops[len(routeB.Stops)-1].Participant
+
+	// Build new participant lists with swapped last stops
+	newAParticipants := make([]*models.Participant, len(routeA.Stops))
+	for i := 0; i < len(routeA.Stops)-1; i++ {
+		newAParticipants[i] = routeA.Stops[i].Participant
+	}
+	newAParticipants[len(routeA.Stops)-1] = lastB
+
+	newBParticipants := make([]*models.Participant, len(routeB.Stops))
+	for i := 0; i < len(routeB.Stops)-1; i++ {
+		newBParticipants[i] = routeB.Stops[i].Participant
+	}
+	newBParticipants[len(routeB.Stops)-1] = lastA
+
+	// Rebuild both routes with 2-opt
+	newA, err := r.buildRouteWithDistances(ctx, routeA.Driver, instituteCoords, newAParticipants, routeA.UsedInstituteVehicle, routeA.InstituteVehicleDriverID)
+	if err != nil {
+		return nil, false, err
+	}
+	newB, err := r.buildRouteWithDistances(ctx, routeB.Driver, instituteCoords, newBParticipants, routeB.UsedInstituteVehicle, routeB.InstituteVehicleDriverID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	newTotal := newA.TotalDropoffDistanceMeters + newB.TotalDropoffDistanceMeters
+
+	if newTotal < currentTotal {
+		routes[idxA] = *newA
+		routes[idxB] = *newB
+		return routes, true, nil
+	}
+
+	return routes, false, nil
+}
+
+// twoOptOptimize improves route ordering by reversing segments that reduce total distance
+func (r *greedyRouter) twoOptOptimize(
+	ctx context.Context,
+	start models.Coordinates,
+	stops []*models.Participant,
+) ([]*models.Participant, error) {
+	if len(stops) < 3 {
+		return stops, nil // 2-opt needs at least 3 stops to be meaningful
+	}
+
+	improved := true
+	for improved {
+		improved = false
+		for i := 0; i < len(stops)-1; i++ {
+			for j := i + 2; j < len(stops); j++ {
+				// Calculate current distance for edges (i-1 to i) and (j to j+1)
+				// vs reversed: (i-1 to j) and (i to j+1)
+				var fromI, toJ1 models.Coordinates
+				if i == 0 {
+					fromI = start
+				} else {
+					fromI = stops[i-1].GetCoords()
+				}
+				toJ1 = stops[j].GetCoords()
+
+				// Current: fromI -> stops[i] and stops[j] -> next
+				currentDist, err := r.distanceCalc.GetDistance(ctx, fromI, stops[i].GetCoords())
+				if err != nil {
+					return nil, err
+				}
+
+				// New: fromI -> stops[j] (after reversal)
+				newDist, err := r.distanceCalc.GetDistance(ctx, fromI, toJ1)
+				if err != nil {
+					return nil, err
+				}
+
+				// Also need to consider the edge after j
+				var afterJ models.Coordinates
+				if j < len(stops)-1 {
+					afterJ = stops[j+1].GetCoords()
+					// Current: stops[j] -> afterJ
+					currAfter, err := r.distanceCalc.GetDistance(ctx, stops[j].GetCoords(), afterJ)
+					if err != nil {
+						return nil, err
+					}
+					currentDist.DistanceMeters += currAfter.DistanceMeters
+
+					// New: stops[i] -> afterJ (after reversal, i becomes the new end of reversed segment)
+					newAfter, err := r.distanceCalc.GetDistance(ctx, stops[i].GetCoords(), afterJ)
+					if err != nil {
+						return nil, err
+					}
+					newDist.DistanceMeters += newAfter.DistanceMeters
+				}
+
+				if newDist.DistanceMeters < currentDist.DistanceMeters {
+					// Reverse segment from i to j
+					for left, right := i, j; left < right; left, right = left+1, right-1 {
+						stops[left], stops[right] = stops[right], stops[left]
+					}
+					improved = true
+				}
+			}
+		}
+	}
+
+	return stops, nil
 }

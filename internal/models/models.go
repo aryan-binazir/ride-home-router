@@ -112,6 +112,7 @@ type CalculatedRoute struct {
 	Stops                      []RouteStop `json:"stops"`
 	TotalDropoffDistanceMeters float64     `json:"total_dropoff_distance_meters"`
 	DistanceToDriverHomeMeters float64     `json:"distance_to_driver_home_meters"`
+	TotalDistanceMeters        float64     `json:"total_distance_meters"`
 	UsedInstituteVehicle       bool        `json:"used_institute_vehicle"`
 	InstituteVehicleDriverID   int64       `json:"institute_vehicle_driver_id,omitempty"`
 }
@@ -121,6 +122,7 @@ type RoutingSummary struct {
 	TotalParticipants          int     `json:"total_participants"`
 	TotalDriversUsed           int     `json:"total_drivers_used"`
 	TotalDropoffDistanceMeters float64 `json:"total_dropoff_distance_meters"`
+	TotalDistanceMeters        float64 `json:"total_distance_meters"`
 	UsedInstituteVehicle       bool    `json:"used_institute_vehicle"`
 	UnassignedParticipants     []int64 `json:"unassigned_participants"`
 }

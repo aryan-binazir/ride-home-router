@@ -18,7 +18,7 @@ A local-first transport routing system that optimizes driver assignments for tak
 | Frontend | htmx with HTML fragments | ✅ Implemented |
 | Distance Calculation | OSRM public API | ✅ Implemented |
 | Geocoding | Nominatim API | ✅ Implemented |
-| Routing Algorithm | Greedy nearest-neighbor | ✅ Implemented |
+| Routing Algorithm | Seed-then-cluster + 2-opt + inter-route swaps | ✅ Implemented |
 | Target Platforms | Windows (amd64), macOS (amd64, arm64) | ✅ Makefile ready |
 
 ---
@@ -64,16 +64,90 @@ A local-first transport routing system that optimizes driver assignments for tak
 
 ---
 
-## Algorithm: Greedy Nearest-Neighbor
+## Algorithm: Seed-then-Cluster with Optimization
+
+### Overview
+
+The algorithm solves the Capacitated Vehicle Routing Problem (CVRP) using a multi-phase approach:
+1. **Seeding**: Spread drivers geographically using home-aware assignment
+2. **Clustering**: Greedy expansion of each driver's cluster
+3. **Route Building**: Order stops with nearest-neighbor + 2-opt refinement
+4. **Inter-route Optimization**: Swap boundary participants between routes
+
+### Phase 1: Home-Aware Seeding
 
 ```
-1. Start with all participants needing assignment
-2. For each driver (excluding institute vehicle initially):
-   - From current location (starting at institute), pick nearest unassigned participant
-   - Repeat until vehicle full
-3. If participants remain, use institute vehicle
-4. If still unsolvable, report error
+1. Select N spread-out seeds (one per driver):
+   - First seed: nearest participant to institute
+   - Subsequent seeds: farthest from all already-selected seeds (k-means++ style)
+2. Assign seeds to drivers from the seed's perspective:
+   - Each seed goes to the driver whose home is closest to it
+   - This ensures drivers build clusters toward their own homes
 ```
+
+**Why seed-centric assignment?** If done driver-centric (each driver grabs closest seed), Driver A might steal a seed that Driver B *really* needs. Seed-centric avoids this conflict.
+
+### Phase 2: Greedy Clustering
+
+```
+While unassigned participants remain:
+   For each driver (round-robin):
+      If driver has capacity and has a seed:
+         Pick the unassigned participant nearest to ANY of driver's current stops
+         Add to driver's cluster
+```
+
+**Key insight**: "Nearest to any stop" (not just last stop) keeps clusters geographically tight.
+
+### Phase 3: Route Building with 2-Opt
+
+```
+For each driver's cluster:
+   1. Order stops using nearest-neighbor from institute
+   2. Apply 2-opt optimization:
+      - Try reversing every segment [i..j]
+      - Keep reversal if it reduces total distance
+      - Repeat until no improvement
+```
+
+### Phase 4: Inter-Route Boundary Optimization
+
+```
+After routes are ordered (so "last stop" = geographic boundary):
+   Repeat until no improvement:
+      For each pair of routes (A, B):
+         Try relocating A's last stop to B (if B has capacity)
+         Try relocating B's last stop to A (if A has capacity)
+         Try swapping last stops between A and B
+      Accept any change that reduces combined distance
+      Re-run 2-opt on modified routes
+```
+
+**Why after route building?** Before ordering, "last participant" is whoever was added last during clustering (arbitrary). After 2-opt ordering, it's the geographic boundary of the route.
+
+### Fallback: Institute Vehicle
+
+```
+If participants remain after all drivers are full:
+   Use institute vehicle with nearest-neighbor assignment
+   Institute vehicle returns to institute after all drop-offs
+```
+
+### Algorithm Properties
+
+| Property | Value |
+|----------|-------|
+| Time Complexity | O(n² × d) for seeding/clustering, O(n³) for 2-opt per route |
+| Optimality | Heuristic (not guaranteed optimal) |
+| Fairness | Driver order randomized each run |
+| Geographic Coherence | Guaranteed by seeding + cluster expansion |
+| Capacity Handling | Native (each driver tracks own capacity) |
+
+### Considered but Rejected
+
+1. **Clarke-Wright Savings**: Better for homogeneous fleets; our heterogeneous capacities + driver homes don't fit well
+2. **Pure k-means clustering**: Doesn't respect capacity constraints during clustering
+3. **Full bipartite matching for seed assignment**: Overkill for ≤10 drivers; greedy is sufficient
 
 ---
 
@@ -86,18 +160,19 @@ A local-first transport routing system that optimizes driver assignments for tak
 - [x] "Calculate Routes" button
 - [x] Results section showing driver assignments
 - [x] Client-side validation (warn if no selection)
-- [ ] "Save Event" button (after calculation)
+- [x] Client-side capacity validation (warn if participants > seats)
+- [x] "Save Event" button (after calculation)
 - [x] "Clear" button resets selections
 
 ### Participants Roster (`/participants`)
 - [x] Table listing all participants
-- [x] Add participant form
+- [x] Add participant form (auto-closes on success)
 - [x] Edit/Delete per row
 - [x] htmx for CRUD (no page reloads)
 
 ### Drivers Roster (`/drivers`)
 - [x] Table listing all drivers
-- [x] Add driver form
+- [x] Add driver form (auto-closes on success)
 - [x] Edit/Delete per row
 - [x] Institute vehicle checkbox (only one allowed)
 - [x] htmx for CRUD
@@ -105,12 +180,13 @@ A local-first transport routing system that optimizes driver assignments for tak
 ### Settings (`/settings`)
 - [x] Form to set institute address
 - [x] Shows geocoded coordinates
+- [x] Miles/km toggle with persistence
 - [x] Save button with htmx
 
 ### History (`/history`)
-- [x] List of past events
-- [ ] Click to expand/view details
-- [ ] Delete button per event
+- [x] List of past events with summaries
+- [x] Click to expand/view details
+- [x] Delete button per event (with refresh)
 
 ---
 
@@ -244,12 +320,26 @@ ride-home-router/
 4. Added htmx HTML fragment responses for route calculation
 5. Added client-side validation for route calculation
 6. Added verbose logging throughout
+7. Fixed route results template name mismatch
+8. Added miles/km setting with persistence
+9. Fixed event save to parse form data (not just JSON)
+10. Fixed history page to include event summaries
+11. Fixed event detail expand on click
+12. Added auto-close for add forms after successful submission
+13. Added capacity validation warning (participants > available seats)
+14. **Major**: Redesigned routing algorithm for multi-driver load distribution
+
+### Routing Algorithm Improvements (This Session)
+1. **Seed-then-Cluster**: Replaced single-driver-fills-first with geographic spreading
+2. **Home-Aware Seeding**: Seeds assigned to drivers based on proximity to driver homes
+3. **Intra-Route 2-Opt**: Each route optimized by segment reversal
+4. **Inter-Route Boundary Swaps**: Relocate/swap last stops between routes after ordering
+5. **Bug Fix**: Inter-route optimization now runs after route ordering (not before)
+6. **Bug Fix**: Seed assignment is seed-centric (avoids driver conflicts)
 
 ### Known Issues / TODO
-1. **Save Event** - Button exists but functionality not fully wired
-2. **Event History Details** - List shows but expand/delete not working
-3. **Route Results Display** - Need to verify template renders correctly
-4. **Error Handling** - Some edge cases may not have user-friendly messages
+1. **Error Handling** - Some edge cases may not have user-friendly messages
+2. **Mobile Responsiveness** - Not fully tested on mobile devices
 
 ---
 
@@ -293,9 +383,9 @@ ride-home-router/
 | Method | Path | Description | Status |
 |--------|------|-------------|--------|
 | GET | `/api/v1/events` | List events | ✅ |
-| POST | `/api/v1/events` | Save event | ⚠️ Needs testing |
-| GET | `/api/v1/events/{id}` | Get event details | ⚠️ Needs testing |
-| DELETE | `/api/v1/events/{id}` | Delete event | ⚠️ Needs testing |
+| POST | `/api/v1/events` | Save event | ✅ |
+| GET | `/api/v1/events/{id}` | Get event details | ✅ |
+| DELETE | `/api/v1/events/{id}` | Delete event | ✅ |
 
 ### Utility
 | Method | Path | Description | Status |
@@ -306,26 +396,21 @@ ride-home-router/
 
 ## Next Steps
 
-1. **Test Route Calculation End-to-End**
-   - Add sample participants and drivers
-   - Configure institute address
-   - Select participants and drivers
-   - Click "Calculate Routes"
-   - Verify results display correctly
+1. **End-to-End Testing**
+   - Test with real addresses and multiple drivers
+   - Verify algorithm produces sensible geographic clusters
+   - Check that 2-opt and inter-route swaps are triggering
 
-2. **Wire Up "Save Event" Button**
-   - Save calculated routes to event history
-   - Show success message
-
-3. **Event History Details**
-   - Click event to expand details
-   - Show which driver took which participants
-   - Delete event functionality
-
-4. **Polish**
-   - Better error messages
-   - Loading states
+2. **Polish**
+   - Better error messages for edge cases
+   - Loading states for long calculations
    - Mobile responsiveness testing
+
+3. **Future Enhancements (Optional)**
+   - Try all participants (not just last) for inter-route swaps
+   - Add route visualization on a map
+   - Export routes to PDF/CSV
+   - SMS/Email notification to drivers
 
 ---
 
