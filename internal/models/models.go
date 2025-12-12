@@ -104,6 +104,8 @@ type RouteStop struct {
 	Participant              *Participant `json:"participant"`
 	DistanceFromPrevMeters   float64      `json:"distance_from_prev_meters"`
 	CumulativeDistanceMeters float64      `json:"cumulative_distance_meters"`
+	DurationFromPrevSecs     float64      `json:"duration_from_prev_secs"`
+	CumulativeDurationSecs   float64      `json:"cumulative_duration_secs"`
 }
 
 // CalculatedRoute represents a single driver's route
@@ -115,6 +117,9 @@ type CalculatedRoute struct {
 	TotalDistanceMeters        float64     `json:"total_distance_meters"`
 	UsedInstituteVehicle       bool        `json:"used_institute_vehicle"`
 	InstituteVehicleDriverID   int64       `json:"institute_vehicle_driver_id,omitempty"`
+	BaselineDurationSecs       float64     `json:"baseline_duration_secs"`
+	RouteDurationSecs          float64     `json:"route_duration_secs"`
+	DetourSecs                 float64     `json:"detour_secs"`
 }
 
 // RoutingSummary contains aggregate stats for a routing calculation
@@ -125,6 +130,9 @@ type RoutingSummary struct {
 	TotalDistanceMeters        float64 `json:"total_distance_meters"`
 	UsedInstituteVehicle       bool    `json:"used_institute_vehicle"`
 	UnassignedParticipants     []int64 `json:"unassigned_participants"`
+	MaxDetourSecs              float64 `json:"max_detour_secs"`
+	SumDetourSecs              float64 `json:"sum_detour_secs"`
+	AverageDetourSecs          float64 `json:"average_detour_secs"`
 }
 
 // RoutingResult contains the full result of a route calculation

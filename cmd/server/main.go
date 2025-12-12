@@ -74,6 +74,17 @@ func templateFuncs() template.FuncMap {
 			}
 			return "km"
 		},
+		"formatDuration": func(seconds float64) string {
+			mins := int(seconds / 60)
+			secs := int(seconds) % 60
+			if mins == 0 {
+				return fmt.Sprintf("%ds", secs)
+			}
+			if secs == 0 {
+				return fmt.Sprintf("%dm", mins)
+			}
+			return fmt.Sprintf("%dm %ds", mins, secs)
+		},
 	}
 }
 
@@ -150,7 +161,7 @@ func run() error {
 
 	geocoder := geocoding.NewNominatimGeocoder()
 	distanceCalc := distance.NewOSRMCalculator(db.DistanceCacheRepository)
-	router := routing.NewGreedyRouter(distanceCalc)
+	router := routing.NewFairnessRouter(distanceCalc)
 
 	handler := &handlers.Handler{
 		DB:           db,

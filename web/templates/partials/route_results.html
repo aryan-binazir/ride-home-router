@@ -37,6 +37,11 @@
                 <div class="stat">
                     <strong>Total:</strong> {{formatDistance .TotalDistanceMeters $useMiles}}
                 </div>
+                {{if not .UsedInstituteVehicle}}
+                <div class="stat">
+                    <strong>Detour:</strong> {{formatDuration .DetourSecs}}
+                </div>
+                {{end}}
             </div>
         </div>
 
@@ -82,6 +87,16 @@
             <div class="summary-item">
                 <div class="label">Institute Vehicle</div>
                 <div class="value text-warning">Used</div>
+            </div>
+            {{end}}
+            {{if gt .Summary.MaxDetourSecs 0}}
+            <div class="summary-item">
+                <div class="label">Max Detour</div>
+                <div class="value">{{formatDuration .Summary.MaxDetourSecs}}</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">Average Detour</div>
+                <div class="value">{{formatDuration .Summary.AverageDetourSecs}}</div>
             </div>
             {{end}}
         </div>

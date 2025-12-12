@@ -63,18 +63,28 @@ func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculato
 }
 
 func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error) {
+	// Quick check: same point to same point = 0 (with rounding tolerance)
+	// Round to 5 decimal places (~1m precision) to match cache key rounding
+	roundLat := func(v float64) float64 { return float64(int(v*100000+0.5)) / 100000 }
+	roundLng := func(v float64) float64 { return float64(int(v*100000+0.5)) / 100000 }
+
+	if roundLat(origin.Lat) == roundLat(dest.Lat) && roundLng(origin.Lng) == roundLng(dest.Lng) {
+		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
+	}
+
 	cached, err := c.cache.Get(ctx, origin, dest)
 	if err != nil {
 		return nil, err
 	}
 	if cached != nil {
-		log.Printf("[OSRM] Cache hit: origin=(%.6f,%.6f) dest=(%.6f,%.6f) distance=%.0f", origin.Lat, origin.Lng, dest.Lat, dest.Lng, cached.DistanceMeters)
+		// Don't log every cache hit - too noisy
 		return &DistanceResult{
 			DistanceMeters: cached.DistanceMeters,
 			DurationSecs:   cached.DurationSecs,
 		}, nil
 	}
 
+	log.Printf("[OSRM] Cache miss: origin=(%.6f,%.6f) dest=(%.6f,%.6f)", origin.Lat, origin.Lng, dest.Lat, dest.Lng)
 	results, err := c.GetDistancesFromPoint(ctx, origin, []models.Coordinates{dest})
 	if err != nil {
 		return nil, err
