@@ -26,6 +26,7 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InstituteAddress string `json:"institute_address"`
+		UseMiles         bool   `json:"use_miles"`
 	}
 
 	if h.isHTMX(r) {
@@ -35,6 +36,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.InstituteAddress = r.FormValue("institute_address")
+		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/settings: invalid_body err=%v", err)
@@ -69,6 +71,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		InstituteAddress: req.InstituteAddress,
 		InstituteLat:     geocodeResult.Coords.Lat,
 		InstituteLng:     geocodeResult.Coords.Lng,
+		UseMiles:         req.UseMiles,
 	}
 
 	if err := h.DB.SettingsRepository.Update(r.Context(), settings); err != nil {

@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS settings (
 INSERT OR IGNORE INTO settings (key, value) VALUES
     ('institute_address', ''),
     ('institute_lat', '0'),
-    ('institute_lng', '0');
+    ('institute_lng', '0'),
+    ('use_miles', 'false');
 
 -- ============================================================================
 -- PARTICIPANTS

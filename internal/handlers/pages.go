@@ -91,11 +91,13 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	type SettingsView struct {
 		InstituteAddress string
 		InstituteCoords  models.Coordinates
+		UseMiles         bool
 	}
 
 	settingsView := SettingsView{
 		InstituteAddress: settings.InstituteAddress,
 		InstituteCoords:  settings.GetCoords(),
+		UseMiles:         settings.UseMiles,
 	}
 
 	data := map[string]interface{}{
@@ -115,10 +117,28 @@ func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build events with summaries for the template
+	eventsWithSummary := make([]EventWithSummary, len(events))
+	for i, event := range events {
+		_, _, summary, err := h.DB.EventRepository.GetByID(r.Context(), event.ID)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+
+		eventsWithSummary[i] = EventWithSummary{
+			ID:        event.ID,
+			EventDate: event.EventDate,
+			Notes:     event.Notes,
+			CreatedAt: event.CreatedAt,
+			Summary:   summary,
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":      "Event History",
 		"ActivePage": "history",
-		"Events":     events,
+		"Events":     eventsWithSummary,
 		"Total":      total,
 	}
 

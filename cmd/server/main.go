@@ -29,6 +29,12 @@ func main() {
 	}
 }
 
+// Distance conversion constants
+const (
+	MetersPerMile      = 1609.344
+	MetersPerKilometer = 1000.0
+)
+
 // Template helper functions
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
@@ -53,6 +59,20 @@ func templateFuncs() template.FuncMap {
 				return "{}"
 			}
 			return string(b)
+		},
+		"formatDistance": func(meters float64, useMiles bool) string {
+			if useMiles {
+				miles := meters / MetersPerMile
+				return fmt.Sprintf("%.2f mi", miles)
+			}
+			km := meters / MetersPerKilometer
+			return fmt.Sprintf("%.2f km", km)
+		},
+		"distanceUnit": func(useMiles bool) string {
+			if useMiles {
+				return "mi"
+			}
+			return "km"
 		},
 	}
 }

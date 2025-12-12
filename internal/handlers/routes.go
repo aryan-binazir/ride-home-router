@@ -150,9 +150,10 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results.html", map[string]interface{}{
-			"Routes":  result.Routes,
-			"Summary": result.Summary,
+		h.renderTemplate(w, "route_results", map[string]interface{}{
+			"Routes":   result.Routes,
+			"Summary":  result.Summary,
+			"UseMiles": settings.UseMiles,
 		})
 		return
 	}

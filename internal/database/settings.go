@@ -21,7 +21,7 @@ type settingsRepository struct {
 }
 
 func (r *settingsRepository) Get(ctx context.Context) (*models.Settings, error) {
-	query := `SELECT key, value FROM settings WHERE key IN ('institute_address', 'institute_lat', 'institute_lng')`
+	query := `SELECT key, value FROM settings WHERE key IN ('institute_address', 'institute_lat', 'institute_lng', 'use_miles')`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -51,6 +51,7 @@ func (r *settingsRepository) Get(ctx context.Context) (*models.Settings, error) 
 	if lng, err := strconv.ParseFloat(settingsMap["institute_lng"], 64); err == nil {
 		settings.InstituteLng = lng
 	}
+	settings.UseMiles = settingsMap["use_miles"] == "true"
 
 	return settings, nil
 }
@@ -80,11 +81,20 @@ func (r *settingsRepository) Update(ctx context.Context, s *models.Settings) err
 		return fmt.Errorf("failed to update institute_lng: %w", err)
 	}
 
+	useMilesStr := "false"
+	if s.UseMiles {
+		useMilesStr = "true"
+	}
+	if _, err := tx.ExecContext(ctx, query, "use_miles", useMilesStr); err != nil {
+		log.Printf("[DB] Failed to update use_miles: err=%v", err)
+		return fmt.Errorf("failed to update use_miles: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		log.Printf("[DB] Failed to commit settings transaction: err=%v", err)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	log.Printf("[DB] Updated settings: address=%s lat=%.6f lng=%.6f", s.InstituteAddress, s.InstituteLat, s.InstituteLng)
+	log.Printf("[DB] Updated settings: address=%s lat=%.6f lng=%.6f use_miles=%v", s.InstituteAddress, s.InstituteLat, s.InstituteLng, s.UseMiles)
 	return nil
 }

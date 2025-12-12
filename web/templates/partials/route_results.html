@@ -3,6 +3,7 @@
 <div class="routes-container">
     <h3>Calculated Routes</h3>
 
+    {{$useMiles := .UseMiles}}
     {{range .Routes}}
     <div class="route-card {{if .UsedInstituteVehicle}}institute-vehicle{{end}}">
         <div class="route-header">
@@ -23,11 +24,11 @@
                     <strong>Passengers:</strong> {{len .Stops}}
                 </div>
                 <div class="stat">
-                    <strong>Dropoff Distance:</strong> {{printf "%.2f" (divideFloat .TotalDropoffDistanceMeters 1000)}} km
+                    <strong>Dropoff Distance:</strong> {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
                 </div>
                 {{if not .UsedInstituteVehicle}}
                 <div class="stat">
-                    <strong>To Home:</strong> {{printf "%.2f" (divideFloat .DistanceToDriverHomeMeters 1000)}} km
+                    <strong>To Home:</strong> {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
                 </div>
                 {{end}}
             </div>
@@ -44,9 +45,9 @@
                 </div>
                 <div class="stop-distance">
                     {{if eq .Order 0}}
-                        {{printf "%.2f km from institute" (divideFloat .DistanceFromPrevMeters 1000)}}
+                        {{formatDistance .DistanceFromPrevMeters $useMiles}} from institute
                     {{else}}
-                        {{printf "%.2f km" (divideFloat .DistanceFromPrevMeters 1000)}}
+                        {{formatDistance .DistanceFromPrevMeters $useMiles}}
                     {{end}}
                 </div>
             </div>
@@ -69,7 +70,7 @@
             </div>
             <div class="summary-item">
                 <div class="label">Total Distance</div>
-                <div class="value">{{printf "%.1f km" (divideFloat .Summary.TotalDropoffDistanceMeters 1000)}}</div>
+                <div class="value">{{formatDistance .Summary.TotalDropoffDistanceMeters .UseMiles}}</div>
             </div>
             {{if .Summary.UsedInstituteVehicle}}
             <div class="summary-item">
@@ -95,7 +96,6 @@
     <div class="card mt-4">
         <h3>Save This Event</h3>
         <form hx-post="/api/v1/events"
-              hx-ext="json-enc"
               hx-target="#save-result"
               hx-indicator="#save-loading">
             <input type="hidden" name="routes_json" value="{{toJSON .}}">

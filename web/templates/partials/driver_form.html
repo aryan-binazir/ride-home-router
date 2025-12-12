@@ -15,7 +15,8 @@
           {{end}}
           hx-target="#drivers-list"
           hx-swap="innerHTML"
-          hx-indicator="#driver-form-loading">
+          hx-indicator="#driver-form-loading"
+          hx-on::after-request="if(event.detail.successful) document.getElementById('driver-form-container').innerHTML = ''">
 
         <div class="form-group">
             <label class="form-label">Name</label>

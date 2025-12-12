@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -135,6 +136,15 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return HTML for htmx, JSON for API calls
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "event_detail", map[string]interface{}{
+			"Assignments": assignments,
+			"Summary":     summary,
+		})
+		return
+	}
+
 	grouped := groupAssignmentsByDriver(assignments)
 
 	response := EventDetailResponse{
@@ -153,10 +163,39 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
-		h.handleValidationError(w, "Invalid request body")
-		return
+	contentType := r.Header.Get("Content-Type")
+
+	// Handle form data (from htmx)
+	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
+		if err := r.ParseForm(); err != nil {
+			log.Printf("[HTTP] POST /api/v1/events: form_parse_error err=%v", err)
+			h.handleValidationError(w, "Invalid form data")
+			return
+		}
+
+		req.EventDate = r.FormValue("event_date")
+		req.Notes = r.FormValue("notes")
+
+		// Parse routes_json from form
+		routesJSON := r.FormValue("routes_json")
+		if routesJSON != "" {
+			var routingResult models.RoutingResult
+			if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
+				log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
+				h.handleValidationError(w, "Invalid routes data")
+				return
+			}
+			req.Routes = &routingResult
+		}
+
+		log.Printf("[HTTP] POST /api/v1/events: form_data event_date=%s routes_count=%d", req.EventDate, len(req.Routes.Routes))
+	} else {
+		// Handle JSON
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
+			h.handleValidationError(w, "Invalid request body")
+			return
+		}
 	}
 
 	if req.EventDate == "" {
@@ -227,6 +266,15 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] Created event: id=%d date=%s assignments=%d", event.ID, event.EventDate.Format("2006-01-02"), len(assignments))
+
+	// Return HTML for htmx, JSON for API calls
+	if h.isHTMX(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, `<div class="alert alert-success">Event saved successfully! <a href="/history">View History</a></div>`)
+		return
+	}
+
 	h.writeJSON(w, http.StatusCreated, event)
 }
 

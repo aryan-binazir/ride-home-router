@@ -57,6 +57,7 @@ type Settings struct {
 	InstituteAddress string  `json:"institute_address"`
 	InstituteLat     float64 `json:"institute_lat"`
 	InstituteLng     float64 `json:"institute_lng"`
+	UseMiles         bool    `json:"use_miles"`
 }
 
 // GetCoords returns the institute coordinates
