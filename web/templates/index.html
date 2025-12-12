@@ -70,6 +70,7 @@
                                    name="driver_ids"
                                    value="{{.ID}}"
                                    class="form-checkbox driver-checkbox"
+                                   data-capacity="{{.VehicleCapacity}}"
                                    {{if .IsInstituteVehicle}}data-institute="true"{{end}}>
                         </td>
                         <td>{{.Name}}</td>
@@ -184,6 +185,20 @@
             resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one driver.</div>';
             return false;
         }
+
+        // Check capacity
+        let totalCapacity = 0;
+        drivers.forEach(cb => {
+            totalCapacity += parseInt(cb.dataset.capacity) || 0;
+        });
+
+        if (participants.length > totalCapacity) {
+            resultsSection.innerHTML = '<div class="alert alert-warning">Not enough capacity! ' +
+                participants.length + ' participants selected but only ' + totalCapacity + ' seats available. ' +
+                'Please select more drivers or fewer participants.</div>';
+            return false;
+        }
+
         return true;
     }
 

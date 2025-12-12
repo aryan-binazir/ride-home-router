@@ -302,6 +302,38 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] Deleted event: id=%d", id)
+
+	// Return refreshed list for htmx, 204 for API
+	if h.isHTMX(r) {
+		events, total, err := h.DB.EventRepository.List(r.Context(), 20, 0)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+
+		eventsWithSummary := make([]EventWithSummary, len(events))
+		for i, event := range events {
+			_, _, summary, err := h.DB.EventRepository.GetByID(r.Context(), event.ID)
+			if err != nil {
+				h.renderError(w, r, err)
+				return
+			}
+			eventsWithSummary[i] = EventWithSummary{
+				ID:        event.ID,
+				EventDate: event.EventDate,
+				Notes:     event.Notes,
+				CreatedAt: event.CreatedAt,
+				Summary:   summary,
+			}
+		}
+
+		h.renderTemplate(w, "event_list", map[string]interface{}{
+			"Events": eventsWithSummary,
+			"Total":  total,
+		})
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
