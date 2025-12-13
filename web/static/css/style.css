@@ -209,15 +209,6 @@ body {
     text-decoration: none;
 }
 
-@supports ((-webkit-background-clip: text) or (background-clip: text)) {
-    .brand-link {
-        background-image: var(--gradient-brand);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-    }
-}
-
 .brand-subtitle {
     margin: 0;
     font-size: 0.8125rem;
@@ -239,7 +230,7 @@ body {
 }
 
 .header h1 {
-    font-size: 1.25rem;
+    font-size: 1.75rem;
     font-weight: 700;
     margin: 0;
     line-height: 1.15;
@@ -256,7 +247,7 @@ body {
     width: 0.55rem;
     height: 0.55rem;
     border-radius: 999px;
-    background: var(--gradient-brand);
+    background: var(--color-primary);
     box-shadow: 0 0 0 4px rgb(var(--color-primary-rgb) / 0.12);
 }
 
