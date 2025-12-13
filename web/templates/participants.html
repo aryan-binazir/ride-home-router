@@ -20,6 +20,15 @@
 <!-- Error Container -->
 <div id="error-container"></div>
 
+<!-- Search Toolbar -->
+<div class="panel-toolbar mb-3">
+    <input type="search"
+           class="form-input form-input-search"
+           placeholder="Search participants…"
+           aria-label="Search participants"
+           oninput="filterTable(this, 'participants-tbody')">
+</div>
+
 <!-- Participants List -->
 <div id="participants-list" class="table-container">
     {{template "participant_list" .}}

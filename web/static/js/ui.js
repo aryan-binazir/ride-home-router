@@ -1,5 +1,24 @@
 // Minimal UI helpers (custom selects, etc.) for ride-home-router.
 
+/**
+ * Filter table rows based on search query.
+ * Rows should have a data-search attribute containing searchable text.
+ * @param {HTMLInputElement} input - The search input element
+ * @param {string} tbodyId - The ID of the tbody to filter
+ */
+function filterTable(input, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  const query = (input.value || '').trim().toLowerCase();
+  const rows = tbody.querySelectorAll('tr[data-search]');
+
+  rows.forEach(row => {
+    const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
+    row.classList.toggle('hidden', query.length > 0 && !haystack.includes(query));
+  });
+}
+
 (function () {
   function shouldEnhanceSelects() {
     const platform = (navigator.platform || "").toLowerCase();

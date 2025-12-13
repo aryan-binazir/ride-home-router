@@ -20,6 +20,15 @@
 <!-- Error Container -->
 <div id="error-container"></div>
 
+<!-- Search Toolbar -->
+<div class="panel-toolbar mb-3">
+    <input type="search"
+           class="form-input form-input-search"
+           placeholder="Search drivers…"
+           aria-label="Search drivers"
+           oninput="filterTable(this, 'drivers-tbody')">
+</div>
+
 <!-- Drivers List -->
 <div id="drivers-list" class="table-container">
     {{template "driver_list" .}}
