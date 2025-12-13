@@ -209,6 +209,15 @@ body {
     text-decoration: none;
 }
 
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .brand-link {
+        background-image: var(--gradient-brand);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+}
+
 .brand-subtitle {
     margin: 0;
     font-size: 0.8125rem;
@@ -231,7 +240,7 @@ body {
 
 .header h1 {
     font-size: 1.25rem;
-    font-weight: 800;
+    font-weight: 700;
     margin: 0;
     line-height: 1.15;
     color: var(--color-text);
@@ -1363,7 +1372,7 @@ tbody tr:last-child td {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: -0.02em;
     box-shadow: var(--shadow-primary);
     flex-shrink: 0;

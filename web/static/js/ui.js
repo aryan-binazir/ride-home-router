@@ -1,6 +1,19 @@
 // Minimal UI helpers (custom selects, etc.) for ride-home-router.
 
 (function () {
+  function shouldEnhanceSelects() {
+    const platform = (navigator.platform || "").toLowerCase();
+    const uaPlatform = (navigator.userAgentData && navigator.userAgentData.platform
+      ? navigator.userAgentData.platform
+      : ""
+    ).toLowerCase();
+    const ua = (navigator.userAgent || "").toLowerCase();
+
+    // Be conservative: only replace native selects on Linux where the native
+    // dropdown popup is often unstyleable and can clash with app themes.
+    return platform.includes("linux") || uaPlatform.includes("linux") || ua.includes("linux");
+  }
+
   function closeSelect(container) {
     container.classList.remove("is-open");
     const trigger = container.querySelector(".ui-select-trigger");
@@ -26,13 +39,12 @@
     }
   }
 
-  function setSelectValue(container, value) {
+  function syncSelectValue(container) {
     const nativeSelect = container.querySelector(".ui-select-native");
     const menu = container.querySelector(".ui-select-menu");
     if (!nativeSelect || !menu) return;
 
-    nativeSelect.value = value;
-    nativeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    const value = nativeSelect.value || "";
 
     let activeOption = null;
     menu.querySelectorAll(".ui-select-option").forEach((btn) => {
@@ -53,6 +65,15 @@
     }
   }
 
+  function setSelectValue(container, value) {
+    const nativeSelect = container.querySelector(".ui-select-native");
+    if (!nativeSelect) return;
+
+    nativeSelect.value = value;
+    nativeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    syncSelectValue(container);
+  }
+
   function initSelect(container) {
     if (!container || container.dataset.uiSelectInit === "true") return;
 
@@ -65,7 +86,12 @@
     container.classList.add("is-enhanced");
 
     // Ensure selected state matches the native select.
-    setSelectValue(container, nativeSelect.value || "");
+    syncSelectValue(container);
+
+    nativeSelect.addEventListener("change", () => {
+      const schedule = typeof requestAnimationFrame === "function" ? requestAnimationFrame : setTimeout;
+      schedule(() => syncSelectValue(container), 0);
+    });
 
     trigger.addEventListener("click", (e) => {
       e.preventDefault();
@@ -149,6 +175,7 @@
 
   function initAll(root) {
     const scope = root || document;
+    if (!shouldEnhanceSelects()) return;
     scope.querySelectorAll(".ui-select").forEach(initSelect);
   }
 
