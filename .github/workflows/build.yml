@@ -31,7 +31,7 @@ jobs:
         run: |
           echo "Contents of build/bin:"
           ls -la build/bin/
-          if [ ! -d "build/bin/Ride Home Router.app" ]; then
+          if [ ! -d "build/bin/ride-home-router.app" ]; then
             echo "ERROR: App bundle not found!"
             exit 1
           fi
@@ -39,18 +39,15 @@ jobs:
       - name: Create DMG
         run: |
           brew install create-dmg
-          # Rename to avoid spaces (create-dmg has issues with spaces in paths)
-          mv "build/bin/Ride Home Router.app" "build/bin/RideHomeRouter.app"
           create-dmg \
             --volname "Ride Home Router" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
             --app-drop-link 425 178 \
-            --icon "RideHomeRouter.app" 175 178 \
+            --icon "ride-home-router.app" 175 178 \
             "Ride-Home-Router-macOS-arm64.dmg" \
-            "build/bin/RideHomeRouter.app"
-          # Rename back inside DMG is handled by create-dmg using the source name
+            "build/bin/ride-home-router.app"
 
       - name: Upload macOS arm64
         uses: actions/upload-artifact@v4
@@ -80,7 +77,7 @@ jobs:
         run: |
           echo "Contents of build/bin:"
           ls -la build/bin/
-          if [ ! -d "build/bin/Ride Home Router.app" ]; then
+          if [ ! -d "build/bin/ride-home-router.app" ]; then
             echo "ERROR: App bundle not found!"
             exit 1
           fi
@@ -88,17 +85,15 @@ jobs:
       - name: Create DMG
         run: |
           brew install create-dmg
-          # Rename to avoid spaces (create-dmg has issues with spaces in paths)
-          mv "build/bin/Ride Home Router.app" "build/bin/RideHomeRouter.app"
           create-dmg \
             --volname "Ride Home Router" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
             --app-drop-link 425 178 \
-            --icon "RideHomeRouter.app" 175 178 \
+            --icon "ride-home-router.app" 175 178 \
             "Ride-Home-Router-macOS-amd64.dmg" \
-            "build/bin/RideHomeRouter.app"
+            "build/bin/ride-home-router.app"
 
       - name: Upload macOS amd64
         uses: actions/upload-artifact@v4
@@ -157,4 +152,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Ride-Home-Router-Linux-amd64
-          path: build/bin/Ride Home Router
+          path: build/bin/ride-home-router
