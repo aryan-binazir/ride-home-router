@@ -53,6 +53,7 @@ Requires [Go 1.22+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/get
 
 ```bash
 # Install Wails CLI
+# Ensure you have GOPATH set in your environment
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 # Clone and build
@@ -69,7 +70,7 @@ On Linux, you'll need WebKit2GTK:
 
 ```bash
 # Arch
-sudo pacman -S webkit2gtk-4.1 gtk3
+sudo pacman -S webkit2gtk gtk3
 
 # Ubuntu/Debian
 sudo apt install libgtk-3-dev libwebkit2gtk-4.0-dev
@@ -183,8 +184,8 @@ All data is stored in `~/.ride-home-router/`:
 
 ## Contributing
 
-Contributions welcome! Please open an issue first to discuss what you'd like to change.
+This project is supposed to support a single use case. Feel free to fork and modify as needed.
 
 ## License
 
-[Add your license here]
+MIT
