@@ -27,8 +27,10 @@ Manually figuring out who goes with whom is tedious and often results in ineffic
 - **Multiple Activity Locations** — Save different starting points (office, place of worship, school, etc.)
 - **Event History** — Keep records of past events for reference
 - **Manual Adjustments** — Move participants between routes or swap drivers after calculation
+- **Preview Routes** — Open any route directly in Google Maps
 - **Copy to Clipboard** — Export routes as text or Google Maps links
-- **Works Offline** — All data stored locally, only needs internet for initial address geocoding
+- **Distance Units** — Toggle between kilometers and miles
+- **Local Data Storage** — All data stored on your computer; internet needed for address lookup and route calculations
 
 ## Privacy First
 
