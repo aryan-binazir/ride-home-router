@@ -55,52 +55,6 @@ jobs:
           name: Ride-Home-Router-macOS-arm64
           path: Ride-Home-Router-macOS-arm64.dmg
 
-  build-macos-amd64:
-    runs-on: macos-13
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-      - name: Build macOS amd64
-        run: wails build -platform darwin/amd64
-
-      - name: Verify build output
-        run: |
-          echo "Contents of build/bin:"
-          ls -la build/bin/
-          if [ ! -d "build/bin/ride-home-router.app" ]; then
-            echo "ERROR: App bundle not found!"
-            exit 1
-          fi
-
-      - name: Create DMG
-        run: |
-          brew install create-dmg
-          create-dmg \
-            --volname "Ride Home Router" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --app-drop-link 425 178 \
-            --icon "ride-home-router.app" 175 178 \
-            "Ride-Home-Router-macOS-amd64.dmg" \
-            "build/bin/ride-home-router.app"
-
-      - name: Upload macOS amd64
-        uses: actions/upload-artifact@v4
-        with:
-          name: Ride-Home-Router-macOS-amd64
-          path: Ride-Home-Router-macOS-amd64.dmg
-
   build-windows:
     runs-on: windows-latest
     steps:
