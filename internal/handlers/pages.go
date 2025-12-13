@@ -26,20 +26,11 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hasInstituteVehicle := false
-	for _, d := range drivers {
-		if d.IsInstituteVehicle {
-			hasInstituteVehicle = true
-			break
-		}
-	}
-
 	data := map[string]interface{}{
-		"Title":               "Event Planning",
-		"ActivePage":          "home",
-		"Participants":        participants,
-		"Drivers":             drivers,
-		"HasInstituteVehicle": hasInstituteVehicle,
+		"Title":        "Event Planning",
+		"ActivePage":   "home",
+		"Participants": participants,
+		"Drivers":      drivers,
 	}
 
 	h.renderTemplate(w, "index.html", data)
@@ -93,6 +84,12 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	orgVehicles, err := h.DB.OrganizationVehicles().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
 	var selectedLocation *models.ActivityLocation
 	if settings.SelectedActivityLocationID > 0 {
 		selectedLocation, err = h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
@@ -107,6 +104,7 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		"ActivePage":        "settings",
 		"Settings":          settings,
 		"ActivityLocations": activityLocations,
+		"OrgVehicles":       orgVehicles,
 		"SelectedLocation":  selectedLocation,
 	}
 

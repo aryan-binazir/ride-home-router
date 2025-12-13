@@ -102,8 +102,9 @@ func deepCopyRoutes(routes []models.CalculatedRoute) []models.CalculatedRoute {
 			TotalDropoffDistanceMeters: route.TotalDropoffDistanceMeters,
 			DistanceToDriverHomeMeters: route.DistanceToDriverHomeMeters,
 			TotalDistanceMeters:        route.TotalDistanceMeters,
-			UsedInstituteVehicle:       route.UsedInstituteVehicle,
-			InstituteVehicleDriverID:   route.InstituteVehicleDriverID,
+			OrgVehicleID:               route.OrgVehicleID,
+			OrgVehicleName:             route.OrgVehicleName,
+			EffectiveCapacity:          route.EffectiveCapacity,
 			BaselineDurationSecs:       route.BaselineDurationSecs,
 			RouteDurationSecs:          route.RouteDurationSecs,
 			DetourSecs:                 route.DetourSecs,
@@ -177,8 +178,12 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	fromRoute := &session.CurrentRoutes[req.FromRouteIndex]
 	toRoute := &session.CurrentRoutes[req.ToRouteIndex]
 
-	// Check capacity (applies to all vehicles including institute vehicle)
-	if len(toRoute.Stops) >= toRoute.Driver.VehicleCapacity {
+	// Check capacity (use effective capacity which may be org vehicle capacity)
+	effectiveCapacity := toRoute.EffectiveCapacity
+	if effectiveCapacity == 0 {
+		effectiveCapacity = toRoute.Driver.VehicleCapacity
+	}
+	if len(toRoute.Stops) >= effectiveCapacity {
 		h.handleValidationErrorHTMX(w, r, "Target vehicle is at capacity")
 		return
 	}
@@ -277,9 +282,16 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	route1 := &session.CurrentRoutes[req.RouteIndex1]
 	route2 := &session.CurrentRoutes[req.RouteIndex2]
 
-	// Check capacity constraints
-	if len(route1.Stops) > route2.Driver.VehicleCapacity ||
-		len(route2.Stops) > route1.Driver.VehicleCapacity {
+	// Check capacity constraints (use effective capacity which may be org vehicle capacity)
+	cap1 := route1.EffectiveCapacity
+	if cap1 == 0 {
+		cap1 = route1.Driver.VehicleCapacity
+	}
+	cap2 := route2.EffectiveCapacity
+	if cap2 == 0 {
+		cap2 = route2.Driver.VehicleCapacity
+	}
+	if len(route1.Stops) > cap2 || len(route2.Stops) > cap1 {
 		h.handleValidationErrorHTMX(w, r, "Cannot swap - capacity constraints violated")
 		return
 	}
@@ -404,37 +416,25 @@ func (h *Handler) recalculateRouteDistances(ctx context.Context, activityLocatio
 
 	route.TotalDropoffDistanceMeters = totalDropoff
 
-	// Calculate distance and duration to driver home (or back to activity location for institute vehicle)
+	// Calculate distance and duration to driver home
 	lastStop := route.Stops[len(route.Stops)-1]
 	var durationToHome float64
-	if route.UsedInstituteVehicle {
-		result, err := h.DistanceCalc.GetDistance(ctx, lastStop.Participant.GetCoords(), activityLocation.GetCoords())
-		if err == nil {
-			route.DistanceToDriverHomeMeters = result.DistanceMeters
-			durationToHome = result.DurationSecs
-		}
-	} else {
-		result, err := h.DistanceCalc.GetDistance(ctx, lastStop.Participant.GetCoords(), route.Driver.GetCoords())
-		if err == nil {
-			route.DistanceToDriverHomeMeters = result.DistanceMeters
-			durationToHome = result.DurationSecs
-		}
+	result, err := h.DistanceCalc.GetDistance(ctx, lastStop.Participant.GetCoords(), route.Driver.GetCoords())
+	if err == nil {
+		route.DistanceToDriverHomeMeters = result.DistanceMeters
+		durationToHome = result.DurationSecs
 	}
 
 	route.TotalDistanceMeters = totalDropoff + route.DistanceToDriverHomeMeters
 	route.RouteDurationSecs = totalRouteDuration + durationToHome
 
-	// Recalculate baseline and detour for non-institute vehicle routes
-	if !route.UsedInstituteVehicle && route.Driver != nil {
+	// Recalculate baseline and detour
+	if route.Driver != nil {
 		baselineResult, err := h.DistanceCalc.GetDistance(ctx, activityLocation.GetCoords(), route.Driver.GetCoords())
 		if err == nil {
 			route.BaselineDurationSecs = baselineResult.DurationSecs
 			route.DetourSecs = route.RouteDurationSecs - route.BaselineDurationSecs
 		}
-	} else {
-		// Institute vehicle has no detour concept
-		route.BaselineDurationSecs = 0
-		route.DetourSecs = 0
 	}
 }
 
@@ -449,8 +449,8 @@ func (h *Handler) calculateSummary(routes []models.CalculatedRoute) models.Routi
 		}
 		summary.TotalDropoffDistanceMeters += route.TotalDropoffDistanceMeters
 		summary.TotalDistanceMeters += route.TotalDistanceMeters
-		if route.UsedInstituteVehicle {
-			summary.UsedInstituteVehicle = true
+		if route.OrgVehicleID > 0 {
+			summary.OrgVehiclesUsed++
 		}
 		if route.DetourSecs > summary.MaxDetourSecs {
 			summary.MaxDetourSecs = route.DetourSecs

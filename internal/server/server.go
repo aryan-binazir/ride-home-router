@@ -380,6 +380,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleCalculateRoutes(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/routes/calculate-with-org-vehicles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleCalculateRoutesWithOrgVehicles(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/routes/edit/move-participant", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -440,6 +448,34 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		switch r.Method {
 		case http.MethodDelete:
 			handler.HandleDeleteActivityLocation(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Organization Vehicles routes
+	mux.HandleFunc("/api/v1/org-vehicles", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleListOrgVehicles(w, r)
+		case http.MethodPost:
+			handler.HandleCreateOrgVehicle(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/v1/org-vehicles/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/org-vehicles/" {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodPut:
+			handler.HandleUpdateOrgVehicle(w, r)
+		case http.MethodDelete:
+			handler.HandleDeleteOrgVehicle(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

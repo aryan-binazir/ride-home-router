@@ -3,13 +3,6 @@
     <td>{{.Name}}</td>
     <td>{{.Address}}</td>
     <td>{{.VehicleCapacity}}</td>
-    <td>
-        {{if .IsInstituteVehicle}}
-            <span class="badge badge-warning">Institute vehicle</span>
-        {{else}}
-            <span class="badge badge-muted">Personal</span>
-        {{end}}
-    </td>
     <td class="text-muted">
         {{if .Coords}}
         {{printf "%.4f, %.4f" .Coords.Lat .Coords.Lng}}

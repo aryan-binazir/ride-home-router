@@ -16,16 +16,18 @@ import (
 
 // JSONData represents the structure of the JSON file
 type JSONData struct {
-	Settings          JSONSettings              `json:"settings"`
-	ActivityLocations []models.ActivityLocation `json:"activity_locations"`
-	Participants      []models.Participant      `json:"participants"`
-	Drivers           []models.Driver           `json:"drivers"`
-	Events            []JSONEvent               `json:"events"`
-	NextIDs           struct {
-		Participant      int64 `json:"participant"`
-		Driver           int64 `json:"driver"`
-		Event            int64 `json:"event"`
-		ActivityLocation int64 `json:"activity_location"`
+	Settings             JSONSettings                  `json:"settings"`
+	ActivityLocations    []models.ActivityLocation     `json:"activity_locations"`
+	Participants         []models.Participant          `json:"participants"`
+	Drivers              []models.Driver               `json:"drivers"`
+	OrganizationVehicles []models.OrganizationVehicle  `json:"organization_vehicles"`
+	Events               []JSONEvent                   `json:"events"`
+	NextIDs              struct {
+		Participant         int64 `json:"participant"`
+		Driver              int64 `json:"driver"`
+		Event               int64 `json:"event"`
+		ActivityLocation    int64 `json:"activity_location"`
+		OrganizationVehicle int64 `json:"organization_vehicle"`
 	} `json:"next_ids"`
 }
 
@@ -51,20 +53,22 @@ type JSONStore struct {
 	data     *JSONData
 	mu       sync.RWMutex
 
-	participantRepository      ParticipantRepository
-	driverRepository           DriverRepository
-	settingsRepository         SettingsRepository
-	activityLocationRepository ActivityLocationRepository
-	eventRepository            EventRepository
-	distanceCacheRepository    DistanceCacheRepository
+	participantRepository         ParticipantRepository
+	driverRepository              DriverRepository
+	settingsRepository            SettingsRepository
+	activityLocationRepository    ActivityLocationRepository
+	organizationVehicleRepository OrganizationVehicleRepository
+	eventRepository               EventRepository
+	distanceCacheRepository       DistanceCacheRepository
 }
 
-func (s *JSONStore) Participants() ParticipantRepository         { return s.participantRepository }
-func (s *JSONStore) Drivers() DriverRepository                   { return s.driverRepository }
-func (s *JSONStore) Settings() SettingsRepository                { return s.settingsRepository }
-func (s *JSONStore) ActivityLocations() ActivityLocationRepository { return s.activityLocationRepository }
-func (s *JSONStore) Events() EventRepository                     { return s.eventRepository }
-func (s *JSONStore) DistanceCache() DistanceCacheRepository       { return s.distanceCacheRepository }
+func (s *JSONStore) Participants() ParticipantRepository              { return s.participantRepository }
+func (s *JSONStore) Drivers() DriverRepository                        { return s.driverRepository }
+func (s *JSONStore) Settings() SettingsRepository                     { return s.settingsRepository }
+func (s *JSONStore) ActivityLocations() ActivityLocationRepository    { return s.activityLocationRepository }
+func (s *JSONStore) OrganizationVehicles() OrganizationVehicleRepository { return s.organizationVehicleRepository }
+func (s *JSONStore) Events() EventRepository                          { return s.eventRepository }
+func (s *JSONStore) DistanceCache() DistanceCacheRepository           { return s.distanceCacheRepository }
 
 // NewJSONStore creates a new JSON-based data store
 func NewJSONStore(distanceCache DistanceCacheRepository) (*JSONStore, error) {
@@ -94,6 +98,7 @@ func NewJSONStore(distanceCache DistanceCacheRepository) (*JSONStore, error) {
 	store.driverRepository = &jsonDriverRepository{store: store}
 	store.settingsRepository = &jsonSettingsRepository{store: store}
 	store.activityLocationRepository = &jsonActivityLocationRepository{store: store}
+	store.organizationVehicleRepository = &jsonOrganizationVehicleRepository{store: store}
 	store.eventRepository = &jsonEventRepository{store: store}
 	store.distanceCacheRepository = distanceCache
 
@@ -108,15 +113,17 @@ func (s *JSONStore) load() error {
 	if os.IsNotExist(err) {
 		// Initialize with empty data
 		s.data = &JSONData{
-			ActivityLocations: []models.ActivityLocation{},
-			Participants:      []models.Participant{},
-			Drivers:           []models.Driver{},
-			Events:            []JSONEvent{},
+			ActivityLocations:    []models.ActivityLocation{},
+			Participants:         []models.Participant{},
+			Drivers:              []models.Driver{},
+			OrganizationVehicles: []models.OrganizationVehicle{},
+			Events:               []JSONEvent{},
 		}
 		s.data.NextIDs.Participant = 1
 		s.data.NextIDs.Driver = 1
 		s.data.NextIDs.Event = 1
 		s.data.NextIDs.ActivityLocation = 1
+		s.data.NextIDs.OrganizationVehicle = 1
 		return s.saveUnlocked()
 	}
 	if err != nil {
@@ -137,8 +144,14 @@ func (s *JSONStore) load() error {
 	if s.data.Drivers == nil {
 		s.data.Drivers = []models.Driver{}
 	}
+	if s.data.OrganizationVehicles == nil {
+		s.data.OrganizationVehicles = []models.OrganizationVehicle{}
+	}
 	if s.data.Events == nil {
 		s.data.Events = []JSONEvent{}
+	}
+	if s.data.NextIDs.OrganizationVehicle == 0 {
+		s.data.NextIDs.OrganizationVehicle = 1
 	}
 
 	// Migrate old institute settings to first activity location
@@ -378,18 +391,6 @@ func (r *jsonDriverRepository) GetByIDs(ctx context.Context, ids []int64) ([]mod
 	})
 
 	return result, nil
-}
-
-func (r *jsonDriverRepository) GetInstituteVehicle(ctx context.Context) (*models.Driver, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	for _, d := range r.store.data.Drivers {
-		if d.IsInstituteVehicle {
-			return &d, nil
-		}
-	}
-	return nil, nil // Not found is not an error
 }
 
 func (r *jsonDriverRepository) Create(ctx context.Context, d *models.Driver) (*models.Driver, error) {
@@ -654,6 +655,119 @@ func (r *jsonActivityLocationRepository) Delete(ctx context.Context, id int64) e
 			}
 
 			log.Printf("[JSON] Deleted activity location: id=%d", id)
+			return nil
+		}
+	}
+
+	return ErrNotFound
+}
+
+// ==================== Organization Vehicle Repository ====================
+
+type jsonOrganizationVehicleRepository struct {
+	store *JSONStore
+}
+
+func (r *jsonOrganizationVehicleRepository) List(ctx context.Context) ([]models.OrganizationVehicle, error) {
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	result := make([]models.OrganizationVehicle, len(r.store.data.OrganizationVehicles))
+	copy(result, r.store.data.OrganizationVehicles)
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+func (r *jsonOrganizationVehicleRepository) GetByID(ctx context.Context, id int64) (*models.OrganizationVehicle, error) {
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	for _, v := range r.store.data.OrganizationVehicles {
+		if v.ID == id {
+			return &v, nil
+		}
+	}
+	return nil, nil // Not found is not an error for GetByID
+}
+
+func (r *jsonOrganizationVehicleRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.OrganizationVehicle, error) {
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	idSet := make(map[int64]bool)
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var result []models.OrganizationVehicle
+	for _, v := range r.store.data.OrganizationVehicles {
+		if idSet[v.ID] {
+			result = append(result, v)
+		}
+	}
+
+	return result, nil
+}
+
+func (r *jsonOrganizationVehicleRepository) Create(ctx context.Context, v *models.OrganizationVehicle) (*models.OrganizationVehicle, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	v.ID = r.store.data.NextIDs.OrganizationVehicle
+	r.store.data.NextIDs.OrganizationVehicle++
+	now := time.Now()
+	v.CreatedAt = now
+	v.UpdatedAt = now
+
+	r.store.data.OrganizationVehicles = append(r.store.data.OrganizationVehicles, *v)
+
+	if err := r.store.saveUnlocked(); err != nil {
+		return nil, err
+	}
+
+	log.Printf("[JSON] Created organization vehicle: id=%d name=%s capacity=%d", v.ID, v.Name, v.Capacity)
+	return v, nil
+}
+
+func (r *jsonOrganizationVehicleRepository) Update(ctx context.Context, v *models.OrganizationVehicle) (*models.OrganizationVehicle, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	for i, existing := range r.store.data.OrganizationVehicles {
+		if existing.ID == v.ID {
+			v.CreatedAt = existing.CreatedAt
+			v.UpdatedAt = time.Now()
+			r.store.data.OrganizationVehicles[i] = *v
+
+			if err := r.store.saveUnlocked(); err != nil {
+				return nil, err
+			}
+
+			log.Printf("[JSON] Updated organization vehicle: id=%d", v.ID)
+			return v, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+func (r *jsonOrganizationVehicleRepository) Delete(ctx context.Context, id int64) error {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	for i, v := range r.store.data.OrganizationVehicles {
+		if v.ID == id {
+			r.store.data.OrganizationVehicles = append(r.store.data.OrganizationVehicles[:i], r.store.data.OrganizationVehicles[i+1:]...)
+
+			if err := r.store.saveUnlocked(); err != nil {
+				return err
+			}
+
+			log.Printf("[JSON] Deleted organization vehicle: id=%d", id)
 			return nil
 		}
 	}

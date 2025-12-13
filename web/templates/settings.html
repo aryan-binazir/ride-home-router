@@ -71,6 +71,69 @@
     </div>
 </div>
 
+<!-- Organization Vehicles Management -->
+<div class="card">
+    <h3>Organization Vehicles</h3>
+    <p class="text-muted">Vehicles owned by the organization that can be assigned to drivers during events.</p>
+
+    <!-- Add New Vehicle Form -->
+    <form hx-post="/api/v1/org-vehicles"
+          hx-target="#org-vehicle-list"
+          hx-swap="beforeend"
+          hx-on::after-request="this.reset()"
+          class="mb-4">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Vehicle Name</label>
+                <input type="text"
+                       name="name"
+                       class="form-input"
+                       placeholder="e.g., Church Van"
+                       required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Capacity</label>
+                <input type="number"
+                       name="capacity"
+                       class="form-input"
+                       placeholder="Seats"
+                       min="1"
+                       required>
+            </div>
+            <div class="form-group form-group-actions">
+                <button type="submit" class="btn btn-primary">Add Vehicle</button>
+            </div>
+        </div>
+    </form>
+
+    <!-- Existing Vehicles List -->
+    <div id="org-vehicle-list">
+        {{if .OrgVehicles}}
+        {{range .OrgVehicles}}
+        <div class="list-card" id="org-vehicle-{{.ID}}">
+            <div class="d-flex justify-between align-center gap-2">
+                <div>
+                    <div class="d-flex align-center gap-2">
+                        <strong>{{.Name}}</strong>
+                        <span class="badge badge-muted">{{.Capacity}} seats</span>
+                    </div>
+                </div>
+                <button hx-delete="/api/v1/org-vehicles/{{.ID}}"
+                        hx-confirm="Are you sure you want to delete this vehicle?"
+                        hx-target="#org-vehicle-{{.ID}}"
+                        hx-swap="outerHTML swap:1s"
+                        class="btn btn-danger btn-sm">
+                    Delete
+                </button>
+            </div>
+        </div>
+        {{end}}
+        {{else}}
+        <p class="text-muted" id="no-vehicles-message">No organization vehicles yet. Add one above.</p>
+        {{end}}
+    </div>
+</div>
+
 <!-- Settings Form -->
 <div class="card">
     <h3>Active Location &amp; Preferences</h3>

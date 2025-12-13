@@ -1,0 +1,138 @@
+{{define "capacity_shortage"}}
+<div class="capacity-shortage-container">
+    <div class="alert alert-warning">
+        <h3>Not Enough Capacity</h3>
+        <p>
+            <strong>{{.Error.TotalParticipants}}</strong> participants selected, but only
+            <strong>{{.Error.TotalCapacity}}</strong> seats available.
+            You need <strong>{{.Error.Shortage}}</strong> more seat{{if gt .Error.Shortage 1}}s{{end}}.
+        </p>
+    </div>
+
+    {{if .OrgVehicles}}
+    <div class="card mt-3">
+        <h3>Assign Organization Vehicles</h3>
+        <p class="text-muted">Assign org vehicles to drivers to increase capacity, then recalculate.</p>
+
+        <form id="recalc-form"
+              hx-post="/api/v1/routes/calculate-with-org-vehicles"
+              hx-target="#results-section"
+              hx-indicator="#recalc-loading">
+
+            <!-- Pass through original selection -->
+            {{range .ParticipantIDs}}
+            <input type="hidden" name="participant_ids" value="{{.}}">
+            {{end}}
+            {{range .DriverIDs}}
+            <input type="hidden" name="driver_ids" value="{{.}}">
+            {{end}}
+
+            <div class="org-vehicle-assignments">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Driver</th>
+                            <th>Personal Capacity</th>
+                            <th>Assign Org Vehicle</th>
+                            <th>New Capacity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Drivers}}
+                        <tr class="driver-row" data-driver-id="{{.ID}}" data-base-capacity="{{.VehicleCapacity}}">
+                            <td>
+                                <strong>{{.Name}}</strong>
+                                <div class="text-muted" style="font-size: 0.85em;">{{.Address}}</div>
+                            </td>
+                            <td>{{.VehicleCapacity}} seats</td>
+                            <td>
+                                <select name="org_vehicle_{{.ID}}"
+                                        class="form-select org-vehicle-select"
+                                        data-driver-id="{{.ID}}"
+                                        onchange="updateCapacityDisplay(this)">
+                                    <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
+                                    {{range $.OrgVehicles}}
+                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}">{{.Name}} ({{.Capacity}} seats)</option>
+                                    {{end}}
+                                </select>
+                            </td>
+                            <td class="capacity-display">{{.VehicleCapacity}} seats</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="2"></td>
+                            <td><strong>Total Capacity:</strong></td>
+                            <td><strong id="total-capacity">{{.Error.TotalCapacity}} seats</strong></td>
+                        </tr>
+                        <tr>
+                            <td colspan="2"></td>
+                            <td><strong>Participants:</strong></td>
+                            <td><strong>{{.Error.TotalParticipants}}</strong></td>
+                        </tr>
+                        <tr>
+                            <td colspan="2"></td>
+                            <td><strong>Status:</strong></td>
+                            <td>
+                                <span id="capacity-status" class="text-danger">
+                                    Need {{.Error.Shortage}} more seat{{if gt .Error.Shortage 1}}s{{end}}
+                                </span>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <div class="d-flex align-center gap-2 mt-3">
+                <button type="submit" class="btn btn-primary" id="recalc-btn">
+                    Recalculate Routes
+                </button>
+                <span class="loading htmx-indicator" id="recalc-loading"></span>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function updateCapacityDisplay(select) {
+            const row = select.closest('tr');
+            const selectedOption = select.options[select.selectedIndex];
+            const newCapacity = parseInt(selectedOption.dataset.capacity);
+
+            row.querySelector('.capacity-display').textContent = newCapacity + ' seats';
+
+            updateTotalCapacity();
+        }
+
+        function updateTotalCapacity() {
+            let total = 0;
+            document.querySelectorAll('.driver-row').forEach(row => {
+                const select = row.querySelector('.org-vehicle-select');
+                const selectedOption = select.options[select.selectedIndex];
+                total += parseInt(selectedOption.dataset.capacity);
+            });
+
+            document.getElementById('total-capacity').textContent = total + ' seats';
+
+            const participants = {{.Error.TotalParticipants}};
+            const statusEl = document.getElementById('capacity-status');
+
+            if (total >= participants) {
+                statusEl.textContent = 'OK - ' + total + ' seats available';
+                statusEl.className = 'text-success';
+            } else {
+                const shortage = participants - total;
+                statusEl.textContent = 'Need ' + shortage + ' more seat' + (shortage > 1 ? 's' : '');
+                statusEl.className = 'text-danger';
+            }
+        }
+    </script>
+
+    {{else}}
+    <div class="alert alert-info mt-3">
+        <p>No organization vehicles configured. You can add them in <a href="/settings">Settings</a>.</p>
+        <p>Alternatively, select more drivers or fewer participants.</p>
+    </div>
+    {{end}}
+</div>
+{{end}}
