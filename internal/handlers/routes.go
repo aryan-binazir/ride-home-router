@@ -371,39 +371,3 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	})
 }
 
-// HandleGeocodeAddress handles POST /api/v1/geocode
-func (h *Handler) HandleGeocodeAddress(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Address string `json:"address"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[HTTP] POST /api/v1/geocode: invalid_body err=%v", err)
-		h.handleValidationError(w, "Invalid request body")
-		return
-	}
-
-	if req.Address == "" {
-		log.Printf("[HTTP] POST /api/v1/geocode: missing address")
-		h.handleValidationError(w, "Address is required")
-		return
-	}
-
-	log.Printf("[HTTP] POST /api/v1/geocode: address=%s", req.Address)
-	result, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
-	if err != nil {
-		log.Printf("[ERROR] Failed to geocode address: address=%s err=%v", req.Address, err)
-		h.handleGeocodingError(w, err)
-		return
-	}
-
-	log.Printf("[HTTP] Geocoded address: address=%s lat=%.6f lng=%.6f", req.Address, result.Coords.Lat, result.Coords.Lng)
-	response := map[string]interface{}{
-		"address":      req.Address,
-		"lat":          result.Coords.Lat,
-		"lng":          result.Coords.Lng,
-		"display_name": result.DisplayName,
-	}
-
-	h.writeJSON(w, http.StatusOK, response)
-}

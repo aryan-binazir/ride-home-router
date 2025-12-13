@@ -28,21 +28,7 @@
             </div>
             <div class="form-group form-group-wide">
                 <label class="form-label">Address</label>
-                <div class="address-autocomplete-wrapper">
-                    <input type="text"
-                           name="address"
-                           class="form-input"
-                           placeholder="Start typing an address..."
-                           hx-get="/api/v1/address-search"
-                           hx-trigger="input delay:500ms"
-                           hx-target="next .address-suggestions"
-                           hx-swap="innerHTML"
-                           hx-sync="this:replace"
-                           hx-include="this"
-                           autocomplete="off"
-                           required>
-                    <div class="address-suggestions"></div>
-                </div>
+                {{template "address_input" ""}}
             </div>
             <div class="form-group form-group-actions">
                 <button type="submit" class="btn btn-primary">Add Location</button>

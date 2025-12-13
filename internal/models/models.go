@@ -1,11 +1,20 @@
 package models
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Coordinates represents a geographic point
 type Coordinates struct {
 	Lat float64 `json:"lat"`
 	Lng float64 `json:"lng"`
+}
+
+// RoundCoordinate rounds a coordinate to 5 decimal places (approximately 1 meter precision).
+// This is used for consistent coordinate comparison across the codebase.
+func RoundCoordinate(coord float64) float64 {
+	return math.Round(coord*100000) / 100000
 }
 
 // Participant represents a person to be driven home

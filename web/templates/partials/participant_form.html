@@ -30,22 +30,7 @@
 
         <div class="form-group">
             <label class="form-label">Address</label>
-            <div class="address-autocomplete-wrapper">
-                <input type="text"
-                       name="address"
-                       class="form-input"
-                       value="{{.Participant.Address}}"
-                       placeholder="Start typing an address..."
-                       hx-get="/api/v1/address-search"
-                       hx-trigger="input delay:500ms"
-                       hx-target="next .address-suggestions"
-                       hx-swap="innerHTML"
-                       hx-sync="this:replace"
-                       hx-include="this"
-                       autocomplete="off"
-                       required>
-                <div class="address-suggestions"></div>
-            </div>
+            {{template "address_input" .Participant.Address}}
             <div class="form-help">Address will be geocoded automatically</div>
         </div>
 

@@ -167,17 +167,13 @@ func (c *FileDistanceCache) Clear(ctx context.Context) error {
 
 // coordsMatch checks if two coordinates are equal (rounded to 5 decimal places)
 func coordsMatch(a, b models.Coordinates) bool {
-	return roundCoord(a.Lat) == roundCoord(b.Lat) && roundCoord(a.Lng) == roundCoord(b.Lng)
-}
-
-// roundCoord rounds a coordinate to 5 decimal places for consistent matching
-func roundCoord(f float64) float64 {
-	return float64(int(f*100000)) / 100000
+	return models.RoundCoordinate(a.Lat) == models.RoundCoordinate(b.Lat) &&
+		models.RoundCoordinate(a.Lng) == models.RoundCoordinate(b.Lng)
 }
 
 // makeCacheKey creates a unique key for a coordinate pair
 func makeCacheKey(origin, dest models.Coordinates) string {
 	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
-		roundCoord(origin.Lat), roundCoord(origin.Lng),
-		roundCoord(dest.Lat), roundCoord(dest.Lng))
+		models.RoundCoordinate(origin.Lat), models.RoundCoordinate(origin.Lng),
+		models.RoundCoordinate(dest.Lat), models.RoundCoordinate(dest.Lng))
 }

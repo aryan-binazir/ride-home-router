@@ -408,14 +408,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleAddDriver(w, r)
 	})
 
-	mux.HandleFunc("/api/v1/geocode", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleGeocodeAddress(w, r)
-	})
-
 	mux.HandleFunc("/api/v1/address-search", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

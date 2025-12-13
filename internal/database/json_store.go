@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -94,11 +93,68 @@ func NewJSONStore(distanceCache DistanceCacheRepository) (*JSONStore, error) {
 	}
 
 	// Initialize repositories
-	store.participantRepository = &jsonParticipantRepository{store: store}
-	store.driverRepository = &jsonDriverRepository{store: store}
+	store.participantRepository = &jsonParticipantRepository{
+		genericRepository: &genericRepository[models.Participant]{
+			store:       store,
+			getSlice:    func(d *JSONData) *[]models.Participant { return &d.Participants },
+			getNextID:   func(d *JSONData) *int64 { return &d.NextIDs.Participant },
+			entityName:  "participant",
+			getID:       func(p *models.Participant) int64 { return p.ID },
+			setID:       func(p *models.Participant, id int64) { p.ID = id },
+			getName:     func(p *models.Participant) string { return p.Name },
+			withTimestamps: true,
+			getCreatedAt: func(p *models.Participant) time.Time { return p.CreatedAt },
+			setCreatedAt: func(p *models.Participant, t time.Time) { p.CreatedAt = t },
+			setUpdatedAt: func(p *models.Participant, t time.Time) { p.UpdatedAt = t },
+		},
+	}
+
+	store.driverRepository = &jsonDriverRepository{
+		genericRepository: &genericRepository[models.Driver]{
+			store:       store,
+			getSlice:    func(d *JSONData) *[]models.Driver { return &d.Drivers },
+			getNextID:   func(d *JSONData) *int64 { return &d.NextIDs.Driver },
+			entityName:  "driver",
+			getID:       func(dr *models.Driver) int64 { return dr.ID },
+			setID:       func(dr *models.Driver, id int64) { dr.ID = id },
+			getName:     func(dr *models.Driver) string { return dr.Name },
+			withTimestamps: true,
+			getCreatedAt: func(dr *models.Driver) time.Time { return dr.CreatedAt },
+			setCreatedAt: func(dr *models.Driver, t time.Time) { dr.CreatedAt = t },
+			setUpdatedAt: func(dr *models.Driver, t time.Time) { dr.UpdatedAt = t },
+		},
+	}
+
+	store.activityLocationRepository = &jsonActivityLocationRepository{
+		genericRepository: &genericRepository[models.ActivityLocation]{
+			store:       store,
+			getSlice:    func(d *JSONData) *[]models.ActivityLocation { return &d.ActivityLocations },
+			getNextID:   func(d *JSONData) *int64 { return &d.NextIDs.ActivityLocation },
+			entityName:  "activity location",
+			getID:       func(loc *models.ActivityLocation) int64 { return loc.ID },
+			setID:       func(loc *models.ActivityLocation, id int64) { loc.ID = id },
+			getName:     func(loc *models.ActivityLocation) string { return loc.Name },
+			withTimestamps: false,
+		},
+	}
+
+	store.organizationVehicleRepository = &jsonOrganizationVehicleRepository{
+		genericRepository: &genericRepository[models.OrganizationVehicle]{
+			store:       store,
+			getSlice:    func(d *JSONData) *[]models.OrganizationVehicle { return &d.OrganizationVehicles },
+			getNextID:   func(d *JSONData) *int64 { return &d.NextIDs.OrganizationVehicle },
+			entityName:  "organization vehicle",
+			getID:       func(v *models.OrganizationVehicle) int64 { return v.ID },
+			setID:       func(v *models.OrganizationVehicle, id int64) { v.ID = id },
+			getName:     func(v *models.OrganizationVehicle) string { return v.Name },
+			withTimestamps: true,
+			getCreatedAt: func(v *models.OrganizationVehicle) time.Time { return v.CreatedAt },
+			setCreatedAt: func(v *models.OrganizationVehicle, t time.Time) { v.CreatedAt = t },
+			setUpdatedAt: func(v *models.OrganizationVehicle, t time.Time) { v.UpdatedAt = t },
+		},
+	}
+
 	store.settingsRepository = &jsonSettingsRepository{store: store}
-	store.activityLocationRepository = &jsonActivityLocationRepository{store: store}
-	store.organizationVehicleRepository = &jsonOrganizationVehicleRepository{store: store}
 	store.eventRepository = &jsonEventRepository{store: store}
 	store.distanceCacheRepository = distanceCache
 
@@ -216,243 +272,61 @@ func (s *JSONStore) HealthCheck(ctx context.Context) error {
 // ==================== Participant Repository ====================
 
 type jsonParticipantRepository struct {
-	store *JSONStore
+	*genericRepository[models.Participant]
 }
 
 func (r *jsonParticipantRepository) List(ctx context.Context, search string) ([]models.Participant, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	var result []models.Participant
-	for _, p := range r.store.data.Participants {
-		if search == "" || strings.Contains(strings.ToLower(p.Name), strings.ToLower(search)) {
-			result = append(result, p)
-		}
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
+	return r.list(ctx, search)
 }
 
 func (r *jsonParticipantRepository) GetByID(ctx context.Context, id int64) (*models.Participant, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	for _, p := range r.store.data.Participants {
-		if p.ID == id {
-			return &p, nil
-		}
-	}
-	return nil, nil // Not found is not an error for GetByID
+	return r.getByID(ctx, id)
 }
 
 func (r *jsonParticipantRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	idSet := make(map[int64]bool)
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	var result []models.Participant
-	for _, p := range r.store.data.Participants {
-		if idSet[p.ID] {
-			result = append(result, p)
-		}
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
+	return r.getByIDs(ctx, ids)
 }
 
 func (r *jsonParticipantRepository) Create(ctx context.Context, p *models.Participant) (*models.Participant, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	p.ID = r.store.data.NextIDs.Participant
-	r.store.data.NextIDs.Participant++
-	now := time.Now()
-	p.CreatedAt = now
-	p.UpdatedAt = now
-
-	r.store.data.Participants = append(r.store.data.Participants, *p)
-
-	if err := r.store.saveUnlocked(); err != nil {
-		return nil, err
-	}
-
-	log.Printf("[JSON] Created participant: id=%d", p.ID)
-	return p, nil
+	return r.create(ctx, p)
 }
 
 func (r *jsonParticipantRepository) Update(ctx context.Context, p *models.Participant) (*models.Participant, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, existing := range r.store.data.Participants {
-		if existing.ID == p.ID {
-			p.CreatedAt = existing.CreatedAt
-			p.UpdatedAt = time.Now()
-			r.store.data.Participants[i] = *p
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return nil, err
-			}
-
-			log.Printf("[JSON] Updated participant: id=%d", p.ID)
-			return p, nil
-		}
-	}
-
-	return nil, ErrNotFound
+	return r.update(ctx, p)
 }
 
 func (r *jsonParticipantRepository) Delete(ctx context.Context, id int64) error {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, p := range r.store.data.Participants {
-		if p.ID == id {
-			r.store.data.Participants = append(r.store.data.Participants[:i], r.store.data.Participants[i+1:]...)
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return err
-			}
-
-			log.Printf("[JSON] Deleted participant: id=%d", id)
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return r.delete(ctx, id)
 }
 
 // ==================== Driver Repository ====================
 
 type jsonDriverRepository struct {
-	store *JSONStore
+	*genericRepository[models.Driver]
 }
 
 func (r *jsonDriverRepository) List(ctx context.Context, search string) ([]models.Driver, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	var result []models.Driver
-	for _, d := range r.store.data.Drivers {
-		if search == "" || strings.Contains(strings.ToLower(d.Name), strings.ToLower(search)) {
-			result = append(result, d)
-		}
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
+	return r.list(ctx, search)
 }
 
 func (r *jsonDriverRepository) GetByID(ctx context.Context, id int64) (*models.Driver, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	for _, d := range r.store.data.Drivers {
-		if d.ID == id {
-			return &d, nil
-		}
-	}
-	return nil, nil // Not found is not an error for GetByID
+	return r.getByID(ctx, id)
 }
 
 func (r *jsonDriverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	idSet := make(map[int64]bool)
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	var result []models.Driver
-	for _, d := range r.store.data.Drivers {
-		if idSet[d.ID] {
-			result = append(result, d)
-		}
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
+	return r.getByIDs(ctx, ids)
 }
 
 func (r *jsonDriverRepository) Create(ctx context.Context, d *models.Driver) (*models.Driver, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	d.ID = r.store.data.NextIDs.Driver
-	r.store.data.NextIDs.Driver++
-	now := time.Now()
-	d.CreatedAt = now
-	d.UpdatedAt = now
-
-	r.store.data.Drivers = append(r.store.data.Drivers, *d)
-
-	if err := r.store.saveUnlocked(); err != nil {
-		return nil, err
-	}
-
-	log.Printf("[JSON] Created driver: id=%d capacity=%d", d.ID, d.VehicleCapacity)
-	return d, nil
+	return r.create(ctx, d)
 }
 
 func (r *jsonDriverRepository) Update(ctx context.Context, d *models.Driver) (*models.Driver, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, existing := range r.store.data.Drivers {
-		if existing.ID == d.ID {
-			d.CreatedAt = existing.CreatedAt
-			d.UpdatedAt = time.Now()
-			r.store.data.Drivers[i] = *d
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return nil, err
-			}
-
-			log.Printf("[JSON] Updated driver: id=%d", d.ID)
-			return d, nil
-		}
-	}
-
-	return nil, ErrNotFound
+	return r.update(ctx, d)
 }
 
 func (r *jsonDriverRepository) Delete(ctx context.Context, id int64) error {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, d := range r.store.data.Drivers {
-		if d.ID == id {
-			r.store.data.Drivers = append(r.store.data.Drivers[:i], r.store.data.Drivers[i+1:]...)
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return err
-			}
-
-			log.Printf("[JSON] Deleted driver: id=%d", id)
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return r.delete(ctx, id)
 }
 
 // ==================== Settings Repository ====================
@@ -596,181 +470,51 @@ func (r *jsonEventRepository) Delete(ctx context.Context, id int64) error {
 // ==================== Activity Location Repository ====================
 
 type jsonActivityLocationRepository struct {
-	store *JSONStore
+	*genericRepository[models.ActivityLocation]
 }
 
 func (r *jsonActivityLocationRepository) List(ctx context.Context) ([]models.ActivityLocation, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	result := make([]models.ActivityLocation, len(r.store.data.ActivityLocations))
-	copy(result, r.store.data.ActivityLocations)
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
+	return r.list(ctx, "")
 }
 
 func (r *jsonActivityLocationRepository) GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	for _, loc := range r.store.data.ActivityLocations {
-		if loc.ID == id {
-			return &loc, nil
-		}
-	}
-	return nil, nil // Not found is not an error for GetByID
+	return r.getByID(ctx, id)
 }
 
 func (r *jsonActivityLocationRepository) Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	loc.ID = r.store.data.NextIDs.ActivityLocation
-	r.store.data.NextIDs.ActivityLocation++
-
-	r.store.data.ActivityLocations = append(r.store.data.ActivityLocations, *loc)
-
-	if err := r.store.saveUnlocked(); err != nil {
-		return nil, err
-	}
-
-	log.Printf("[JSON] Created activity location: id=%d", loc.ID)
-	return loc, nil
+	return r.create(ctx, loc)
 }
 
 func (r *jsonActivityLocationRepository) Delete(ctx context.Context, id int64) error {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, loc := range r.store.data.ActivityLocations {
-		if loc.ID == id {
-			r.store.data.ActivityLocations = append(r.store.data.ActivityLocations[:i], r.store.data.ActivityLocations[i+1:]...)
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return err
-			}
-
-			log.Printf("[JSON] Deleted activity location: id=%d", id)
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return r.delete(ctx, id)
 }
 
 // ==================== Organization Vehicle Repository ====================
 
 type jsonOrganizationVehicleRepository struct {
-	store *JSONStore
+	*genericRepository[models.OrganizationVehicle]
 }
 
 func (r *jsonOrganizationVehicleRepository) List(ctx context.Context) ([]models.OrganizationVehicle, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	result := make([]models.OrganizationVehicle, len(r.store.data.OrganizationVehicles))
-	copy(result, r.store.data.OrganizationVehicles)
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
+	return r.list(ctx, "")
 }
 
 func (r *jsonOrganizationVehicleRepository) GetByID(ctx context.Context, id int64) (*models.OrganizationVehicle, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	for _, v := range r.store.data.OrganizationVehicles {
-		if v.ID == id {
-			return &v, nil
-		}
-	}
-	return nil, nil // Not found is not an error for GetByID
+	return r.getByID(ctx, id)
 }
 
 func (r *jsonOrganizationVehicleRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.OrganizationVehicle, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	idSet := make(map[int64]bool)
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	var result []models.OrganizationVehicle
-	for _, v := range r.store.data.OrganizationVehicles {
-		if idSet[v.ID] {
-			result = append(result, v)
-		}
-	}
-
-	return result, nil
+	return r.getByIDs(ctx, ids)
 }
 
 func (r *jsonOrganizationVehicleRepository) Create(ctx context.Context, v *models.OrganizationVehicle) (*models.OrganizationVehicle, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	v.ID = r.store.data.NextIDs.OrganizationVehicle
-	r.store.data.NextIDs.OrganizationVehicle++
-	now := time.Now()
-	v.CreatedAt = now
-	v.UpdatedAt = now
-
-	r.store.data.OrganizationVehicles = append(r.store.data.OrganizationVehicles, *v)
-
-	if err := r.store.saveUnlocked(); err != nil {
-		return nil, err
-	}
-
-	log.Printf("[JSON] Created organization vehicle: id=%d name=%s capacity=%d", v.ID, v.Name, v.Capacity)
-	return v, nil
+	return r.create(ctx, v)
 }
 
 func (r *jsonOrganizationVehicleRepository) Update(ctx context.Context, v *models.OrganizationVehicle) (*models.OrganizationVehicle, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, existing := range r.store.data.OrganizationVehicles {
-		if existing.ID == v.ID {
-			v.CreatedAt = existing.CreatedAt
-			v.UpdatedAt = time.Now()
-			r.store.data.OrganizationVehicles[i] = *v
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return nil, err
-			}
-
-			log.Printf("[JSON] Updated organization vehicle: id=%d", v.ID)
-			return v, nil
-		}
-	}
-
-	return nil, ErrNotFound
+	return r.update(ctx, v)
 }
 
 func (r *jsonOrganizationVehicleRepository) Delete(ctx context.Context, id int64) error {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	for i, v := range r.store.data.OrganizationVehicles {
-		if v.ID == id {
-			r.store.data.OrganizationVehicles = append(r.store.data.OrganizationVehicles[:i], r.store.data.OrganizationVehicles[i+1:]...)
-
-			if err := r.store.saveUnlocked(); err != nil {
-				return err
-			}
-
-			log.Printf("[JSON] Deleted organization vehicle: id=%d", id)
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return r.delete(ctx, id)
 }
