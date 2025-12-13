@@ -59,7 +59,7 @@
             <div class="panel-header">
                 <div>
                     <h3 class="panel-title">Drivers</h3>
-                    <p class="panel-subtitle">Who’s available to drive tonight?</p>
+                    <p class="panel-subtitle">Who's available to drive?</p>
                 </div>
                 <div class="panel-actions">
                     <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select all</button>
@@ -115,6 +115,22 @@
             <div class="action-bar-stats text-muted" id="selection-stats"></div>
         </div>
         <div class="action-bar-right">
+            <div class="form-group" style="margin-bottom: 0; margin-right: 1rem;">
+                <label class="form-label">Route Mode</label>
+                <div class="d-flex gap-2">
+                    <label class="checkbox-label">
+                        <input type="radio" name="mode" value="dropoff" checked class="form-radio">
+                        <span>Dropoff</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="radio" name="mode" value="pickup" class="form-radio">
+                        <span>Pickup</span>
+                    </label>
+                </div>
+                <div class="form-help">
+                    Dropoff: Activity → Homes | Pickup: Homes → Activity
+                </div>
+            </div>
             <button type="button"
                     class="btn btn-primary btn-lg"
                     hx-post="/api/v1/routes/calculate"

@@ -4,7 +4,8 @@
      data-activity-location-name="{{.ActivityLocation.Name}}"
      data-activity-location-address="{{.ActivityLocation.Address}}"
      data-session-id="{{.SessionID}}"
-     data-route-count="{{len .Routes}}">
+     data-route-count="{{len .Routes}}"
+     data-route-mode="{{.Mode}}">
     <div class="routes-header">
         <div>
             <h3 class="routes-title">Calculated Routes</h3>
@@ -53,10 +54,10 @@
                     <strong>Passengers:</strong> {{len .Stops}}
                 </div>
                 <div class="stat">
-                    <strong>Dropoff Distance:</strong> {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
+                    <strong>{{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}} Distance:</strong> {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
                 </div>
                 <div class="stat">
-                    <strong>To Home:</strong>
+                    <strong>{{if eq .Mode "pickup"}}To Activity{{else}}To Home{{end}}:</strong>
                     {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
                 </div>
                 <div class="stat">
@@ -110,7 +111,11 @@
                 </div>
                 <div class="stop-distance">
                     {{if eq .Order 0}}
-                        {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$activityLocation.Name}}
+                        {{if eq $route.Mode "pickup"}}
+                            {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$route.Driver.Name}}'s home
+                        {{else}}
+                            {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$activityLocation.Name}}
+                        {{end}}
                     {{else}}
                         {{formatDistance .DistanceFromPrevMeters $useMiles}}
                     {{end}}

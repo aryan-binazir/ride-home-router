@@ -70,7 +70,13 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d", len(req.ParticipantIDs), len(req.DriverIDs))
+	// Parse mode (default to "dropoff" if not provided)
+	mode := r.FormValue("mode")
+	if mode == "" {
+		mode = "dropoff"
+	}
+
+	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d mode=%s", len(req.ParticipantIDs), len(req.DriverIDs), mode)
 
 	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
@@ -125,6 +131,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		InstituteCoords: activityLocation.GetCoords(),
 		Participants:    participants,
 		Drivers:         drivers,
+		Mode:            routing.RouteMode(mode),
 	}
 
 	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
@@ -169,7 +176,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles)
+	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles, mode)
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
@@ -182,6 +189,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			"SessionID":        session.ID,
 			"IsEditing":        false,
 			"UnusedDrivers":    getUnusedDrivers(session),
+			"Mode":             mode,
 		})
 		return
 	}
@@ -220,6 +228,12 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		}
 	}
 
+	// Parse mode (default to "dropoff" if not provided)
+	mode := r.FormValue("mode")
+	if mode == "" {
+		mode = "dropoff"
+	}
+
 	// Parse org vehicle assignments (org_vehicle_{driverID} = orgVehicleID)
 	orgVehicleAssignments := make(map[int64]int64) // driverID -> orgVehicleID
 	for key, values := range r.Form {
@@ -237,8 +251,8 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		}
 	}
 
-	log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: participants=%d drivers=%d org_assignments=%d",
-		len(participantIDs), len(driverIDs), len(orgVehicleAssignments))
+	log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: participants=%d drivers=%d org_assignments=%d mode=%s",
+		len(participantIDs), len(driverIDs), len(orgVehicleAssignments), mode)
 
 	if len(participantIDs) == 0 {
 		h.handleValidationErrorHTMX(w, r, "Please select at least one participant.")
@@ -308,6 +322,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		InstituteCoords: activityLocation.GetCoords(),
 		Participants:    participants,
 		Drivers:         modifiedDrivers,
+		Mode:            routing.RouteMode(mode),
 	}
 
 	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
@@ -357,7 +372,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles)
+	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles, mode)
 
 	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
 	h.renderTemplate(w, "route_results", map[string]interface{}{
@@ -368,6 +383,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		"SessionID":        session.ID,
 		"IsEditing":        false,
 		"UnusedDrivers":    getUnusedDrivers(session),
+		"Mode":             mode,
 	})
 }
 

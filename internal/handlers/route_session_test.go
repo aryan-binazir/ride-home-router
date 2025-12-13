@@ -121,7 +121,7 @@ func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
 
 	// Create initial session
-	session := store.Create(routes, drivers, activityLoc, false)
+	session := store.Create(routes, drivers, activityLoc, false, "dropoff")
 	sessionID := session.ID
 
 	var wg sync.WaitGroup
@@ -180,7 +180,7 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 	}
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ"}
 
-	session := store.Create(routes, drivers, activityLoc, true)
+	session := store.Create(routes, drivers, activityLoc, true, "dropoff")
 
 	if session.ID == "" {
 		t.Error("session should have an ID")
@@ -221,7 +221,7 @@ func TestSessionStore_Delete(t *testing.T) {
 	drivers := []models.Driver{}
 	activityLoc := &models.ActivityLocation{ID: 1}
 
-	session := store.Create(routes, drivers, activityLoc, false)
+	session := store.Create(routes, drivers, activityLoc, false, "dropoff")
 	sessionID := session.ID
 
 	// Verify session exists

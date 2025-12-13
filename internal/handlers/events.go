@@ -227,6 +227,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	event := &models.Event{
 		EventDate: eventDate,
 		Notes:     req.Notes,
+		Mode:      req.Routes.Mode,
 	}
 
 	var assignments []models.EventAssignment
@@ -256,6 +257,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		TotalDrivers:        req.Routes.Summary.TotalDriversUsed,
 		TotalDistanceMeters: req.Routes.Summary.TotalDropoffDistanceMeters,
 		OrgVehiclesUsed:     orgVehiclesUsed,
+		Mode:                req.Routes.Mode,
 	}
 
 	event, err = h.DB.Events().Create(r.Context(), event, assignments, summary)
