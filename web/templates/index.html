@@ -1,139 +1,160 @@
 {{define "content"}}
-<h2>Plan Event</h2>
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Plan Event</h2>
+        <p class="page-subtitle">Pick participants and available drivers, then calculate the best drop-off routes.</p>
+    </div>
+</div>
 
 <form id="event-form">
-    <!-- Participants Section -->
-    <section class="section">
-        <div class="section-header">
-            <h3 class="section-title">Select Participants</h3>
-            <button type="button" class="btn btn-sm btn-outline" onclick="selectAllParticipants()">Select All</button>
-        </div>
+    <div class="grid grid-2">
+        <!-- Participants -->
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3 class="panel-title">Participants</h3>
+                    <p class="panel-subtitle">Who needs a ride?</p>
+                </div>
+                <div class="panel-actions">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="selectAllParticipants()">Select all</button>
+                </div>
+            </div>
 
-        {{if .Participants}}
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"></th>
-                        <th>Name</th>
-                        <th>Address</th>
-                    </tr>
-                </thead>
-                <tbody id="participants-selection">
-                    {{range .Participants}}
-                    <tr>
-                        <td>
-                            <input type="checkbox"
-                                   name="participant_ids"
-                                   value="{{.ID}}"
-                                   class="form-checkbox participant-checkbox">
-                        </td>
-                        <td>{{.Name}}</td>
-                        <td class="text-muted">{{.Address}}</td>
-                    </tr>
-                    {{end}}
-                </tbody>
-            </table>
-        </div>
-        {{else}}
-        <div class="empty-state">
-            <h3>No participants found</h3>
-            <p>Add participants in the <a href="/participants">Participants</a> page first.</p>
-        </div>
-        {{end}}
-    </section>
+            {{if .Participants}}
+            <div class="panel-toolbar">
+                <input type="search"
+                       class="form-input form-input-search"
+                       placeholder="Search participants…"
+                       aria-label="Search participants"
+                       oninput="filterSelectList(this, 'participants-selection')">
+                <span class="panel-count text-muted">
+                    <span id="participants-selected-count">0</span> selected
+                </span>
+            </div>
 
-    <!-- Drivers Section -->
-    <section class="section">
-        <div class="section-header">
-            <h3 class="section-title">Select Available Drivers</h3>
-            <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select All</button>
-        </div>
+            <div class="select-list" id="participants-selection">
+                {{range .Participants}}
+                <label class="select-row" data-search="{{.Name}} {{.Address}}">
+                    <input type="checkbox"
+                           name="participant_ids"
+                           value="{{.ID}}"
+                           class="form-checkbox participant-checkbox select-control">
+                    <span class="select-row-content">
+                        <span class="select-row-title">{{.Name}}</span>
+                        <span class="select-row-subtitle">{{.Address}}</span>
+                    </span>
+                </label>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="empty-state">
+                <h3>No participants found</h3>
+                <p>Add participants in the <a href="/participants">Participants</a> page first.</p>
+            </div>
+            {{end}}
+        </section>
 
-        {{if .Drivers}}
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"></th>
-                        <th>Name</th>
-                        <th>Address</th>
-                        <th>Capacity</th>
-                        <th>Type</th>
-                    </tr>
-                </thead>
-                <tbody id="drivers-selection">
-                    {{range .Drivers}}
-                    <tr>
-                        <td>
-                            <input type="checkbox"
-                                   name="driver_ids"
-                                   value="{{.ID}}"
-                                   class="form-checkbox driver-checkbox"
-                                   data-capacity="{{.VehicleCapacity}}"
-                                   {{if .IsInstituteVehicle}}data-institute="true"{{end}}>
-                        </td>
-                        <td>{{.Name}}</td>
-                        <td class="text-muted">{{.Address}}</td>
-                        <td>{{.VehicleCapacity}}</td>
-                        <td>
+        <!-- Drivers -->
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3 class="panel-title">Drivers</h3>
+                    <p class="panel-subtitle">Who’s available to drive tonight?</p>
+                </div>
+                <div class="panel-actions">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select all</button>
+                </div>
+            </div>
+
+            {{if .Drivers}}
+            <div class="panel-toolbar">
+                <input type="search"
+                       class="form-input form-input-search"
+                       placeholder="Search drivers…"
+                       aria-label="Search drivers"
+                       oninput="filterSelectList(this, 'drivers-selection')">
+                <span class="panel-count text-muted">
+                    <span id="drivers-selected-count">0</span> selected •
+                    <span id="drivers-selected-seats">0</span> seats
+                </span>
+            </div>
+
+            <div class="select-list" id="drivers-selection">
+                {{range .Drivers}}
+                <label class="select-row" data-search="{{.Name}} {{.Address}}">
+                    <input type="checkbox"
+                           name="driver_ids"
+                           value="{{.ID}}"
+                           class="form-checkbox driver-checkbox select-control"
+                           data-capacity="{{.VehicleCapacity}}"
+                           {{if .IsInstituteVehicle}}data-institute="true"{{end}}>
+                    <span class="select-row-content">
+                        <span class="select-row-title">
+                            {{.Name}}
                             {{if .IsInstituteVehicle}}
-                                <span class="text-warning">Institute Vehicle</span>
-                            {{else}}
-                                Personal
+                            <span class="badge badge-warning">Institute vehicle</span>
                             {{end}}
-                        </td>
-                    </tr>
-                    {{end}}
-                </tbody>
-            </table>
-        </div>
+                        </span>
+                        <span class="select-row-subtitle">{{.Address}}</span>
+                        <span class="select-row-meta">
+                            <span class="badge badge-muted">{{.VehicleCapacity}} seats</span>
+                            {{if not .IsInstituteVehicle}}
+                            <span class="badge badge-muted">Personal</span>
+                            {{end}}
+                        </span>
+                    </span>
+                </label>
+                {{end}}
+            </div>
 
-        <!-- Institute Vehicle Driver Selection -->
-        {{if .HasInstituteVehicle}}
-        <div id="institute-driver-section" class="mt-3 hidden">
-            <div class="card">
-                <div class="form-group">
-                    <label class="form-label">Who will drive the institute vehicle?</label>
+            <!-- Institute Vehicle Driver Selection -->
+            {{if .HasInstituteVehicle}}
+            <div id="institute-driver-section" class="callout callout-warning mt-3 hidden">
+                <div class="callout-title">Institute vehicle driver</div>
+                <div class="form-group mt-2">
+                    <label class="form-label">Who will drive it?</label>
                     <select name="institute_vehicle_driver_id" class="form-select" id="institute-vehicle-driver">
-                        <option value="">Select driver...</option>
+                        <option value="">Select driver…</option>
                         {{range .Drivers}}
                         {{if not .IsInstituteVehicle}}
                         <option value="{{.ID}}">{{.Name}}</option>
                         {{end}}
                         {{end}}
                     </select>
-                    <div class="form-help">Required when institute vehicle might be needed</div>
+                    <div class="form-help">Required when an institute vehicle is selected.</div>
                 </div>
             </div>
-        </div>
-        {{end}}
-        {{else}}
-        <div class="empty-state">
-            <h3>No drivers found</h3>
-            <p>Add drivers in the <a href="/drivers">Drivers</a> page first.</p>
-        </div>
-        {{end}}
-    </section>
+            {{end}}
+            {{else}}
+            <div class="empty-state">
+                <h3>No drivers found</h3>
+                <p>Add drivers in the <a href="/drivers">Drivers</a> page first.</p>
+            </div>
+            {{end}}
+        </section>
+    </div>
 
-    <!-- Action Buttons -->
-    <div class="d-flex justify-between align-center mt-4">
-        <button type="button"
-                class="btn btn-secondary"
-                onclick="clearSelections()">
-            Clear All
-        </button>
-        <button type="button"
-                class="btn btn-primary btn-lg"
-                hx-post="/api/v1/routes/calculate"
-                hx-include="#event-form"
-                hx-target="#results-section"
-                hx-indicator="#loading-indicator"
-                onclick="return validateBeforeCalculate()"
-                id="calculate-btn">
-            Calculate Routes
-            <span class="loading htmx-indicator" id="loading-indicator"></span>
-        </button>
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div class="action-bar-left">
+            <button type="button" class="btn btn-secondary" onclick="clearSelections()">
+                Clear all
+            </button>
+            <div class="action-bar-stats text-muted" id="selection-stats"></div>
+        </div>
+        <div class="action-bar-right">
+            <button type="button"
+                    class="btn btn-primary btn-lg"
+                    hx-post="/api/v1/routes/calculate"
+                    hx-include="#event-form"
+                    hx-target="#results-section"
+                    hx-indicator="#loading-indicator"
+                    onclick="return validateBeforeCalculate()"
+                    id="calculate-btn">
+                Calculate routes
+                <span class="loading htmx-indicator" id="loading-indicator"></span>
+            </button>
+        </div>
     </div>
 </form>
 
@@ -141,19 +162,83 @@
 <div id="results-section"></div>
 
 <script>
+    function updateEventStats() {
+        const participants = document.querySelectorAll('.participant-checkbox:checked');
+        const drivers = document.querySelectorAll('.driver-checkbox:checked');
+
+        let totalCapacity = 0;
+        drivers.forEach(cb => {
+            totalCapacity += parseInt(cb.dataset.capacity) || 0;
+        });
+
+        const participantsCount = participants.length;
+        const driversCount = drivers.length;
+
+        const participantsCountEl = document.getElementById('participants-selected-count');
+        if (participantsCountEl) participantsCountEl.textContent = participantsCount;
+
+        const driversCountEl = document.getElementById('drivers-selected-count');
+        if (driversCountEl) driversCountEl.textContent = driversCount;
+
+        const seatsEl = document.getElementById('drivers-selected-seats');
+        if (seatsEl) seatsEl.textContent = totalCapacity;
+
+        const statsEl = document.getElementById('selection-stats');
+        if (statsEl) {
+            const parts = [];
+            parts.push(`${participantsCount} participant${participantsCount === 1 ? '' : 's'}`);
+            parts.push(`${driversCount} driver${driversCount === 1 ? '' : 's'}`);
+            parts.push(`${totalCapacity} seat${totalCapacity === 1 ? '' : 's'}`);
+            statsEl.textContent = parts.join(' • ');
+
+            statsEl.classList.toggle('text-danger', participantsCount > totalCapacity && driversCount > 0);
+            statsEl.classList.toggle('text-muted', !(participantsCount > totalCapacity && driversCount > 0));
+        }
+    }
+
+    function filterSelectList(input, listId) {
+        const list = document.getElementById(listId);
+        if (!list) return;
+
+        const query = (input.value || '').trim().toLowerCase();
+        const rows = list.querySelectorAll('.select-row');
+
+        rows.forEach(row => {
+            const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
+            row.classList.toggle('hidden', query.length > 0 && !haystack.includes(query));
+        });
+    }
+
     function selectAllParticipants() {
-        document.querySelectorAll('.participant-checkbox').forEach(cb => cb.checked = true);
+        document.querySelectorAll('.participant-checkbox').forEach(cb => {
+            cb.checked = true;
+            const row = cb.closest('.select-row');
+            if (row) row.classList.add('is-selected');
+        });
+        updateEventStats();
     }
 
     function selectAllDrivers() {
-        document.querySelectorAll('.driver-checkbox').forEach(cb => cb.checked = true);
+        document.querySelectorAll('.driver-checkbox').forEach(cb => {
+            cb.checked = true;
+            const row = cb.closest('.select-row');
+            if (row) row.classList.add('is-selected');
+        });
         checkInstituteVehicle();
+        updateEventStats();
     }
 
     function clearSelections() {
-        document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
+            cb.checked = false;
+            const row = cb.closest('.select-row');
+            if (row) row.classList.remove('is-selected');
+        });
+        const instituteDriverSelect = document.getElementById('institute-vehicle-driver');
+        if (instituteDriverSelect) instituteDriverSelect.value = '';
         document.getElementById('results-section').innerHTML = '';
         checkInstituteVehicle();
+        updateEventStats();
     }
 
     function checkInstituteVehicle() {
@@ -186,6 +271,16 @@
             return false;
         }
 
+        const instituteChecked = document.querySelector('input[data-institute="true"]:checked');
+        if (instituteChecked) {
+            const instituteDriver = document.getElementById('institute-vehicle-driver');
+            if (!instituteDriver || !instituteDriver.value) {
+                resultsSection.innerHTML = '<div class="alert alert-warning">Please select who will drive the institute vehicle.</div>';
+                if (instituteDriver) instituteDriver.focus();
+                return false;
+            }
+        }
+
         // Check capacity
         let totalCapacity = 0;
         drivers.forEach(cb => {
@@ -204,12 +299,20 @@
 
     // Listen for changes on driver checkboxes
     document.addEventListener('change', function(e) {
-        if (e.target.classList.contains('driver-checkbox')) {
+        if (e.target.classList.contains('driver-checkbox') || e.target.classList.contains('participant-checkbox')) {
+            const row = e.target.closest('.select-row');
+            if (row) row.classList.toggle('is-selected', e.target.checked);
             checkInstituteVehicle();
+            updateEventStats();
         }
     });
 
     // Initialize on page load
     checkInstituteVehicle();
+    updateEventStats();
+    document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
+        const row = cb.closest('.select-row');
+        if (row) row.classList.toggle('is-selected', cb.checked);
+    });
 </script>
 {{end}}

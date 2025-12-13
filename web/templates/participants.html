@@ -1,12 +1,17 @@
 {{define "content"}}
-<div class="section-header">
-    <h2>Participant Roster</h2>
-    <button class="btn btn-primary"
-            hx-get="/api/v1/participants/new"
-            hx-target="#participant-form-container"
-            hx-swap="innerHTML">
-        Add Participant
-    </button>
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Participants</h2>
+        <p class="page-subtitle">Your roster of people who might need a ride. Addresses are geocoded automatically.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-primary"
+                hx-get="/api/v1/participants/new"
+                hx-target="#participant-form-container"
+                hx-swap="innerHTML">
+            Add Participant
+        </button>
+    </div>
 </div>
 
 <!-- Form Container (for add/edit forms) -->

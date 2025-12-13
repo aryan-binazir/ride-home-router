@@ -1,5 +1,10 @@
 {{define "content"}}
-<h2>Settings</h2>
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Settings</h2>
+        <p class="page-subtitle">Manage activity locations and choose how distances are displayed.</p>
+    </div>
+</div>
 
 <!-- Activity Locations Management -->
 <div class="card">
@@ -13,7 +18,7 @@
           hx-on::after-request="this.reset()"
           class="mb-4">
         <div class="form-row">
-            <div class="form-group" style="flex: 1;">
+            <div class="form-group">
                 <label class="form-label">Location Name</label>
                 <input type="text"
                        name="name"
@@ -21,7 +26,7 @@
                        placeholder="e.g., Soccer Practice"
                        required>
             </div>
-            <div class="form-group" style="flex: 2;">
+            <div class="form-group form-group-wide">
                 <label class="form-label">Address</label>
                 <input type="text"
                        name="address"
@@ -29,7 +34,7 @@
                        placeholder="Full address"
                        required>
             </div>
-            <div class="form-group" style="align-self: flex-end;">
+            <div class="form-group form-group-actions">
                 <button type="submit" class="btn btn-primary">Add Location</button>
             </div>
         </div>
@@ -39,18 +44,20 @@
     <div id="location-list">
         {{if .ActivityLocations}}
         {{range .ActivityLocations}}
-        <div class="card" style="margin-bottom: 0.5rem; padding: 0.75rem;">
-            <div class="d-flex justify-between align-center">
+        <div class="list-card">
+            <div class="d-flex justify-between align-center gap-2">
                 <div>
-                    <strong>{{.Name}}</strong>
-                    <p class="text-muted" style="margin: 0.25rem 0 0 0; font-size: 0.875rem;">{{.Address}}</p>
-                    <p class="text-muted" style="margin: 0; font-size: 0.75rem;">
+                    <div class="d-flex align-center gap-2">
+                        <strong>{{.Name}}</strong>
+                    </div>
+                    <p class="text-muted mb-0">{{.Address}}</p>
+                    <p class="text-muted mb-0" style="font-size: 0.75rem;">
                         Coordinates: {{printf "%.6f" .Lat}}, {{printf "%.6f" .Lng}}
                     </p>
                 </div>
                 <button hx-delete="/api/v1/activity-locations/{{.ID}}"
                         hx-confirm="Are you sure you want to delete this location?"
-                        hx-target="closest .card"
+                        hx-target="closest .list-card"
                         hx-swap="outerHTML swap:1s"
                         class="btn btn-danger btn-sm">
                     Delete
@@ -74,7 +81,7 @@
           hx-indicator="#settings-loading">
         <div class="form-group">
             <label class="form-label">Selected Activity Location</label>
-            <select name="selected_activity_location_id" class="form-input" required>
+            <select name="selected_activity_location_id" class="form-select" required>
                 <option value="">-- Select a location --</option>
                 {{range .ActivityLocations}}
                 <option value="{{.ID}}" {{if eq $.Settings.SelectedActivityLocationID .ID}}selected{{end}}>

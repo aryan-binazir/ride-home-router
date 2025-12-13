@@ -11,13 +11,16 @@
             box-sizing: border-box;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            background:
+                radial-gradient(1200px circle at 0% 0%, rgba(79, 70, 229, 0.22) 0%, transparent 55%),
+                radial-gradient(1000px circle at 100% 0%, rgba(6, 182, 212, 0.16) 0%, transparent 55%),
+                #0b1220;
+            color: #e2e8f0;
         }
         .loading {
             text-align: center;
@@ -25,8 +28,8 @@
         .spinner {
             width: 48px;
             height: 48px;
-            border: 4px solid rgba(139, 127, 199, 0.2);
-            border-top-color: #8b7fc7;
+            border: 4px solid rgba(226, 232, 240, 0.18);
+            border-top-color: rgb(79, 70, 229);
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 0 auto 20px;
@@ -36,11 +39,12 @@
         }
         h1 {
             font-size: 1.5rem;
-            font-weight: 500;
+            font-weight: 700;
             margin-bottom: 8px;
+            letter-spacing: -0.02em;
         }
         p {
-            color: #888;
+            color: rgba(148, 163, 184, 0.95);
             font-size: 0.9rem;
         }
     </style>

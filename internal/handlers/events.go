@@ -138,9 +138,15 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
+		settings, err := h.DB.Settings().Get(r.Context())
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
 		h.renderTemplate(w, "event_detail", map[string]interface{}{
 			"Assignments": assignments,
 			"Summary":     summary,
+			"UseMiles":    settings.UseMiles,
 		})
 		return
 	}

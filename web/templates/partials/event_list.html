@@ -1,4 +1,5 @@
 {{define "event_list"}}
+{{$useMiles := .UseMiles}}
 {{if .Events}}
 <div class="mb-3">
     <p class="text-muted">Showing {{len .Events}} of {{.Total}} events</p>
@@ -26,9 +27,9 @@
     <div class="event-meta">
         <span>{{.Summary.TotalParticipants}} participants</span>
         <span>{{.Summary.TotalDrivers}} drivers</span>
-        <span>{{printf "%.1f km" (divideFloat .Summary.TotalDistanceMeters 1000)}}</span>
+        <span>{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</span>
         {{if .Summary.UsedInstituteVehicle}}
-        <span class="text-warning">Institute Vehicle Used</span>
+        <span class="badge badge-warning">Institute vehicle used</span>
         {{end}}
     </div>
     {{end}}

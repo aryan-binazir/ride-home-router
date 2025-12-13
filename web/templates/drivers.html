@@ -1,12 +1,17 @@
 {{define "content"}}
-<div class="section-header">
-    <h2>Driver Roster</h2>
-    <button class="btn btn-primary"
-            hx-get="/api/v1/drivers/new"
-            hx-target="#driver-form-container"
-            hx-swap="innerHTML">
-        Add Driver
-    </button>
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Drivers</h2>
+        <p class="page-subtitle">Add drivers, set their capacity, and optionally mark a single institute vehicle.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-primary"
+                hx-get="/api/v1/drivers/new"
+                hx-target="#driver-form-container"
+                hx-swap="innerHTML">
+            Add Driver
+        </button>
+    </div>
 </div>
 
 <!-- Form Container (for add/edit forms) -->

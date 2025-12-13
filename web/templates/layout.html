@@ -10,8 +10,11 @@
 </head>
 <body>
     <header class="header">
-        <div class="container">
-            <h1>Ride Home Router</h1>
+        <div class="container header-inner">
+            <div class="brand">
+                <h1><a class="brand-link" href="/">Ride Home Router</a></h1>
+                <p class="brand-subtitle">Plan routes in minutes — not spreadsheets.</p>
+            </div>
             <nav class="nav">
                 <a href="/" {{if eq .ActivePage "home"}}class="active"{{end}}>Event Planning</a>
                 <a href="/participants" {{if eq .ActivePage "participants"}}class="active"{{end}}>Participants</a>

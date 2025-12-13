@@ -187,6 +187,26 @@ func templateFuncs() template.FuncMap {
 			}
 			return fmt.Sprintf("%dm %ds", mins, secs)
 		},
+		"initials": func(name string) string {
+			parts := strings.Fields(strings.TrimSpace(name))
+			if len(parts) == 0 {
+				return ""
+			}
+
+			first := []rune(parts[0])
+			if len(parts) == 1 {
+				if len(first) == 0 {
+					return ""
+				}
+				return strings.ToUpper(string(first[0]))
+			}
+
+			last := []rune(parts[len(parts)-1])
+			if len(first) == 0 || len(last) == 0 {
+				return ""
+			}
+			return strings.ToUpper(string(first[0]) + string(last[0]))
+		},
 	}
 }
 

@@ -139,11 +139,19 @@ func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get settings for UseMiles preference
+	settings, err := h.DB.Settings().Get(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
 	data := map[string]interface{}{
 		"Title":      "Event History",
 		"ActivePage": "history",
 		"Events":     eventsWithSummary,
 		"Total":      total,
+		"UseMiles":   settings.UseMiles,
 	}
 
 	h.renderTemplate(w, "history.html", data)

@@ -5,9 +5,12 @@
      data-activity-location-address="{{.ActivityLocation.Address}}"
      data-session-id="{{.SessionID}}"
      data-route-count="{{len .Routes}}">
-    <div class="d-flex justify-between align-center mb-3">
-        <h3>Calculated Routes</h3>
-        <div class="d-flex gap-2">
+    <div class="routes-header">
+        <div>
+            <h3 class="routes-title">Calculated Routes</h3>
+            <p class="routes-subtitle text-muted">Copy routes, make quick tweaks, then save the event.</p>
+        </div>
+        <div class="routes-actions">
             {{if .IsEditing}}
             <button type="button" class="btn btn-warning btn-sm" onclick="resetRoutes()">
                 Reset to Original
@@ -31,13 +34,16 @@
          data-driver-id="{{.Driver.ID}}">
         <div class="route-header">
             <div class="driver-info">
-                <h3>
-                    {{.Driver.Name}}
-                    {{if .UsedInstituteVehicle}}
-                    <span class="text-warning">(Institute Vehicle)</span>
-                    {{end}}
-                </h3>
-                <p>{{.Driver.Address}}</p>
+                <div class="driver-avatar" aria-hidden="true">{{initials .Driver.Name}}</div>
+                <div class="driver-meta">
+                    <h3>
+                        {{.Driver.Name}}
+                        {{if .UsedInstituteVehicle}}
+                        <span class="badge badge-warning">Institute vehicle</span>
+                        {{end}}
+                    </h3>
+                    <p>{{.Driver.Address}}</p>
+                </div>
             </div>
             <div class="route-stats">
                 <div class="stat">
@@ -70,8 +76,8 @@
 
         <!-- Driver Swap Controls -->
         {{if gt $routeCount 1}}
-        <div class="d-flex gap-2 mb-2">
-            <select class="form-input form-input-sm" style="width: auto;" id="swap-select-{{$routeIndex}}">
+        <div class="route-tools">
+            <select class="form-select form-input-sm form-input-inline" id="swap-select-{{$routeIndex}}">
                 <option value="">Swap driver with...</option>
                 {{range $i, $r := $.Routes}}
                 {{if ne $i $routeIndex}}
@@ -111,7 +117,7 @@
                 </div>
                 {{if gt $routeCount 1}}
                 <div class="stop-actions">
-                    <select class="form-input form-input-sm" style="width: auto; font-size: 0.75rem;"
+                    <select class="form-select form-input-sm form-input-inline"
                             onchange="moveParticipant({{.Participant.ID}}, {{$routeIndex}}, this.value); this.value='';">
                         <option value="">Move to...</option>
                         {{range $i, $r := $.Routes}}
