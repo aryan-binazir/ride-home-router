@@ -92,6 +92,7 @@
         {{end}}
 
         <div class="route-stops">
+            {{if .Stops}}
             <div class="d-flex justify-between align-center mb-2">
                 <h4>Route:</h4>
                 <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
@@ -130,8 +131,39 @@
                 {{end}}
             </div>
             {{end}}
+            {{else}}
+            <div class="empty-route-message">
+                <p class="text-muted">No passengers assigned. Use "Move to..." on other routes to add passengers.</p>
+            </div>
+            {{end}}
         </div>
     </div>
+    {{end}}
+
+    <!-- Unused Drivers Section -->
+    {{if .UnusedDrivers}}
+    <details class="unused-drivers-section mt-3">
+        <summary class="unused-drivers-header">
+            <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <span>Unused Drivers ({{len .UnusedDrivers}}) - click to expand</span>
+        </summary>
+        <div class="unused-drivers-list">
+            {{range .UnusedDrivers}}
+            <div class="unused-driver-item">
+                <div class="driver-info-compact">
+                    <span class="driver-name">{{.Name}}</span>
+                    <span class="driver-capacity text-muted">Capacity: {{.VehicleCapacity}}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-primary"
+                        onclick="addUnusedDriver({{.ID}})">
+                    + Add to Routes
+                </button>
+            </div>
+            {{end}}
+        </div>
+    </details>
     {{end}}
 
     <!-- Summary -->

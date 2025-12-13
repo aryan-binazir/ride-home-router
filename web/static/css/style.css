@@ -1827,3 +1827,92 @@ tbody tr:last-child td {
     color: var(--color-primary-hover);
     text-decoration: underline;
 }
+
+/* ============================================================================
+   UNUSED DRIVERS SECTION
+   ============================================================================ */
+.unused-drivers-section {
+    background: var(--color-bg-elevated);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    padding: var(--spacing-md);
+}
+
+.unused-drivers-header {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    list-style: none;
+    user-select: none;
+}
+
+.unused-drivers-header::-webkit-details-marker {
+    display: none;
+}
+
+.unused-drivers-header:hover {
+    color: var(--color-text);
+}
+
+.unused-drivers-header .chevron-icon {
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.unused-drivers-section[open] .unused-drivers-header .chevron-icon {
+    transform: rotate(180deg);
+}
+
+.unused-drivers-section[open] .unused-drivers-header {
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: var(--border-width) solid var(--color-border-light);
+    color: var(--color-text);
+}
+
+.unused-drivers-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.unused-driver-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    background: var(--color-bg);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius);
+}
+
+.driver-info-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.driver-info-compact .driver-name {
+    font-weight: 600;
+}
+
+.driver-info-compact .driver-capacity {
+    font-size: 0.8125rem;
+}
+
+.empty-route-message {
+    padding: var(--spacing-lg);
+    text-align: center;
+    background: var(--color-bg);
+    border: 2px dashed var(--color-border);
+    border-radius: var(--border-radius);
+}
+
+.empty-route-message p {
+    margin: 0;
+    font-size: 0.875rem;
+}

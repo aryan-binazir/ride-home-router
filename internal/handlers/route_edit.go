@@ -17,6 +17,7 @@ type RouteSession struct {
 	ID               string
 	OriginalRoutes   []models.CalculatedRoute
 	CurrentRoutes    []models.CalculatedRoute
+	SelectedDrivers  []models.Driver
 	ActivityLocation *models.ActivityLocation
 	UseMiles         bool
 }
@@ -34,7 +35,7 @@ func NewRouteSessionStore() *RouteSessionStore {
 	}
 }
 
-func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, activityLocation *models.ActivityLocation, useMiles bool) *RouteSession {
+func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool) *RouteSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -48,12 +49,13 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, activityLoca
 		ID:               id,
 		OriginalRoutes:   originalRoutes,
 		CurrentRoutes:    currentRoutes,
+		SelectedDrivers:  drivers,
 		ActivityLocation: activityLocation,
 		UseMiles:         useMiles,
 	}
 
 	s.sessions[id] = session
-	log.Printf("[SESSION] Created route session: id=%s routes=%d", id, len(routes))
+	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d", id, len(routes), len(drivers))
 	return session
 }
 
@@ -212,6 +214,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 			"ActivityLocation": session.ActivityLocation,
 			"SessionID":        session.ID,
 			"IsEditing":        true,
+			"UnusedDrivers":    getUnusedDrivers(session),
 		})
 		return
 	}
@@ -277,6 +280,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 			"ActivityLocation": session.ActivityLocation,
 			"SessionID":        session.ID,
 			"IsEditing":        true,
+			"UnusedDrivers":    getUnusedDrivers(session),
 		})
 		return
 	}
@@ -317,6 +321,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 			"ActivityLocation": session.ActivityLocation,
 			"SessionID":        session.ID,
 			"IsEditing":        true,
+			"UnusedDrivers":    getUnusedDrivers(session),
 		})
 		return
 	}
@@ -411,6 +416,22 @@ func (h *Handler) calculateSummary(routes []models.CalculatedRoute) models.Routi
 	return summary
 }
 
+// getUnusedDrivers returns drivers that were selected but have no assigned passengers
+func getUnusedDrivers(session *RouteSession) []models.Driver {
+	usedDriverIDs := make(map[int64]bool)
+	for _, route := range session.CurrentRoutes {
+		usedDriverIDs[route.Driver.ID] = true
+	}
+
+	var unused []models.Driver
+	for _, driver := range session.SelectedDrivers {
+		if !usedDriverIDs[driver.ID] {
+			unused = append(unused, driver)
+		}
+	}
+	return unused
+}
+
 // HandleGetRouteSession handles GET /api/v1/routes/edit/{sessionID}
 func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
@@ -430,6 +451,79 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 			"ActivityLocation": session.ActivityLocation,
 			"SessionID":        session.ID,
 			"IsEditing":        true,
+			"UnusedDrivers":    getUnusedDrivers(session),
+		})
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"routes":     session.CurrentRoutes,
+		"summary":    summary,
+		"session_id": session.ID,
+	})
+}
+
+// HandleAddDriver handles POST /api/v1/routes/edit/add-driver
+func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string `json:"session_id"`
+		DriverID  int64  `json:"driver_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleValidationError(w, "Invalid request body")
+		return
+	}
+
+	session := h.RouteSession.Get(req.SessionID)
+	if session == nil {
+		h.handleNotFound(w, "Session not found")
+		return
+	}
+
+	// Check if driver is in selected drivers
+	var driverToAdd *models.Driver
+	for i := range session.SelectedDrivers {
+		if session.SelectedDrivers[i].ID == req.DriverID {
+			driverToAdd = &session.SelectedDrivers[i]
+			break
+		}
+	}
+
+	if driverToAdd == nil {
+		h.handleValidationError(w, "Driver not found in selected drivers")
+		return
+	}
+
+	// Check if driver is already in routes
+	for _, route := range session.CurrentRoutes {
+		if route.Driver.ID == req.DriverID {
+			h.handleValidationError(w, "Driver is already in routes")
+			return
+		}
+	}
+
+	// Create empty route for this driver
+	newRoute := models.CalculatedRoute{
+		Driver: driverToAdd,
+		Stops:  []models.RouteStop{},
+	}
+
+	session.CurrentRoutes = append(session.CurrentRoutes, newRoute)
+
+	summary := h.calculateSummary(session.CurrentRoutes)
+
+	log.Printf("[EDIT] Added unused driver %d (%s) to routes", req.DriverID, driverToAdd.Name)
+
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "route_results", map[string]interface{}{
+			"Routes":           session.CurrentRoutes,
+			"Summary":          summary,
+			"UseMiles":         session.UseMiles,
+			"ActivityLocation": session.ActivityLocation,
+			"SessionID":        session.ID,
+			"IsEditing":        true,
+			"UnusedDrivers":    getUnusedDrivers(session),
 		})
 		return
 	}

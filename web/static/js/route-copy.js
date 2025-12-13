@@ -166,6 +166,44 @@ async function resetRoutes() {
     }
 }
 
+/**
+ * Adds an unused driver to the routes as an empty route
+ */
+async function addUnusedDriver(driverId) {
+    const sessionId = getSessionId();
+    if (!sessionId) {
+        alert('Session not found');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/v1/routes/edit/add-driver', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'HX-Request': 'true'
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+                driver_id: parseInt(driverId)
+            })
+        });
+
+        const html = await response.text();
+        const routeResults = document.getElementById('results-section');
+        if (routeResults) {
+            if (!response.ok) {
+                showRouteError(html);
+            } else {
+                routeResults.innerHTML = html;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to add driver:', err);
+        showRouteError('Failed to add driver: ' + err.message);
+    }
+}
+
 // ============= Route Copy Functions =============
 
 /**

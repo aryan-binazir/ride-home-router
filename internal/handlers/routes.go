@@ -161,7 +161,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, activityLocation, settings.UseMiles)
+	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles)
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
@@ -172,6 +172,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			"ActivityLocation": activityLocation,
 			"SessionID":        session.ID,
 			"IsEditing":        false,
+			"UnusedDrivers":    getUnusedDrivers(session),
 		})
 		return
 	}

@@ -404,6 +404,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleResetRoutes(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/routes/edit/add-driver", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleAddDriver(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/geocode", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
