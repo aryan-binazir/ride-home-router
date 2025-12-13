@@ -123,22 +123,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.db.Close()
 }
 
-// URL returns the full URL of the running server
-func (s *Server) URL() string {
-	if s.listener != nil {
-		return fmt.Sprintf("http://%s", s.listener.Addr().String())
-	}
-	return fmt.Sprintf("http://%s", s.addr)
-}
-
-// Addr returns the actual address the server is listening on
-func (s *Server) Addr() string {
-	if s.listener != nil {
-		return s.listener.Addr().String()
-	}
-	return s.addr
-}
-
 // Template helper functions
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{

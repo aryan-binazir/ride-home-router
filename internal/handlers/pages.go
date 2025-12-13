@@ -6,12 +6,6 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// PageData contains common data for all pages
-type PageData struct {
-	Title      string
-	ActivePage string
-}
-
 // HandleIndexPage handles GET /
 func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 	participants, err := h.DB.Participants().List(r.Context(), "")

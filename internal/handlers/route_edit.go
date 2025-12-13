@@ -481,37 +481,6 @@ func getUnusedDrivers(session *RouteSession) []models.Driver {
 	return unused
 }
 
-// HandleGetRouteSession handles GET /api/v1/routes/edit/{sessionID}
-func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("session_id")
-	session := h.RouteSession.Get(sessionID)
-	if session == nil {
-		h.handleNotFoundHTMX(w, r, "Session not found")
-		return
-	}
-
-	summary := h.calculateSummary(session.CurrentRoutes)
-
-	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":           session.CurrentRoutes,
-			"Summary":          summary,
-			"UseMiles":         session.UseMiles,
-			"ActivityLocation": session.ActivityLocation,
-			"SessionID":        session.ID,
-			"IsEditing":        true,
-			"UnusedDrivers":    getUnusedDrivers(session),
-		})
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"routes":     session.CurrentRoutes,
-		"summary":    summary,
-		"session_id": session.ID,
-	})
-}
-
 // HandleAddDriver handles POST /api/v1/routes/edit/add-driver
 func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
