@@ -89,9 +89,14 @@
             {{if .Stops}}
             <div class="d-flex justify-between align-center mb-2">
                 <h4>Route:</h4>
-                <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
-                    Copy Route
-                </button>
+                <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
+                        Copy
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="previewRoute(this)">
+                        Preview
+                    </button>
+                </div>
             </div>
             {{range .Stops}}
             <div class="stop-item"

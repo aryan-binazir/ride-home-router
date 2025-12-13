@@ -5,3 +5,7 @@
 export function GetServerURL() {
   return window['go']['main']['App']['GetServerURL']();
 }
+
+export function OpenExternalURL(arg1) {
+  return window['go']['main']['App']['OpenExternalURL'](arg1);
+}

@@ -9,6 +9,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -274,6 +276,8 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS))))
 
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
+
+	mux.HandleFunc("/api/v1/open-url", handleOpenURL)
 
 	mux.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -550,6 +554,54 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	})
 
 	return mux
+}
+
+// handleOpenURL opens a URL in the system's default browser
+func handleOpenURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.URL == "" {
+		http.Error(w, "URL is required", http.StatusBadRequest)
+		return
+	}
+
+	// Only allow http/https URLs for security
+	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+		http.Error(w, "Only HTTP/HTTPS URLs are allowed", http.StatusBadRequest)
+		return
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "linux":
+		cmd = exec.Command("xdg-open", req.URL)
+	case "darwin":
+		cmd = exec.Command("open", req.URL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", req.URL)
+	default:
+		http.Error(w, "Unsupported platform", http.StatusInternalServerError)
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to open URL: %v", err)
+		http.Error(w, "Failed to open URL", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

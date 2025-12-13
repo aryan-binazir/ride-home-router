@@ -68,3 +68,8 @@ func (a *App) shutdown(ctx context.Context) {
 func (a *App) GetServerURL() string {
 	return a.url
 }
+
+// OpenExternalURL opens a URL in the system's default browser
+func (a *App) OpenExternalURL(url string) {
+	runtime.BrowserOpenURL(a.ctx, url)
+}
