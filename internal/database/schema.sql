@@ -19,7 +19,21 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('institute_address', ''),
     ('institute_lat', '0'),
     ('institute_lng', '0'),
+    ('selected_activity_location_id', '0'),
     ('use_miles', 'false');
+
+-- ============================================================================
+-- ACTIVITY LOCATIONS
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS activity_locations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    address     TEXT NOT NULL,
+    lat         REAL NOT NULL DEFAULT 0,
+    lng         REAL NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_locations_name ON activity_locations(name);
 
 -- ============================================================================
 -- PARTICIPANTS

@@ -1,11 +1,34 @@
 {{define "route_results"}}
 {{if .Routes}}
-<div class="routes-container">
-    <h3>Calculated Routes</h3>
+<div class="routes-container"
+     data-activity-location-name="{{.ActivityLocation.Name}}"
+     data-activity-location-address="{{.ActivityLocation.Address}}"
+     data-session-id="{{.SessionID}}"
+     data-route-count="{{len .Routes}}">
+    <div class="d-flex justify-between align-center mb-3">
+        <h3>Calculated Routes</h3>
+        <div class="d-flex gap-2">
+            {{if .IsEditing}}
+            <button type="button" class="btn btn-warning btn-sm" onclick="resetRoutes()">
+                Reset to Original
+            </button>
+            {{end}}
+            <button type="button" class="btn btn-secondary" onclick="copyAllRoutes()" id="copy-all-btn">
+                Copy All Routes
+            </button>
+        </div>
+    </div>
 
     {{$useMiles := .UseMiles}}
-    {{range .Routes}}
-    <div class="route-card {{if .UsedInstituteVehicle}}institute-vehicle{{end}}">
+    {{$activityLocation := .ActivityLocation}}
+    {{$sessionID := .SessionID}}
+    {{$routeCount := len .Routes}}
+    {{range $routeIndex, $route := .Routes}}
+    <div class="route-card {{if .UsedInstituteVehicle}}institute-vehicle{{end}}"
+         data-activity-location-address="{{$activityLocation.Address}}"
+         data-driver-name="{{.Driver.Name}}"
+         data-route-index="{{$routeIndex}}"
+         data-driver-id="{{.Driver.ID}}">
         <div class="route-header">
             <div class="driver-info">
                 <h3>
@@ -28,7 +51,7 @@
                 </div>
                 <div class="stat">
                     {{if .UsedInstituteVehicle}}
-                    <strong>Return to Institute:</strong>
+                    <strong>Return to {{$activityLocation.Name}}:</strong>
                     {{else}}
                     <strong>To Home:</strong>
                     {{end}}
@@ -45,10 +68,35 @@
             </div>
         </div>
 
+        <!-- Driver Swap Controls -->
+        {{if gt $routeCount 1}}
+        <div class="d-flex gap-2 mb-2">
+            <select class="form-input form-input-sm" style="width: auto;" id="swap-select-{{$routeIndex}}">
+                <option value="">Swap driver with...</option>
+                {{range $i, $r := $.Routes}}
+                {{if ne $i $routeIndex}}
+                <option value="{{$i}}">{{$r.Driver.Name}}</option>
+                {{end}}
+                {{end}}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline" onclick="swapDrivers({{$routeIndex}})">
+                Swap
+            </button>
+        </div>
+        {{end}}
+
         <div class="route-stops">
-            <h4>Route:</h4>
+            <div class="d-flex justify-between align-center mb-2">
+                <h4>Route:</h4>
+                <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
+                    Copy Route
+                </button>
+            </div>
             {{range .Stops}}
-            <div class="stop-item">
+            <div class="stop-item"
+                 data-participant-name="{{.Participant.Name}}"
+                 data-participant-address="{{.Participant.Address}}"
+                 data-participant-id="{{.Participant.ID}}">
                 <div class="stop-number">{{add .Order 1}}</div>
                 <div class="stop-details">
                     <h4>{{.Participant.Name}}</h4>
@@ -56,11 +104,24 @@
                 </div>
                 <div class="stop-distance">
                     {{if eq .Order 0}}
-                        {{formatDistance .DistanceFromPrevMeters $useMiles}} from institute
+                        {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$activityLocation.Name}}
                     {{else}}
                         {{formatDistance .DistanceFromPrevMeters $useMiles}}
                     {{end}}
                 </div>
+                {{if gt $routeCount 1}}
+                <div class="stop-actions">
+                    <select class="form-input form-input-sm" style="width: auto; font-size: 0.75rem;"
+                            onchange="moveParticipant({{.Participant.ID}}, {{$routeIndex}}, this.value); this.value='';">
+                        <option value="">Move to...</option>
+                        {{range $i, $r := $.Routes}}
+                        {{if ne $i $routeIndex}}
+                        <option value="{{$i}}">{{$r.Driver.Name}}</option>
+                        {{end}}
+                        {{end}}
+                    </select>
+                </div>
+                {{end}}
             </div>
             {{end}}
         </div>

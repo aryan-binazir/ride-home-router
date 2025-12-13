@@ -19,25 +19,28 @@ type DataStore interface {
 	Participants() ParticipantRepository
 	Drivers() DriverRepository
 	Settings() SettingsRepository
+	ActivityLocations() ActivityLocationRepository
 	Events() EventRepository
 	DistanceCache() DistanceCacheRepository
 }
 
 // DB wraps the database connection and provides access to repositories
 type DB struct {
-	conn                    *sql.DB
-	participantRepository   ParticipantRepository
-	driverRepository        DriverRepository
-	settingsRepository      SettingsRepository
-	eventRepository         EventRepository
-	distanceCacheRepository DistanceCacheRepository
+	conn                       *sql.DB
+	participantRepository      ParticipantRepository
+	driverRepository           DriverRepository
+	settingsRepository         SettingsRepository
+	activityLocationRepository ActivityLocationRepository
+	eventRepository            EventRepository
+	distanceCacheRepository    DistanceCacheRepository
 }
 
-func (db *DB) Participants() ParticipantRepository   { return db.participantRepository }
-func (db *DB) Drivers() DriverRepository             { return db.driverRepository }
-func (db *DB) Settings() SettingsRepository          { return db.settingsRepository }
-func (db *DB) Events() EventRepository               { return db.eventRepository }
-func (db *DB) DistanceCache() DistanceCacheRepository { return db.distanceCacheRepository }
+func (db *DB) Participants() ParticipantRepository         { return db.participantRepository }
+func (db *DB) Drivers() DriverRepository                   { return db.driverRepository }
+func (db *DB) Settings() SettingsRepository                { return db.settingsRepository }
+func (db *DB) ActivityLocations() ActivityLocationRepository { return db.activityLocationRepository }
+func (db *DB) Events() EventRepository                     { return db.eventRepository }
+func (db *DB) DistanceCache() DistanceCacheRepository       { return db.distanceCacheRepository }
 
 // New creates a new database connection and runs migrations
 func New(dbPath string) (*DB, error) {
@@ -55,12 +58,13 @@ func New(dbPath string) (*DB, error) {
 	}
 
 	db := &DB{
-		conn:                    conn,
-		participantRepository:   &participantRepository{db: conn},
-		driverRepository:        &driverRepository{db: conn},
-		settingsRepository:      &settingsRepository{db: conn},
-		eventRepository:         &eventRepository{db: conn},
-		distanceCacheRepository: &distanceCacheRepository{db: conn},
+		conn:                       conn,
+		participantRepository:      &participantRepository{db: conn},
+		driverRepository:           &driverRepository{db: conn},
+		settingsRepository:         &settingsRepository{db: conn},
+		activityLocationRepository: &activityLocationRepository{db: conn},
+		eventRepository:            &eventRepository{db: conn},
+		distanceCacheRepository:    &distanceCacheRepository{db: conn},
 	}
 
 	return db, nil

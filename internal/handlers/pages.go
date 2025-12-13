@@ -87,23 +87,27 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create a view model with Coords method
-	type SettingsView struct {
-		InstituteAddress string
-		InstituteCoords  models.Coordinates
-		UseMiles         bool
+	activityLocations, err := h.DB.ActivityLocations().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
 	}
 
-	settingsView := SettingsView{
-		InstituteAddress: settings.InstituteAddress,
-		InstituteCoords:  settings.GetCoords(),
-		UseMiles:         settings.UseMiles,
+	var selectedLocation *models.ActivityLocation
+	if settings.SelectedActivityLocationID > 0 {
+		selectedLocation, err = h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
 	}
 
 	data := map[string]interface{}{
-		"Title":      "Settings",
-		"ActivePage": "settings",
-		"Settings":   settingsView,
+		"Title":             "Settings",
+		"ActivePage":        "settings",
+		"Settings":          settings,
+		"ActivityLocations": activityLocations,
+		"SelectedLocation":  selectedLocation,
 	}
 
 	h.renderTemplate(w, "settings.html", data)

@@ -52,12 +52,27 @@ func (d *Driver) Coords() Coordinates {
 	return Coordinates{Lat: d.Lat, Lng: d.Lng}
 }
 
+// ActivityLocation represents a location where activities take place
+type ActivityLocation struct {
+	ID      int64   `json:"id"`
+	Name    string  `json:"name"`
+	Address string  `json:"address"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+}
+
+// GetCoords returns the coordinates of the activity location
+func (a *ActivityLocation) GetCoords() Coordinates {
+	return Coordinates{Lat: a.Lat, Lng: a.Lng}
+}
+
 // Settings holds application configuration
 type Settings struct {
-	InstituteAddress string  `json:"institute_address"`
-	InstituteLat     float64 `json:"institute_lat"`
-	InstituteLng     float64 `json:"institute_lng"`
-	UseMiles         bool    `json:"use_miles"`
+	InstituteAddress           string  `json:"institute_address"` // Deprecated: use SelectedActivityLocationID
+	InstituteLat               float64 `json:"institute_lat"`     // Deprecated: use SelectedActivityLocationID
+	InstituteLng               float64 `json:"institute_lng"`     // Deprecated: use SelectedActivityLocationID
+	SelectedActivityLocationID int64   `json:"selected_activity_location_id"`
+	UseMiles                   bool    `json:"use_miles"`
 }
 
 // GetCoords returns the institute coordinates

@@ -28,6 +28,7 @@ type Handler struct {
 	DistanceCalc distance.DistanceCalculator
 	Router       routing.Router
 	Templates    *TemplateSet
+	RouteSession *RouteSessionStore
 }
 
 // ErrorResponse represents an API error

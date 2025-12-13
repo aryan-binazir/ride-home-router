@@ -86,8 +86,20 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if settings.InstituteAddress == "" {
-		h.handleValidationErrorHTMX(w, r, "Institute address not configured. Please set it in Settings.")
+	if settings.SelectedActivityLocationID == 0 {
+		h.handleValidationErrorHTMX(w, r, "Activity location not configured. Please set it in Settings.")
+		return
+	}
+
+	// Get the selected activity location
+	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
+
+	if activityLocation == nil {
+		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Please update Settings.")
 		return
 	}
 
@@ -127,7 +139,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	routingReq := &routing.RoutingRequest{
-		InstituteCoords:          settings.GetCoords(),
+		InstituteCoords:          activityLocation.GetCoords(),
 		Participants:             participants,
 		Drivers:                  regularDrivers,
 		InstituteVehicle:         instituteVehicle,
@@ -148,17 +160,27 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
 
+	// Create a session for route editing
+	session := h.RouteSession.Create(result.Routes, activityLocation, settings.UseMiles)
+
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
 		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":   result.Routes,
-			"Summary":  result.Summary,
-			"UseMiles": settings.UseMiles,
+			"Routes":           result.Routes,
+			"Summary":          result.Summary,
+			"UseMiles":         settings.UseMiles,
+			"ActivityLocation": activityLocation,
+			"SessionID":        session.ID,
+			"IsEditing":        false,
 		})
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"routes":     result.Routes,
+		"summary":    result.Summary,
+		"session_id": session.ID,
+	})
 }
 
 // HandleGeocodeAddress handles POST /api/v1/geocode

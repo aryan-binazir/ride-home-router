@@ -144,8 +144,14 @@ func loadTemplates(templatesDir string) (*handlers.TemplateSet, error) {
 func run() error {
 	addr := getEnv("SERVER_ADDR", "127.0.0.1:8080")
 
+	log.Printf("Initializing distance cache...")
+	distanceCache, err := database.NewFileDistanceCache()
+	if err != nil {
+		return fmt.Errorf("failed to initialize distance cache: %w", err)
+	}
+
 	log.Printf("Initializing data store...")
-	db, err := database.NewJSONStore()
+	db, err := database.NewJSONStore(distanceCache)
 	if err != nil {
 		return fmt.Errorf("failed to initialize data store: %w", err)
 	}
@@ -161,6 +167,7 @@ func run() error {
 	geocoder := geocoding.NewNominatimGeocoder()
 	distanceCalc := distance.NewOSRMCalculator(db.DistanceCache())
 	router := routing.NewDistanceMinimizer(distanceCalc)
+	routeSession := handlers.NewRouteSessionStore()
 
 	handler := &handlers.Handler{
 		DB:           db,
@@ -168,6 +175,7 @@ func run() error {
 		DistanceCalc: distanceCalc,
 		Router:       router,
 		Templates:    templates,
+		RouteSession: routeSession,
 	}
 
 	mux := http.NewServeMux()
@@ -283,12 +291,61 @@ func run() error {
 		handler.HandleCalculateRoutes(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/routes/edit/move-participant", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleMoveParticipant(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/routes/edit/swap-drivers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleSwapDrivers(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/routes/edit/reset", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleResetRoutes(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/geocode", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		handler.HandleGeocodeAddress(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/activity-locations", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleListActivityLocations(w, r)
+		case http.MethodPost:
+			handler.HandleCreateActivityLocation(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/v1/activity-locations/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/activity-locations/" {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodDelete:
+			handler.HandleDeleteActivityLocation(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	mux.HandleFunc("/api/v1/events", func(w http.ResponseWriter, r *http.Request) {

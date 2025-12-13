@@ -17,24 +17,26 @@ import (
 
 // JSONData represents the structure of the JSON file
 type JSONData struct {
-	Settings      JSONSettings              `json:"settings"`
-	Participants  []models.Participant      `json:"participants"`
-	Drivers       []models.Driver           `json:"drivers"`
-	Events        []JSONEvent               `json:"events"`
-	DistanceCache []models.DistanceCacheEntry `json:"distance_cache"`
-	NextIDs       struct {
-		Participant int64 `json:"participant"`
-		Driver      int64 `json:"driver"`
-		Event       int64 `json:"event"`
+	Settings          JSONSettings              `json:"settings"`
+	ActivityLocations []models.ActivityLocation `json:"activity_locations"`
+	Participants      []models.Participant      `json:"participants"`
+	Drivers           []models.Driver           `json:"drivers"`
+	Events            []JSONEvent               `json:"events"`
+	NextIDs           struct {
+		Participant      int64 `json:"participant"`
+		Driver           int64 `json:"driver"`
+		Event            int64 `json:"event"`
+		ActivityLocation int64 `json:"activity_location"`
 	} `json:"next_ids"`
 }
 
 // JSONSettings stores settings in the JSON file
 type JSONSettings struct {
-	InstituteAddress string  `json:"institute_address"`
-	InstituteLat     float64 `json:"institute_lat"`
-	InstituteLng     float64 `json:"institute_lng"`
-	UseMiles         bool    `json:"use_miles"`
+	InstituteAddress           string  `json:"institute_address"` // Deprecated
+	InstituteLat               float64 `json:"institute_lat"`     // Deprecated
+	InstituteLng               float64 `json:"institute_lng"`     // Deprecated
+	SelectedActivityLocationID int64   `json:"selected_activity_location_id"`
+	UseMiles                   bool    `json:"use_miles"`
 }
 
 // JSONEvent stores event data including assignments and summary
@@ -50,21 +52,23 @@ type JSONStore struct {
 	data     *JSONData
 	mu       sync.RWMutex
 
-	participantRepository   ParticipantRepository
-	driverRepository        DriverRepository
-	settingsRepository      SettingsRepository
-	eventRepository         EventRepository
-	distanceCacheRepository DistanceCacheRepository
+	participantRepository      ParticipantRepository
+	driverRepository           DriverRepository
+	settingsRepository         SettingsRepository
+	activityLocationRepository ActivityLocationRepository
+	eventRepository            EventRepository
+	distanceCacheRepository    DistanceCacheRepository
 }
 
-func (s *JSONStore) Participants() ParticipantRepository   { return s.participantRepository }
-func (s *JSONStore) Drivers() DriverRepository             { return s.driverRepository }
-func (s *JSONStore) Settings() SettingsRepository          { return s.settingsRepository }
-func (s *JSONStore) Events() EventRepository               { return s.eventRepository }
-func (s *JSONStore) DistanceCache() DistanceCacheRepository { return s.distanceCacheRepository }
+func (s *JSONStore) Participants() ParticipantRepository         { return s.participantRepository }
+func (s *JSONStore) Drivers() DriverRepository                   { return s.driverRepository }
+func (s *JSONStore) Settings() SettingsRepository                { return s.settingsRepository }
+func (s *JSONStore) ActivityLocations() ActivityLocationRepository { return s.activityLocationRepository }
+func (s *JSONStore) Events() EventRepository                     { return s.eventRepository }
+func (s *JSONStore) DistanceCache() DistanceCacheRepository       { return s.distanceCacheRepository }
 
 // NewJSONStore creates a new JSON-based data store
-func NewJSONStore() (*JSONStore, error) {
+func NewJSONStore(distanceCache DistanceCacheRepository) (*JSONStore, error) {
 	// Get home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -88,8 +92,9 @@ func NewJSONStore() (*JSONStore, error) {
 	store.participantRepository = &jsonParticipantRepository{store: store}
 	store.driverRepository = &jsonDriverRepository{store: store}
 	store.settingsRepository = &jsonSettingsRepository{store: store}
+	store.activityLocationRepository = &jsonActivityLocationRepository{store: store}
 	store.eventRepository = &jsonEventRepository{store: store}
-	store.distanceCacheRepository = &jsonDistanceCacheRepository{store: store}
+	store.distanceCacheRepository = distanceCache
 
 	return store, nil
 }
@@ -102,14 +107,15 @@ func (s *JSONStore) load() error {
 	if os.IsNotExist(err) {
 		// Initialize with empty data
 		s.data = &JSONData{
-			Participants:  []models.Participant{},
-			Drivers:       []models.Driver{},
-			Events:        []JSONEvent{},
-			DistanceCache: []models.DistanceCacheEntry{},
+			ActivityLocations: []models.ActivityLocation{},
+			Participants:      []models.Participant{},
+			Drivers:           []models.Driver{},
+			Events:            []JSONEvent{},
 		}
 		s.data.NextIDs.Participant = 1
 		s.data.NextIDs.Driver = 1
 		s.data.NextIDs.Event = 1
+		s.data.NextIDs.ActivityLocation = 1
 		return s.saveUnlocked()
 	}
 	if err != nil {
@@ -121,6 +127,9 @@ func (s *JSONStore) load() error {
 	}
 
 	// Ensure slices are not nil
+	if s.data.ActivityLocations == nil {
+		s.data.ActivityLocations = []models.ActivityLocation{}
+	}
 	if s.data.Participants == nil {
 		s.data.Participants = []models.Participant{}
 	}
@@ -130,12 +139,27 @@ func (s *JSONStore) load() error {
 	if s.data.Events == nil {
 		s.data.Events = []JSONEvent{}
 	}
-	if s.data.DistanceCache == nil {
-		s.data.DistanceCache = []models.DistanceCacheEntry{}
+
+	// Migrate old institute settings to first activity location
+	if s.data.Settings.InstituteAddress != "" && len(s.data.ActivityLocations) == 0 {
+		log.Printf("Migrating old institute settings to activity location")
+		loc := models.ActivityLocation{
+			ID:      1,
+			Name:    "Institute",
+			Address: s.data.Settings.InstituteAddress,
+			Lat:     s.data.Settings.InstituteLat,
+			Lng:     s.data.Settings.InstituteLng,
+		}
+		s.data.ActivityLocations = append(s.data.ActivityLocations, loc)
+		s.data.Settings.SelectedActivityLocationID = 1
+		s.data.NextIDs.ActivityLocation = 2
+		if err := s.saveUnlocked(); err != nil {
+			log.Printf("Failed to save migrated data: %v", err)
+		}
 	}
 
-	log.Printf("Loaded data: %d participants, %d drivers, %d events, %d cached distances",
-		len(s.data.Participants), len(s.data.Drivers), len(s.data.Events), len(s.data.DistanceCache))
+	log.Printf("Loaded data: %d activity locations, %d participants, %d drivers, %d events",
+		len(s.data.ActivityLocations), len(s.data.Participants), len(s.data.Drivers), len(s.data.Events))
 
 	return nil
 }
@@ -440,10 +464,11 @@ func (r *jsonSettingsRepository) Get(ctx context.Context) (*models.Settings, err
 	defer r.store.mu.RUnlock()
 
 	return &models.Settings{
-		InstituteAddress: r.store.data.Settings.InstituteAddress,
-		InstituteLat:     r.store.data.Settings.InstituteLat,
-		InstituteLng:     r.store.data.Settings.InstituteLng,
-		UseMiles:         r.store.data.Settings.UseMiles,
+		InstituteAddress:           r.store.data.Settings.InstituteAddress,
+		InstituteLat:               r.store.data.Settings.InstituteLat,
+		InstituteLng:               r.store.data.Settings.InstituteLng,
+		SelectedActivityLocationID: r.store.data.Settings.SelectedActivityLocationID,
+		UseMiles:                   r.store.data.Settings.UseMiles,
 	}, nil
 }
 
@@ -452,17 +477,18 @@ func (r *jsonSettingsRepository) Update(ctx context.Context, s *models.Settings)
 	defer r.store.mu.Unlock()
 
 	r.store.data.Settings = JSONSettings{
-		InstituteAddress: s.InstituteAddress,
-		InstituteLat:     s.InstituteLat,
-		InstituteLng:     s.InstituteLng,
-		UseMiles:         s.UseMiles,
+		InstituteAddress:           s.InstituteAddress,
+		InstituteLat:               s.InstituteLat,
+		InstituteLng:               s.InstituteLng,
+		SelectedActivityLocationID: s.SelectedActivityLocationID,
+		UseMiles:                   s.UseMiles,
 	}
 
 	if err := r.store.saveUnlocked(); err != nil {
 		return err
 	}
 
-	log.Printf("[JSON] Updated settings: address=%s", s.InstituteAddress)
+	log.Printf("[JSON] Updated settings: selected_location_id=%d", s.SelectedActivityLocationID)
 	return nil
 }
 
@@ -565,88 +591,71 @@ func (r *jsonEventRepository) Delete(ctx context.Context, id int64) error {
 	return fmt.Errorf("event not found")
 }
 
-// ==================== Distance Cache Repository ====================
+// ==================== Activity Location Repository ====================
 
-type jsonDistanceCacheRepository struct {
+type jsonActivityLocationRepository struct {
 	store *JSONStore
 }
 
-func (r *jsonDistanceCacheRepository) Get(ctx context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error) {
+func (r *jsonActivityLocationRepository) List(ctx context.Context) ([]models.ActivityLocation, error) {
 	r.store.mu.RLock()
 	defer r.store.mu.RUnlock()
 
-	for _, e := range r.store.data.DistanceCache {
-		if coordsMatch(e.Origin, origin) && coordsMatch(e.Destination, dest) {
-			return &e, nil
+	result := make([]models.ActivityLocation, len(r.store.data.ActivityLocations))
+	copy(result, r.store.data.ActivityLocations)
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+func (r *jsonActivityLocationRepository) GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error) {
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	for _, loc := range r.store.data.ActivityLocations {
+		if loc.ID == id {
+			return &loc, nil
 		}
 	}
 	return nil, nil
 }
 
-func (r *jsonDistanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
-	result := make(map[string]*models.DistanceCacheEntry)
-
-	for _, pair := range pairs {
-		entry, err := r.Get(ctx, pair.Origin, pair.Dest)
-		if err != nil {
-			return nil, err
-		}
-		if entry != nil {
-			key := makeCacheKey(pair.Origin, pair.Dest)
-			result[key] = entry
-		}
-	}
-
-	return result, nil
-}
-
-func (r *jsonDistanceCacheRepository) Set(ctx context.Context, entry *models.DistanceCacheEntry) error {
+func (r *jsonActivityLocationRepository) Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 
-	// Check if exists, update if so
-	for i, e := range r.store.data.DistanceCache {
-		if coordsMatch(e.Origin, entry.Origin) && coordsMatch(e.Destination, entry.Destination) {
-			r.store.data.DistanceCache[i] = *entry
-			return r.store.saveUnlocked()
-		}
+	loc.ID = r.store.data.NextIDs.ActivityLocation
+	r.store.data.NextIDs.ActivityLocation++
+
+	r.store.data.ActivityLocations = append(r.store.data.ActivityLocations, *loc)
+
+	if err := r.store.saveUnlocked(); err != nil {
+		return nil, err
 	}
 
-	// Add new entry
-	r.store.data.DistanceCache = append(r.store.data.DistanceCache, *entry)
-	return r.store.saveUnlocked()
+	log.Printf("[JSON] Created activity location: id=%d name=%s", loc.ID, loc.Name)
+	return loc, nil
 }
 
-func (r *jsonDistanceCacheRepository) SetBatch(ctx context.Context, entries []models.DistanceCacheEntry) error {
+func (r *jsonActivityLocationRepository) Delete(ctx context.Context, id int64) error {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 
-	for _, entry := range entries {
-		found := false
-		for i, e := range r.store.data.DistanceCache {
-			if coordsMatch(e.Origin, entry.Origin) && coordsMatch(e.Destination, entry.Destination) {
-				r.store.data.DistanceCache[i] = entry
-				found = true
-				break
+	for i, loc := range r.store.data.ActivityLocations {
+		if loc.ID == id {
+			r.store.data.ActivityLocations = append(r.store.data.ActivityLocations[:i], r.store.data.ActivityLocations[i+1:]...)
+
+			if err := r.store.saveUnlocked(); err != nil {
+				return err
 			}
-		}
-		if !found {
-			r.store.data.DistanceCache = append(r.store.data.DistanceCache, entry)
+
+			log.Printf("[JSON] Deleted activity location: id=%d", id)
+			return nil
 		}
 	}
 
-	return r.store.saveUnlocked()
-}
-
-func (r *jsonDistanceCacheRepository) Clear(ctx context.Context) error {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	r.store.data.DistanceCache = []models.DistanceCacheEntry{}
-	return r.store.saveUnlocked()
-}
-
-// coordsMatch checks if two coordinates are equal (rounded to 5 decimal places)
-func coordsMatch(a, b models.Coordinates) bool {
-	return roundCoord(a.Lat) == roundCoord(b.Lat) && roundCoord(a.Lng) == roundCoord(b.Lng)
+	return fmt.Errorf("activity location not found")
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"ride-home-router/internal/models"
 )
@@ -25,8 +26,8 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 // HandleUpdateSettings handles PUT /api/v1/settings
 func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		InstituteAddress string `json:"institute_address"`
-		UseMiles         bool   `json:"use_miles"`
+		SelectedActivityLocationID int64 `json:"selected_activity_location_id"`
+		UseMiles                   bool  `json:"use_miles"`
 	}
 
 	if h.isHTMX(r) {
@@ -35,7 +36,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		req.InstituteAddress = r.FormValue("institute_address")
+		if idStr := r.FormValue("selected_activity_location_id"); idStr != "" {
+			if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+				req.SelectedActivityLocationID = id
+			}
+		}
 		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -45,33 +50,41 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.InstituteAddress == "" {
-		log.Printf("[HTTP] PUT /api/v1/settings: missing institute_address")
+	if req.SelectedActivityLocationID == 0 {
+		log.Printf("[HTTP] PUT /api/v1/settings: missing selected_activity_location_id")
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Institute address is required"))
+			h.renderError(w, r, fmt.Errorf("Please select an activity location"))
 			return
 		}
-		h.handleValidationError(w, "Institute address is required")
+		h.handleValidationError(w, "Activity location is required")
 		return
 	}
 
-	log.Printf("[HTTP] PUT /api/v1/settings: institute_address=%s", req.InstituteAddress)
-	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.InstituteAddress, 3)
+	// Verify the location exists
+	location, err := h.DB.ActivityLocations().GetByID(r.Context(), req.SelectedActivityLocationID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to geocode institute address: address=%s err=%v", req.InstituteAddress, err)
+		log.Printf("[ERROR] Failed to get activity location: err=%v", err)
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleGeocodingError(w, err)
+		h.handleInternalError(w, err)
+		return
+	}
+
+	if location == nil {
+		log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", req.SelectedActivityLocationID)
+		if h.isHTMX(r) {
+			h.renderError(w, r, fmt.Errorf("Selected activity location not found"))
+			return
+		}
+		h.handleNotFound(w, "Activity location not found")
 		return
 	}
 
 	settings := &models.Settings{
-		InstituteAddress: req.InstituteAddress,
-		InstituteLat:     geocodeResult.Coords.Lat,
-		InstituteLng:     geocodeResult.Coords.Lng,
-		UseMiles:         req.UseMiles,
+		SelectedActivityLocationID: req.SelectedActivityLocationID,
+		UseMiles:                   req.UseMiles,
 	}
 
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
@@ -84,11 +97,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] Updated settings: lat=%.6f lng=%.6f", settings.InstituteLat, settings.InstituteLng)
+	log.Printf("[HTTP] Updated settings: selected_location_id=%d", settings.SelectedActivityLocationID)
 	if h.isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<div class="alert alert-success">Settings saved successfully! Coordinates: %.6f, %.6f</div>`,
-			settings.InstituteLat, settings.InstituteLng)
+		fmt.Fprintf(w, `<div class="alert alert-success">Settings saved successfully! Using: %s</div>`, location.Name)
 		return
 	}
 
