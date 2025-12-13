@@ -47,7 +47,7 @@
             </div>
             <div class="route-stats">
                 <div class="stat">
-                    <strong>Capacity:</strong> {{.EffectiveCapacity}} passengers
+                    <strong>Available Capacity:</strong> {{.EffectiveCapacity}} passengers
                 </div>
                 <div class="stat">
                     <strong>Passengers:</strong> {{len .Stops}}
@@ -153,7 +153,7 @@
             <div class="unused-driver-item">
                 <div class="driver-info-compact">
                     <span class="driver-name">{{.Name}}</span>
-                    <span class="driver-capacity text-muted">Capacity: {{.VehicleCapacity}}</span>
+                    <span class="driver-capacity text-muted">Available Capacity: {{.VehicleCapacity}}</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-primary"
                         onclick="addUnusedDriver({{.ID}})">
@@ -254,7 +254,7 @@
     <div class="mt-2">
         <small>
             Unassigned: {{.Error.Details.UnassignedCount}} participants,
-            Total Capacity: {{.Error.Details.TotalCapacity}},
+            Total Available Capacity: {{.Error.Details.TotalCapacity}},
             Total Participants: {{.Error.Details.TotalParticipants}}
         </small>
     </div>

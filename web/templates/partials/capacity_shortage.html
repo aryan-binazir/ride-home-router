@@ -1,10 +1,10 @@
 {{define "capacity_shortage"}}
 <div class="capacity-shortage-container">
     <div class="alert alert-warning">
-        <h3>Not Enough Capacity</h3>
+        <h3>Not Enough Available Capacity</h3>
         <p>
             <strong>{{.Error.TotalParticipants}}</strong> participants selected, but only
-            <strong>{{.Error.TotalCapacity}}</strong> seats available.
+            <strong>{{.Error.TotalCapacity}}</strong> available seats.
             You need <strong>{{.Error.Shortage}}</strong> more seat{{if gt .Error.Shortage 1}}s{{end}}.
         </p>
     </div>
@@ -32,9 +32,9 @@
                     <thead>
                         <tr>
                             <th>Driver</th>
-                            <th>Personal Capacity</th>
+                            <th>Personal Available Capacity</th>
                             <th>Assign Org Vehicle</th>
-                            <th>New Capacity</th>
+                            <th>New Available Capacity</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -44,7 +44,7 @@
                                 <strong>{{.Name}}</strong>
                                 <div class="text-muted" style="font-size: 0.85em;">{{.Address}}</div>
                             </td>
-                            <td>{{.VehicleCapacity}} seats</td>
+                            <td>{{.VehicleCapacity}} available seats</td>
                             <td>
                                 <select name="org_vehicle_{{.ID}}"
                                         class="form-select org-vehicle-select"
@@ -52,19 +52,19 @@
                                         onchange="updateCapacityDisplay(this)">
                                     <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
                                     {{range $.OrgVehicles}}
-                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}">{{.Name}} ({{.Capacity}} seats)</option>
+                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}">{{.Name}} ({{.Capacity}} available seats)</option>
                                     {{end}}
                                 </select>
                             </td>
-                            <td class="capacity-display">{{.VehicleCapacity}} seats</td>
+                            <td class="capacity-display">{{.VehicleCapacity}} available seats</td>
                         </tr>
                         {{end}}
                     </tbody>
                     <tfoot>
                         <tr>
                             <td colspan="2"></td>
-                            <td><strong>Total Capacity:</strong></td>
-                            <td><strong id="total-capacity">{{.Error.TotalCapacity}} seats</strong></td>
+                            <td><strong>Total Available Capacity:</strong></td>
+                            <td><strong id="total-capacity">{{.Error.TotalCapacity}} available seats</strong></td>
                         </tr>
                         <tr>
                             <td colspan="2"></td>
@@ -99,7 +99,7 @@
             const selectedOption = select.options[select.selectedIndex];
             const newCapacity = parseInt(selectedOption.dataset.capacity);
 
-            row.querySelector('.capacity-display').textContent = newCapacity + ' seats';
+            row.querySelector('.capacity-display').textContent = newCapacity + ' available seats';
 
             updateTotalCapacity();
         }
@@ -112,13 +112,13 @@
                 total += parseInt(selectedOption.dataset.capacity);
             });
 
-            document.getElementById('total-capacity').textContent = total + ' seats';
+            document.getElementById('total-capacity').textContent = total + ' available seats';
 
             const participants = {{.Error.TotalParticipants}};
             const statusEl = document.getElementById('capacity-status');
 
             if (total >= participants) {
-                statusEl.textContent = 'OK - ' + total + ' seats available';
+                statusEl.textContent = 'OK - ' + total + ' available seats';
                 statusEl.className = 'text-success';
             } else {
                 const shortage = participants - total;

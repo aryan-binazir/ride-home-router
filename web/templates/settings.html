@@ -88,11 +88,11 @@
                        required>
             </div>
             <div class="form-group">
-                <label class="form-label">Capacity</label>
+                <label class="form-label">Available Capacity</label>
                 <input type="number"
                        name="capacity"
                        class="form-input"
-                       placeholder="Seats"
+                       placeholder="Available Seats"
                        min="1"
                        required>
             </div>
@@ -111,7 +111,7 @@
                 <div>
                     <div class="d-flex align-center gap-2">
                         <strong>{{.Name}}</strong>
-                        <span class="badge badge-muted">{{.Capacity}} seats</span>
+                        <span class="badge badge-muted">{{.Capacity}} available seats</span>
                     </div>
                 </div>
                 <button hx-delete="/api/v1/org-vehicles/{{.ID}}"

@@ -117,11 +117,6 @@ func (h *Handler) handleRoutingError(w http.ResponseWriter, err error) {
 	h.writeError(w, http.StatusUnprocessableEntity, "ROUTING_FAILED", err.Error(), nil)
 }
 
-// handleConflict handles 409 errors
-func (h *Handler) handleConflict(w http.ResponseWriter, message string) {
-	h.writeError(w, http.StatusConflict, "CONFLICT", message, nil)
-}
-
 // handleInternalError handles 500 errors
 func (h *Handler) handleInternalError(w http.ResponseWriter, err error) {
 	log.Printf("[ERROR] Internal error: %v", err)

@@ -129,12 +129,6 @@ func templateFuncs() template.FuncMap {
 		"formatDate": func(t time.Time) string {
 			return t.Format("2006-01-02")
 		},
-		"divideFloat": func(a float64, b float64) float64 {
-			if b == 0 {
-				return 0
-			}
-			return a / b
-		},
 		"add": func(a, b int) int {
 			return a + b
 		},
@@ -155,12 +149,6 @@ func templateFuncs() template.FuncMap {
 			}
 			km := meters / MetersPerKilometer
 			return fmt.Sprintf("%.2f km", km)
-		},
-		"distanceUnit": func(useMiles bool) string {
-			if useMiles {
-				return "mi"
-			}
-			return "km"
 		},
 		"formatDuration": func(seconds float64) string {
 			mins := int(seconds / 60)
