@@ -103,6 +103,9 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 	return &results[0], nil
 }
 
+// maxOSRMCoordinates is the maximum number of coordinates OSRM public API accepts
+const maxOSRMCoordinates = 80
+
 func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error) {
 	n := len(points)
 	if n == 0 {
@@ -114,10 +117,9 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 		matrix[i] = make([]DistanceResult, n)
 	}
 
+	// First, check cache for all pairs
 	var missingPairs []struct {
 		i, j int
-		models.Coordinates
-		dest models.Coordinates
 	}
 
 	for i := 0; i < n; i++ {
@@ -137,11 +139,7 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 					DurationSecs:   cached.DurationSecs,
 				}
 			} else {
-				missingPairs = append(missingPairs, struct {
-					i, j int
-					models.Coordinates
-					dest models.Coordinates
-				}{i, j, points[i], points[j]})
+				missingPairs = append(missingPairs, struct{ i, j int }{i, j})
 			}
 		}
 	}
@@ -152,6 +150,20 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 	}
 
 	log.Printf("[OSRM] Distance matrix request: points=%d cached=%d missing=%d", n, n*n-len(missingPairs), len(missingPairs))
+
+	// If points fit in one request, do single request
+	if n <= maxOSRMCoordinates {
+		return c.fetchDistanceMatrixSingle(ctx, points, matrix)
+	}
+
+	// Otherwise, batch requests
+	log.Printf("[OSRM] Using batched requests: points=%d batches=%d", n, (n+maxOSRMCoordinates-1)/maxOSRMCoordinates)
+	return c.fetchDistanceMatrixBatched(ctx, points, matrix)
+}
+
+// fetchDistanceMatrixSingle fetches distance matrix in a single OSRM request
+func (c *osrmCalculator) fetchDistanceMatrixSingle(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) ([][]DistanceResult, error) {
+	n := len(points)
 	coords := make([]string, n)
 	for i, p := range points {
 		coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
@@ -215,6 +227,146 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 
 	if len(cacheEntries) > 0 {
 		if err := c.cache.SetBatch(ctx, cacheEntries); err != nil {
+			return nil, err
+		}
+	}
+
+	return matrix, nil
+}
+
+// fetchDistanceMatrixBatched fetches distance matrix using multiple batched OSRM requests
+func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) ([][]DistanceResult, error) {
+	n := len(points)
+
+	// Create batches of point indices
+	var batches [][]int
+	for i := 0; i < n; i += maxOSRMCoordinates {
+		end := i + maxOSRMCoordinates
+		if end > n {
+			end = n
+		}
+		batch := make([]int, end-i)
+		for j := i; j < end; j++ {
+			batch[j-i] = j
+		}
+		batches = append(batches, batch)
+	}
+
+	log.Printf("[OSRM] Created %d batches for %d points", len(batches), n)
+
+	// For each pair of batches (including same batch), fetch distances
+	var allCacheEntries []models.DistanceCacheEntry
+	requestCount := 0
+
+	for bi, batchI := range batches {
+		for bj, batchJ := range batches {
+			// Collect unique points for this batch pair
+			pointSet := make(map[int]bool)
+			for _, idx := range batchI {
+				pointSet[idx] = true
+			}
+			for _, idx := range batchJ {
+				pointSet[idx] = true
+			}
+
+			// Convert to slice and create coordinate mapping
+			var batchPoints []models.Coordinates
+			globalToLocal := make(map[int]int)
+			localIdx := 0
+			for idx := range pointSet {
+				globalToLocal[idx] = localIdx
+				batchPoints = append(batchPoints, points[idx])
+				localIdx++
+			}
+
+			if len(batchPoints) == 0 {
+				continue
+			}
+
+			// Build OSRM request
+			coords := make([]string, len(batchPoints))
+			for i, p := range batchPoints {
+				coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
+			}
+
+			// Build sources and destinations indices
+			var sources, destinations []string
+			for _, idx := range batchI {
+				sources = append(sources, fmt.Sprintf("%d", globalToLocal[idx]))
+			}
+			for _, idx := range batchJ {
+				destinations = append(destinations, fmt.Sprintf("%d", globalToLocal[idx]))
+			}
+
+			coordsStr := strings.Join(coords, ";")
+			queryURL := fmt.Sprintf("%s/table/v1/driving/%s?annotations=distance,duration&sources=%s&destinations=%s",
+				c.baseURL, coordsStr, strings.Join(sources, ";"), strings.Join(destinations, ";"))
+
+			req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+			if err != nil {
+				return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+			}
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				return nil, &ErrDistanceCalculationFailed{
+					Reason: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
+				}
+			}
+
+			var osrmResp osrmTableResponse
+			if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
+				resp.Body.Close()
+				return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+			}
+			resp.Body.Close()
+
+			if osrmResp.Code != "Ok" {
+				return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("OSRM error: %s", osrmResp.Code)}
+			}
+
+			requestCount++
+
+			// Fill in matrix values
+			for si, srcIdx := range batchI {
+				for di, dstIdx := range batchJ {
+					if srcIdx == dstIdx {
+						continue
+					}
+					dist := osrmResp.Distances[si][di]
+					dur := osrmResp.Durations[si][di]
+					if dist > 0 {
+						matrix[srcIdx][dstIdx] = DistanceResult{
+							DistanceMeters: dist,
+							DurationSecs:   dur,
+						}
+						allCacheEntries = append(allCacheEntries, models.DistanceCacheEntry{
+							Origin:         points[srcIdx],
+							Destination:    points[dstIdx],
+							DistanceMeters: dist,
+							DurationSecs:   dur,
+						})
+					}
+				}
+			}
+
+			// Rate limit between batch requests
+			if bi < len(batches)-1 || bj < len(batches)-1 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+
+	log.Printf("[OSRM] Batched requests complete: requests=%d entries=%d", requestCount, len(allCacheEntries))
+
+	if len(allCacheEntries) > 0 {
+		if err := c.cache.SetBatch(ctx, allCacheEntries); err != nil {
 			return nil, err
 		}
 	}
