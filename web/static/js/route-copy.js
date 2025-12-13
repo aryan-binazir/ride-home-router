@@ -33,11 +33,18 @@ function showToast(message, type = 'error', duration = 5000) {
         ? '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>'
         : '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
 
-    toast.innerHTML = `
-        ${iconSvg}
-        <span class="toast-message">${message}</span>
-        <span class="toast-close">&times;</span>
-    `;
+    // Build toast content safely to prevent XSS
+    toast.innerHTML = iconSvg;
+
+    const messageSpan = document.createElement('span');
+    messageSpan.className = 'toast-message';
+    messageSpan.textContent = message;
+    toast.appendChild(messageSpan);
+
+    const closeSpan = document.createElement('span');
+    closeSpan.className = 'toast-close';
+    closeSpan.innerHTML = '&times;';
+    toast.appendChild(closeSpan);
 
     // Click to dismiss
     toast.addEventListener('click', () => dismissToast(toast));
@@ -60,6 +67,17 @@ function dismissToast(toast) {
     toast.classList.add('toast-out');
     setTimeout(() => toast.remove(), 200);
 }
+
+/**
+ * HTMX event listener for showToast trigger
+ * Allows backend to trigger toasts via HX-Trigger header
+ */
+document.body.addEventListener('showToast', function(evt) {
+    const detail = evt.detail;
+    if (detail && detail.message) {
+        showToast(detail.message, detail.type || 'success', detail.duration || 5000);
+    }
+});
 
 /**
  * Extracts error message from HTML or JSON response

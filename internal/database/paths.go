@@ -22,7 +22,7 @@ func GetAppDir() (string, error) {
 	}
 
 	appDir := filepath.Join(homeDir, AppDirName)
-	if err := os.MkdirAll(appDir, 0755); err != nil {
+	if err := os.MkdirAll(appDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create app directory: %w", err)
 	}
 
@@ -46,7 +46,7 @@ func GetCacheDir() (string, error) {
 	}
 
 	cacheDir := filepath.Join(appDir, CacheDirName)
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
@@ -83,7 +83,7 @@ func MigrateOldData() error {
 			if err != nil {
 				return fmt.Errorf("failed to read old data file: %w", err)
 			}
-			if err := os.WriteFile(newDataPath, data, 0644); err != nil {
+			if err := os.WriteFile(newDataPath, data, 0600); err != nil {
 				return fmt.Errorf("failed to write new data file: %w", err)
 			}
 			log.Printf("Data migration complete")
@@ -104,7 +104,7 @@ func MigrateOldData() error {
 			if err != nil {
 				return fmt.Errorf("failed to read old cache file: %w", err)
 			}
-			if err := os.WriteFile(newCachePath, data, 0644); err != nil {
+			if err := os.WriteFile(newCachePath, data, 0600); err != nil {
 				return fmt.Errorf("failed to write new cache file: %w", err)
 			}
 			log.Printf("Cache migration complete")

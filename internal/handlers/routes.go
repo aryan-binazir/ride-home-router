@@ -87,6 +87,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if settings.SelectedActivityLocationID == 0 {
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location not configured")
 		h.handleValidationErrorHTMX(w, r, "Activity location not configured. Please set it in Settings.")
 		return
 	}
@@ -99,6 +100,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if activityLocation == nil {
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", settings.SelectedActivityLocationID)
 		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Please update Settings.")
 		return
 	}
@@ -110,6 +112,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if len(participants) != len(req.ParticipantIDs) {
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: participants mismatch requested=%d found=%d", len(req.ParticipantIDs), len(participants))
 		h.handleValidationError(w, "Some participants not found")
 		return
 	}
@@ -121,6 +124,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if len(drivers) != len(req.DriverIDs) {
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: drivers mismatch requested=%d found=%d", len(req.DriverIDs), len(drivers))
 		h.handleValidationError(w, "Some drivers not found")
 		return
 	}
@@ -132,10 +136,14 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	instituteVehicle, err := h.DB.Drivers().GetInstituteVehicle(r.Context())
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
+	// Only load institute vehicle when explicitly requested
+	var instituteVehicle *models.Driver
+	if req.InstituteVehicleDriverID != 0 {
+		instituteVehicle, err = h.DB.Drivers().GetInstituteVehicle(r.Context())
+		if err != nil {
+			h.handleInternalError(w, err)
+			return
+		}
 	}
 
 	routingReq := &routing.RoutingRequest{

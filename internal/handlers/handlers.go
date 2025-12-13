@@ -1,9 +1,10 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"log"
 	"net/http"
@@ -76,7 +77,7 @@ func (h *Handler) handleNotFoundHTMX(w http.ResponseWriter, r *http.Request, mes
 	if h.isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, message)
+		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
 		return
 	}
 	h.handleNotFound(w, message)
@@ -92,7 +93,7 @@ func (h *Handler) handleValidationErrorHTMX(w http.ResponseWriter, r *http.Reque
 	if h.isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, message)
+		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
 		return
 	}
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
@@ -129,7 +130,7 @@ func (h *Handler) handleInternalError(w http.ResponseWriter, err error) {
 
 // checkNotFound checks if an error is a not found error
 func (h *Handler) checkNotFound(err error) bool {
-	return err == sql.ErrNoRows
+	return errors.Is(err, database.ErrNotFound)
 }
 
 // renderTemplate renders an HTML template
@@ -174,7 +175,7 @@ func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error)
 	if h.isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, err.Error())
+		fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))
 		return
 	}
 	h.handleInternalError(w, err)

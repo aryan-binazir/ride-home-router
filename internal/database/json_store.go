@@ -179,7 +179,7 @@ func (s *JSONStore) saveUnlocked() error {
 
 	// Write to temp file first, then rename (atomic)
 	tmpFile := s.filePath + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
@@ -233,7 +233,7 @@ func (r *jsonParticipantRepository) GetByID(ctx context.Context, id int64) (*mod
 			return &p, nil
 		}
 	}
-	return nil, nil
+	return nil, nil // Not found is not an error for GetByID
 }
 
 func (r *jsonParticipantRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error) {
@@ -275,7 +275,7 @@ func (r *jsonParticipantRepository) Create(ctx context.Context, p *models.Partic
 		return nil, err
 	}
 
-	log.Printf("[JSON] Created participant: id=%d name=%s", p.ID, p.Name)
+	log.Printf("[JSON] Created participant: id=%d", p.ID)
 	return p, nil
 }
 
@@ -293,12 +293,12 @@ func (r *jsonParticipantRepository) Update(ctx context.Context, p *models.Partic
 				return nil, err
 			}
 
-			log.Printf("[JSON] Updated participant: id=%d name=%s", p.ID, p.Name)
+			log.Printf("[JSON] Updated participant: id=%d", p.ID)
 			return p, nil
 		}
 	}
 
-	return nil, nil
+	return nil, ErrNotFound
 }
 
 func (r *jsonParticipantRepository) Delete(ctx context.Context, id int64) error {
@@ -318,7 +318,7 @@ func (r *jsonParticipantRepository) Delete(ctx context.Context, id int64) error 
 		}
 	}
 
-	return fmt.Errorf("participant not found")
+	return ErrNotFound
 }
 
 // ==================== Driver Repository ====================
@@ -354,7 +354,7 @@ func (r *jsonDriverRepository) GetByID(ctx context.Context, id int64) (*models.D
 			return &d, nil
 		}
 	}
-	return nil, nil
+	return nil, nil // Not found is not an error for GetByID
 }
 
 func (r *jsonDriverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error) {
@@ -389,7 +389,7 @@ func (r *jsonDriverRepository) GetInstituteVehicle(ctx context.Context) (*models
 			return &d, nil
 		}
 	}
-	return nil, nil
+	return nil, nil // Not found is not an error
 }
 
 func (r *jsonDriverRepository) Create(ctx context.Context, d *models.Driver) (*models.Driver, error) {
@@ -408,7 +408,7 @@ func (r *jsonDriverRepository) Create(ctx context.Context, d *models.Driver) (*m
 		return nil, err
 	}
 
-	log.Printf("[JSON] Created driver: id=%d name=%s capacity=%d", d.ID, d.Name, d.VehicleCapacity)
+	log.Printf("[JSON] Created driver: id=%d capacity=%d", d.ID, d.VehicleCapacity)
 	return d, nil
 }
 
@@ -426,12 +426,12 @@ func (r *jsonDriverRepository) Update(ctx context.Context, d *models.Driver) (*m
 				return nil, err
 			}
 
-			log.Printf("[JSON] Updated driver: id=%d name=%s", d.ID, d.Name)
+			log.Printf("[JSON] Updated driver: id=%d", d.ID)
 			return d, nil
 		}
 	}
 
-	return nil, nil
+	return nil, ErrNotFound
 }
 
 func (r *jsonDriverRepository) Delete(ctx context.Context, id int64) error {
@@ -451,7 +451,7 @@ func (r *jsonDriverRepository) Delete(ctx context.Context, id int64) error {
 		}
 	}
 
-	return fmt.Errorf("driver not found")
+	return ErrNotFound
 }
 
 // ==================== Settings Repository ====================
@@ -539,7 +539,7 @@ func (r *jsonEventRepository) GetByID(ctx context.Context, id int64) (*models.Ev
 			return &e.Event, e.Assignments, &e.Summary, nil
 		}
 	}
-	return nil, nil, nil, nil
+	return nil, nil, nil, nil // Not found is not an error for GetByID
 }
 
 func (r *jsonEventRepository) Create(ctx context.Context, event *models.Event, assignments []models.EventAssignment, summary *models.EventSummary) (*models.Event, error) {
@@ -589,7 +589,7 @@ func (r *jsonEventRepository) Delete(ctx context.Context, id int64) error {
 		}
 	}
 
-	return fmt.Errorf("event not found")
+	return ErrNotFound
 }
 
 // ==================== Activity Location Repository ====================
@@ -621,7 +621,7 @@ func (r *jsonActivityLocationRepository) GetByID(ctx context.Context, id int64) 
 			return &loc, nil
 		}
 	}
-	return nil, nil
+	return nil, nil // Not found is not an error for GetByID
 }
 
 func (r *jsonActivityLocationRepository) Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
@@ -637,7 +637,7 @@ func (r *jsonActivityLocationRepository) Create(ctx context.Context, loc *models
 		return nil, err
 	}
 
-	log.Printf("[JSON] Created activity location: id=%d name=%s", loc.ID, loc.Name)
+	log.Printf("[JSON] Created activity location: id=%d", loc.ID)
 	return loc, nil
 }
 
@@ -658,5 +658,5 @@ func (r *jsonActivityLocationRepository) Delete(ctx context.Context, id int64) e
 		}
 	}
 
-	return fmt.Errorf("activity location not found")
+	return ErrNotFound
 }

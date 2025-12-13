@@ -20,6 +20,7 @@ type RouteSession struct {
 	SelectedDrivers  []models.Driver
 	ActivityLocation *models.ActivityLocation
 	UseMiles         bool
+	mu               sync.Mutex // Protects session data during modifications
 }
 
 // RouteSessionStore manages route editing sessions in memory
@@ -63,6 +64,20 @@ func (s *RouteSessionStore) Get(id string) *RouteSession {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sessions[id]
+}
+
+// Update executes a function on a session while holding the write lock.
+// This ensures thread-safe modifications to session data.
+// Returns false if the session doesn't exist.
+func (s *RouteSessionStore) Update(id string, fn func(*RouteSession)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session := s.sessions[id]
+	if session == nil {
+		return false
+	}
+	fn(session)
+	return true
 }
 
 func (s *RouteSessionStore) Delete(id string) {
@@ -149,6 +164,10 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Lock session for thread-safe modification
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
 	if req.FromRouteIndex < 0 || req.FromRouteIndex >= len(session.CurrentRoutes) ||
 		req.ToRouteIndex < 0 || req.ToRouteIndex >= len(session.CurrentRoutes) {
 		h.handleValidationErrorHTMX(w, r, "Invalid route index")
@@ -158,8 +177,8 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	fromRoute := &session.CurrentRoutes[req.FromRouteIndex]
 	toRoute := &session.CurrentRoutes[req.ToRouteIndex]
 
-	// Check capacity
-	if !toRoute.UsedInstituteVehicle && len(toRoute.Stops) >= toRoute.Driver.VehicleCapacity {
+	// Check capacity (applies to all vehicles including institute vehicle)
+	if len(toRoute.Stops) >= toRoute.Driver.VehicleCapacity {
 		h.handleValidationErrorHTMX(w, r, "Target vehicle is at capacity")
 		return
 	}
@@ -245,6 +264,10 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Lock session for thread-safe modification
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
 	if req.RouteIndex1 < 0 || req.RouteIndex1 >= len(session.CurrentRoutes) ||
 		req.RouteIndex2 < 0 || req.RouteIndex2 >= len(session.CurrentRoutes) {
 		h.handleValidationErrorHTMX(w, r, "Invalid route index")
@@ -306,6 +329,10 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Lock session for thread-safe modification
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
 	// Reset to original routes
 	session.CurrentRoutes = deepCopyRoutes(session.OriginalRoutes)
 
@@ -333,16 +360,20 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// recalculateRouteDistances recalculates distances for a single route after editing
+// recalculateRouteDistances recalculates distances and durations for a single route after editing
 func (h *Handler) recalculateRouteDistances(ctx context.Context, activityLocation *models.ActivityLocation, route *models.CalculatedRoute) {
 	if len(route.Stops) == 0 {
 		route.TotalDropoffDistanceMeters = 0
 		route.DistanceToDriverHomeMeters = 0
 		route.TotalDistanceMeters = 0
+		route.BaselineDurationSecs = 0
+		route.RouteDurationSecs = 0
+		route.DetourSecs = 0
 		return
 	}
 
 	var totalDropoff float64
+	var totalRouteDuration float64
 	prevCoords := activityLocation.GetCoords()
 
 	for i := range route.Stops {
@@ -367,26 +398,44 @@ func (h *Handler) recalculateRouteDistances(ctx context.Context, activityLocatio
 		}
 
 		totalDropoff += result.DistanceMeters
+		totalRouteDuration += result.DurationSecs
 		prevCoords = stop.Participant.GetCoords()
 	}
 
 	route.TotalDropoffDistanceMeters = totalDropoff
 
-	// Calculate distance to driver home (or back to activity location for institute vehicle)
+	// Calculate distance and duration to driver home (or back to activity location for institute vehicle)
 	lastStop := route.Stops[len(route.Stops)-1]
+	var durationToHome float64
 	if route.UsedInstituteVehicle {
 		result, err := h.DistanceCalc.GetDistance(ctx, lastStop.Participant.GetCoords(), activityLocation.GetCoords())
 		if err == nil {
 			route.DistanceToDriverHomeMeters = result.DistanceMeters
+			durationToHome = result.DurationSecs
 		}
 	} else {
 		result, err := h.DistanceCalc.GetDistance(ctx, lastStop.Participant.GetCoords(), route.Driver.GetCoords())
 		if err == nil {
 			route.DistanceToDriverHomeMeters = result.DistanceMeters
+			durationToHome = result.DurationSecs
 		}
 	}
 
 	route.TotalDistanceMeters = totalDropoff + route.DistanceToDriverHomeMeters
+	route.RouteDurationSecs = totalRouteDuration + durationToHome
+
+	// Recalculate baseline and detour for non-institute vehicle routes
+	if !route.UsedInstituteVehicle && route.Driver != nil {
+		baselineResult, err := h.DistanceCalc.GetDistance(ctx, activityLocation.GetCoords(), route.Driver.GetCoords())
+		if err == nil {
+			route.BaselineDurationSecs = baselineResult.DurationSecs
+			route.DetourSecs = route.RouteDurationSecs - route.BaselineDurationSecs
+		}
+	} else {
+		// Institute vehicle has no detour concept
+		route.BaselineDurationSecs = 0
+		route.DetourSecs = 0
+	}
 }
 
 // calculateSummary calculates the summary for a set of routes
@@ -480,6 +529,10 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		h.handleNotFoundHTMX(w, r, "Session not found")
 		return
 	}
+
+	// Lock session for thread-safe modification
+	session.mu.Lock()
+	defer session.mu.Unlock()
 
 	// Check if driver is in selected drivers
 	var driverToAdd *models.Driver

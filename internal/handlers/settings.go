@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -33,7 +34,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[ERROR] Failed to parse form: err=%v", err)
-			h.renderError(w, r, err)
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		if idStr := r.FormValue("selected_activity_location_id"); idStr != "" {
@@ -53,7 +55,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if req.SelectedActivityLocationID == 0 {
 		log.Printf("[HTTP] PUT /api/v1/settings: missing selected_activity_location_id")
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Please select an activity location"))
+			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Please select an activity location", "type": "error"}}`)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		h.handleValidationError(w, "Activity location is required")
@@ -65,7 +68,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[ERROR] Failed to get activity location: err=%v", err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		h.handleInternalError(w, err)
@@ -75,7 +79,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if location == nil {
 		log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", req.SelectedActivityLocationID)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Selected activity location not found"))
+			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Selected activity location not found", "type": "error"}}`)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		h.handleNotFound(w, "Activity location not found")
@@ -90,7 +95,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
 		log.Printf("[ERROR] Failed to update settings: err=%v", err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		h.handleInternalError(w, err)
@@ -99,8 +105,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Updated settings: selected_location_id=%d", settings.SelectedActivityLocationID)
 	if h.isHTMX(r) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<div class="alert alert-success">Settings saved successfully! Using: %s</div>`, location.Name)
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Settings saved! Using: %s", "type": "success"}}`, html.EscapeString(location.Name)))
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
