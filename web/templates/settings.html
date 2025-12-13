@@ -76,19 +76,63 @@
     <h3>Active Location &amp; Preferences</h3>
     <p class="text-muted">Select the activity location to use for route calculations.</p>
 
-    <form hx-put="/api/v1/settings"
+    <form id="settings-form"
+          hx-put="/api/v1/settings"
           hx-target="#settings-result"
           hx-indicator="#settings-loading">
         <div class="form-group">
             <label class="form-label">Selected Activity Location</label>
-            <select name="selected_activity_location_id" class="form-select" required>
-                <option value="">-- Select a location --</option>
-                {{range .ActivityLocations}}
-                <option value="{{.ID}}" {{if eq $.Settings.SelectedActivityLocationID .ID}}selected{{end}}>
-                    {{.Name}} ({{.Address}})
-                </option>
-                {{end}}
-            </select>
+            <div class="ui-select" id="activity-location-select">
+                <select name="selected_activity_location_id" class="form-select ui-select-native" required>
+                    <option value="">-- Select a location --</option>
+                    {{range .ActivityLocations}}
+                    <option value="{{.ID}}" {{if eq $.Settings.SelectedActivityLocationID .ID}}selected{{end}}>
+                        {{.Name}} ({{.Address}})
+                    </option>
+                    {{end}}
+                </select>
+
+                <button type="button"
+                        class="ui-select-trigger"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        aria-label="Selected activity location">
+                    <span class="ui-select-trigger-text">
+                        {{if .SelectedLocation}}
+                        <span class="ui-select-trigger-title">{{.SelectedLocation.Name}}</span>
+                        <span class="ui-select-trigger-subtitle">{{.SelectedLocation.Address}}</span>
+                        {{else}}
+                        <span class="ui-select-trigger-title">-- Select a location --</span>
+                        <span class="ui-select-trigger-subtitle hidden"></span>
+                        {{end}}
+                    </span>
+                    <span class="ui-select-chevron" aria-hidden="true"></span>
+                </button>
+
+                <div class="ui-select-menu" role="listbox" tabindex="-1">
+                    <button type="button"
+                            class="ui-select-option {{if eq $.Settings.SelectedActivityLocationID 0}}is-selected{{end}}"
+                            role="option"
+                            aria-selected="{{if eq $.Settings.SelectedActivityLocationID 0}}true{{else}}false{{end}}"
+                            data-value=""
+                            data-title="-- Select a location --"
+                            data-subtitle="">
+                        <span class="ui-select-option-title">-- Select a location --</span>
+                    </button>
+                    {{range .ActivityLocations}}
+                    <button type="button"
+                            class="ui-select-option {{if eq $.Settings.SelectedActivityLocationID .ID}}is-selected{{end}}"
+                            role="option"
+                            aria-selected="{{if eq $.Settings.SelectedActivityLocationID .ID}}true{{else}}false{{end}}"
+                            data-value="{{.ID}}"
+                            data-title="{{.Name}}"
+                            data-subtitle="{{.Address}}">
+                        <span class="ui-select-option-title">{{.Name}}</span>
+                        <span class="ui-select-option-subtitle">{{.Address}}</span>
+                    </button>
+                    {{end}}
+                </div>
+            </div>
             {{if .SelectedLocation}}
             <div class="form-help">
                 Current: {{.SelectedLocation.Name}} at {{printf "%.6f" .SelectedLocation.Lat}}, {{printf "%.6f" .SelectedLocation.Lng}}
