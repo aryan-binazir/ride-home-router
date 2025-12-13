@@ -3,7 +3,8 @@
 #
 # Binaries for programs and plugins
 /bin/
-/build/
+/build/bin/
+.gocache/
 *.exe
 *.exe~
 *.dll
