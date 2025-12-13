@@ -136,6 +136,9 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 				orgVehicles, _ := h.DB.OrganizationVehicles().List(r.Context())
 				shortage := rerr.TotalParticipants - rerr.TotalCapacity
 
+				// Trigger a warning toast
+				w.Header().Set("HX-Trigger", `{"showToast":{"message":"Not enough capacity - need `+strconv.Itoa(shortage)+` more seats","type":"warning"}}`)
+
 				h.renderTemplate(w, "capacity_shortage", map[string]interface{}{
 					"Error": map[string]interface{}{
 						"Message":           rerr.Reason,
