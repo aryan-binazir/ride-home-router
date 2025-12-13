@@ -80,7 +80,7 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] GET /api/v1/events: limit=%d offset=%d", limit, offset)
-	events, total, err := h.DB.EventRepository.List(r.Context(), limit, offset)
+	events, total, err := h.DB.Events().List(r.Context(), limit, offset)
 	if err != nil {
 		log.Printf("[ERROR] Failed to list events: limit=%d offset=%d err=%v", limit, offset, err)
 		h.handleInternalError(w, err)
@@ -89,7 +89,7 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 
 	eventsWithSummary := make([]EventWithSummary, len(events))
 	for i, event := range events {
-		_, _, summary, err := h.DB.EventRepository.GetByID(r.Context(), event.ID)
+		_, _, summary, err := h.DB.Events().GetByID(r.Context(), event.ID)
 		if err != nil {
 			h.handleInternalError(w, err)
 			return
@@ -123,7 +123,7 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] GET /api/v1/events/{id}: id=%d", id)
-	event, assignments, summary, err := h.DB.EventRepository.GetByID(r.Context(), id)
+	event, assignments, summary, err := h.DB.Events().GetByID(r.Context(), id)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
@@ -249,7 +249,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if req.Routes.Summary.UsedInstituteVehicle {
 		for _, route := range req.Routes.Routes {
 			if route.UsedInstituteVehicle && route.InstituteVehicleDriverID > 0 {
-				driver, err := h.DB.DriverRepository.GetByID(r.Context(), route.InstituteVehicleDriverID)
+				driver, err := h.DB.Drivers().GetByID(r.Context(), route.InstituteVehicleDriverID)
 				if err == nil && driver != nil {
 					summary.InstituteVehicleDriverName = driver.Name
 				}
@@ -258,7 +258,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	event, err = h.DB.EventRepository.Create(r.Context(), event, assignments, summary)
+	event, err = h.DB.Events().Create(r.Context(), event, assignments, summary)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create event: date=%s participants=%d err=%v", req.EventDate, len(assignments), err)
 		h.handleInternalError(w, err)
@@ -289,7 +289,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] DELETE /api/v1/events/{id}: id=%d", id)
-	err = h.DB.EventRepository.Delete(r.Context(), id)
+	err = h.DB.Events().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Event not found for delete: id=%d", id)
 		h.handleNotFound(w, "Event not found")
@@ -305,7 +305,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 
 	// Return refreshed list for htmx, 204 for API
 	if h.isHTMX(r) {
-		events, total, err := h.DB.EventRepository.List(r.Context(), 20, 0)
+		events, total, err := h.DB.Events().List(r.Context(), 20, 0)
 		if err != nil {
 			h.renderError(w, r, err)
 			return
@@ -313,7 +313,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 
 		eventsWithSummary := make([]EventWithSummary, len(events))
 		for i, event := range events {
-			_, _, summary, err := h.DB.EventRepository.GetByID(r.Context(), event.ID)
+			_, _, summary, err := h.DB.Events().GetByID(r.Context(), event.ID)
 			if err != nil {
 				h.renderError(w, r, err)
 				return

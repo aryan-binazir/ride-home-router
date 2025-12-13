@@ -14,13 +14,13 @@ type PageData struct {
 
 // HandleIndexPage handles GET /
 func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
-	participants, err := h.DB.ParticipantRepository.List(r.Context(), "")
+	participants, err := h.DB.Participants().List(r.Context(), "")
 	if err != nil {
 		h.renderError(w, r, err)
 		return
 	}
 
-	drivers, err := h.DB.DriverRepository.List(r.Context(), "")
+	drivers, err := h.DB.Drivers().List(r.Context(), "")
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -47,7 +47,7 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleParticipantsPage handles GET /participants
 func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request) {
-	participants, err := h.DB.ParticipantRepository.List(r.Context(), "")
+	participants, err := h.DB.Participants().List(r.Context(), "")
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -64,7 +64,7 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 
 // HandleDriversPage handles GET /drivers
 func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
-	drivers, err := h.DB.DriverRepository.List(r.Context(), "")
+	drivers, err := h.DB.Drivers().List(r.Context(), "")
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -81,7 +81,7 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleSettingsPage handles GET /settings
 func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	settings, err := h.DB.SettingsRepository.Get(r.Context())
+	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -111,7 +111,7 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleHistoryPage handles GET /history
 func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
-	events, total, err := h.DB.EventRepository.List(r.Context(), 20, 0)
+	events, total, err := h.DB.Events().List(r.Context(), 20, 0)
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -120,7 +120,7 @@ func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 	// Build events with summaries for the template
 	eventsWithSummary := make([]EventWithSummary, len(events))
 	for i, event := range events {
-		_, _, summary, err := h.DB.EventRepository.GetByID(r.Context(), event.ID)
+		_, _, summary, err := h.DB.Events().GetByID(r.Context(), event.ID)
 		if err != nil {
 			h.renderError(w, r, err)
 			return

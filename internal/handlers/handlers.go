@@ -23,7 +23,7 @@ type TemplateSet struct {
 
 // Handler provides common handler utilities and dependencies
 type Handler struct {
-	DB           *database.DB
+	DB           database.DataStore
 	Geocoder     geocoding.Geocoder
 	DistanceCalc distance.DistanceCalculator
 	Router       routing.Router

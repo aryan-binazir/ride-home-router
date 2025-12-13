@@ -12,7 +12,7 @@ import (
 // HandleGetSettings handles GET /api/v1/settings
 func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/settings")
-	settings, err := h.DB.SettingsRepository.Get(r.Context())
+	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
 		log.Printf("[ERROR] Failed to get settings: err=%v", err)
 		h.handleInternalError(w, err)
@@ -74,7 +74,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		UseMiles:         req.UseMiles,
 	}
 
-	if err := h.DB.SettingsRepository.Update(r.Context(), settings); err != nil {
+	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
 		log.Printf("[ERROR] Failed to update settings: err=%v", err)
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)

@@ -152,10 +152,10 @@ func TestHandleListParticipants(t *testing.T) {
 	h := setupTestHandler(t)
 
 	// Create test participants
-	h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Alice", Address: "123 Main St", Lat: 40.0, Lng: -75.0,
 	})
-	h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Bob", Address: "456 Oak St", Lat: 41.0, Lng: -76.0,
 	})
 
@@ -177,10 +177,10 @@ func TestHandleListParticipants(t *testing.T) {
 func TestHandleListParticipantsWithSearch(t *testing.T) {
 	h := setupTestHandler(t)
 
-	h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Alice", Address: "123 Main St", Lat: 40.0, Lng: -75.0,
 	})
-	h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Bob", Address: "456 Oak St", Lat: 41.0, Lng: -76.0,
 	})
 
@@ -202,7 +202,7 @@ func TestHandleListParticipantsWithSearch(t *testing.T) {
 func TestHandleGetParticipant(t *testing.T) {
 	h := setupTestHandler(t)
 
-	created, _ := h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	created, _ := h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Alice", Address: "123 Main St", Lat: 40.0, Lng: -75.0,
 	})
 
@@ -259,7 +259,7 @@ func TestHandleCreateParticipant(t *testing.T) {
 	h := setupTestHandler(t)
 
 	// Set up settings first
-	h.DB.SettingsRepository.Update(context.Background(), &models.Settings{
+	h.DB.Settings().Update(context.Background(), &models.Settings{
 		InstituteAddress: "Test Institute",
 		InstituteLat:     40.0,
 		InstituteLng:     -75.0,
@@ -308,7 +308,7 @@ func TestHandleCreateParticipantMissingName(t *testing.T) {
 func TestHandleUpdateParticipant(t *testing.T) {
 	h := setupTestHandler(t)
 
-	created, _ := h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	created, _ := h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Original", Address: "Original Address", Lat: 40.0, Lng: -75.0,
 	})
 
@@ -336,7 +336,7 @@ func TestHandleUpdateParticipant(t *testing.T) {
 func TestHandleDeleteParticipant(t *testing.T) {
 	h := setupTestHandler(t)
 
-	created, _ := h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	created, _ := h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "ToDelete", Address: "Delete Me", Lat: 40.0, Lng: -75.0,
 	})
 
@@ -348,7 +348,7 @@ func TestHandleDeleteParticipant(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 
 	// Verify deletion
-	found, _ := h.DB.ParticipantRepository.GetByID(context.Background(), created.ID)
+	found, _ := h.DB.Participants().GetByID(context.Background(), created.ID)
 	assert.Nil(t, found)
 }
 
@@ -356,17 +356,17 @@ func TestHandleCalculateRoutes(t *testing.T) {
 	h := setupTestHandler(t)
 
 	// Set up test data
-	h.DB.SettingsRepository.Update(context.Background(), &models.Settings{
+	h.DB.Settings().Update(context.Background(), &models.Settings{
 		InstituteAddress: "Test Institute",
 		InstituteLat:     40.0,
 		InstituteLng:     -75.0,
 	})
 
-	p, _ := h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	p, _ := h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Participant", Address: "P Addr", Lat: 40.1, Lng: -75.1,
 	})
 
-	d, _ := h.DB.DriverRepository.Create(context.Background(), &models.Driver{
+	d, _ := h.DB.Drivers().Create(context.Background(), &models.Driver{
 		Name: "Driver", Address: "D Addr", Lat: 40.2, Lng: -75.2, VehicleCapacity: 4,
 	})
 
@@ -412,17 +412,17 @@ func TestHandleCalculateRoutesInsufficientCapacity(t *testing.T) {
 	h := setupTestHandler(t)
 	h.Router = &mockRouter{shouldFail: true}
 
-	h.DB.SettingsRepository.Update(context.Background(), &models.Settings{
+	h.DB.Settings().Update(context.Background(), &models.Settings{
 		InstituteAddress: "Test Institute",
 		InstituteLat:     40.0,
 		InstituteLng:     -75.0,
 	})
 
-	p, _ := h.DB.ParticipantRepository.Create(context.Background(), &models.Participant{
+	p, _ := h.DB.Participants().Create(context.Background(), &models.Participant{
 		Name: "Participant", Address: "P Addr", Lat: 40.1, Lng: -75.1,
 	})
 
-	d, _ := h.DB.DriverRepository.Create(context.Background(), &models.Driver{
+	d, _ := h.DB.Drivers().Create(context.Background(), &models.Driver{
 		Name: "Driver", Address: "D Addr", Lat: 40.2, Lng: -75.2, VehicleCapacity: 4,
 	})
 

@@ -142,13 +142,12 @@ func loadTemplates(templatesDir string) (*handlers.TemplateSet, error) {
 }
 
 func run() error {
-	dbPath := getEnv("DATABASE_PATH", "ride-home-router.db")
 	addr := getEnv("SERVER_ADDR", "127.0.0.1:8080")
 
-	log.Printf("Initializing database at %s", dbPath)
-	db, err := database.New(dbPath)
+	log.Printf("Initializing data store...")
+	db, err := database.NewJSONStore()
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to initialize data store: %w", err)
 	}
 	defer db.Close()
 
@@ -160,8 +159,8 @@ func run() error {
 	}
 
 	geocoder := geocoding.NewNominatimGeocoder()
-	distanceCalc := distance.NewOSRMCalculator(db.DistanceCacheRepository)
-	router := routing.NewFairnessRouter(distanceCalc)
+	distanceCalc := distance.NewOSRMCalculator(db.DistanceCache())
+	router := routing.NewDistanceMinimizer(distanceCalc)
 
 	handler := &handlers.Handler{
 		DB:           db,

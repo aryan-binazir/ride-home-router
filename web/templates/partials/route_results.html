@@ -89,7 +89,7 @@
                 <div class="value text-warning">Used</div>
             </div>
             {{end}}
-            {{if gt .Summary.MaxDetourSecs 0}}
+            {{if gt .Summary.MaxDetourSecs 0.0}}
             <div class="summary-item">
                 <div class="label">Max Detour</div>
                 <div class="value">{{formatDuration .Summary.MaxDetourSecs}}</div>

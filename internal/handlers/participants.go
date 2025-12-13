@@ -22,7 +22,7 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 	search := r.URL.Query().Get("search")
 	log.Printf("[HTTP] GET /api/v1/participants: search=%s", search)
 
-	participants, err := h.DB.ParticipantRepository.List(r.Context(), search)
+	participants, err := h.DB.Participants().List(r.Context(), search)
 	if err != nil {
 		log.Printf("[ERROR] Failed to list participants: search=%s err=%v", search, err)
 		if h.isHTMX(r) {
@@ -58,7 +58,7 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] GET /api/v1/participants/{id}: id=%d", id)
-	participant, err := h.DB.ParticipantRepository.GetByID(r.Context(), id)
+	participant, err := h.DB.Participants().GetByID(r.Context(), id)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get participant: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
@@ -126,7 +126,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		Lng:     geocodeResult.Coords.Lng,
 	}
 
-	participant, err = h.DB.ParticipantRepository.Create(r.Context(), participant)
+	participant, err = h.DB.Participants().Create(r.Context(), participant)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create participant: name=%s address=%s err=%v", req.Name, req.Address, err)
 		if h.isHTMX(r) {
@@ -139,7 +139,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Created participant: id=%d name=%s", participant.ID, participant.Name)
 	if h.isHTMX(r) {
-		participants, err := h.DB.ParticipantRepository.List(r.Context(), "")
+		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after create: err=%v", err)
 			h.renderError(w, r, err)
@@ -174,7 +174,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] PUT /api/v1/participants/{id}: id=%d", id)
 
-	existing, err := h.DB.ParticipantRepository.GetByID(r.Context(), id)
+	existing, err := h.DB.Participants().GetByID(r.Context(), id)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get participant for update: id=%d err=%v", id, err)
 		if h.isHTMX(r) {
@@ -245,7 +245,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		participant.Lng = geocodeResult.Coords.Lng
 	}
 
-	participant, err = h.DB.ParticipantRepository.Update(r.Context(), participant)
+	participant, err = h.DB.Participants().Update(r.Context(), participant)
 	if err != nil {
 		log.Printf("[ERROR] Failed to update participant: id=%d err=%v", id, err)
 		if h.isHTMX(r) {
@@ -268,7 +268,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Updated participant: id=%d name=%s", participant.ID, participant.Name)
 	if h.isHTMX(r) {
-		participants, err := h.DB.ParticipantRepository.List(r.Context(), "")
+		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after update: err=%v", err)
 			h.renderError(w, r, err)
@@ -299,7 +299,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Printf("[HTTP] DELETE /api/v1/participants/{id}: id=%d", id)
-	err = h.DB.ParticipantRepository.Delete(r.Context(), id)
+	err = h.DB.Participants().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Participant not found for delete: id=%d", id)
 		if h.isHTMX(r) {
@@ -341,7 +341,7 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		participant, err = h.DB.ParticipantRepository.GetByID(r.Context(), id)
+		participant, err = h.DB.Participants().GetByID(r.Context(), id)
 		if err != nil {
 			h.renderError(w, r, err)
 			return

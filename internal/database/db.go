@@ -12,15 +12,32 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
+// DataStore is the interface for data persistence
+type DataStore interface {
+	Close() error
+	HealthCheck(ctx context.Context) error
+	Participants() ParticipantRepository
+	Drivers() DriverRepository
+	Settings() SettingsRepository
+	Events() EventRepository
+	DistanceCache() DistanceCacheRepository
+}
+
 // DB wraps the database connection and provides access to repositories
 type DB struct {
-	conn                  *sql.DB
-	ParticipantRepository ParticipantRepository
-	DriverRepository      DriverRepository
-	SettingsRepository    SettingsRepository
-	EventRepository       EventRepository
-	DistanceCacheRepository DistanceCacheRepository
+	conn                    *sql.DB
+	participantRepository   ParticipantRepository
+	driverRepository        DriverRepository
+	settingsRepository      SettingsRepository
+	eventRepository         EventRepository
+	distanceCacheRepository DistanceCacheRepository
 }
+
+func (db *DB) Participants() ParticipantRepository   { return db.participantRepository }
+func (db *DB) Drivers() DriverRepository             { return db.driverRepository }
+func (db *DB) Settings() SettingsRepository          { return db.settingsRepository }
+func (db *DB) Events() EventRepository               { return db.eventRepository }
+func (db *DB) DistanceCache() DistanceCacheRepository { return db.distanceCacheRepository }
 
 // New creates a new database connection and runs migrations
 func New(dbPath string) (*DB, error) {
@@ -39,11 +56,11 @@ func New(dbPath string) (*DB, error) {
 
 	db := &DB{
 		conn:                    conn,
-		ParticipantRepository:   &participantRepository{db: conn},
-		DriverRepository:        &driverRepository{db: conn},
-		SettingsRepository:      &settingsRepository{db: conn},
-		EventRepository:         &eventRepository{db: conn},
-		DistanceCacheRepository: &distanceCacheRepository{db: conn},
+		participantRepository:   &participantRepository{db: conn},
+		driverRepository:        &driverRepository{db: conn},
+		settingsRepository:      &settingsRepository{db: conn},
+		eventRepository:         &eventRepository{db: conn},
+		distanceCacheRepository: &distanceCacheRepository{db: conn},
 	}
 
 	return db, nil

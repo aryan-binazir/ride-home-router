@@ -22,7 +22,7 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	log.Printf("[HTTP] GET /api/v1/drivers: search=%s", search)
 
-	drivers, err := h.DB.DriverRepository.List(r.Context(), search)
+	drivers, err := h.DB.Drivers().List(r.Context(), search)
 	if err != nil {
 		log.Printf("[ERROR] Failed to list drivers: search=%s err=%v", search, err)
 		if h.isHTMX(r) {
@@ -58,7 +58,7 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] GET /api/v1/drivers/{id}: id=%d", id)
-	driver, err := h.DB.DriverRepository.GetByID(r.Context(), id)
+	driver, err := h.DB.Drivers().GetByID(r.Context(), id)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get driver: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
@@ -126,7 +126,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.IsInstituteVehicle {
-		existing, err := h.DB.DriverRepository.GetInstituteVehicle(r.Context())
+		existing, err := h.DB.Drivers().GetInstituteVehicle(r.Context())
 		if err != nil {
 			if h.isHTMX(r) {
 				h.renderError(w, r, err)
@@ -166,7 +166,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		IsInstituteVehicle: req.IsInstituteVehicle,
 	}
 
-	driver, err = h.DB.DriverRepository.Create(r.Context(), driver)
+	driver, err = h.DB.Drivers().Create(r.Context(), driver)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			log.Printf("[HTTP] Driver create conflict: institute vehicle already exists")
@@ -188,7 +188,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, driver.Name)
 	if h.isHTMX(r) {
-		drivers, err := h.DB.DriverRepository.List(r.Context(), "")
+		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list drivers after create: err=%v", err)
 			h.renderError(w, r, err)
@@ -222,7 +222,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] PUT /api/v1/drivers/{id}: id=%d", id)
-	existing, err := h.DB.DriverRepository.GetByID(r.Context(), id)
+	existing, err := h.DB.Drivers().GetByID(r.Context(), id)
 	if err != nil {
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -290,7 +290,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.IsInstituteVehicle && !existing.IsInstituteVehicle {
-		instituteVehicle, err := h.DB.DriverRepository.GetInstituteVehicle(r.Context())
+		instituteVehicle, err := h.DB.Drivers().GetInstituteVehicle(r.Context())
 		if err != nil {
 			if h.isHTMX(r) {
 				h.renderError(w, r, err)
@@ -334,7 +334,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		driver.Lng = geocodeResult.Coords.Lng
 	}
 
-	driver, err = h.DB.DriverRepository.Update(r.Context(), driver)
+	driver, err = h.DB.Drivers().Update(r.Context(), driver)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			log.Printf("[HTTP] Driver update conflict: id=%d institute vehicle already exists", id)
@@ -366,7 +366,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, driver.Name)
 	if h.isHTMX(r) {
-		drivers, err := h.DB.DriverRepository.List(r.Context(), "")
+		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list drivers after update: err=%v", err)
 			h.renderError(w, r, err)
@@ -397,7 +397,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: id=%d", id)
-	err = h.DB.DriverRepository.Delete(r.Context(), id)
+	err = h.DB.Drivers().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Driver not found for delete: id=%d", id)
 		if h.isHTMX(r) {
@@ -439,7 +439,7 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		driver, err = h.DB.DriverRepository.GetByID(r.Context(), id)
+		driver, err = h.DB.Drivers().GetByID(r.Context(), id)
 		if err != nil {
 			h.renderError(w, r, err)
 			return

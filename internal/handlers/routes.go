@@ -80,7 +80,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d", len(req.ParticipantIDs), len(req.DriverIDs))
 
-	settings, err := h.DB.SettingsRepository.Get(r.Context())
+	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
 		h.handleInternalError(w, err)
 		return
@@ -91,7 +91,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	participants, err := h.DB.ParticipantRepository.GetByIDs(r.Context(), req.ParticipantIDs)
+	participants, err := h.DB.Participants().GetByIDs(r.Context(), req.ParticipantIDs)
 	if err != nil {
 		h.handleInternalError(w, err)
 		return
@@ -102,7 +102,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	drivers, err := h.DB.DriverRepository.GetByIDs(r.Context(), req.DriverIDs)
+	drivers, err := h.DB.Drivers().GetByIDs(r.Context(), req.DriverIDs)
 	if err != nil {
 		h.handleInternalError(w, err)
 		return
@@ -120,7 +120,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	instituteVehicle, err := h.DB.DriverRepository.GetInstituteVehicle(r.Context())
+	instituteVehicle, err := h.DB.Drivers().GetInstituteVehicle(r.Context())
 	if err != nil {
 		h.handleInternalError(w, err)
 		return
