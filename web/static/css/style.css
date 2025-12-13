@@ -1137,6 +1137,10 @@ tbody tr:last-child td {
     display: none;
 }
 
+.loading.htmx-indicator {
+    display: none;
+}
+
 .htmx-request .htmx-indicator {
     display: inline-block;
 }

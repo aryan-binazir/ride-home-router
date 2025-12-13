@@ -7,10 +7,7 @@
 
 {{range .Events}}
 <div class="event-item"
-     hx-get="/api/v1/events/{{.ID}}"
-     hx-target="#event-detail-{{.ID}}"
-     hx-swap="innerHTML"
-     hx-trigger="click once">
+     onclick="toggleEventDetail(this, {{.ID}})">
     <div class="event-header">
         <div class="event-date">{{formatDate .EventDate}}</div>
         <button class="btn btn-sm btn-danger"

@@ -19,6 +19,26 @@ function filterTable(input, tbodyId) {
   });
 }
 
+/**
+ * Toggle event detail expansion in history view.
+ * @param {HTMLElement} eventItem - The event item element
+ * @param {number} eventId - The event ID
+ */
+function toggleEventDetail(eventItem, eventId) {
+  const detailDiv = document.getElementById('event-detail-' + eventId);
+  if (!detailDiv) return;
+
+  if (detailDiv.innerHTML.trim()) {
+    // Collapse - clear content
+    detailDiv.innerHTML = '';
+    eventItem.classList.remove('expanded');
+  } else {
+    // Expand - fetch content via HTMX
+    eventItem.classList.add('expanded');
+    htmx.ajax('GET', '/api/v1/events/' + eventId, { target: detailDiv, swap: 'innerHTML' });
+  }
+}
+
 (function () {
   function shouldEnhanceSelects() {
     const platform = (navigator.platform || "").toLowerCase();
