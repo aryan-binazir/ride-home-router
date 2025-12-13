@@ -1,5 +1,37 @@
 // Route copy and editing functionality for ride-home-router
 
+// ============= Helper Functions =============
+
+/**
+ * Shows an error message inline above the routes
+ */
+function showRouteError(html) {
+    // Remove any existing error
+    const existingError = document.getElementById('route-error');
+    if (existingError) {
+        existingError.remove();
+    }
+
+    // Create error container
+    const errorDiv = document.createElement('div');
+    errorDiv.id = 'route-error';
+    errorDiv.innerHTML = html;
+
+    // Insert at top of routes container
+    const container = document.querySelector('.routes-container');
+    if (container) {
+        container.insertBefore(errorDiv, container.firstChild);
+    }
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        const error = document.getElementById('route-error');
+        if (error) {
+            error.remove();
+        }
+    }, 5000);
+}
+
 // ============= Route Editing Functions =============
 
 /**
@@ -38,21 +70,19 @@ async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
             })
         });
 
-        if (!response.ok) {
-            const text = await response.text();
-            alert('Failed to move participant: ' + text);
-            return;
-        }
-
-        // Replace the routes container with the new HTML
         const html = await response.text();
-        const routeResults = document.getElementById('route-results');
+        const routeResults = document.getElementById('results-section');
         if (routeResults) {
-            routeResults.innerHTML = html;
+            if (!response.ok) {
+                // Show error inline above routes
+                showRouteError(html);
+            } else {
+                routeResults.innerHTML = html;
+            }
         }
     } catch (err) {
         console.error('Failed to move participant:', err);
-        alert('Failed to move participant: ' + err.message);
+        showRouteError('Failed to move participant: ' + err.message);
     }
 }
 
@@ -88,21 +118,18 @@ async function swapDrivers(routeIndex1) {
             })
         });
 
-        if (!response.ok) {
-            const text = await response.text();
-            alert('Failed to swap drivers: ' + text);
-            return;
-        }
-
-        // Replace the routes container with the new HTML
         const html = await response.text();
-        const routeResults = document.getElementById('route-results');
+        const routeResults = document.getElementById('results-section');
         if (routeResults) {
-            routeResults.innerHTML = html;
+            if (!response.ok) {
+                showRouteError(html);
+            } else {
+                routeResults.innerHTML = html;
+            }
         }
     } catch (err) {
         console.error('Failed to swap drivers:', err);
-        alert('Failed to swap drivers: ' + err.message);
+        showRouteError('Failed to swap drivers: ' + err.message);
     }
 }
 
@@ -124,21 +151,18 @@ async function resetRoutes() {
             }
         });
 
-        if (!response.ok) {
-            const text = await response.text();
-            alert('Failed to reset routes: ' + text);
-            return;
-        }
-
-        // Replace the routes container with the new HTML
         const html = await response.text();
-        const routeResults = document.getElementById('route-results');
+        const routeResults = document.getElementById('results-section');
         if (routeResults) {
-            routeResults.innerHTML = html;
+            if (!response.ok) {
+                showRouteError(html);
+            } else {
+                routeResults.innerHTML = html;
+            }
         }
     } catch (err) {
         console.error('Failed to reset routes:', err);
-        alert('Failed to reset routes: ' + err.message);
+        showRouteError('Failed to reset routes: ' + err.message);
     }
 }
 

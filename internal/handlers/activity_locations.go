@@ -147,9 +147,10 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 	log.Printf("[HTTP] Deleted activity location: id=%d", id)
 
 	if h.isHTMX(r) {
+		// Return 200 with empty body so htmx will swap (remove) the element
 		w.Header().Set("HX-Trigger", "activity-location-deleted")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		http.Error(w, "", http.StatusNoContent)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
