@@ -9,11 +9,9 @@ import (
 
 // RoutingRequest contains the input for route calculation
 type RoutingRequest struct {
-	InstituteCoords          models.Coordinates
-	Participants             []models.Participant
-	Drivers                  []models.Driver
-	InstituteVehicle         *models.Driver
-	InstituteVehicleDriverID int64
+	InstituteCoords models.Coordinates
+	Participants    []models.Participant
+	Drivers         []models.Driver
 }
 
 // Router provides route optimization

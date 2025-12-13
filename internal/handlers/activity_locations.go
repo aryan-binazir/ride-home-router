@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -53,7 +55,9 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	if req.Name == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing name")
 		if h.isHTMX(r) {
-			http.Error(w, "Name is required", http.StatusBadRequest)
+			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Name is required", "type": "error"}}`)
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		h.handleValidationError(w, "Name is required")
@@ -63,7 +67,9 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	if req.Address == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing address")
 		if h.isHTMX(r) {
-			http.Error(w, "Address is required", http.StatusBadRequest)
+			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Address is required", "type": "error"}}`)
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		h.handleValidationError(w, "Address is required")
@@ -77,7 +83,9 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		log.Printf("[ERROR] Failed to geocode address: address=%s err=%v", req.Address, err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to geocode address: %s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
 		h.handleGeocodingError(w, err)
@@ -95,7 +103,9 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		log.Printf("[ERROR] Failed to create activity location: err=%v", err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to save location: %s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		h.handleInternalError(w, err)
@@ -106,10 +116,9 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		createdLocation.ID, createdLocation.Name, createdLocation.Lat, createdLocation.Lng)
 
 	if h.isHTMX(r) {
-		// Return success message and refresh the location list
-		w.Header().Set("HX-Trigger", "activity-location-created")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		http.Error(w, "", http.StatusNoContent)
+		// Return the new location row HTML and trigger a success toast
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Location '%s' added!", "type": "success"}}`, html.EscapeString(createdLocation.Name)))
+		h.renderTemplate(w, "activity_location_row", createdLocation)
 		return
 	}
 
@@ -148,7 +157,7 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 
 	if h.isHTMX(r) {
 		// Return 200 with empty body so htmx will swap (remove) the element
-		w.Header().Set("HX-Trigger", "activity-location-deleted")
+		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Location deleted", "type": "success"}}`)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		return

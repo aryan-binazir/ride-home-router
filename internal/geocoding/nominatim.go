@@ -23,6 +23,7 @@ type GeocodingResult struct {
 type Geocoder interface {
 	Geocode(ctx context.Context, address string) (*GeocodingResult, error)
 	GeocodeWithRetry(ctx context.Context, address string, maxRetries int) (*GeocodingResult, error)
+	Search(ctx context.Context, query string, limit int) ([]GeocodingResult, error)
 }
 
 // ErrGeocodingFailed is returned when an address cannot be geocoded
@@ -149,4 +150,70 @@ func (g *nominatimGeocoder) GeocodeWithRetry(ctx context.Context, address string
 
 	log.Printf("[ERROR] Geocoding failed after %d retries: address=%s err=%v", maxRetries, address, lastErr)
 	return nil, lastErr
+}
+
+func (g *nominatimGeocoder) Search(ctx context.Context, query string, limit int) ([]GeocodingResult, error) {
+	select {
+	case <-g.rateLimiter.C:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&limit=%d", g.baseURL, url.QueryEscape(query), limit)
+	log.Printf("[GEOCODING] Search request: query=%s limit=%d url=%s", query, limit, queryURL)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create geocoding search request: query=%s err=%v", query, err)
+		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
+	}
+
+	req.Header.Set("User-Agent", "RideHomeRouter/1.0")
+
+	resp, err := g.httpClient.Do(req)
+	if err != nil {
+		log.Printf("[ERROR] Geocoding search API request failed: query=%s err=%v", query, err)
+		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[ERROR] Geocoding search API error: query=%s status=%d body=%s", query, resp.StatusCode, string(body))
+		return nil, &ErrGeocodingFailed{
+			Address: query,
+			Reason:  fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var results []nominatimResponse
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		log.Printf("[ERROR] Failed to decode geocoding search response: query=%s err=%v", query, err)
+		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
+	}
+
+	log.Printf("[GEOCODING] Search response: query=%s results_count=%d", query, len(results))
+
+	geocodingResults := make([]GeocodingResult, 0, len(results))
+	for _, result := range results {
+		var lat, lng float64
+		if _, err := fmt.Sscanf(result.Lat, "%f", &lat); err != nil {
+			log.Printf("[ERROR] Invalid latitude in geocoding search response: query=%s lat=%s err=%v", query, result.Lat, err)
+			continue
+		}
+		if _, err := fmt.Sscanf(result.Lon, "%f", &lng); err != nil {
+			log.Printf("[ERROR] Invalid longitude in geocoding search response: query=%s lng=%s err=%v", query, result.Lon, err)
+			continue
+		}
+
+		geocodingResults = append(geocodingResults, GeocodingResult{
+			Coords: models.Coordinates{
+				Lat: lat,
+				Lng: lng,
+			},
+			DisplayName: result.DisplayName,
+		})
+	}
+
+	return geocodingResults, nil
 }

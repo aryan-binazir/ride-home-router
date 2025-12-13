@@ -86,45 +86,17 @@
                            name="driver_ids"
                            value="{{.ID}}"
                            class="form-checkbox driver-checkbox select-control"
-                           data-capacity="{{.VehicleCapacity}}"
-                           {{if .IsInstituteVehicle}}data-institute="true"{{end}}>
+                           data-capacity="{{.VehicleCapacity}}">
                     <span class="select-row-content">
-                        <span class="select-row-title">
-                            {{.Name}}
-                            {{if .IsInstituteVehicle}}
-                            <span class="badge badge-warning">Institute vehicle</span>
-                            {{end}}
-                        </span>
+                        <span class="select-row-title">{{.Name}}</span>
                         <span class="select-row-subtitle">{{.Address}}</span>
                         <span class="select-row-meta">
                             <span class="badge badge-muted">{{.VehicleCapacity}} seats</span>
-                            {{if not .IsInstituteVehicle}}
-                            <span class="badge badge-muted">Personal</span>
-                            {{end}}
                         </span>
                     </span>
                 </label>
                 {{end}}
             </div>
-
-            <!-- Institute Vehicle Driver Selection -->
-            {{if .HasInstituteVehicle}}
-            <div id="institute-driver-section" class="callout callout-warning mt-3 hidden">
-                <div class="callout-title">Institute vehicle driver</div>
-                <div class="form-group mt-2">
-                    <label class="form-label">Who will drive it?</label>
-                    <select name="institute_vehicle_driver_id" class="form-select" id="institute-vehicle-driver">
-                        <option value="">Select driver…</option>
-                        {{range .Drivers}}
-                        {{if not .IsInstituteVehicle}}
-                        <option value="{{.ID}}">{{.Name}}</option>
-                        {{end}}
-                        {{end}}
-                    </select>
-                    <div class="form-help">Required when an institute vehicle is selected.</div>
-                </div>
-            </div>
-            {{end}}
             {{else}}
             <div class="empty-state">
                 <h3>No drivers found</h3>
@@ -224,7 +196,6 @@
             const row = cb.closest('.select-row');
             if (row) row.classList.add('is-selected');
         });
-        checkInstituteVehicle();
         updateEventStats();
     }
 
@@ -234,23 +205,8 @@
             const row = cb.closest('.select-row');
             if (row) row.classList.remove('is-selected');
         });
-        const instituteDriverSelect = document.getElementById('institute-vehicle-driver');
-        if (instituteDriverSelect) instituteDriverSelect.value = '';
         document.getElementById('results-section').innerHTML = '';
-        checkInstituteVehicle();
         updateEventStats();
-    }
-
-    function checkInstituteVehicle() {
-        const instituteSection = document.getElementById('institute-driver-section');
-        if (!instituteSection) return;
-
-        const instituteChecked = document.querySelector('input[data-institute="true"]:checked');
-        if (instituteChecked) {
-            instituteSection.classList.remove('hidden');
-        } else {
-            instituteSection.classList.add('hidden');
-        }
     }
 
     function validateBeforeCalculate() {
@@ -270,27 +226,8 @@
             return false;
         }
 
-        const instituteChecked = document.querySelector('input[data-institute="true"]:checked');
-        if (instituteChecked) {
-            const instituteDriver = document.getElementById('institute-vehicle-driver');
-            if (!instituteDriver || !instituteDriver.value) {
-                showToast('Please select who will drive the institute vehicle.', 'warning');
-                if (instituteDriver) instituteDriver.focus();
-                return false;
-            }
-        }
-
-        // Check capacity
-        let totalCapacity = 0;
-        drivers.forEach(cb => {
-            totalCapacity += parseInt(cb.dataset.capacity) || 0;
-        });
-
-        if (participants.length > totalCapacity) {
-            showToast('Not enough capacity! ' + participants.length + ' participants selected but only ' + totalCapacity + ' seats available.', 'warning');
-            return false;
-        }
-
+        // Note: Capacity check removed - org vehicles can be assigned after calculation
+        // to fix capacity issues
         return true;
     }
 
@@ -299,13 +236,11 @@
         if (e.target.classList.contains('driver-checkbox') || e.target.classList.contains('participant-checkbox')) {
             const row = e.target.closest('.select-row');
             if (row) row.classList.toggle('is-selected', e.target.checked);
-            checkInstituteVehicle();
             updateEventStats();
         }
     });
 
     // Initialize on page load
-    checkInstituteVehicle();
     updateEventStats();
     document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
         const row = cb.closest('.select-row');

@@ -9,6 +9,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -119,22 +121,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return err
 	}
 	return s.db.Close()
-}
-
-// URL returns the full URL of the running server
-func (s *Server) URL() string {
-	if s.listener != nil {
-		return fmt.Sprintf("http://%s", s.listener.Addr().String())
-	}
-	return fmt.Sprintf("http://%s", s.addr)
-}
-
-// Addr returns the actual address the server is listening on
-func (s *Server) Addr() string {
-	if s.listener != nil {
-		return s.listener.Addr().String()
-	}
-	return s.addr
 }
 
 // Template helper functions
@@ -275,6 +261,8 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 
+	mux.HandleFunc("/api/v1/open-url", handleOpenURL)
+
 	mux.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -380,6 +368,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleCalculateRoutes(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/routes/calculate-with-org-vehicles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleCalculateRoutesWithOrgVehicles(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/routes/edit/move-participant", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -420,6 +416,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleGeocodeAddress(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/address-search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleAddressSearch(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/activity-locations", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -440,6 +444,34 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		switch r.Method {
 		case http.MethodDelete:
 			handler.HandleDeleteActivityLocation(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Organization Vehicles routes
+	mux.HandleFunc("/api/v1/org-vehicles", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleListOrgVehicles(w, r)
+		case http.MethodPost:
+			handler.HandleCreateOrgVehicle(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/v1/org-vehicles/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/org-vehicles/" {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodPut:
+			handler.HandleUpdateOrgVehicle(w, r)
+		case http.MethodDelete:
+			handler.HandleDeleteOrgVehicle(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -514,6 +546,54 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	})
 
 	return mux
+}
+
+// handleOpenURL opens a URL in the system's default browser
+func handleOpenURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.URL == "" {
+		http.Error(w, "URL is required", http.StatusBadRequest)
+		return
+	}
+
+	// Only allow http/https URLs for security
+	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+		http.Error(w, "Only HTTP/HTTPS URLs are allowed", http.StatusBadRequest)
+		return
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "linux":
+		cmd = exec.Command("xdg-open", req.URL)
+	case "darwin":
+		cmd = exec.Command("open", req.URL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", req.URL)
+	default:
+		http.Error(w, "Unsupported platform", http.StatusInternalServerError)
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to open URL: %v", err)
+		http.Error(w, "Failed to open URL", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

@@ -71,8 +71,9 @@ function dismissToast(toast) {
 /**
  * HTMX event listener for showToast trigger
  * Allows backend to trigger toasts via HX-Trigger header
+ * Note: Using document instead of document.body because script loads in <head>
  */
-document.body.addEventListener('showToast', function(evt) {
+document.addEventListener('showToast', function(evt) {
     const detail = evt.detail;
     if (detail && detail.message) {
         showToast(detail.message, detail.type || 'success', detail.duration || 5000);
@@ -417,3 +418,28 @@ async function copyAllRoutes() {
         showToast('Failed to copy to clipboard', 'error');
     }
 }
+
+/**
+ * Opens a single route in Google Maps
+ */
+function previewRoute(button) {
+    const routeCard = button.closest('.route-card');
+    const container = routeCard.closest('.routes-container');
+    const activityLocationAddress = container.dataset.activityLocationAddress;
+    const stops = getStopsFromRouteCard(routeCard);
+
+    const mapsUrl = generateMapsUrl(activityLocationAddress, stops);
+    if (mapsUrl) {
+        fetch('/api/v1/open-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: mapsUrl })
+        }).catch(err => {
+            console.error('Failed to open URL:', err);
+            showToast('Failed to open browser', 'error');
+        });
+    } else {
+        showToast('No stops to preview', 'warning');
+    }
+}
+

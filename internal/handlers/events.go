@@ -48,10 +48,11 @@ type EventDetailResponse struct {
 
 // AssignmentGroupedByDriver groups stops by driver
 type AssignmentGroupedByDriver struct {
-	DriverName           string              `json:"driver_name"`
-	DriverAddress        string              `json:"driver_address"`
-	UsedInstituteVehicle bool                `json:"used_institute_vehicle"`
-	Stops                []AssignmentStop    `json:"stops"`
+	DriverName     string           `json:"driver_name"`
+	DriverAddress  string           `json:"driver_address"`
+	OrgVehicleID   int64            `json:"org_vehicle_id,omitempty"`
+	OrgVehicleName string           `json:"org_vehicle_name,omitempty"`
+	Stops          []AssignmentStop `json:"stops"`
 }
 
 // AssignmentStop represents a single stop in an assignment
@@ -229,39 +230,32 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var assignments []models.EventAssignment
+	orgVehiclesUsed := 0
 	for _, route := range req.Routes.Routes {
+		if route.OrgVehicleID > 0 {
+			orgVehiclesUsed++
+		}
 		for _, stop := range route.Stops {
 			assignments = append(assignments, models.EventAssignment{
-				DriverID:             route.Driver.ID,
-				DriverName:           route.Driver.Name,
-				DriverAddress:        route.Driver.Address,
-				RouteOrder:           stop.Order,
-				ParticipantID:        stop.Participant.ID,
-				ParticipantName:      stop.Participant.Name,
-				ParticipantAddress:   stop.Participant.Address,
-				DistanceFromPrev:     stop.DistanceFromPrevMeters,
-				UsedInstituteVehicle: route.UsedInstituteVehicle,
+				DriverID:           route.Driver.ID,
+				DriverName:         route.Driver.Name,
+				DriverAddress:      route.Driver.Address,
+				RouteOrder:         stop.Order,
+				ParticipantID:      stop.Participant.ID,
+				ParticipantName:    stop.Participant.Name,
+				ParticipantAddress: stop.Participant.Address,
+				DistanceFromPrev:   stop.DistanceFromPrevMeters,
+				OrgVehicleID:       route.OrgVehicleID,
+				OrgVehicleName:     route.OrgVehicleName,
 			})
 		}
 	}
 
 	summary := &models.EventSummary{
-		TotalParticipants:    req.Routes.Summary.TotalParticipants,
-		TotalDrivers:         req.Routes.Summary.TotalDriversUsed,
-		TotalDistanceMeters:  req.Routes.Summary.TotalDropoffDistanceMeters,
-		UsedInstituteVehicle: req.Routes.Summary.UsedInstituteVehicle,
-	}
-
-	if req.Routes.Summary.UsedInstituteVehicle {
-		for _, route := range req.Routes.Routes {
-			if route.UsedInstituteVehicle && route.InstituteVehicleDriverID > 0 {
-				driver, err := h.DB.Drivers().GetByID(r.Context(), route.InstituteVehicleDriverID)
-				if err == nil && driver != nil {
-					summary.InstituteVehicleDriverName = driver.Name
-				}
-				break
-			}
-		}
+		TotalParticipants:   req.Routes.Summary.TotalParticipants,
+		TotalDrivers:        req.Routes.Summary.TotalDriversUsed,
+		TotalDistanceMeters: req.Routes.Summary.TotalDropoffDistanceMeters,
+		OrgVehiclesUsed:     orgVehiclesUsed,
 	}
 
 	event, err = h.DB.Events().Create(r.Context(), event, assignments, summary)
@@ -367,10 +361,11 @@ func groupAssignmentsByDriver(assignments []models.EventAssignment) []Assignment
 	for _, a := range assignments {
 		if _, exists := driverMap[a.DriverID]; !exists {
 			driverMap[a.DriverID] = &AssignmentGroupedByDriver{
-				DriverName:           a.DriverName,
-				DriverAddress:        a.DriverAddress,
-				UsedInstituteVehicle: a.UsedInstituteVehicle,
-				Stops:                []AssignmentStop{},
+				DriverName:     a.DriverName,
+				DriverAddress:  a.DriverAddress,
+				OrgVehicleID:   a.OrgVehicleID,
+				OrgVehicleName: a.OrgVehicleName,
+				Stops:          []AssignmentStop{},
 			}
 			driverOrder = append(driverOrder, a.DriverID)
 		}

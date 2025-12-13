@@ -14,6 +14,7 @@ type DataStore interface {
 	Drivers() DriverRepository
 	Settings() SettingsRepository
 	ActivityLocations() ActivityLocationRepository
+	OrganizationVehicles() OrganizationVehicleRepository
 	Events() EventRepository
 	DistanceCache() DistanceCacheRepository
 }
@@ -33,7 +34,6 @@ type DriverRepository interface {
 	List(ctx context.Context, search string) ([]models.Driver, error)
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
-	GetInstituteVehicle(ctx context.Context) (*models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error
@@ -50,6 +50,16 @@ type ActivityLocationRepository interface {
 	List(ctx context.Context) ([]models.ActivityLocation, error)
 	GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error)
 	Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error)
+	Delete(ctx context.Context, id int64) error
+}
+
+// OrganizationVehicleRepository handles organization vehicle persistence
+type OrganizationVehicleRepository interface {
+	List(ctx context.Context) ([]models.OrganizationVehicle, error)
+	GetByID(ctx context.Context, id int64) (*models.OrganizationVehicle, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]models.OrganizationVehicle, error)
+	Create(ctx context.Context, v *models.OrganizationVehicle) (*models.OrganizationVehicle, error)
+	Update(ctx context.Context, v *models.OrganizationVehicle) (*models.OrganizationVehicle, error)
 	Delete(ctx context.Context, id int64) error
 }
 

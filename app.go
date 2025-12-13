@@ -63,8 +63,3 @@ func (a *App) shutdown(ctx context.Context) {
 		}
 	}
 }
-
-// GetServerURL returns the internal server URL (for debugging)
-func (a *App) GetServerURL() string {
-	return a.url
-}

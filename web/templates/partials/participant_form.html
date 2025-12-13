@@ -16,7 +16,7 @@
           hx-target="#participants-list"
           hx-swap="innerHTML"
           hx-indicator="#participant-form-loading"
-          hx-on::after-request="if(event.detail.successful) document.getElementById('participant-form-container').innerHTML = ''">
+          hx-on::after-request="if(event.detail.successful && event.detail.requestConfig.verb === 'post') document.getElementById('participant-form-container').innerHTML = ''">
 
         <div class="form-group">
             <label class="form-label">Name</label>
@@ -30,12 +30,22 @@
 
         <div class="form-group">
             <label class="form-label">Address</label>
-            <input type="text"
-                   name="address"
-                   class="form-input"
-                   value="{{.Participant.Address}}"
-                   placeholder="Full address including city and country"
-                   required>
+            <div class="address-autocomplete-wrapper">
+                <input type="text"
+                       name="address"
+                       class="form-input"
+                       value="{{.Participant.Address}}"
+                       placeholder="Start typing an address..."
+                       hx-get="/api/v1/address-search"
+                       hx-trigger="input delay:500ms"
+                       hx-target="next .address-suggestions"
+                       hx-swap="innerHTML"
+                       hx-sync="this:replace"
+                       hx-include="this"
+                       autocomplete="off"
+                       required>
+                <div class="address-suggestions"></div>
+            </div>
             <div class="form-help">Address will be geocoded automatically</div>
         </div>
 

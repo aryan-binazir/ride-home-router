@@ -132,62 +132,11 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 	iterations := r.interRouteOptimize(ctx, req.InstituteCoords, routes)
 	log.Printf("[TIMING] Phase 3 (inter-route): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
-	// Phase 4: Institute vehicle fallback
-	if len(unassigned) > 0 && req.InstituteVehicle != nil {
-		log.Printf("[DISTANCE] Using institute vehicle for %d remaining participants", len(unassigned))
-		ivRoute := &dmRoute{
-			driver:             req.InstituteVehicle,
-			stops:              []*models.Participant{},
-			isInstituteVehicle: true,
-			instituteDriverID:  req.InstituteVehicleDriverID,
-		}
-
-		// Greedy nearest-neighbor for institute vehicle
-		currentLoc := req.InstituteCoords
-		for len(unassigned) > 0 && len(ivRoute.stops) < req.InstituteVehicle.VehicleCapacity {
-			var nearest *models.Participant
-			minDist := math.Inf(1)
-
-			for _, p := range unassigned {
-				dist, err := r.distanceCalc.GetDistance(ctx, currentLoc, p.GetCoords())
-				if err != nil {
-					return nil, err
-				}
-				if dist.DistanceMeters < minDist {
-					minDist = dist.DistanceMeters
-					nearest = p
-				}
-			}
-
-			if nearest == nil {
-				break
-			}
-
-			ivRoute.stops = append(ivRoute.stops, nearest)
-			currentLoc = nearest.GetCoords()
-			unassigned = removeParticipant(unassigned, nearest.ID)
-		}
-
-		// 2-opt on institute vehicle route
-		if len(ivRoute.stops) >= 3 {
-			optimized, err := r.twoOpt(ctx, req.InstituteCoords, ivRoute.stops)
-			if err != nil {
-				return nil, err
-			}
-			ivRoute.stops = optimized
-		}
-
-		routes[req.InstituteVehicle.ID] = ivRoute
-	}
-
 	// Check for unassigned participants
 	if len(unassigned) > 0 {
 		totalCapacity := 0
 		for _, d := range req.Drivers {
 			totalCapacity += d.VehicleCapacity
-		}
-		if req.InstituteVehicle != nil {
-			totalCapacity += req.InstituteVehicle.VehicleCapacity
 		}
 		return nil, &ErrRoutingFailed{
 			Reason:            "Cannot assign all participants",
@@ -212,10 +161,8 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 
 // dmRoute is a simple route structure
 type dmRoute struct {
-	driver             *models.Driver
-	stops              []*models.Participant
-	isInstituteVehicle bool
-	instituteDriverID  int64
+	driver *models.Driver
+	stops  []*models.Participant
 }
 
 // insertionCost calculates the additional distance to insert p at position pos
@@ -341,10 +288,8 @@ func (r *distanceMinimizer) interRouteOptimize(ctx context.Context, institute mo
 	improved := true
 
 	driverIDs := make([]int64, 0, len(routes))
-	for id, route := range routes {
-		if !route.isInstituteVehicle {
-			driverIDs = append(driverIDs, id)
-		}
+	for id := range routes {
+		driverIDs = append(driverIDs, id)
 	}
 
 	for improved && iteration < maxIterations {
@@ -467,7 +412,6 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 	totalDropoff := 0.0
 	totalDist := 0.0
 	driversUsed := 0
-	usedInstituteVehicle := false
 
 	for _, route := range routes {
 		if len(route.stops) == 0 {
@@ -503,12 +447,8 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 			prev = p.GetCoords()
 		}
 
-		// Distance to final destination
+		// Distance to final destination (driver's home)
 		destination := route.driver.GetCoords()
-		if route.isInstituteVehicle {
-			destination = institute
-			usedInstituteVehicle = true
-		}
 
 		distToEnd, err := r.distanceCalc.GetDistance(ctx, prev, destination)
 		if err != nil {
@@ -530,8 +470,7 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 			TotalDropoffDistanceMeters: cumulativeDistance,
 			DistanceToDriverHomeMeters: distToEnd.DistanceMeters,
 			TotalDistanceMeters:        cumulativeDistance + distToEnd.DistanceMeters,
-			UsedInstituteVehicle:       route.isInstituteVehicle,
-			InstituteVehicleDriverID:   route.instituteDriverID,
+			EffectiveCapacity:          route.driver.VehicleCapacity,
 			BaselineDurationSecs:       baseline.DurationSecs,
 			RouteDurationSecs:          cumulativeDuration + distToEnd.DurationSecs,
 			DetourSecs:                 (cumulativeDuration + distToEnd.DurationSecs) - baseline.DurationSecs,
@@ -545,7 +484,6 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 			TotalDriversUsed:           driversUsed,
 			TotalDropoffDistanceMeters: totalDropoff,
 			TotalDistanceMeters:        totalDist,
-			UsedInstituteVehicle:       usedInstituteVehicle,
 			UnassignedParticipants:     []int64{},
 		},
 		Warnings: []string{},

@@ -27,7 +27,7 @@
     {{$sessionID := .SessionID}}
     {{$routeCount := len .Routes}}
     {{range $routeIndex, $route := .Routes}}
-    <div class="route-card {{if .UsedInstituteVehicle}}institute-vehicle{{end}}"
+    <div class="route-card {{if .OrgVehicleID}}org-vehicle{{end}}"
          data-activity-location-address="{{$activityLocation.Address}}"
          data-driver-name="{{.Driver.Name}}"
          data-route-index="{{$routeIndex}}"
@@ -38,8 +38,8 @@
                 <div class="driver-meta">
                     <h3>
                         {{.Driver.Name}}
-                        {{if .UsedInstituteVehicle}}
-                        <span class="badge badge-warning">Institute vehicle</span>
+                        {{if .OrgVehicleID}}
+                        <span class="badge badge-info">{{.OrgVehicleName}}</span>
                         {{end}}
                     </h3>
                     <p>{{.Driver.Address}}</p>
@@ -47,7 +47,7 @@
             </div>
             <div class="route-stats">
                 <div class="stat">
-                    <strong>Capacity:</strong> {{.Driver.VehicleCapacity}} passengers
+                    <strong>Capacity:</strong> {{.EffectiveCapacity}} passengers
                 </div>
                 <div class="stat">
                     <strong>Passengers:</strong> {{len .Stops}}
@@ -56,21 +56,15 @@
                     <strong>Dropoff Distance:</strong> {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
                 </div>
                 <div class="stat">
-                    {{if .UsedInstituteVehicle}}
-                    <strong>Return to {{$activityLocation.Name}}:</strong>
-                    {{else}}
                     <strong>To Home:</strong>
-                    {{end}}
                     {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
                 </div>
                 <div class="stat">
                     <strong>Total:</strong> {{formatDistance .TotalDistanceMeters $useMiles}}
                 </div>
-                {{if not .UsedInstituteVehicle}}
                 <div class="stat">
                     <strong>Detour:</strong> {{formatDuration .DetourSecs}}
                 </div>
-                {{end}}
             </div>
         </div>
 
@@ -95,9 +89,14 @@
             {{if .Stops}}
             <div class="d-flex justify-between align-center mb-2">
                 <h4>Route:</h4>
-                <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
-                    Copy Route
-                </button>
+                <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
+                        Copy
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="previewRoute(this)">
+                        Preview
+                    </button>
+                </div>
             </div>
             {{range .Stops}}
             <div class="stop-item"
@@ -182,10 +181,10 @@
                 <div class="label">Total Distance</div>
                 <div class="value">{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}</div>
             </div>
-            {{if .Summary.UsedInstituteVehicle}}
+            {{if gt .Summary.OrgVehiclesUsed 0}}
             <div class="summary-item">
-                <div class="label">Institute Vehicle</div>
-                <div class="value text-warning">Used</div>
+                <div class="label">Org Vehicles</div>
+                <div class="value text-info">{{.Summary.OrgVehiclesUsed}} used</div>
             </div>
             {{end}}
             {{if gt .Summary.MaxDetourSecs 0.0}}
