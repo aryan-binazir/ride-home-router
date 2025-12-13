@@ -10,8 +10,8 @@ A desktop app that optimizes driver assignments for getting people home after ev
 
 ## The Problem It Solves
 
-After an event ends, you have:
-- A list of participants who need rides home
+Whether you're getting people home after an event or picking them up beforehand, you have:
+- A list of participants who need rides
 - Several drivers willing to help
 - Limited vehicle capacity
 
@@ -19,9 +19,11 @@ Manually figuring out who goes with whom is tedious and often results in ineffic
 
 ## Features
 
-- **Smart Route Optimization** — Uses a greedy clustering algorithm with 2-opt refinement to minimize total driving distance
+- **Pickup & Dropoff Modes** — Calculate routes for either direction: picking people up (driver home → participants → activity) or dropping them off (activity → participants → driver home)
+- **Smart Route Optimization** — Uses cheapest-insertion clustering with 2-opt refinement to minimize total driving distance
 - **Capacity Aware** — Respects each driver's vehicle capacity
-- **Institute Vehicle Support** — Optionally designate a shared vehicle for overflow when regular drivers can't fit everyone
+- **Organization Vehicle Support** — Optionally designate a shared vehicle (van, bus) for overflow when regular drivers can't fit everyone
+- **Address Autocomplete** — Search and select addresses with live suggestions from OpenStreetMap
 - **Multiple Activity Locations** — Save different starting points (office, place of worship, school, etc.)
 - **Event History** — Keep records of past events for reference
 - **Manual Adjustments** — Move participants between routes or swap drivers after calculation
@@ -55,7 +57,7 @@ Download the latest release for your platform from the [Releases](../../releases
 
 ### Build from Source
 
-Requires [Go 1.22+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/gettingstarted/installation).
+Requires [Go 1.25+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/gettingstarted/installation).
 
 ```bash
 # Install Wails CLI
@@ -92,9 +94,9 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 ### Quick Start
 
 1. **Add an Activity Location** (Settings tab) — This is where your events happen
-2. **Add Participants** — People who need rides home
+2. **Add Participants** — People who need rides
 3. **Add Drivers** — People with vehicles, including their capacity
-4. **Calculate Routes** — Select participants and drivers, then click Calculate
+4. **Calculate Routes** — Select participants, drivers, and mode (pickup or dropoff), then click Calculate
 
 ### Workflow
 
@@ -112,7 +114,8 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 
 ### Tips
 
-- **Institute Vehicle**: If you have a shared vehicle (van, bus), mark one driver as "Institute Vehicle Driver". This vehicle is used as a last resort when regular drivers can't fit everyone.
+- **Route Modes**: Use **Dropoff** mode after events (activity → homes → driver home) or **Pickup** mode before events (driver home → homes → activity).
+- **Organization Vehicle**: If you have a shared vehicle (van, bus), add it as an organization vehicle. It's used as overflow when regular drivers can't fit everyone.
 - **Editing Routes**: After calculation, you can manually move participants between routes or swap drivers if needed.
 - **Google Maps Links**: Click "Copy with Maps Link" to get directions you can paste into Google Maps.
 
@@ -122,10 +125,11 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 
 ### How the Algorithm Works
 
-1. **Seeding**: Spreads initial participants across drivers based on driver home locations
-2. **Greedy Clustering**: Each driver "claims" the nearest unassigned participants until full
-3. **Route Ordering**: Uses nearest-neighbor heuristic with 2-opt optimization to order stops
-4. **Inter-Route Optimization**: Swaps boundary participants between routes to reduce total distance
+The router uses a three-phase optimization approach:
+
+1. **Cheapest Insertion**: Assigns participants to drivers using greedy clustering. Each unassigned participant is placed where it adds the least distance, respecting vehicle capacity.
+2. **2-Opt Local Optimization**: Refines each driver's route by iteratively swapping edge pairs to find shorter paths.
+3. **Inter-Route Optimization**: Attempts to move participants between routes to reduce total distance (up to 50 iterations).
 
 This is a heuristic solution to the Capacitated Vehicle Routing Problem (CVRP). It won't always find the globally optimal solution, but produces good results quickly.
 
@@ -135,12 +139,13 @@ This is a heuristic solution to the Capacitated Vehicle Routing Problem (CVRP). 
 ride-home-router/
 ├── cmd/server/          # Standalone HTTP server (browser mode)
 ├── internal/
+│   ├── models/          # Data structures (Participant, Driver, Event, etc.)
 │   ├── database/        # JSON file storage, distance caching
 │   ├── handlers/        # HTTP request handlers
 │   ├── routing/         # Route optimization algorithms
 │   ├── distance/        # OSRM API client
 │   ├── geocoding/       # Nominatim API client
-│   └── server/          # Reusable HTTP server package
+│   └── server/          # HTTP server setup
 ├── web/                 # Frontend (HTML templates, CSS, JS)
 │   ├── templates/       # Go html/template files
 │   └── static/          # CSS, JavaScript (HTMX)
