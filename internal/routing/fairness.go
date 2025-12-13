@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"math"
-	"sort"
 	"time"
 
 	"ride-home-router/internal/distance"
