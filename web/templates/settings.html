@@ -15,7 +15,7 @@
     <form hx-post="/api/v1/activity-locations"
           hx-target="#location-list"
           hx-swap="beforeend"
-          hx-on::after-request="this.reset()"
+          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') this.reset()"
           class="mb-4">
         <div class="form-row">
             <div class="form-group">
@@ -28,11 +28,21 @@
             </div>
             <div class="form-group form-group-wide">
                 <label class="form-label">Address</label>
-                <input type="text"
-                       name="address"
-                       class="form-input"
-                       placeholder="Full address"
-                       required>
+                <div class="address-autocomplete-wrapper">
+                    <input type="text"
+                           name="address"
+                           class="form-input"
+                           placeholder="Start typing an address..."
+                           hx-get="/api/v1/address-search"
+                           hx-trigger="input delay:500ms"
+                           hx-target="next .address-suggestions"
+                           hx-swap="innerHTML"
+                           hx-sync="this:replace"
+                           hx-include="this"
+                           autocomplete="off"
+                           required>
+                    <div class="address-suggestions"></div>
+                </div>
             </div>
             <div class="form-group form-group-actions">
                 <button type="submit" class="btn btn-primary">Add Location</button>
@@ -80,7 +90,7 @@
     <form hx-post="/api/v1/org-vehicles"
           hx-target="#org-vehicle-list"
           hx-swap="beforeend"
-          hx-on::after-request="this.reset()"
+          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') this.reset()"
           class="mb-4">
         <div class="form-row">
             <div class="form-group">

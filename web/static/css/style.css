@@ -1786,6 +1786,73 @@ tbody tr:last-child td {
 }
 
 /* ============================================================================
+   ADDRESS AUTOCOMPLETE
+   ============================================================================ */
+.address-autocomplete-wrapper {
+    position: relative;
+}
+
+.address-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgb(255 255 255 / 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-xl);
+    max-height: 320px;
+    overflow: auto;
+    margin-top: 0.5rem;
+    padding: 0.25rem;
+}
+
+@media (prefers-color-scheme: dark) {
+    .address-suggestions {
+        background: rgb(17 28 51 / 0.82);
+    }
+}
+
+.address-suggestions:empty {
+    display: none;
+}
+
+.address-suggestion {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--color-text);
+    padding: 0.65rem 0.75rem;
+    border-radius: calc(var(--border-radius) - 2px);
+    cursor: pointer;
+    text-align: left;
+    transition: background-color var(--transition-fast);
+    font-size: 0.875rem;
+    line-height: 1.35;
+}
+
+.address-suggestion:hover {
+    background: var(--color-bg-alt);
+}
+
+.address-suggestion:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.address-no-results {
+    padding: 0.75rem;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+}
+
+/* ============================================================================
    EMPTY STATES
    ============================================================================ */
 .empty-state {

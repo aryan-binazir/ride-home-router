@@ -235,13 +235,57 @@ function filterTable(input, tbodyId) {
     });
   });
 
+  function initAddressAutocomplete() {
+    const wrappers = document.querySelectorAll(".address-autocomplete-wrapper");
+
+    wrappers.forEach((wrapper) => {
+      if (wrapper.dataset.uiAddressInit === "true") return;
+      wrapper.dataset.uiAddressInit = "true";
+
+      const input = wrapper.querySelector("input");
+      const suggestionsContainer = wrapper.querySelector(".address-suggestions");
+
+      if (!input || !suggestionsContainer) return;
+
+      // Handle suggestion click
+      suggestionsContainer.addEventListener("click", (e) => {
+        const suggestion = e.target.closest(".address-suggestion");
+        if (!suggestion) return;
+
+        const address = suggestion.dataset.address;
+        input.value = address;
+        suggestionsContainer.innerHTML = "";
+
+        // Trigger change event for form validation (but not input to avoid re-triggering search)
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+      // Handle Escape key
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          suggestionsContainer.innerHTML = "";
+          input.blur();
+        }
+      });
+
+      // Close on click outside wrapper
+      document.addEventListener("click", (e) => {
+        if (!wrapper.contains(e.target)) {
+          suggestionsContainer.innerHTML = "";
+        }
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     initAll(document);
     initSettingsValidation();
+    initAddressAutocomplete();
   });
 
   document.addEventListener("htmx:load", (e) => {
     initAll(e.target);
     initSettingsValidation();
+    initAddressAutocomplete();
   });
 })();
