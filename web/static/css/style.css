@@ -19,9 +19,9 @@ html {
 :root {
     color-scheme: light;
 
-    /* Brand - Modern indigo + cyan */
-    --color-primary-rgb: 79 70 229;
-    --color-primary-hover-rgb: 67 56 202;
+    /* Brand - Modern blue + cyan */
+    --color-primary-rgb: 59 130 246;
+    --color-primary-hover-rgb: 37 99 235;
     --color-accent-rgb: 6 182 212;
 
     --color-primary: rgb(var(--color-primary-rgb));
