@@ -30,6 +30,7 @@ jobs:
       - name: Create DMG
         run: |
           brew install create-dmg
+          APP_PATH="build/bin/Ride Home Router.app"
           create-dmg \
             --volname "Ride Home Router" \
             --window-pos 200 120 \
@@ -38,7 +39,7 @@ jobs:
             --app-drop-link 425 178 \
             --icon "Ride Home Router.app" 175 178 \
             "Ride-Home-Router-macOS-arm64.dmg" \
-            "build/bin/Ride Home Router.app"
+            "$APP_PATH"
 
       - name: Upload macOS arm64
         uses: actions/upload-artifact@v4
@@ -67,6 +68,7 @@ jobs:
       - name: Create DMG
         run: |
           brew install create-dmg
+          APP_PATH="build/bin/Ride Home Router.app"
           create-dmg \
             --volname "Ride Home Router" \
             --window-pos 200 120 \
@@ -75,7 +77,7 @@ jobs:
             --app-drop-link 425 178 \
             --icon "Ride Home Router.app" 175 178 \
             "Ride-Home-Router-macOS-amd64.dmg" \
-            "build/bin/Ride Home Router.app"
+            "$APP_PATH"
 
       - name: Upload macOS amd64
         uses: actions/upload-artifact@v4
@@ -122,7 +124,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
