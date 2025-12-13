@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -21,6 +21,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/routing"
+	"ride-home-router/web"
 )
 
 func main() {
@@ -88,14 +89,13 @@ func templateFuncs() template.FuncMap {
 	}
 }
 
-// loadTemplates loads all templates from the filesystem
-func loadTemplates(templatesDir string) (*handlers.TemplateSet, error) {
+// loadTemplates loads all templates from the embedded filesystem
+func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
 	funcs := templateFuncs()
 	base := template.New("").Funcs(funcs)
 
 	// Load layout.html
-	layoutPath := filepath.Join(templatesDir, "layout.html")
-	layoutContent, err := os.ReadFile(layoutPath)
+	layoutContent, err := fs.ReadFile(templatesFS, "templates/layout.html")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read layout: %w", err)
 	}
@@ -105,18 +105,19 @@ func loadTemplates(templatesDir string) (*handlers.TemplateSet, error) {
 	}
 
 	// Load partials
-	partialsPattern := filepath.Join(templatesDir, "partials", "*.html")
-	partialFiles, err := filepath.Glob(partialsPattern)
+	partialFiles, err := fs.Glob(templatesFS, "templates/partials/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("failed to glob partials: %w", err)
 	}
 
 	for _, file := range partialFiles {
-		content, err := os.ReadFile(file)
+		content, err := fs.ReadFile(templatesFS, file)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read partial %s: %w", file, err)
 		}
-		_, err = base.New(filepath.Base(file)).Parse(string(content))
+		// Extract just the filename from the path
+		name := file[len("templates/partials/"):]
+		_, err = base.New(name).Parse(string(content))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse partial %s: %w", file, err)
 		}
@@ -126,8 +127,7 @@ func loadTemplates(templatesDir string) (*handlers.TemplateSet, error) {
 	pages := make(map[string]string)
 	pageFiles := []string{"index.html", "participants.html", "drivers.html", "settings.html", "history.html"}
 	for _, name := range pageFiles {
-		path := filepath.Join(templatesDir, name)
-		content, err := os.ReadFile(path)
+		content, err := fs.ReadFile(templatesFS, "templates/"+name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read page %s: %w", name, err)
 		}
@@ -158,8 +158,7 @@ func run() error {
 	defer db.Close()
 
 	log.Printf("Loading templates...")
-	templatesDir := getEnv("TEMPLATES_DIR", "web/templates")
-	templates, err := loadTemplates(templatesDir)
+	templates, err := loadTemplates(web.Templates)
 	if err != nil {
 		return fmt.Errorf("failed to load templates: %w", err)
 	}
@@ -180,9 +179,12 @@ func run() error {
 
 	mux := http.NewServeMux()
 
-	// Serve static files
-	staticDir := getEnv("STATIC_DIR", "web/static")
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	// Serve static files from embedded filesystem
+	staticFS, err := fs.Sub(web.Static, "static")
+	if err != nil {
+		return fmt.Errorf("failed to create static sub-filesystem: %w", err)
+	}
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 
