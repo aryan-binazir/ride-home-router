@@ -1,192 +1,66 @@
-# Ride Home Router - Implementation Plan
+# Ride Home Router - Technical Specification
 
-## Project Overview
+## Overview
 
-A local-first transport routing system that optimizes driver assignments for taking participants home after events. Solves a simplified Capacitated Vehicle Routing Problem (CVRP) using greedy heuristics.
+A local-first desktop application that optimizes driver assignments for transporting participants home after events. Solves a Capacitated Vehicle Routing Problem (CVRP) using greedy heuristics with optimization passes.
 
-**Privacy-first**: All data stored locally in SQLite. No cloud, no hosted solutions.
+**Privacy-first**: All data stored locally. No accounts, no cloud sync.
 
 ---
 
 ## Technical Stack
 
-| Component | Choice | Status |
-|-----------|--------|--------|
-| Language | Go 1.25 | ✅ Implemented |
-| Architecture | Local web server serving HTML/CSS/JS | ✅ Implemented |
-| Database | SQLite with WAL mode | ✅ Implemented |
-| Frontend | htmx with HTML fragments | ✅ Implemented |
-| Distance Calculation | OSRM public API | ✅ Implemented |
-| Geocoding | Nominatim API | ✅ Implemented |
-| Routing Algorithm | Seed-then-cluster + 2-opt + inter-route swaps | ✅ Implemented |
-| Target Platforms | Windows (amd64), macOS (amd64, arm64) | ✅ Makefile ready |
+| Component | Technology |
+|-----------|------------|
+| Language | Go 1.22+ |
+| Desktop Framework | Wails v2 |
+| Frontend | HTML templates + HTMX |
+| Storage | JSON files (`~/.ride-home-router/`) |
+| Distance Calculation | OSRM public API |
+| Geocoding | Nominatim (OpenStreetMap) |
+| Routing Algorithm | Seed-then-cluster + 2-opt + inter-route swaps |
 
 ---
 
-## Data Model
+## Architecture
 
-### Settings
-- Institute address (string, geocoded to lat/long)
+### How It Works
 
-### Participants
-- ID (auto-generated)
-- Name (string)
-- Address (string, geocoded to lat/long)
-
-### Drivers
-- ID (auto-generated)
-- Name (string)
-- Address (string) - their home address
-- Vehicle capacity (integer)
-- Is institute vehicle (boolean) - exactly one allowed
-
-### Event History
-- Event ID
-- Date/timestamp
-- Snapshot of assignments (denormalized for historical accuracy)
-
-### Distance Cache
-- Caches OSRM lookups to reduce API calls
-- Coordinates rounded to 5 decimal places (~1m precision)
-
----
-
-## Routing Rules
-
-1. All routes **start at the institute**
-2. Drivers drop off participants, then **go home**
-3. Optimization goal: **minimize total drop-off distance** (driver's commute home excluded)
-4. **Institute vehicle is last resort**:
-   - Only use if no valid solution with regular drivers
-   - Must return to institute after all drop-offs
-   - Any available driver can be selected to drive it
-5. Respect vehicle capacity constraints
-
----
-
-## Algorithm: Seed-then-Cluster with Optimization
-
-### Overview
-
-The algorithm solves the Capacitated Vehicle Routing Problem (CVRP) using a multi-phase approach:
-1. **Seeding**: Spread drivers geographically using home-aware assignment
-2. **Clustering**: Greedy expansion of each driver's cluster
-3. **Route Building**: Order stops with nearest-neighbor + 2-opt refinement
-4. **Inter-route Optimization**: Swap boundary participants between routes
-
-### Phase 1: Home-Aware Seeding
+Wails wraps an internal HTTP server that serves the HTMX frontend:
 
 ```
-1. Select N spread-out seeds (one per driver):
-   - First seed: nearest participant to institute
-   - Subsequent seeds: farthest from all already-selected seeds (k-means++ style)
-2. Assign seeds to drivers from the seed's perspective:
-   - Each seed goes to the driver whose home is closest to it
-   - This ensures drivers build clusters toward their own homes
+┌─────────────────────────────────────────────────────┐
+│                  Wails Desktop App                   │
+│  ┌───────────────────────────────────────────────┐  │
+│  │              WebView (WebKit/Edge)             │  │
+│  │                                                │  │
+│  │   Loads from http://127.0.0.1:{random_port}   │  │
+│  │                                                │  │
+│  └───────────────────────────────────────────────┘  │
+│                         │                            │
+│                         ▼                            │
+│  ┌───────────────────────────────────────────────┐  │
+│  │           Internal HTTP Server                 │  │
+│  │                                                │  │
+│  │  • Serves HTML templates                       │  │
+│  │  • Handles API requests                        │  │
+│  │  • Returns HTMX fragments                      │  │
+│  └───────────────────────────────────────────────┘  │
+│                         │                            │
+│                         ▼                            │
+│  ┌───────────────────────────────────────────────┐  │
+│  │              JSON File Storage                 │  │
+│  │         ~/.ride-home-router/data.json          │  │
+│  └───────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
 ```
 
-**Why seed-centric assignment?** If done driver-centric (each driver grabs closest seed), Driver A might steal a seed that Driver B *really* needs. Seed-centric avoids this conflict.
+### Why This Approach?
 
-### Phase 2: Greedy Clustering
-
-```
-While unassigned participants remain:
-   For each driver (round-robin):
-      If driver has capacity and has a seed:
-         Pick the unassigned participant nearest to ANY of driver's current stops
-         Add to driver's cluster
-```
-
-**Key insight**: "Nearest to any stop" (not just last stop) keeps clusters geographically tight.
-
-### Phase 3: Route Building with 2-Opt
-
-```
-For each driver's cluster:
-   1. Order stops using nearest-neighbor from institute
-   2. Apply 2-opt optimization:
-      - Try reversing every segment [i..j]
-      - Keep reversal if it reduces total distance
-      - Repeat until no improvement
-```
-
-### Phase 4: Inter-Route Boundary Optimization
-
-```
-After routes are ordered (so "last stop" = geographic boundary):
-   Repeat until no improvement:
-      For each pair of routes (A, B):
-         Try relocating A's last stop to B (if B has capacity)
-         Try relocating B's last stop to A (if A has capacity)
-         Try swapping last stops between A and B
-      Accept any change that reduces combined distance
-      Re-run 2-opt on modified routes
-```
-
-**Why after route building?** Before ordering, "last participant" is whoever was added last during clustering (arbitrary). After 2-opt ordering, it's the geographic boundary of the route.
-
-### Fallback: Institute Vehicle
-
-```
-If participants remain after all drivers are full:
-   Use institute vehicle with nearest-neighbor assignment
-   Institute vehicle returns to institute after all drop-offs
-```
-
-### Algorithm Properties
-
-| Property | Value |
-|----------|-------|
-| Time Complexity | O(n² × d) for seeding/clustering, O(n³) for 2-opt per route |
-| Optimality | Heuristic (not guaranteed optimal) |
-| Fairness | Driver order randomized each run |
-| Geographic Coherence | Guaranteed by seeding + cluster expansion |
-| Capacity Handling | Native (each driver tracks own capacity) |
-
-### Considered but Rejected
-
-1. **Clarke-Wright Savings**: Better for homogeneous fleets; our heterogeneous capacities + driver homes don't fit well
-2. **Pure k-means clustering**: Doesn't respect capacity constraints during clustering
-3. **Full bipartite matching for seed assignment**: Overkill for ≤10 drivers; greedy is sufficient
-
----
-
-## UI/UX Flow
-
-### Main Event Page (`/`)
-- [x] Display all participants with checkboxes (attendance)
-- [x] Display all drivers with checkboxes (availability)
-- [x] Select institute vehicle driver if needed
-- [x] "Calculate Routes" button
-- [x] Results section showing driver assignments
-- [x] Client-side validation (warn if no selection)
-- [x] Client-side capacity validation (warn if participants > seats)
-- [x] "Save Event" button (after calculation)
-- [x] "Clear" button resets selections
-
-### Participants Roster (`/participants`)
-- [x] Table listing all participants
-- [x] Add participant form (auto-closes on success)
-- [x] Edit/Delete per row
-- [x] htmx for CRUD (no page reloads)
-
-### Drivers Roster (`/drivers`)
-- [x] Table listing all drivers
-- [x] Add driver form (auto-closes on success)
-- [x] Edit/Delete per row
-- [x] Institute vehicle checkbox (only one allowed)
-- [x] htmx for CRUD
-
-### Settings (`/settings`)
-- [x] Form to set institute address
-- [x] Shows geocoded coordinates
-- [x] Miles/km toggle with persistence
-- [x] Save button with htmx
-
-### History (`/history`)
-- [x] List of past events with summaries
-- [x] Click to expand/view details
-- [x] Delete button per event (with refresh)
+- **Preserves HTMX**: All 61 HTMX interactions work unchanged
+- **No frontend rewrite**: Same templates, same handlers
+- **Standalone fallback**: `cmd/server/main.go` still works for browser-based access
+- **Simple**: HTTP is battle-tested, no complex IPC
 
 ---
 
@@ -194,249 +68,263 @@ If participants remain after all drivers are full:
 
 ```
 ride-home-router/
+├── main.go                      # Wails entry point
+├── app.go                       # Wails app lifecycle (startup/shutdown)
+├── wails.json                   # Wails configuration
+├── frontend/
+│   └── index.html               # Loading page (brief, before redirect)
+├── build/
+│   ├── appicon.png              # 1024x1024 app icon
+│   ├── darwin/Info.plist        # macOS bundle config
+│   └── windows/icon.ico         # Windows icon
 ├── cmd/server/
-│   └── main.go                 # Entry point, DI wiring, server startup, template loading
+│   └── main.go                  # Standalone HTTP server (browser mode)
 ├── internal/
+│   ├── server/
+│   │   └── server.go            # Reusable HTTP server package
 │   ├── database/
-│   │   ├── db.go               # SQLite connection, migrations
-│   │   ├── schema.sql          # DDL (embedded with go:embed)
-│   │   ├── participant.go      # ParticipantRepository
-│   │   ├── driver.go           # DriverRepository
-│   │   ├── settings.go         # SettingsRepository
-│   │   ├── event.go            # EventRepository
-│   │   └── distance_cache.go   # DistanceCacheRepository
-│   ├── geocoding/
-│   │   └── nominatim.go        # Nominatim client with rate limiting
-│   ├── distance/
-│   │   └── osrm.go             # OSRM client with caching
-│   ├── routing/
-│   │   └── greedy.go           # Greedy nearest-neighbor algorithm
+│   │   ├── paths.go             # Path management (~/.ride-home-router/)
+│   │   ├── json_store.go        # JSON file storage + repositories
+│   │   └── file_distance_cache.go  # Distance cache
 │   ├── handlers/
-│   │   ├── handlers.go         # Common utilities, template rendering
-│   │   ├── pages.go            # Page handlers (/, /participants, etc.)
-│   │   ├── participants.go     # Participant CRUD handlers
-│   │   ├── drivers.go          # Driver CRUD handlers
-│   │   ├── settings.go         # Settings handlers
-│   │   ├── routes.go           # Route calculation handler
-│   │   └── events.go           # Event history handlers
+│   │   ├── handlers.go          # Common utilities
+│   │   ├── pages.go             # Page handlers
+│   │   ├── participants.go      # Participant CRUD
+│   │   ├── drivers.go           # Driver CRUD
+│   │   ├── routes.go            # Route calculation
+│   │   ├── route_edit.go        # Route editing (move/swap/reset)
+│   │   ├── settings.go          # Settings handlers
+│   │   ├── events.go            # Event history
+│   │   └── activity_locations.go
+│   ├── routing/
+│   │   ├── distance_minimizer.go  # Router entry point
+│   │   ├── greedy.go              # Clustering + route building
+│   │   └── fairness.go            # Fairness metrics
+│   ├── distance/
+│   │   └── osrm.go              # OSRM API client
+│   ├── geocoding/
+│   │   └── nominatim.go         # Nominatim geocoder
 │   └── models/
-│       └── models.go           # All domain types
+│       └── models.go            # Domain types
 ├── web/
-│   ├── static/
-│   │   ├── css/style.css       # All styles
-│   │   └── js/htmx.min.js      # htmx library
-│   └── templates/
-│       ├── layout.html         # Base layout with nav
-│       ├── index.html          # Event planning page
-│       ├── participants.html   # Participant roster
-│       ├── drivers.html        # Driver roster
-│       ├── settings.html       # Settings page
-│       ├── history.html        # Event history
-│       └── partials/           # htmx fragments
-│           ├── participant_list.html
-│           ├── participant_form.html
-│           ├── participant_row.html
-│           ├── driver_list.html
-│           ├── driver_form.html
-│           ├── driver_row.html
-│           ├── route_results.html
-│           ├── event_list.html
-│           └── event_detail.html
-├── Makefile                    # Build targets
+│   ├── embed.go                 # Embeds templates + static
+│   ├── templates/               # HTML templates
+│   │   ├── layout.html
+│   │   ├── index.html
+│   │   ├── participants.html
+│   │   ├── drivers.html
+│   │   ├── settings.html
+│   │   ├── history.html
+│   │   └── partials/            # HTMX fragments
+│   └── static/
+│       ├── css/style.css
+│       └── js/
+│           ├── htmx.min.js
+│           └── route-copy.js
+├── .github/workflows/
+│   └── build.yml                # Cross-platform CI builds
+├── Makefile
 ├── go.mod
-├── go.sum
-├── ARCHITECTURE.md             # Full architecture document
-└── plan.md                     # This file
+└── README.md
 ```
 
 ---
 
-## Implementation Progress
+## Data Storage
 
-### Phase 1: Architecture Design ✅ COMPLETE
-- [x] Created ARCHITECTURE.md with full specifications
-- [x] SQLite schema DDL
-- [x] REST API specification
-- [x] Component interface definitions
-- [x] Data flow diagrams
-- [x] Key design decisions documented
+All data stored in `~/.ride-home-router/`:
 
-### Phase 2a: Backend Implementation ✅ COMPLETE
-- [x] Database layer (SQLite, all repositories)
-- [x] Models (all domain types)
-- [x] Geocoding service (Nominatim with rate limiting)
-- [x] Distance service (OSRM with caching)
-- [x] Routing algorithm (greedy nearest-neighbor)
-- [x] HTTP handlers (all CRUD + routing)
-- [x] Server startup with graceful shutdown
-- [x] Auto-open browser on startup
+```
+~/.ride-home-router/
+├── data.json           # Main data (participants, drivers, settings, events)
+└── cache/
+    └── distances.json  # Cached OSRM responses
+```
 
-### Phase 2b: Frontend Implementation ✅ COMPLETE
-- [x] Base layout with navigation
-- [x] All page templates
-- [x] All partial templates for htmx
-- [x] CSS styling
-- [x] htmx integration
+### Data Migration
 
-### Phase 2c: Build System ✅ COMPLETE
-- [x] Makefile with cross-platform targets
-- [x] `make build` - current platform
-- [x] `make build-all` - all platforms
-- [x] `make run` - build and run
-- [x] `make test` - run tests
-- [x] `make clean` - cleanup
-
-### Phase 3: Integration ✅ COMPLETE
-- [x] Wired frontend templates to Go server
-- [x] Static file serving at `/static/`
-- [x] Page routes rendering full HTML
-- [x] htmx requests returning HTML fragments
-- [x] Template clone fix (avoid "cannot Clone after executed" error)
-
-### Phase 4: Testing ✅ COMPLETE
-- [x] Test suite created (105 tests)
-- [x] Database tests (in-memory SQLite)
-- [x] Service tests (mock HTTP servers)
-- [x] Handler tests (httptest)
-- [x] Routing algorithm tests
+On first run, automatically migrates from old locations:
+- `~/institute_transport.json` → `~/.ride-home-router/data.json`
+- `~/institute_cache/distances.json` → `~/.ride-home-router/cache/distances.json`
 
 ---
 
-## Current Status
+## Data Model
 
-### Working Features
-1. **Navigation** - All pages load correctly with proper content
-2. **Participants CRUD** - Add, edit, delete participants with geocoding
-3. **Drivers CRUD** - Add, edit, delete drivers with geocoding
-4. **Settings** - Configure institute address with geocoding
-5. **Route Calculation** - Form data parsing, validation, htmx response
-6. **Client-side Validation** - Warns when no participants/drivers selected
-7. **Verbose Logging** - Structured logging for debugging
+### Participants
+- ID, Name, Address (geocoded to lat/lng)
 
-### Recent Fixes (This Session)
-1. Fixed template rendering (layout + content blocks)
-2. Fixed "cannot Clone after executed" template error
-3. Fixed route calculation to parse form data (not just JSON)
-4. Added htmx HTML fragment responses for route calculation
-5. Added client-side validation for route calculation
-6. Added verbose logging throughout
-7. Fixed route results template name mismatch
-8. Added miles/km setting with persistence
-9. Fixed event save to parse form data (not just JSON)
-10. Fixed history page to include event summaries
-11. Fixed event detail expand on click
-12. Added auto-close for add forms after successful submission
-13. Added capacity validation warning (participants > available seats)
-14. **Major**: Redesigned routing algorithm for multi-driver load distribution
+### Drivers
+- ID, Name, Address (home), Vehicle Capacity
+- IsInstituteVehicle (boolean, max one)
 
-### Routing Algorithm Improvements (This Session)
-1. **Seed-then-Cluster**: Replaced single-driver-fills-first with geographic spreading
-2. **Home-Aware Seeding**: Seeds assigned to drivers based on proximity to driver homes
-3. **Intra-Route 2-Opt**: Each route optimized by segment reversal
-4. **Inter-Route Boundary Swaps**: Relocate/swap last stops between routes after ordering
-5. **Bug Fix**: Inter-route optimization now runs after route ordering (not before)
-6. **Bug Fix**: Seed assignment is seed-centric (avoids driver conflicts)
+### Activity Locations
+- ID, Name, Address (geocoded)
+- Selected location used as route origin
 
-### Known Issues / TODO
-1. **Error Handling** - Some edge cases may not have user-friendly messages
-2. **Mobile Responsiveness** - Not fully tested on mobile devices
+### Settings
+- SelectedActivityLocationID
+- UseMiles (boolean)
+
+### Events
+- ID, Date, Notes
+- Denormalized assignments snapshot
+- Summary stats
+
+### Distance Cache
+- Origin/Destination coordinates (rounded to 5 decimals)
+- Distance (meters), Duration (seconds)
+
+---
+
+## Routing Algorithm
+
+### Goal
+Minimize total driving distance while respecting vehicle capacities.
+
+### Phases
+
+1. **Seeding** (Home-Aware)
+   - Select N spread-out participants (one per driver)
+   - Assign seeds to drivers based on proximity to driver homes
+
+2. **Greedy Clustering**
+   - Round-robin: each driver claims nearest unassigned participant
+   - Respects capacity limits
+
+3. **Route Building**
+   - Nearest-neighbor ordering from activity location
+   - 2-opt refinement (reverse segments to reduce distance)
+
+4. **Inter-Route Optimization**
+   - Swap boundary participants between routes
+   - Re-run 2-opt after changes
+
+### Institute Vehicle
+Used as last resort when regular drivers can't fit everyone. Returns to origin after drop-offs.
 
 ---
 
 ## API Endpoints
 
-### Settings
-| Method | Path | Description | Status |
-|--------|------|-------------|--------|
-| GET | `/api/v1/settings` | Get settings | ✅ |
-| PUT | `/api/v1/settings` | Update settings | ✅ |
+### Pages
+| Path | Description |
+|------|-------------|
+| `/` | Event planning (main page) |
+| `/participants` | Participant roster |
+| `/drivers` | Driver roster |
+| `/settings` | Activity locations + preferences |
+| `/history` | Event history |
+| `/static/*` | CSS, JS assets |
 
-### Participants
-| Method | Path | Description | Status |
-|--------|------|-------------|--------|
-| GET | `/api/v1/participants` | List all | ✅ |
-| POST | `/api/v1/participants` | Create | ✅ |
-| GET | `/api/v1/participants/{id}` | Get one | ✅ |
-| PUT | `/api/v1/participants/{id}` | Update | ✅ |
-| DELETE | `/api/v1/participants/{id}` | Delete | ✅ |
-| GET | `/api/v1/participants/new` | Form (htmx) | ✅ |
-| GET | `/api/v1/participants/{id}/edit` | Edit form (htmx) | ✅ |
+### API (`/api/v1/`)
 
-### Drivers
-| Method | Path | Description | Status |
-|--------|------|-------------|--------|
-| GET | `/api/v1/drivers` | List all | ✅ |
-| POST | `/api/v1/drivers` | Create | ✅ |
-| GET | `/api/v1/drivers/{id}` | Get one | ✅ |
-| PUT | `/api/v1/drivers/{id}` | Update | ✅ |
-| DELETE | `/api/v1/drivers/{id}` | Delete | ✅ |
-| GET | `/api/v1/drivers/new` | Form (htmx) | ✅ |
-| GET | `/api/v1/drivers/{id}/edit` | Edit form (htmx) | ✅ |
+**Settings**: `GET/PUT /settings`
 
-### Routing
-| Method | Path | Description | Status |
-|--------|------|-------------|--------|
-| POST | `/api/v1/routes/calculate` | Calculate routes | ✅ |
-| POST | `/api/v1/geocode` | Geocode address | ✅ |
+**Participants**: `GET/POST /participants`, `GET/PUT/DELETE /participants/{id}`
 
-### Events
-| Method | Path | Description | Status |
-|--------|------|-------------|--------|
-| GET | `/api/v1/events` | List events | ✅ |
-| POST | `/api/v1/events` | Save event | ✅ |
-| GET | `/api/v1/events/{id}` | Get event details | ✅ |
-| DELETE | `/api/v1/events/{id}` | Delete event | ✅ |
+**Drivers**: `GET/POST /drivers`, `GET/PUT/DELETE /drivers/{id}`
 
-### Utility
-| Method | Path | Description | Status |
-|--------|------|-------------|--------|
-| GET | `/api/v1/health` | Health check | ✅ |
+**Activity Locations**: `GET/POST /activity-locations`, `DELETE /activity-locations/{id}`
+
+**Routing**:
+- `POST /routes/calculate` - Calculate optimal routes
+- `POST /routes/edit/move-participant` - Move participant between routes
+- `POST /routes/edit/swap-drivers` - Swap drivers
+- `POST /routes/edit/reset` - Reset to original calculation
+
+**Events**: `GET/POST /events`, `GET/DELETE /events/{id}`
+
+**Utility**: `GET /health`, `POST /geocode`
 
 ---
 
-## Next Steps
+## Build & Run
 
-1. **End-to-End Testing**
-   - Test with real addresses and multiple drivers
-   - Verify algorithm produces sensible geographic clusters
-   - Check that 2-opt and inter-route swaps are triggering
-
-2. **Polish**
-   - Better error messages for edge cases
-   - Loading states for long calculations
-   - Mobile responsiveness testing
-
-3. **Future Enhancements (Optional)**
-   - Try all participants (not just last) for inter-route swaps
-   - Add route visualization on a map
-   - Export routes to PDF/CSV
-   - SMS/Email notification to drivers
-
----
-
-## Running the Application
-
+### Development
 ```bash
-# Build for current platform
-make build
-
-# Run locally
-make run
-
-# Build for all platforms
-make build-all
-
-# Run tests
-make test
-
-# Clean build artifacts
-make clean
+wails dev                    # Hot reload
+go run cmd/server/main.go    # Browser mode (no Wails)
 ```
 
-Server starts on `http://127.0.0.1:8080` and auto-opens browser.
+### Production Build
+```bash
+wails build                  # Current platform
+wails build -platform darwin/arm64
+wails build -platform darwin/amd64
+wails build -platform windows/amd64
+wails build -platform linux/amd64
+```
 
-Override with environment variables:
-- `SERVER_ADDR=127.0.0.1:3000`
-- `DATABASE_PATH=./data/app.db`
-- `TEMPLATES_DIR=./web/templates`
-- `STATIC_DIR=./web/static`
+### Makefile Targets
+```bash
+make wails-dev          # Development mode
+make wails-build        # Build for current platform
+make wails-build-all    # Build all platforms
+make build              # Standalone server (current platform)
+make run                # Run standalone server
+```
+
+---
+
+## GitHub Actions
+
+Builds on push to `main`:
+
+| Platform | Runner | Output |
+|----------|--------|--------|
+| macOS arm64 | macos-14 | `.dmg` |
+| macOS amd64 | macos-13 | `.dmg` |
+| Windows | windows-latest | `.exe` installer |
+| Linux | ubuntu-latest | Binary |
+
+Artifacts uploaded to Actions tab.
+
+---
+
+## Platform-Specific Notes
+
+### Linux
+Requires WebKit2GTK:
+```bash
+# Arch
+sudo pacman -S webkit2gtk-4.1 gtk3
+
+# Ubuntu/Debian
+sudo apt install libgtk-3-dev libwebkit2gtk-4.0-dev
+
+# Fedora
+sudo dnf install gtk3-devel webkit2gtk4.0-devel
+```
+
+GPU acceleration enabled via `linux.WebviewGpuPolicyAlways`.
+
+### macOS
+Bundle ID: `com.ridehomerouter.app`
+
+### Windows
+Uses WebView2 (Edge-based).
+
+---
+
+## Key Implementation Details
+
+### Server Startup (Wails)
+1. `NewApp()` starts HTTP server on random port (`127.0.0.1:0`)
+2. Server ready before window opens
+3. `startup()` navigates WebView to server URL via JS
+
+### HTMX Integration
+- Handlers detect `HX-Request` header
+- Browser requests → full HTML pages
+- HTMX requests → HTML fragments only
+
+### Template System
+- Go `html/template` with custom functions
+- Base layout + partials pre-parsed
+- Page templates parsed on demand
+
+### Distance Caching
+- Coordinates rounded to 5 decimal places (~1m precision)
+- Cache persisted to disk
+- Pre-warms cache before route calculation
