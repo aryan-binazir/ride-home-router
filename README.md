@@ -1,24 +1,190 @@
 # Ride Home Router
 
-Local-first route optimizer for assigning drivers to drop off participants after events.
+A desktop app that optimizes driver assignments for getting people home after events. Perfect for community groups, religious organizations, schools, or any gathering where you need to coordinate rides.
 
-## What it does
+## The Problem It Solves
 
-Helps you efficiently assign participants to available drivers after events (workshops, meetings, gatherings). The app:
+After an event ends, you have:
+- A list of participants who need rides home
+- Several drivers willing to help
+- Limited vehicle capacity
 
-- Calculates optimal routes that minimize total driving distance
-- Respects vehicle capacity limits
-- Handles an optional shared/institute vehicle for overflow
-- Saves event history for reference
+Manually figuring out who goes with whom is tedious and often results in inefficient routes. Ride Home Router does the math for you—minimizing total driving distance while respecting vehicle capacities.
 
-Ideal for organizations that regularly coordinate rides home for attendees.
+## Features
 
-## Privacy
+- **Smart Route Optimization** — Uses a greedy clustering algorithm with 2-opt refinement to minimize total driving distance
+- **Capacity Aware** — Respects each driver's vehicle capacity
+- **Institute Vehicle Support** — Optionally designate a shared vehicle for overflow when regular drivers can't fit everyone
+- **Multiple Activity Locations** — Save different starting points (office, church, school, etc.)
+- **Event History** — Keep records of past events for reference
+- **Manual Adjustments** — Move participants between routes or swap drivers after calculation
+- **Copy to Clipboard** — Export routes as text or Google Maps links
+- **Works Offline** — All data stored locally, only needs internet for initial address geocoding
 
-**All data stays on your machine.** Participant names, driver info, and event history are stored in a local SQLite database.
+## Privacy First
 
-The only external communication is:
-- **OSRM** (routing service) — receives plain addresses to calculate driving distances
-- **Nominatim** (geocoding) — receives addresses to convert them to coordinates
+**All your data stays on your computer.** Names, addresses, and event history are stored locally in `~/.ride-home-router/`.
 
-No accounts, no cloud sync, no tracking.
+The only external services used are:
+- **OSRM** — Open source routing service (calculates driving distances between coordinates)
+- **Nominatim** — OpenStreetMap geocoder (converts addresses to coordinates)
+
+No accounts. No cloud sync. No tracking.
+
+---
+
+## Installation
+
+### Download (Recommended)
+
+Download the latest release for your platform from the [Releases](../../releases) page:
+
+| Platform | Download |
+|----------|----------|
+| macOS (Apple Silicon) | `Ride-Home-Router-macOS-arm64.dmg` |
+| macOS (Intel) | `Ride-Home-Router-macOS-amd64.dmg` |
+| Windows | `Ride-Home-Router-Windows-amd64.exe` |
+| Linux | `Ride-Home-Router-Linux-amd64` |
+
+### Build from Source
+
+Requires [Go 1.22+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/gettingstarted/installation).
+
+```bash
+# Install Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# Clone and build
+git clone https://github.com/yourusername/ride-home-router.git
+cd ride-home-router
+wails build
+```
+
+The built application will be in `build/bin/`.
+
+#### Linux Dependencies
+
+On Linux, you'll need WebKit2GTK:
+
+```bash
+# Arch
+sudo pacman -S webkit2gtk-4.1 gtk3
+
+# Ubuntu/Debian
+sudo apt install libgtk-3-dev libwebkit2gtk-4.0-dev
+
+# Fedora
+sudo dnf install gtk3-devel webkit2gtk4.0-devel
+```
+
+---
+
+## Usage
+
+### Quick Start
+
+1. **Add an Activity Location** (Settings tab) — This is where your events happen
+2. **Add Participants** — People who need rides home
+3. **Add Drivers** — People with vehicles, including their capacity
+4. **Calculate Routes** — Select participants and drivers, then click Calculate
+
+### Workflow
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Settings  │ ──▶ │ Add People  │ ──▶ │  Calculate  │
+│  (location) │     │  & Drivers  │     │   Routes    │
+└─────────────┘     └─────────────┘     └─────────────┘
+                                               │
+                    ┌─────────────┐            │
+                    │ Save Event  │ ◀──────────┘
+                    │  (optional) │
+                    └─────────────┘
+```
+
+### Tips
+
+- **Institute Vehicle**: If you have a shared vehicle (van, bus), mark one driver as "Institute Vehicle Driver". This vehicle is used as a last resort when regular drivers can't fit everyone.
+- **Editing Routes**: After calculation, you can manually move participants between routes or swap drivers if needed.
+- **Google Maps Links**: Click "Copy with Maps Link" to get directions you can paste into Google Maps.
+
+---
+
+## Technical Details
+
+### How the Algorithm Works
+
+1. **Seeding**: Spreads initial participants across drivers based on driver home locations
+2. **Greedy Clustering**: Each driver "claims" the nearest unassigned participants until full
+3. **Route Ordering**: Uses nearest-neighbor heuristic with 2-opt optimization to order stops
+4. **Inter-Route Optimization**: Swaps boundary participants between routes to reduce total distance
+
+This is a heuristic solution to the Capacitated Vehicle Routing Problem (CVRP). It won't always find the globally optimal solution, but produces good results quickly.
+
+### Project Structure
+
+```
+ride-home-router/
+├── cmd/server/          # Standalone HTTP server (browser mode)
+├── internal/
+│   ├── database/        # JSON file storage, distance caching
+│   ├── handlers/        # HTTP request handlers
+│   ├── routing/         # Route optimization algorithms
+│   ├── distance/        # OSRM API client
+│   ├── geocoding/       # Nominatim API client
+│   └── server/          # Reusable HTTP server package
+├── web/                 # Frontend (HTML templates, CSS, JS)
+│   ├── templates/       # Go html/template files
+│   └── static/          # CSS, JavaScript (HTMX)
+├── frontend/            # Wails loading page
+├── build/               # App icons and platform configs
+├── main.go              # Wails entry point
+└── app.go               # Wails app lifecycle
+```
+
+### Technology Stack
+
+- **Backend**: Go (standard library HTTP server)
+- **Frontend**: HTML templates + [HTMX](https://htmx.org/) for dynamic updates
+- **Desktop**: [Wails v2](https://wails.io/) (Go + WebView)
+- **Storage**: JSON files in `~/.ride-home-router/`
+- **Routing**: OSRM public API
+- **Geocoding**: Nominatim (OpenStreetMap)
+
+### Development
+
+```bash
+# Run in development mode (hot reload)
+wails dev
+
+# Build for current platform
+wails build
+
+# Build standalone server (opens in browser)
+go run cmd/server/main.go
+
+# Run tests
+go test ./...
+```
+
+### Data Storage
+
+All data is stored in `~/.ride-home-router/`:
+
+```
+~/.ride-home-router/
+├── data.json              # Participants, drivers, settings, events
+└── cache/
+    └── distances.json     # Cached OSRM distance calculations
+```
+
+---
+
+## Contributing
+
+Contributions welcome! Please open an issue first to discuss what you'd like to change.
+
+## License
+
+[Add your license here]

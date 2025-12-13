@@ -20,14 +20,9 @@ type App struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
-}
+	app := &App{}
 
-// startup is called when the app starts
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-
-	// Start the HTTP server on a random available port
+	// Start the HTTP server immediately (before window opens)
 	srv, err := server.New(server.Config{
 		Addr: "127.0.0.1:0", // 0 = random available port
 	})
@@ -40,14 +35,19 @@ func (a *App) startup(ctx context.Context) {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
-	a.server = srv
-	a.url = fmt.Sprintf("http://%s", addr)
+	app.server = srv
+	app.url = fmt.Sprintf("http://%s", addr)
+	log.Printf("Internal HTTP server running at %s", app.url)
 
-	log.Printf("Internal HTTP server running at %s", a.url)
+	return app
+}
 
-	// Navigate the WebView to the internal server after a brief delay
+// startup is called when the app starts
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+
+	// Navigate the WebView to the internal server immediately
 	go func() {
-		time.Sleep(100 * time.Millisecond)
 		runtime.WindowExecJS(ctx, fmt.Sprintf(`window.location.href = "%s"`, a.url))
 	}()
 }
