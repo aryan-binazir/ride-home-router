@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="build/icon.svg" alt="Ride Home Router" width="128" height="128">
+</p>
+
 # Ride Home Router
 
 A desktop app that optimizes driver assignments for getting people home after events. Perfect for community groups, religious organizations, schools, or any gathering where you need to coordinate rides.
@@ -16,7 +20,7 @@ Manually figuring out who goes with whom is tedious and often results in ineffic
 - **Smart Route Optimization** — Uses a greedy clustering algorithm with 2-opt refinement to minimize total driving distance
 - **Capacity Aware** — Respects each driver's vehicle capacity
 - **Institute Vehicle Support** — Optionally designate a shared vehicle for overflow when regular drivers can't fit everyone
-- **Multiple Activity Locations** — Save different starting points (office, church, school, etc.)
+- **Multiple Activity Locations** — Save different starting points (office, place of worship, school, etc.)
 - **Event History** — Keep records of past events for reference
 - **Manual Adjustments** — Move participants between routes or swap drivers after calculation
 - **Copy to Clipboard** — Export routes as text or Google Maps links
