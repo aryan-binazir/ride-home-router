@@ -157,8 +157,28 @@
     if (!form || form.dataset.uiValidated === "true") return;
     form.dataset.uiValidated = "true";
 
+    const select = form.querySelector('select[name="selected_activity_location_id"]');
+    if (select) {
+      select.addEventListener("invalid", (e) => {
+        e.preventDefault();
+        const result = document.getElementById("settings-result");
+        if (result) {
+          result.innerHTML = '<div class="alert alert-warning">Please select an activity location.</div>';
+          result.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+
+        const container = document.getElementById("activity-location-select");
+        if (container && container.classList.contains("is-enhanced")) {
+          openSelect(container);
+          const trigger = container.querySelector(".ui-select-trigger");
+          if (trigger) trigger.focus();
+        } else {
+          select.focus();
+        }
+      });
+    }
+
     form.addEventListener("submit", (e) => {
-      const select = form.querySelector('select[name="selected_activity_location_id"]');
       if (select && !select.value) {
         e.preventDefault();
         const result = document.getElementById("settings-result");
@@ -187,4 +207,3 @@
     initSettingsValidation();
   });
 })();
-
