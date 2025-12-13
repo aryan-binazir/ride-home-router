@@ -6,6 +6,8 @@
 
 A desktop app that optimizes driver assignments for getting people home after events. Perfect for community groups, religious organizations, schools, or any gathering where you need to coordinate rides.
 
+> **Disclaimer:** This software only calculates routes—it does not vet drivers. You are responsible for screening drivers and verifying all routes. Use at your own risk. See [full disclaimer](#disclaimer).
+
 ## The Problem It Solves
 
 After an event ends, you have:
@@ -183,6 +185,20 @@ All data is stored in `~/.ride-home-router/`:
 └── cache/
     └── distances.json     # Cached OSRM distance calculations
 ```
+
+---
+
+## Disclaimer
+
+**USE AT YOUR OWN RISK.** This software is provided "as is" without warranty of any kind, express or implied.
+
+- **Driver vetting**: This software only calculates routes—it does not screen or verify drivers. You are solely responsible for vetting all drivers, including performing background checks as appropriate for your organization.
+- **Route accuracy**: Route suggestions are approximations based on heuristic algorithms. They may not be optimal, accurate, or safe. Always verify addresses and routes before driving.
+- **Third-party services**: This tool relies on OSRM and Nominatim (OpenStreetMap) for routing and geocoding. Accuracy and availability depend on these external services, which are outside our control.
+- **Data security**: While data is stored locally on your computer, we make no guarantees about data protection or security. You are responsible for securing your own device and backups.
+- **No liability**: The developers are not responsible for any damages, losses, injuries, data breaches, or incidents arising from use of this software or the transportation it helps coordinate.
+
+By using this software, you accept full responsibility for its use.
 
 ---
 
