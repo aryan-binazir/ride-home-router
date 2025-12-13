@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -69,13 +68,15 @@ func (s *JSONStore) DistanceCache() DistanceCacheRepository       { return s.dis
 
 // NewJSONStore creates a new JSON-based data store
 func NewJSONStore(distanceCache DistanceCacheRepository) (*JSONStore, error) {
-	// Get home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	// Migrate old data if needed
+	if err := MigrateOldData(); err != nil {
+		log.Printf("Warning: failed to migrate old data: %v", err)
 	}
 
-	filePath := filepath.Join(homeDir, "institute_transport.json")
+	filePath, err := GetDataFilePath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data file path: %w", err)
+	}
 	log.Printf("Using JSON data file: %s", filePath)
 
 	store := &JSONStore{

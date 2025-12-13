@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"ride-home-router/internal/models"
@@ -26,17 +25,10 @@ type FileDistanceCache struct {
 
 // NewFileDistanceCache creates a new file-based distance cache
 func NewFileDistanceCache() (*FileDistanceCache, error) {
-	homeDir, err := os.UserHomeDir()
+	filePath, err := GetDistanceCachePath()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
+		return nil, fmt.Errorf("failed to get cache file path: %w", err)
 	}
-
-	cacheDir := filepath.Join(homeDir, "institute_cache")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create cache directory: %w", err)
-	}
-
-	filePath := filepath.Join(cacheDir, "distances.json")
 	log.Printf("Using distance cache file: %s", filePath)
 
 	cache := &FileDistanceCache{

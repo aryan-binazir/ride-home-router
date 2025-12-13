@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ride-home-router",
+  "outputfilename": "Ride Home Router",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "",
+    "email": ""
+  },
+  "info": {
+    "companyName": "",
+    "productName": "Ride Home Router",
+    "productVersion": "1.0.0",
+    "copyright": "",
+    "comments": "Route optimization for group transportation"
+  }
+}

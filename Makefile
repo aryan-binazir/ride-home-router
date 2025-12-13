@@ -1,4 +1,4 @@
-.PHONY: build build-all run clean test lint help
+.PHONY: build build-all run clean test lint help wails-dev wails-build wails-build-all
 
 # Variables
 MODULE := ride-home-router
@@ -25,9 +25,17 @@ BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 help:
 	@echo "Ride Home Router - Build Targets"
 	@echo ""
-	@echo "  make build       Build for current platform"
-	@echo "  make build-all   Build for all target platforms"
-	@echo "  make run         Build and run locally"
+	@echo "Server (browser-based):"
+	@echo "  make build       Build server for current platform"
+	@echo "  make build-all   Build server for all platforms"
+	@echo "  make run         Build and run server locally"
+	@echo ""
+	@echo "Wails (native desktop app):"
+	@echo "  make wails-dev       Start development mode"
+	@echo "  make wails-build     Build for current platform"
+	@echo "  make wails-build-all Build for all platforms"
+	@echo ""
+	@echo "Other:"
 	@echo "  make clean       Remove build artifacts"
 	@echo "  make test        Run tests"
 	@echo "  make lint        Run go vet"
@@ -77,3 +85,31 @@ $(BIN_DIR):
 
 # Include current workspace directory in Go searches
 .DEFAULT_GOAL := help
+
+# Wails targets (native desktop app)
+wails-dev:
+	@echo "Starting Wails development mode..."
+	wails dev
+
+wails-build:
+	@echo "Building Wails application for current platform..."
+	wails build
+
+wails-build-all: wails-build-darwin-arm64 wails-build-darwin-amd64 wails-build-windows wails-build-linux
+	@echo "✓ All Wails builds complete"
+
+wails-build-darwin-arm64:
+	@echo "Building Wails app for macOS arm64..."
+	wails build -platform darwin/arm64
+
+wails-build-darwin-amd64:
+	@echo "Building Wails app for macOS amd64..."
+	wails build -platform darwin/amd64
+
+wails-build-windows:
+	@echo "Building Wails app for Windows..."
+	wails build -platform windows/amd64
+
+wails-build-linux:
+	@echo "Building Wails app for Linux..."
+	wails build -platform linux/amd64
