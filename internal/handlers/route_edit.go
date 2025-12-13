@@ -139,19 +139,19 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationError(w, "Invalid request body")
+		h.handleValidationErrorHTMX(w, r, "Invalid request body")
 		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
 	if session == nil {
-		h.handleNotFound(w, "Session not found")
+		h.handleNotFoundHTMX(w, r, "Session not found")
 		return
 	}
 
 	if req.FromRouteIndex < 0 || req.FromRouteIndex >= len(session.CurrentRoutes) ||
 		req.ToRouteIndex < 0 || req.ToRouteIndex >= len(session.CurrentRoutes) {
-		h.handleValidationError(w, "Invalid route index")
+		h.handleValidationErrorHTMX(w, r, "Invalid route index")
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 
 	// Check capacity
 	if !toRoute.UsedInstituteVehicle && len(toRoute.Stops) >= toRoute.Driver.VehicleCapacity {
-		h.handleValidationError(w, "Target vehicle is at capacity")
+		h.handleValidationErrorHTMX(w, r, "Target vehicle is at capacity")
 		return
 	}
 
@@ -176,7 +176,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if participant == nil {
-		h.handleValidationError(w, "Participant not found in source route")
+		h.handleValidationErrorHTMX(w, r, "Participant not found in source route")
 		return
 	}
 
@@ -235,19 +235,19 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationError(w, "Invalid request body")
+		h.handleValidationErrorHTMX(w, r, "Invalid request body")
 		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
 	if session == nil {
-		h.handleNotFound(w, "Session not found")
+		h.handleNotFoundHTMX(w, r, "Session not found")
 		return
 	}
 
 	if req.RouteIndex1 < 0 || req.RouteIndex1 >= len(session.CurrentRoutes) ||
 		req.RouteIndex2 < 0 || req.RouteIndex2 >= len(session.CurrentRoutes) {
-		h.handleValidationError(w, "Invalid route index")
+		h.handleValidationErrorHTMX(w, r, "Invalid route index")
 		return
 	}
 
@@ -257,7 +257,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	// Check capacity constraints
 	if len(route1.Stops) > route2.Driver.VehicleCapacity ||
 		len(route2.Stops) > route1.Driver.VehicleCapacity {
-		h.handleValidationError(w, "Cannot swap - capacity constraints violated")
+		h.handleValidationErrorHTMX(w, r, "Cannot swap - capacity constraints violated")
 		return
 	}
 
@@ -302,7 +302,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 
 	session := h.RouteSession.Get(sessionID)
 	if session == nil {
-		h.handleNotFound(w, "Session not found")
+		h.handleNotFoundHTMX(w, r, "Session not found")
 		return
 	}
 
@@ -437,7 +437,7 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 	sessionID := r.URL.Query().Get("session_id")
 	session := h.RouteSession.Get(sessionID)
 	if session == nil {
-		h.handleNotFound(w, "Session not found")
+		h.handleNotFoundHTMX(w, r, "Session not found")
 		return
 	}
 
@@ -471,13 +471,13 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationError(w, "Invalid request body")
+		h.handleValidationErrorHTMX(w, r, "Invalid request body")
 		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
 	if session == nil {
-		h.handleNotFound(w, "Session not found")
+		h.handleNotFoundHTMX(w, r, "Session not found")
 		return
 	}
 
@@ -491,14 +491,14 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if driverToAdd == nil {
-		h.handleValidationError(w, "Driver not found in selected drivers")
+		h.handleValidationErrorHTMX(w, r, "Driver not found in selected drivers")
 		return
 	}
 
 	// Check if driver is already in routes
 	for _, route := range session.CurrentRoutes {
 		if route.Driver.ID == req.DriverID {
-			h.handleValidationError(w, "Driver is already in routes")
+			h.handleValidationErrorHTMX(w, r, "Driver is already in routes")
 			return
 		}
 	}

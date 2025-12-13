@@ -1,36 +1,96 @@
 // Route copy and editing functionality for ride-home-router
 
-// ============= Helper Functions =============
+// ============= Toast Notification System =============
 
 /**
- * Shows an error message inline above the routes
+ * Gets or creates the toast container
  */
-function showRouteError(html) {
-    // Remove any existing error
-    const existingError = document.getElementById('route-error');
-    if (existingError) {
-        existingError.remove();
+function getToastContainer() {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
     }
-
-    // Create error container
-    const errorDiv = document.createElement('div');
-    errorDiv.id = 'route-error';
-    errorDiv.innerHTML = html;
-
-    // Insert at top of routes container
-    const container = document.querySelector('.routes-container');
-    if (container) {
-        container.insertBefore(errorDiv, container.firstChild);
-    }
-
-    // Auto-dismiss after 5 seconds
-    setTimeout(() => {
-        const error = document.getElementById('route-error');
-        if (error) {
-            error.remove();
-        }
-    }, 5000);
+    return container;
 }
+
+/**
+ * Shows a toast notification
+ * @param {string} message - The message to display
+ * @param {string} type - 'error' (default), 'warning', or 'success'
+ * @param {number} duration - Auto-dismiss time in ms (default 5000)
+ */
+function showToast(message, type = 'error', duration = 5000) {
+    const container = getToastContainer();
+
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (type === 'warning' ? ' toast-warning' : type === 'success' ? ' toast-success' : '');
+
+    // Icon based on type
+    const iconSvg = type === 'success'
+        ? '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>'
+        : '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+
+    toast.innerHTML = `
+        ${iconSvg}
+        <span class="toast-message">${message}</span>
+        <span class="toast-close">&times;</span>
+    `;
+
+    // Click to dismiss
+    toast.addEventListener('click', () => dismissToast(toast));
+
+    container.appendChild(toast);
+
+    // Auto-dismiss
+    if (duration > 0) {
+        setTimeout(() => dismissToast(toast), duration);
+    }
+
+    return toast;
+}
+
+/**
+ * Dismisses a toast with animation
+ */
+function dismissToast(toast) {
+    if (!toast || toast.classList.contains('toast-out')) return;
+    toast.classList.add('toast-out');
+    setTimeout(() => toast.remove(), 200);
+}
+
+/**
+ * Extracts error message from HTML or JSON response
+ */
+function extractErrorMessage(response) {
+    // If it looks like HTML with an alert div, extract the text
+    if (response.includes('class="alert')) {
+        const match = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
+        if (match) return match[1].trim();
+    }
+    // Try to parse as JSON
+    try {
+        const json = JSON.parse(response);
+        if (json.error && json.error.message) return json.error.message;
+        if (json.message) return json.message;
+    } catch (e) {
+        // Not JSON, use as-is
+    }
+    // Strip HTML tags as fallback
+    return response.replace(/<[^>]*>/g, '').trim() || 'An error occurred';
+}
+
+/**
+ * Shows an error toast from an API response
+ */
+function showRouteError(response) {
+    const message = extractErrorMessage(response);
+    showToast(message, 'error');
+}
+
+// ============= Helper Functions =============
 
 // ============= Route Editing Functions =============
 
@@ -50,7 +110,7 @@ async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
 
     const sessionId = getSessionId();
     if (!sessionId) {
-        alert('Session not found');
+        showToast('Session not found', 'error');
         return;
     }
 
@@ -94,13 +154,13 @@ async function swapDrivers(routeIndex1) {
     const routeIndex2 = selectElement ? selectElement.value : null;
 
     if (!routeIndex2) {
-        alert('Please select a driver to swap with');
+        showToast('Please select a driver to swap with', 'warning');
         return;
     }
 
     const sessionId = getSessionId();
     if (!sessionId) {
-        alert('Session not found');
+        showToast('Session not found', 'error');
         return;
     }
 
@@ -139,7 +199,7 @@ async function swapDrivers(routeIndex1) {
 async function resetRoutes() {
     const sessionId = getSessionId();
     if (!sessionId) {
-        alert('Session not found');
+        showToast('Session not found', 'error');
         return;
     }
 
@@ -172,7 +232,7 @@ async function resetRoutes() {
 async function addUnusedDriver(driverId) {
     const sessionId = getSessionId();
     if (!sessionId) {
-        alert('Session not found');
+        showToast('Session not found', 'error');
         return;
     }
 
@@ -284,7 +344,7 @@ async function copyRoute(button) {
         }, 2000);
     } catch (err) {
         console.error('Failed to copy route:', err);
-        alert('Failed to copy to clipboard. Please try again.');
+        showToast('Failed to copy to clipboard', 'error');
     }
 }
 
@@ -336,6 +396,6 @@ async function copyAllRoutes() {
         }, 2000);
     } catch (err) {
         console.error('Failed to copy all routes:', err);
-        alert('Failed to copy to clipboard. Please try again.');
+        showToast('Failed to copy to clipboard', 'error');
     }
 }

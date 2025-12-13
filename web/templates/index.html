@@ -256,18 +256,17 @@
     function validateBeforeCalculate() {
         const participants = document.querySelectorAll('.participant-checkbox:checked');
         const drivers = document.querySelectorAll('.driver-checkbox:checked');
-        const resultsSection = document.getElementById('results-section');
 
         if (participants.length === 0 && drivers.length === 0) {
-            resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one participant and one driver.</div>';
+            showToast('Please select at least one participant and one driver.', 'warning');
             return false;
         }
         if (participants.length === 0) {
-            resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one participant.</div>';
+            showToast('Please select at least one participant.', 'warning');
             return false;
         }
         if (drivers.length === 0) {
-            resultsSection.innerHTML = '<div class="alert alert-warning">Please select at least one driver.</div>';
+            showToast('Please select at least one driver.', 'warning');
             return false;
         }
 
@@ -275,7 +274,7 @@
         if (instituteChecked) {
             const instituteDriver = document.getElementById('institute-vehicle-driver');
             if (!instituteDriver || !instituteDriver.value) {
-                resultsSection.innerHTML = '<div class="alert alert-warning">Please select who will drive the institute vehicle.</div>';
+                showToast('Please select who will drive the institute vehicle.', 'warning');
                 if (instituteDriver) instituteDriver.focus();
                 return false;
             }
@@ -288,9 +287,7 @@
         });
 
         if (participants.length > totalCapacity) {
-            resultsSection.innerHTML = '<div class="alert alert-warning">Not enough capacity! ' +
-                participants.length + ' participants selected but only ' + totalCapacity + ' seats available. ' +
-                'Please select more drivers or fewer participants.</div>';
+            showToast('Not enough capacity! ' + participants.length + ' participants selected but only ' + totalCapacity + ' seats available.', 'warning');
             return false;
         }
 

@@ -71,6 +71,17 @@ func (h *Handler) handleNotFound(w http.ResponseWriter, message string) {
 	h.writeError(w, http.StatusNotFound, "NOT_FOUND", message, nil)
 }
 
+// handleNotFoundHTMX handles 404 errors with htmx support
+func (h *Handler) handleNotFoundHTMX(w http.ResponseWriter, r *http.Request, message string) {
+	if h.isHTMX(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, message)
+		return
+	}
+	h.handleNotFound(w, message)
+}
+
 // handleValidationError handles 400 errors
 func (h *Handler) handleValidationError(w http.ResponseWriter, message string) {
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)

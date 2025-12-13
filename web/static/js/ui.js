@@ -188,11 +188,7 @@
     if (select) {
       select.addEventListener("invalid", (e) => {
         e.preventDefault();
-        const result = document.getElementById("settings-result");
-        if (result) {
-          result.innerHTML = '<div class="alert alert-warning">Please select an activity location.</div>';
-          result.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        }
+        showToast('Please select an activity location.', 'warning');
 
         const container = document.getElementById("activity-location-select");
         if (container && container.classList.contains("is-enhanced")) {
@@ -208,11 +204,7 @@
     form.addEventListener("submit", (e) => {
       if (select && !select.value) {
         e.preventDefault();
-        const result = document.getElementById("settings-result");
-        if (result) {
-          result.innerHTML = '<div class="alert alert-warning">Please select an activity location.</div>';
-          result.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        }
+        showToast('Please select an activity location.', 'warning');
       }
     });
   }
