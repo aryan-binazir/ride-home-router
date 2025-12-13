@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -145,7 +146,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", "participantCreated")
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"participantCreated": true, "showToast": {"message": "Participant '%s' added!", "type": "success"}}`, html.EscapeString(participant.Name)))
 		h.renderTemplate(w, "participant_list", map[string]interface{}{
 			"Participants": participants,
 		})
@@ -274,7 +275,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", "participantUpdated")
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"participantUpdated": true, "showToast": {"message": "Participant '%s' updated!", "type": "success"}}`, html.EscapeString(participant.Name)))
 		h.renderTemplate(w, "participant_list", map[string]interface{}{
 			"Participants": participants,
 		})
@@ -321,6 +322,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Deleted participant: id=%d", id)
 	if h.isHTMX(r) {
+		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Participant deleted", "type": "success"}}`)
 		w.WriteHeader(http.StatusOK)
 		return
 	}

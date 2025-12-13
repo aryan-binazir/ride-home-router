@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -162,7 +163,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", "driverCreated")
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"driverCreated": true, "showToast": {"message": "Driver '%s' added!", "type": "success"}}`, html.EscapeString(driver.Name)))
 		h.renderTemplate(w, "driver_list", map[string]interface{}{
 			"Drivers": drivers,
 		})
@@ -308,7 +309,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", "driverUpdated")
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"driverUpdated": true, "showToast": {"message": "Driver '%s' updated!", "type": "success"}}`, html.EscapeString(driver.Name)))
 		h.renderTemplate(w, "driver_list", map[string]interface{}{
 			"Drivers": drivers,
 		})
@@ -355,6 +356,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Deleted driver: id=%d", id)
 	if h.isHTMX(r) {
+		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Driver deleted", "type": "success"}}`)
 		w.WriteHeader(http.StatusOK)
 		return
 	}

@@ -44,7 +44,7 @@
     <div id="location-list">
         {{if .ActivityLocations}}
         {{range .ActivityLocations}}
-        <div class="list-card">
+        <div class="list-card" id="activity-location-{{.ID}}">
             <div class="d-flex justify-between align-center gap-2">
                 <div>
                     <div class="d-flex align-center gap-2">
@@ -57,7 +57,7 @@
                 </div>
                 <button hx-delete="/api/v1/activity-locations/{{.ID}}"
                         hx-confirm="Are you sure you want to delete this location?"
-                        hx-target="closest .list-card"
+                        hx-target="#activity-location-{{.ID}}"
                         hx-swap="outerHTML swap:1s"
                         class="btn btn-danger btn-sm">
                     Delete
@@ -66,7 +66,7 @@
         </div>
         {{end}}
         {{else}}
-        <p class="text-muted">No activity locations yet. Add one above.</p>
+        <p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
         {{end}}
     </div>
 </div>
@@ -88,7 +88,7 @@
                 <input type="text"
                        name="name"
                        class="form-input"
-                       placeholder="e.g., Church Van"
+                       placeholder="e.g., School Van"
                        required>
             </div>
             <div class="form-group">

@@ -71,8 +71,9 @@ function dismissToast(toast) {
 /**
  * HTMX event listener for showToast trigger
  * Allows backend to trigger toasts via HX-Trigger header
+ * Note: Using document instead of document.body because script loads in <head>
  */
-document.body.addEventListener('showToast', function(evt) {
+document.addEventListener('showToast', function(evt) {
     const detail = evt.detail;
     if (detail && detail.message) {
         showToast(detail.message, detail.type || 'success', detail.duration || 5000);

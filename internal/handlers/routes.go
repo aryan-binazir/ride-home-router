@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -172,6 +173,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
 		h.renderTemplate(w, "route_results", map[string]interface{}{
 			"Routes":           result.Routes,
 			"Summary":          result.Summary,
@@ -357,6 +359,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	// Create a session for route editing
 	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles)
 
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
 	h.renderTemplate(w, "route_results", map[string]interface{}{
 		"Routes":           result.Routes,
 		"Summary":          result.Summary,

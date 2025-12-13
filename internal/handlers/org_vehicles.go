@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -91,7 +93,8 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		createdVehicle.ID, createdVehicle.Name, createdVehicle.Capacity)
 
 	if h.isHTMX(r) {
-		// Return the new vehicle row HTML
+		// Return the new vehicle row HTML and trigger a success toast
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Vehicle '%s' added!", "type": "success"}}`, html.EscapeString(createdVehicle.Name)))
 		h.renderTemplate(w, "org_vehicle_row", createdVehicle)
 		return
 	}
@@ -218,7 +221,7 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if h.isHTMX(r) {
 		// Return 200 with empty body so htmx will swap (remove) the element
-		w.Header().Set("HX-Trigger", "org-vehicle-deleted")
+		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Vehicle deleted", "type": "success"}}`)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		return
