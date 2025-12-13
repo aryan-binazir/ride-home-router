@@ -7,11 +7,20 @@ import (
 	"ride-home-router/internal/models"
 )
 
+// RouteMode defines the direction of the route calculation
+type RouteMode string
+
+const (
+	RouteModeDropoff RouteMode = "dropoff" // Activity Location → Participants → Driver Home
+	RouteModePickup  RouteMode = "pickup"  // Driver Home → Participants → Activity Location
+)
+
 // RoutingRequest contains the input for route calculation
 type RoutingRequest struct {
 	InstituteCoords models.Coordinates
 	Participants    []models.Participant
 	Drivers         []models.Driver
+	Mode            RouteMode
 }
 
 // Router provides route optimization

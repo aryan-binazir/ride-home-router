@@ -295,12 +295,19 @@ function encodeAddressForMaps(address) {
 /**
  * Generates Google Maps directions URL for a route
  */
-function generateMapsUrl(instituteAddress, stops) {
+function generateMapsUrl(instituteAddress, stops, mode = 'dropoff') {
     if (!stops || stops.length === 0) {
         return '';
     }
 
-    const addresses = [instituteAddress, ...stops.map(s => s.address)];
+    let addresses;
+    if (mode === 'pickup') {
+        // Pickup mode: starts and ends at activity location (driver home is implicit)
+        addresses = [...stops.map(s => s.address), instituteAddress];
+    } else {
+        // Dropoff mode: starts at activity, goes through stops
+        addresses = [instituteAddress, ...stops.map(s => s.address)];
+    }
     const encodedAddresses = addresses.map(encodeAddressForMaps);
 
     return `https://www.google.com/maps/dir/${encodedAddresses.join('/')}`;
@@ -309,7 +316,7 @@ function generateMapsUrl(instituteAddress, stops) {
 /**
  * Formats a single route for copying
  */
-function formatRouteText(activityLocationName, activityLocationAddress, driverName, stops) {
+function formatRouteText(activityLocationName, activityLocationAddress, driverName, stops, mode = 'dropoff') {
     let text = `Activity Location: ${activityLocationName}\n${activityLocationAddress}\n\n`;
     text += `Driver: ${driverName}\n`;
 
@@ -317,7 +324,7 @@ function formatRouteText(activityLocationName, activityLocationAddress, driverNa
         text += `${index + 1}. ${stop.name} - ${stop.address}\n`;
     });
 
-    const mapsUrl = generateMapsUrl(activityLocationAddress, stops);
+    const mapsUrl = generateMapsUrl(activityLocationAddress, stops, mode);
     text += `\nMaps: ${mapsUrl}\n`;
 
     return text;
@@ -342,10 +349,11 @@ async function copyRoute(button) {
     const container = routeCard.closest('.routes-container');
     const activityLocationName = container.dataset.activityLocationName;
     const activityLocationAddress = container.dataset.activityLocationAddress;
+    const mode = container.dataset.routeMode || 'dropoff';
     const driverName = routeCard.dataset.driverName;
     const stops = getStopsFromRouteCard(routeCard);
 
-    const text = formatRouteText(activityLocationName, activityLocationAddress, driverName, stops);
+    const text = formatRouteText(activityLocationName, activityLocationAddress, driverName, stops, mode);
 
     try {
         await navigator.clipboard.writeText(text);
@@ -379,6 +387,7 @@ async function copyAllRoutes() {
 
     const activityLocationName = container.dataset.activityLocationName;
     const activityLocationAddress = container.dataset.activityLocationAddress;
+    const mode = container.dataset.routeMode || 'dropoff';
     let allText = `Activity Location: ${activityLocationName}\n${activityLocationAddress}\n\n`;
 
     routeCards.forEach((routeCard, cardIndex) => {
@@ -394,7 +403,7 @@ async function copyAllRoutes() {
             allText += `${index + 1}. ${stop.name} - ${stop.address}\n`;
         });
 
-        const mapsUrl = generateMapsUrl(activityLocationAddress, stops);
+        const mapsUrl = generateMapsUrl(activityLocationAddress, stops, mode);
         allText += `Maps: ${mapsUrl}\n`;
     });
 
@@ -426,9 +435,10 @@ function previewRoute(button) {
     const routeCard = button.closest('.route-card');
     const container = routeCard.closest('.routes-container');
     const activityLocationAddress = container.dataset.activityLocationAddress;
+    const mode = container.dataset.routeMode || 'dropoff';
     const stops = getStopsFromRouteCard(routeCard);
 
-    const mapsUrl = generateMapsUrl(activityLocationAddress, stops);
+    const mapsUrl = generateMapsUrl(activityLocationAddress, stops, mode);
     if (mapsUrl) {
         fetch('/api/v1/open-url', {
             method: 'POST',

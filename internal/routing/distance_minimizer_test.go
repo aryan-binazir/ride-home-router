@@ -283,9 +283,13 @@ func TestInsertionCost_VariousPositions(t *testing.T) {
 		{"insert_at_end", 2},
 	}
 
+	// Set the institute coords and mode for this test
+	dm.instituteCoords = institute
+	dm.mode = RouteModeDropoff
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cost, err := dm.insertionCost(context.Background(), institute, route, pNew, tt.pos)
+			cost, err := dm.insertionCost(context.Background(), route, pNew, tt.pos)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -319,7 +323,11 @@ func TestTotalDropoffDistance_Accumulation(t *testing.T) {
 		},
 	}
 
-	total, err := dm.totalDropoffDistance(context.Background(), institute, routes)
+	// Set the institute coords and mode for this test
+	dm.instituteCoords = institute
+	dm.mode = RouteModeDropoff
+
+	total, err := dm.totalDropoffDistance(context.Background(), routes)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

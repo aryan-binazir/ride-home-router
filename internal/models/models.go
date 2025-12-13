@@ -87,6 +87,7 @@ type Event struct {
 	ID        int64     `json:"id"`
 	EventDate time.Time `json:"event_date"`
 	Notes     string    `json:"notes"`
+	Mode      string    `json:"mode"` // "pickup" or "dropoff"
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -113,6 +114,7 @@ type EventSummary struct {
 	TotalDrivers        int     `json:"total_drivers"`
 	TotalDistanceMeters float64 `json:"total_distance_meters"`
 	OrgVehiclesUsed     int     `json:"org_vehicles_used,omitempty"`
+	Mode                string  `json:"mode"` // "pickup" or "dropoff"
 }
 
 // RouteStop represents a single stop in a calculated route
@@ -138,6 +140,7 @@ type CalculatedRoute struct {
 	BaselineDurationSecs       float64     `json:"baseline_duration_secs"`
 	RouteDurationSecs          float64     `json:"route_duration_secs"`
 	DetourSecs                 float64     `json:"detour_secs"`
+	Mode                       string      `json:"mode"` // "pickup" or "dropoff"
 }
 
 // RoutingSummary contains aggregate stats for a routing calculation
@@ -158,6 +161,7 @@ type RoutingResult struct {
 	Routes   []CalculatedRoute `json:"routes"`
 	Summary  RoutingSummary    `json:"summary"`
 	Warnings []string          `json:"warnings"`
+	Mode     string            `json:"mode"` // "pickup" or "dropoff"
 }
 
 // DistanceCacheEntry represents a cached distance lookup

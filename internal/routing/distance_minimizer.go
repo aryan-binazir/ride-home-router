@@ -12,7 +12,9 @@ import (
 
 // distanceMinimizer implements pure distance minimization routing
 type distanceMinimizer struct {
-	distanceCalc distance.DistanceCalculator
+	distanceCalc    distance.DistanceCalculator
+	instituteCoords models.Coordinates
+	mode            RouteMode
 }
 
 // NewDistanceMinimizer creates a router that minimizes total driving distance
@@ -22,10 +24,34 @@ func NewDistanceMinimizer(distanceCalc distance.DistanceCalculator) Router {
 	}
 }
 
+// getOrigin returns the starting point for a route based on the mode
+func (d *distanceMinimizer) getOrigin(driver *models.Driver) models.Coordinates {
+	if d.mode == RouteModePickup {
+		return driver.GetCoords()
+	}
+	return d.instituteCoords // dropoff: start from institute
+}
+
+// getDestination returns the ending point for a route based on the mode
+func (d *distanceMinimizer) getDestination(driver *models.Driver) models.Coordinates {
+	if d.mode == RouteModePickup {
+		return d.instituteCoords
+	}
+	return driver.GetCoords() // dropoff: end at driver home
+}
+
 func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingRequest) (*models.RoutingResult, error) {
 	totalStart := time.Now()
-	log.Printf("[DISTANCE] Starting calculation: participants=%d drivers=%d",
-		len(req.Participants), len(req.Drivers))
+
+	// Initialize mode and institute coords for this calculation
+	r.instituteCoords = req.InstituteCoords
+	r.mode = req.Mode
+	if r.mode == "" {
+		r.mode = RouteModeDropoff // default to dropoff for backward compatibility
+	}
+
+	log.Printf("[DISTANCE] Starting calculation: participants=%d drivers=%d mode=%s",
+		len(req.Participants), len(req.Drivers), r.mode)
 
 	// Handle empty participants
 	if len(req.Participants) == 0 {
@@ -33,6 +59,7 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 			Routes:   []models.CalculatedRoute{},
 			Summary:  models.RoutingSummary{},
 			Warnings: []string{},
+			Mode:     string(r.mode),
 		}, nil
 	}
 
@@ -82,7 +109,7 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 
 				// Find best position to insert this participant
 				for pos := 0; pos <= len(route.stops); pos++ {
-					cost, err := r.insertionCost(ctx, req.InstituteCoords, route, p, pos)
+					cost, err := r.insertionCost(ctx, route, p, pos)
 					if err != nil {
 						return nil, err
 					}
@@ -118,7 +145,7 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 	phase2Start := time.Now()
 	for _, route := range routes {
 		if len(route.stops) >= 3 {
-			optimized, err := r.twoOpt(ctx, req.InstituteCoords, route.stops)
+			optimized, err := r.twoOpt(ctx, route, route.stops)
 			if err != nil {
 				return nil, err
 			}
@@ -129,7 +156,7 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 
 	// Phase 3: Inter-route optimization - try moving participants between routes
 	phase3Start := time.Now()
-	iterations := r.interRouteOptimize(ctx, req.InstituteCoords, routes)
+	iterations := r.interRouteOptimize(ctx, routes)
 	log.Printf("[TIMING] Phase 3 (inter-route): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
 	// Check for unassigned participants
@@ -147,7 +174,7 @@ func (r *distanceMinimizer) CalculateRoutes(ctx context.Context, req *RoutingReq
 	}
 
 	// Build result
-	result, err := r.buildResult(ctx, req.InstituteCoords, routes, len(req.Participants))
+	result, err := r.buildResult(ctx, routes, len(req.Participants))
 	if err != nil {
 		return nil, err
 	}
@@ -166,11 +193,11 @@ type dmRoute struct {
 }
 
 // insertionCost calculates the additional distance to insert p at position pos
-func (r *distanceMinimizer) insertionCost(ctx context.Context, institute models.Coordinates, route *dmRoute, p *models.Participant, pos int) (float64, error) {
+func (r *distanceMinimizer) insertionCost(ctx context.Context, route *dmRoute, p *models.Participant, pos int) (float64, error) {
 	var prev, next models.Coordinates
 
 	if pos == 0 {
-		prev = institute
+		prev = r.getOrigin(route.driver)
 	} else {
 		prev = route.stops[pos-1].GetCoords()
 	}
@@ -208,11 +235,12 @@ func (r *distanceMinimizer) insertionCost(ctx context.Context, institute models.
 }
 
 // twoOpt applies 2-opt optimization to reduce route distance
-func (r *distanceMinimizer) twoOpt(ctx context.Context, start models.Coordinates, stops []*models.Participant) ([]*models.Participant, error) {
+func (r *distanceMinimizer) twoOpt(ctx context.Context, route *dmRoute, stops []*models.Participant) ([]*models.Participant, error) {
 	if len(stops) < 3 {
 		return stops, nil
 	}
 
+	start := r.getOrigin(route.driver)
 	improved := true
 	for improved {
 		improved = false
@@ -282,7 +310,7 @@ func (r *distanceMinimizer) twoOpt(ctx context.Context, start models.Coordinates
 }
 
 // interRouteOptimize tries moving participants between routes to reduce total distance
-func (r *distanceMinimizer) interRouteOptimize(ctx context.Context, institute models.Coordinates, routes map[int64]*dmRoute) int {
+func (r *distanceMinimizer) interRouteOptimize(ctx context.Context, routes map[int64]*dmRoute) int {
 	maxIterations := 50
 	iteration := 0
 	improved := true
@@ -297,7 +325,7 @@ func (r *distanceMinimizer) interRouteOptimize(ctx context.Context, institute mo
 		iteration++
 
 		// Calculate current total distance
-		currentTotal, err := r.totalDropoffDistance(ctx, institute, routes)
+		currentTotal, err := r.totalDropoffDistance(ctx, routes)
 		if err != nil {
 			break
 		}
@@ -342,7 +370,7 @@ func (r *distanceMinimizer) interRouteOptimize(ctx context.Context, institute mo
 						srcRoute.stops = newSrcStops
 						destRoute.stops = newDestStops
 
-						newTotal, err := r.totalDropoffDistance(ctx, institute, routes)
+						newTotal, err := r.totalDropoffDistance(ctx, routes)
 
 						// Always restore after simulation
 						srcRoute.stops = oldSrcStops
@@ -384,7 +412,7 @@ func (r *distanceMinimizer) interRouteOptimize(ctx context.Context, institute mo
 }
 
 // totalDropoffDistance calculates total dropoff distance across all routes
-func (r *distanceMinimizer) totalDropoffDistance(ctx context.Context, institute models.Coordinates, routes map[int64]*dmRoute) (float64, error) {
+func (r *distanceMinimizer) totalDropoffDistance(ctx context.Context, routes map[int64]*dmRoute) (float64, error) {
 	total := 0.0
 
 	for _, route := range routes {
@@ -392,7 +420,7 @@ func (r *distanceMinimizer) totalDropoffDistance(ctx context.Context, institute 
 			continue
 		}
 
-		prev := institute
+		prev := r.getOrigin(route.driver)
 		for _, stop := range route.stops {
 			dist, err := r.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
 			if err != nil {
@@ -407,7 +435,7 @@ func (r *distanceMinimizer) totalDropoffDistance(ctx context.Context, institute 
 }
 
 // buildResult creates the final routing result
-func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Coordinates, routes map[int64]*dmRoute, totalParticipants int) (*models.RoutingResult, error) {
+func (r *distanceMinimizer) buildResult(ctx context.Context, routes map[int64]*dmRoute, totalParticipants int) (*models.RoutingResult, error) {
 	calculatedRoutes := make([]models.CalculatedRoute, 0)
 	totalDropoff := 0.0
 	totalDist := 0.0
@@ -425,7 +453,8 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 		cumulativeDistance := 0.0
 		cumulativeDuration := 0.0
 
-		prev := institute
+		origin := r.getOrigin(route.driver)
+		prev := origin
 		for i, p := range route.stops {
 			dist, err := r.distanceCalc.GetDistance(ctx, prev, p.GetCoords())
 			if err != nil {
@@ -447,16 +476,16 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 			prev = p.GetCoords()
 		}
 
-		// Distance to final destination (driver's home)
-		destination := route.driver.GetCoords()
+		// Distance to final destination
+		destination := r.getDestination(route.driver)
 
 		distToEnd, err := r.distanceCalc.GetDistance(ctx, prev, destination)
 		if err != nil {
 			return nil, err
 		}
 
-		// Calculate baseline (direct institute -> home)
-		baseline, err := r.distanceCalc.GetDistance(ctx, institute, route.driver.GetCoords())
+		// Calculate baseline (direct origin -> destination)
+		baseline, err := r.distanceCalc.GetDistance(ctx, origin, destination)
 		if err != nil {
 			return nil, err
 		}
@@ -474,6 +503,7 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 			BaselineDurationSecs:       baseline.DurationSecs,
 			RouteDurationSecs:          cumulativeDuration + distToEnd.DurationSecs,
 			DetourSecs:                 (cumulativeDuration + distToEnd.DurationSecs) - baseline.DurationSecs,
+			Mode:                       string(r.mode),
 		})
 	}
 
@@ -487,6 +517,7 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, institute models.Co
 			UnassignedParticipants:     []int64{},
 		},
 		Warnings: []string{},
+		Mode:     string(r.mode),
 	}, nil
 }
 

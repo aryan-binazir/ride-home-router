@@ -20,6 +20,7 @@ type RouteSession struct {
 	SelectedDrivers  []models.Driver
 	ActivityLocation *models.ActivityLocation
 	UseMiles         bool
+	Mode             string // "pickup" or "dropoff"
 	mu               sync.Mutex // Protects session data during modifications
 }
 
@@ -36,7 +37,7 @@ func NewRouteSessionStore() *RouteSessionStore {
 	}
 }
 
-func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool) *RouteSession {
+func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, mode string) *RouteSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -53,10 +54,11 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []mo
 		SelectedDrivers:  drivers,
 		ActivityLocation: activityLocation,
 		UseMiles:         useMiles,
+		Mode:             mode,
 	}
 
 	s.sessions[id] = session
-	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d", id, len(routes), len(drivers))
+	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", id, len(routes), len(drivers), mode)
 	return session
 }
 
@@ -239,6 +241,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 			"SessionID":        session.ID,
 			"IsEditing":        true,
 			"UnusedDrivers":    getUnusedDrivers(session),
+			"Mode":             session.Mode,
 		})
 		return
 	}
@@ -316,6 +319,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 			"SessionID":        session.ID,
 			"IsEditing":        true,
 			"UnusedDrivers":    getUnusedDrivers(session),
+			"Mode":             session.Mode,
 		})
 		return
 	}
@@ -361,6 +365,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 			"SessionID":        session.ID,
 			"IsEditing":        true,
 			"UnusedDrivers":    getUnusedDrivers(session),
+			"Mode":             session.Mode,
 		})
 		return
 	}
@@ -546,6 +551,7 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 			"SessionID":        session.ID,
 			"IsEditing":        true,
 			"UnusedDrivers":    getUnusedDrivers(session),
+			"Mode":             session.Mode,
 		})
 		return
 	}
