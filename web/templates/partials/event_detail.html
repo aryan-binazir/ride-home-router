@@ -10,15 +10,15 @@
             {{if ne $currentDriver ""}}
                 </div></div>
             {{end}}
-            <div class="route-card {{if .UsedInstituteVehicle}}institute-vehicle{{end}} mt-3">
+            <div class="route-card {{if .OrgVehicleName}}org-vehicle{{end}} mt-3">
                 <div class="route-header">
                     <div class="driver-info">
                         <div class="driver-avatar" aria-hidden="true">{{initials .DriverName}}</div>
                         <div class="driver-meta">
                             <h4>
                                 {{.DriverName}}
-                                {{if .UsedInstituteVehicle}}
-                                <span class="badge badge-warning">Institute vehicle</span>
+                                {{if .OrgVehicleName}}
+                                <span class="badge badge-warning">{{.OrgVehicleName}}</span>
                                 {{end}}
                             </h4>
                             <p>{{.DriverAddress}}</p>
@@ -60,10 +60,10 @@
                 <div class="label">Total Distance</div>
                 <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
             </div>
-            {{if .Summary.UsedInstituteVehicle}}
+            {{if gt .Summary.OrgVehiclesUsed 0}}
             <div class="summary-item">
-                <div class="label">Driver</div>
-                <div class="value">{{.Summary.InstituteVehicleDriverName}}</div>
+                <div class="label">Org Vehicles</div>
+                <div class="value">{{.Summary.OrgVehiclesUsed}}</div>
             </div>
             {{end}}
         </div>

@@ -28,8 +28,8 @@
         <span>{{.Summary.TotalParticipants}} participants</span>
         <span>{{.Summary.TotalDrivers}} drivers</span>
         <span>{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</span>
-        {{if .Summary.UsedInstituteVehicle}}
-        <span class="badge badge-warning">Institute vehicle used</span>
+        {{if gt .Summary.OrgVehiclesUsed 0}}
+        <span class="badge badge-warning">Org vehicle used</span>
         {{end}}
     </div>
     {{end}}
