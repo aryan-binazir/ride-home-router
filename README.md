@@ -4,9 +4,26 @@
 
 # Ride Home Router
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Wails v2](https://img.shields.io/badge/Wails-v2-red)](https://wails.io/)
+
 A desktop app that optimizes driver assignments for getting people home after events. Perfect for community groups, religious organizations, schools, or any gathering where you need to coordinate rides.
 
 > **Disclaimer:** This software only calculates routes—it does not vet drivers. You are responsible for screening drivers and verifying all routes. Use at your own risk. See [full disclaimer](#disclaimer).
+
+## Table of Contents
+
+- [The Problem It Solves](#the-problem-it-solves)
+- [Features](#features)
+- [Privacy First](#privacy-first)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Technical Details](#technical-details)
+- [Rate Limiting](#rate-limiting)
+- [Disclaimer](#disclaimer)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## The Problem It Solves
 
@@ -67,7 +84,7 @@ Requires [Go 1.25+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/get
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 # Clone and build
-git clone https://github.com/yourusername/ride-home-router.git
+git clone https://github.com/aryan-binazir/ride-home-router.git
 cd ride-home-router
 wails build
 ```
@@ -192,6 +209,18 @@ All data is stored in `~/.ride-home-router/`:
 └── cache/
     └── distances.json     # Cached OSRM distance calculations
 ```
+
+---
+
+## Rate Limiting
+
+This app uses public APIs that have usage limits:
+
+- **OSRM (Open Source Routing Machine)**: The public demo server at `router.project-osrm.org` is provided for light use only. For heavy usage or production deployments, consider [running your own OSRM instance](https://github.com/Project-OSRM/osrm-backend).
+
+- **Nominatim (OpenStreetMap Geocoding)**: The public Nominatim service has a [usage policy](https://operations.osmfoundation.org/policies/nominatim/) limiting requests to 1 per second. The app includes built-in delays to respect this limit.
+
+For typical community group usage (under 150 participants per event), the public APIs should work fine. If you experience slow responses or errors, it may be due to rate limiting—try waiting a few minutes before retrying.
 
 ---
 
