@@ -20,6 +20,7 @@ type FileDistanceCacheData struct {
 type FileDistanceCache struct {
 	filePath string
 	data     *FileDistanceCacheData
+	index    map[string]*models.DistanceCacheEntry // O(1) lookup by coordinate pair
 	mu       sync.RWMutex
 }
 
@@ -34,6 +35,7 @@ func NewFileDistanceCache() (*FileDistanceCache, error) {
 	cache := &FileDistanceCache{
 		filePath: filePath,
 		data:     &FileDistanceCacheData{Entries: []models.DistanceCacheEntry{}},
+		index:    make(map[string]*models.DistanceCacheEntry),
 	}
 
 	if err := cache.load(); err != nil {
@@ -63,6 +65,8 @@ func (c *FileDistanceCache) load() error {
 	if c.data.Entries == nil {
 		c.data.Entries = []models.DistanceCacheEntry{}
 	}
+
+	c.rebuildIndex()
 
 	log.Printf("Loaded distance cache: %d entries", len(c.data.Entries))
 	return nil
@@ -96,6 +100,16 @@ func (c *FileDistanceCache) Get(ctx context.Context, origin, dest models.Coordin
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	// Use index for O(1) lookup if available
+	if c.index != nil {
+		key := makeCacheKey(origin, dest)
+		if entry, ok := c.index[key]; ok {
+			return entry, nil
+		}
+		return nil, nil
+	}
+
+	// Fallback to linear scan if index not initialized
 	for _, e := range c.data.Entries {
 		if coordsMatch(e.Origin, origin) && coordsMatch(e.Destination, dest) {
 			return &e, nil
@@ -125,14 +139,23 @@ func (c *FileDistanceCache) Set(ctx context.Context, entry *models.DistanceCache
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for i, e := range c.data.Entries {
-		if coordsMatch(e.Origin, entry.Origin) && coordsMatch(e.Destination, entry.Destination) {
-			c.data.Entries[i] = *entry
-			return c.saveUnlocked()
-		}
+	// Initialize index if needed
+	if c.index == nil {
+		c.index = make(map[string]*models.DistanceCacheEntry)
 	}
 
+	key := makeCacheKey(entry.Origin, entry.Destination)
+
+	// Check if entry exists using the index
+	if existing, ok := c.index[key]; ok {
+		// Update existing entry in place
+		*existing = *entry
+		return c.saveUnlocked()
+	}
+
+	// Add new entry
 	c.data.Entries = append(c.data.Entries, *entry)
+	c.index[key] = &c.data.Entries[len(c.data.Entries)-1]
 	return c.saveUnlocked()
 }
 
@@ -140,17 +163,21 @@ func (c *FileDistanceCache) SetBatch(ctx context.Context, entries []models.Dista
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Initialize index if needed
+	if c.index == nil {
+		c.index = make(map[string]*models.DistanceCacheEntry)
+	}
+
 	for _, entry := range entries {
-		found := false
-		for i, e := range c.data.Entries {
-			if coordsMatch(e.Origin, entry.Origin) && coordsMatch(e.Destination, entry.Destination) {
-				c.data.Entries[i] = entry
-				found = true
-				break
-			}
-		}
-		if !found {
+		key := makeCacheKey(entry.Origin, entry.Destination)
+
+		if existing, ok := c.index[key]; ok {
+			// Update existing entry in place
+			*existing = entry
+		} else {
+			// Add new entry
 			c.data.Entries = append(c.data.Entries, entry)
+			c.index[key] = &c.data.Entries[len(c.data.Entries)-1]
 		}
 	}
 
@@ -162,6 +189,7 @@ func (c *FileDistanceCache) Clear(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	c.data.Entries = []models.DistanceCacheEntry{}
+	c.index = make(map[string]*models.DistanceCacheEntry)
 	return c.saveUnlocked()
 }
 
@@ -176,4 +204,14 @@ func makeCacheKey(origin, dest models.Coordinates) string {
 	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
 		models.RoundCoordinate(origin.Lat), models.RoundCoordinate(origin.Lng),
 		models.RoundCoordinate(dest.Lat), models.RoundCoordinate(dest.Lng))
+}
+
+// rebuildIndex creates the index map from the current entries slice.
+// Must be called with the mutex already held.
+func (c *FileDistanceCache) rebuildIndex() {
+	c.index = make(map[string]*models.DistanceCacheEntry)
+	for i := range c.data.Entries {
+		key := makeCacheKey(c.data.Entries[i].Origin, c.data.Entries[i].Destination)
+		c.index[key] = &c.data.Entries[i]
+	}
 }
