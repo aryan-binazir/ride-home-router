@@ -1175,6 +1175,53 @@ tbody tr:last-child td {
     to { transform: rotate(360deg); }
 }
 
+/* Large spinner variant */
+.loading-lg {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-width: 3px;
+}
+
+/* Button text swap during loading */
+.calc-btn-loading {
+    display: none;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.calc-btn-loading.htmx-request {
+    display: inline-flex;
+}
+
+.htmx-request .calc-btn-text {
+    display: none;
+}
+
+/* Results loading overlay */
+.results-loading {
+    display: none;
+}
+
+.results-loading.htmx-request {
+    display: block;
+}
+
+.loading-overlay {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-2xl);
+    text-align: center;
+    color: var(--color-muted);
+}
+
+.loading-overlay p {
+    margin: 0;
+    font-size: 1rem;
+}
+
 
 /* ============================================================================
    ROUTES DISPLAY
