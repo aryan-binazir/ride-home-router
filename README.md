@@ -70,7 +70,6 @@ Download the latest release for your platform from the [Releases](../../releases
 | Platform | Download |
 |----------|----------|
 | macOS (Apple Silicon) | `Ride-Home-Router-macOS-arm64.dmg` |
-| macOS (Intel) | `Ride-Home-Router-macOS-amd64.dmg` |
 | Windows | `Ride-Home-Router-Windows-amd64.exe` |
 | Linux | `Ride-Home-Router-Linux-amd64` |
 
