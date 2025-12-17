@@ -232,7 +232,14 @@
             const row = cb.closest('.select-row');
             if (row) row.classList.remove('is-selected');
         });
-        document.getElementById('results-section').innerHTML = '';
+        document.getElementById('results-section').innerHTML = `
+    <div class="results-loading htmx-indicator calculate-indicator">
+        <div class="loading-overlay">
+            <span class="loading loading-lg"></span>
+            <p>Calculating optimal routes…</p>
+        </div>
+    </div>
+`;
         updateEventStats();
     }
 

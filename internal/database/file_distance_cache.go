@@ -52,6 +52,7 @@ func (c *FileDistanceCache) load() error {
 	data, err := os.ReadFile(c.filePath)
 	if os.IsNotExist(err) {
 		c.data = &FileDistanceCacheData{Entries: []models.DistanceCacheEntry{}}
+		c.rebuildIndex()
 		return c.saveUnlocked()
 	}
 	if err != nil {
@@ -104,9 +105,12 @@ func (c *FileDistanceCache) Get(ctx context.Context, origin, dest models.Coordin
 	if c.index != nil {
 		key := makeCacheKey(origin, dest)
 		if idx, ok := c.index[key]; ok {
-			// Return a copy to prevent callers from modifying cache data without locks
-			entryCopy := c.data.Entries[idx]
-			return &entryCopy, nil
+			if idx >= 0 && idx < len(c.data.Entries) {
+				// Return a copy to prevent callers from modifying cache data without locks
+				entryCopy := c.data.Entries[idx]
+				return &entryCopy, nil
+			}
+			// Index corrupted, fall through to return nil
 		}
 		return nil, nil
 	}
