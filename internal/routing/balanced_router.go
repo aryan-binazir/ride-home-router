@@ -408,106 +408,102 @@ func (r *BalancedRouter) twoOpt(ctx context.Context, route *balancedRoute, stops
 	return stops, nil
 }
 
-// fairInterRouteOptimize tries moving participants between routes considering fairness
+// fairInterRouteOptimize tries moving participants between routes to minimize max route time
+// Goal: Reduce the longest route by moving participants to shorter routes
 func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) int {
 	maxIterations := 50
 	iteration := 0
 	improved := true
 
+	// Calculate minimum stops per driver (hard floor)
+	totalParticipants := 0
+	for _, route := range routes {
+		totalParticipants += len(route.stops)
+	}
+	minStopsPerDriver := totalParticipants / len(driverIDs)
+
 	for improved && iteration < maxIterations {
 		improved = false
 		iteration++
 
-		// Calculate current metrics
-		currentTotal, err := r.totalDropoffDistance(ctx, routes)
-		if err != nil {
+		// Find the current longest route (the one we want to reduce)
+		currentMaxDist := 0.0
+		var longestDriverID int64
+		for _, id := range driverIDs {
+			route := routes[id]
+			dist := r.calculateRouteDistance(ctx, route)
+			if dist > currentMaxDist {
+				currentMaxDist = dist
+				longestDriverID = id
+			}
+		}
+
+		if currentMaxDist == 0 {
 			break
 		}
 
-		// Calculate current fairness score (lower is better = more balanced)
-		currentFairness := r.calculateFairnessScore(ctx, routes)
+		// Try to move a participant FROM the longest route TO a shorter route
+		srcRoute := routes[longestDriverID]
 
-		// Find the best move considering both distance and fairness
+		// HARD CONSTRAINT: Cannot go below minimum stops per driver
+		if len(srcRoute.stops) <= minStopsPerDriver {
+			// This driver is already at minimum, try moving from second-longest
+			// For now, just stop optimizing
+			break
+		}
+
 		var bestMove struct {
-			srcID, destID   int64
+			destID          int64
 			srcPos, destPos int
 			participant     *models.Participant
-			score           float64 // Combined score (negative = improvement)
+			newMaxDist      float64
 		}
-		bestMove.score = 0 // Must improve to be accepted
+		bestMove.newMaxDist = currentMaxDist // Must reduce max to be accepted
 
-		for i := 0; i < len(driverIDs); i++ {
-			for j := 0; j < len(driverIDs); j++ {
-				if i == j {
+		// Try moving each participant from longest route to other routes
+		for srcPos := 0; srcPos < len(srcRoute.stops); srcPos++ {
+			p := srcRoute.stops[srcPos]
+
+			for _, destID := range driverIDs {
+				if destID == longestDriverID {
 					continue
 				}
 
-				srcID, destID := driverIDs[i], driverIDs[j]
-				srcRoute, destRoute := routes[srcID], routes[destID]
-
-				if len(srcRoute.stops) == 0 {
-					continue
-				}
+				destRoute := routes[destID]
 				if len(destRoute.stops) >= destRoute.driver.VehicleCapacity {
 					continue
 				}
 
-				// HARD CONSTRAINT: Never empty a route that has participants
-				// This prevents reducing the number of active drivers
-				if len(srcRoute.stops) == 1 {
-					continue // Cannot move the last participant off this driver
-				}
+				for destPos := 0; destPos <= len(destRoute.stops); destPos++ {
+					// Simulate the move
+					newSrcStops := removeAtBalanced(srcRoute.stops, srcPos)
+					newDestStops := insertAtBalanced(destRoute.stops, p, destPos)
 
-				// Try moving each participant from src to dest
-				for srcPos := 0; srcPos < len(srcRoute.stops); srcPos++ {
-					p := srcRoute.stops[srcPos]
+					oldSrcStops := srcRoute.stops
+					oldDestStops := destRoute.stops
+					srcRoute.stops = newSrcStops
+					destRoute.stops = newDestStops
 
-					for destPos := 0; destPos <= len(destRoute.stops); destPos++ {
-						// Simulate the move
-						newSrcStops := removeAtBalanced(srcRoute.stops, srcPos)
-						newDestStops := insertAtBalanced(destRoute.stops, p, destPos)
-
-						oldSrcStops := srcRoute.stops
-						oldDestStops := destRoute.stops
-						srcRoute.stops = newSrcStops
-						destRoute.stops = newDestStops
-
-						newTotal, err := r.totalDropoffDistance(ctx, routes)
-						newFairness := r.calculateFairnessScore(ctx, routes)
-
-						// Restore
-						srcRoute.stops = oldSrcStops
-						destRoute.stops = oldDestStops
-
-						if err != nil {
-							continue
+					// Calculate new max distance after the move
+					newMaxDist := 0.0
+					for _, id := range driverIDs {
+						dist := r.calculateRouteDistance(ctx, routes[id])
+						if dist > newMaxDist {
+							newMaxDist = dist
 						}
+					}
 
-						// Calculate combined improvement score
-						// Negative values indicate improvement
-						distanceChange := newTotal - currentTotal
-						fairnessChange := newFairness - currentFairness
+					// Restore
+					srcRoute.stops = oldSrcStops
+					destRoute.stops = oldDestStops
 
-						// Weight the improvements
-						// Distance: raw meters saved
-						// Fairness: scale to be comparable (multiply by typical route distance)
-						avgDist := currentTotal / float64(len(driverIDs))
-						if avgDist < 1 {
-							avgDist = 1000 // Default if no routes yet
-						}
-
-						combinedScore := distanceChange + (r.FairnessWeight * fairnessChange * avgDist)
-
-						// Accept if it improves the combined score
-						// Threshold: must improve by at least 10 meters equivalent
-						if combinedScore < bestMove.score-10 {
-							bestMove.srcID = srcID
-							bestMove.destID = destID
-							bestMove.srcPos = srcPos
-							bestMove.destPos = destPos
-							bestMove.participant = p
-							bestMove.score = combinedScore
-						}
+					// Accept if it reduces the maximum route distance
+					if newMaxDist < bestMove.newMaxDist-10 { // 10 meter threshold
+						bestMove.destID = destID
+						bestMove.srcPos = srcPos
+						bestMove.destPos = destPos
+						bestMove.participant = p
+						bestMove.newMaxDist = newMaxDist
 					}
 				}
 			}
@@ -515,7 +511,6 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 
 		// Execute the best move if found
 		if bestMove.participant != nil {
-			srcRoute := routes[bestMove.srcID]
 			destRoute := routes[bestMove.destID]
 
 			srcRoute.stops = removeAtBalanced(srcRoute.stops, bestMove.srcPos)
@@ -525,8 +520,9 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 			r.updateRouteDistance(ctx, srcRoute)
 			r.updateRouteDistance(ctx, destRoute)
 
-			log.Printf("[BALANCED] Moved %s from %s to %s (combined_improvement=%.0f)",
-				bestMove.participant.Name, srcRoute.driver.Name, destRoute.driver.Name, -bestMove.score)
+			log.Printf("[BALANCED] Moved %s from %s to %s (max_route: %.0fm -> %.0fm)",
+				bestMove.participant.Name, srcRoute.driver.Name, destRoute.driver.Name,
+				currentMaxDist, bestMove.newMaxDist)
 			improved = true
 		}
 	}
