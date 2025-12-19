@@ -72,6 +72,16 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}, nil
 	}
 
+	// Handle empty drivers
+	if len(req.Drivers) == 0 {
+		return nil, &ErrRoutingFailed{
+			Reason:            "No drivers available",
+			UnassignedCount:   len(req.Participants),
+			TotalCapacity:     0,
+			TotalParticipants: len(req.Participants),
+		}
+	}
+
 	// Prewarm distance cache
 	prewarmStart := time.Now()
 	allPoints := []models.Coordinates{req.InstituteCoords}
@@ -123,6 +133,8 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 			}
 			route.stops = optimized
 		}
+		// Recalculate totalDistance after 2-opt reordering
+		r.updateRouteDistance(ctx, route)
 	}
 	log.Printf("[TIMING] Phase 2 (2-opt): %v", time.Since(phase2Start))
 
@@ -413,7 +425,7 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 		}
 
 		// Calculate current fairness score (lower is better = more balanced)
-		currentFairness := r.calculateFairnessScore(routes)
+		currentFairness := r.calculateFairnessScore(ctx, routes)
 
 		// Find the best move considering both distance and fairness
 		var bestMove struct {
@@ -455,7 +467,7 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 						destRoute.stops = newDestStops
 
 						newTotal, err := r.totalDropoffDistance(ctx, routes)
-						newFairness := r.calculateFairnessScore(routes)
+						newFairness := r.calculateFairnessScore(ctx, routes)
 
 						// Restore
 						srcRoute.stops = oldSrcStops
@@ -518,11 +530,15 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 
 // calculateFairnessScore returns a score where lower = more balanced
 // Uses standard deviation of route distances
-func (r *BalancedRouter) calculateFairnessScore(routes map[int64]*balancedRoute) float64 {
+// NOTE: This recalculates distances from stops, not cached totalDistance,
+// so it works correctly during move simulations
+func (r *BalancedRouter) calculateFairnessScore(ctx context.Context, routes map[int64]*balancedRoute) float64 {
 	distances := make([]float64, 0, len(routes))
 	for _, route := range routes {
 		if len(route.stops) > 0 {
-			distances = append(distances, route.totalDistance)
+			// Calculate actual distance from current stops (not cached value)
+			dist := r.calculateRouteDistance(ctx, route)
+			distances = append(distances, dist)
 		}
 	}
 
@@ -548,11 +564,10 @@ func (r *BalancedRouter) calculateFairnessScore(routes map[int64]*balancedRoute)
 	return math.Sqrt(variance)
 }
 
-// updateRouteDistance recalculates the total distance for a route
-func (r *BalancedRouter) updateRouteDistance(ctx context.Context, route *balancedRoute) {
+// calculateRouteDistance computes actual distance from current stops (without caching)
+func (r *BalancedRouter) calculateRouteDistance(ctx context.Context, route *balancedRoute) float64 {
 	if len(route.stops) == 0 {
-		route.totalDistance = 0
-		return
+		return 0
 	}
 
 	total := 0.0
@@ -564,7 +579,12 @@ func (r *BalancedRouter) updateRouteDistance(ctx context.Context, route *balance
 		}
 		prev = stop.GetCoords()
 	}
-	route.totalDistance = total
+	return total
+}
+
+// updateRouteDistance recalculates and caches the total distance for a route
+func (r *BalancedRouter) updateRouteDistance(ctx context.Context, route *balancedRoute) {
+	route.totalDistance = r.calculateRouteDistance(ctx, route)
 }
 
 // totalDropoffDistance calculates total dropoff distance across all routes
