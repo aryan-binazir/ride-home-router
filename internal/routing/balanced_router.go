@@ -452,6 +452,12 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 					continue
 				}
 
+				// HARD CONSTRAINT: Never empty a route that has participants
+				// This prevents reducing the number of active drivers
+				if len(srcRoute.stops) == 1 {
+					continue // Cannot move the last participant off this driver
+				}
+
 				// Try moving each participant from src to dest
 				for srcPos := 0; srcPos < len(srcRoute.stops); srcPos++ {
 					p := srcRoute.stops[srcPos]
