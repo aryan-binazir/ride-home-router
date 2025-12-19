@@ -65,7 +65,7 @@ func New(cfg Config) (*Server, error) {
 
 	geocoder := geocoding.NewNominatimGeocoder()
 	distanceCalc := distance.NewOSRMCalculator(db.DistanceCache())
-	router := routing.NewDistanceMinimizer(distanceCalc)
+	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := handlers.NewRouteSessionStore()
 
 	handler := &handlers.Handler{
