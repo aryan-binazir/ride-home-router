@@ -529,39 +529,52 @@ func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[
 }
 
 // calculateFairnessScore returns a score where lower = more balanced
-// Uses standard deviation of route distances
+// Combines two factors:
+// 1. Standard deviation of route distances (balance among used drivers)
+// 2. Penalty for unused drivers (encourages using all available drivers)
 // NOTE: This recalculates distances from stops, not cached totalDistance,
 // so it works correctly during move simulations
 func (r *BalancedRouter) calculateFairnessScore(ctx context.Context, routes map[int64]*balancedRoute) float64 {
-	distances := make([]float64, 0, len(routes))
-	for _, route := range routes {
-		if len(route.stops) > 0 {
-			// Calculate actual distance from current stops (not cached value)
-			dist := r.calculateRouteDistance(ctx, route)
-			distances = append(distances, dist)
-		}
-	}
-
-	if len(distances) <= 1 {
+	if len(routes) == 0 {
 		return 0
 	}
 
-	// Calculate mean
-	sum := 0.0
-	for _, d := range distances {
-		sum += d
-	}
-	mean := sum / float64(len(distances))
+	// Collect distances for ALL drivers (including empty routes as 0)
+	distances := make([]float64, 0, len(routes))
+	usedDrivers := 0
+	totalDistance := 0.0
 
-	// Calculate standard deviation
+	for _, route := range routes {
+		if len(route.stops) > 0 {
+			dist := r.calculateRouteDistance(ctx, route)
+			distances = append(distances, dist)
+			totalDistance += dist
+			usedDrivers++
+		} else {
+			distances = append(distances, 0) // Empty routes count as 0 distance
+		}
+	}
+
+	if usedDrivers == 0 {
+		return 0
+	}
+
+	// Calculate standard deviation across ALL drivers (including empty ones)
+	mean := totalDistance / float64(len(routes))
 	variance := 0.0
 	for _, d := range distances {
 		diff := d - mean
 		variance += diff * diff
 	}
 	variance /= float64(len(distances))
+	stdDev := math.Sqrt(variance)
 
-	return math.Sqrt(variance)
+	// Add penalty for unused drivers - each unused driver adds to unfairness
+	// This prevents consolidating onto fewer drivers
+	unusedDrivers := len(routes) - usedDrivers
+	unusedPenalty := float64(unusedDrivers) * mean * 0.5 // Penalty scales with average route distance
+
+	return stdDev + unusedPenalty
 }
 
 // calculateRouteDistance computes actual distance from current stops (without caching)
