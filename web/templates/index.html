@@ -136,18 +136,29 @@
                     hx-post="/api/v1/routes/calculate"
                     hx-include="#event-form"
                     hx-target="#results-section"
-                    hx-indicator="#loading-indicator"
+                    hx-disabled-elt="this"
+                    hx-indicator=".calculate-indicator"
                     onclick="return validateBeforeCalculate()"
                     id="calculate-btn">
-                Calculate routes
-                <span class="loading htmx-indicator" id="loading-indicator"></span>
+                <span class="calc-btn-text">Calculate routes</span>
+                <span class="calc-btn-loading htmx-indicator calculate-indicator">
+                    <span class="loading"></span>
+                    Calculating…
+                </span>
             </button>
         </div>
     </div>
 </form>
 
 <!-- Results Section -->
-<div id="results-section"></div>
+<div id="results-section">
+    <div class="results-loading htmx-indicator calculate-indicator">
+        <div class="loading-overlay">
+            <span class="loading loading-lg"></span>
+            <p>Calculating optimal routes…</p>
+        </div>
+    </div>
+</div>
 
 <script>
     function updateEventStats() {
@@ -221,7 +232,14 @@
             const row = cb.closest('.select-row');
             if (row) row.classList.remove('is-selected');
         });
-        document.getElementById('results-section').innerHTML = '';
+        document.getElementById('results-section').innerHTML = `
+    <div class="results-loading htmx-indicator calculate-indicator">
+        <div class="loading-overlay">
+            <span class="loading loading-lg"></span>
+            <p>Calculating optimal routes…</p>
+        </div>
+    </div>
+`;
         updateEventStats();
     }
 
