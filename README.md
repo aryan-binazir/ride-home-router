@@ -32,12 +32,13 @@ Whether you're getting people home after an event or picking them up beforehand,
 - Several drivers willing to help
 - Limited vehicle capacity
 
-Manually figuring out who goes with whom is tedious and often results in inefficient routes. Ride Home Router does the math for you—minimizing total driving distance while respecting vehicle capacities.
+Manually figuring out who goes with whom is tedious and often results in unfair routes where one driver does most of the work. Ride Home Router does the math for you—getting everyone home as quickly as possible while balancing the load across all drivers.
 
 ## Features
 
 - **Pickup & Dropoff Modes** — Calculate routes for either direction: picking people up (driver home → participants → activity) or dropping them off (activity → participants → driver home)
-- **Smart Route Optimization** — Uses cheapest-insertion clustering with 2-opt refinement to minimize total driving distance
+- **Smart Route Optimization** — Balances routes across all drivers to minimize the longest route time, ensuring everyone gets home quickly
+- **Household Grouping** — Participants from the same address automatically ride together
 - **Capacity Aware** — Respects each driver's vehicle capacity
 - **Organization Vehicle Support** — Optionally designate a shared vehicle (van, bus) for overflow when regular drivers can't fit everyone
 - **Address Autocomplete** — Search and select addresses with live suggestions from OpenStreetMap
@@ -143,13 +144,15 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 
 ### How the Algorithm Works
 
+**Goal:** Get all participants home as fast as possible—minimize the time until the last person is dropped off.
+
 The router uses a three-phase optimization approach:
 
-1. **Cheapest Insertion**: Assigns participants to drivers using greedy clustering. Each unassigned participant is placed where it adds the least distance, respecting vehicle capacity.
-2. **2-Opt Local Optimization**: Refines each driver's route by iteratively swapping edge pairs to find shorter paths.
-3. **Inter-Route Optimization**: Attempts to move participants between routes to reduce total distance (up to 50 iterations).
+1. **Round-Robin Assignment**: Distributes participants evenly across all drivers. Participants from the same address are grouped together and assigned as a unit, keeping households in the same vehicle.
+2. **2-Opt Local Optimization**: Refines each driver's route by iteratively swapping edge pairs to find faster paths.
+3. **Min-Max Balancing**: Moves participants from the longest route to shorter routes, reducing the maximum route time until no improvement is possible.
 
-This is a heuristic solution to the Capacitated Vehicle Routing Problem (CVRP). It won't always find the globally optimal solution, but produces good results quickly.
+This is a heuristic solution to the Capacitated Vehicle Routing Problem (CVRP) optimized for fairness. It ensures all drivers are used and no single driver gets stuck with a much longer route than others.
 
 ### Project Structure
 
