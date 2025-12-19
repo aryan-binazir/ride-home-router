@@ -11,25 +11,19 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// BalancedRouter implements fair distribution routing that balances load across drivers
-// while still optimizing for reasonable distances
+// BalancedRouter implements fair distribution routing that:
+// 1. Uses all available drivers
+// 2. Minimizes the maximum route distance (load balancing)
 type BalancedRouter struct {
 	distanceCalc    distance.DistanceCalculator
 	instituteCoords models.Coordinates
 	mode            RouteMode
-
-	// FairnessWeight controls how much to prioritize fairness over pure distance
-	// 0.0 = pure distance optimization (same as DistanceMinimizer)
-	// 1.0 = strong preference for balanced routes
-	// Default: 0.5 (balanced approach)
-	FairnessWeight float64
 }
 
-// NewBalancedRouter creates a router that balances fairness with distance optimization
+// NewBalancedRouter creates a router that balances load across all drivers
 func NewBalancedRouter(distanceCalc distance.DistanceCalculator) Router {
 	return &BalancedRouter{
-		distanceCalc:   distanceCalc,
-		FairnessWeight: 0.5, // Default: balanced approach
+		distanceCalc: distanceCalc,
 	}
 }
 
@@ -59,8 +53,8 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		r.mode = RouteModeDropoff
 	}
 
-	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s fairness=%.2f",
-		len(req.Participants), len(req.Drivers), r.mode, r.FairnessWeight)
+	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s",
+		len(req.Participants), len(req.Drivers), r.mode)
 
 	// Handle empty participants
 	if len(req.Participants) == 0 {
@@ -115,33 +109,25 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		unassigned[i] = &req.Participants[i]
 	}
 
-	// Phase 1: Balanced round-robin insertion
+	// Phase 1: Round-robin insertion to distribute evenly across drivers
 	phase1Start := time.Now()
-	unassigned, err := r.balancedInsertion(ctx, routes, driverIDs, unassigned)
+	unassigned, err := r.roundRobinInsertion(ctx, routes, driverIDs, unassigned)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("[TIMING] Phase 1 (balanced insertion): %v", time.Since(phase1Start))
+	log.Printf("[TIMING] Phase 1 (round-robin): %v", time.Since(phase1Start))
 
 	// Phase 2: 2-opt on each route
 	phase2Start := time.Now()
-	for _, route := range routes {
-		if len(route.stops) >= 3 {
-			optimized, err := r.twoOpt(ctx, route, route.stops)
-			if err != nil {
-				return nil, err
-			}
-			route.stops = optimized
-		}
-		// Recalculate totalDistance after 2-opt reordering
-		r.updateRouteDistance(ctx, route)
+	if err := r.optimizeAllRoutes(ctx, routes); err != nil {
+		return nil, err
 	}
 	log.Printf("[TIMING] Phase 2 (2-opt): %v", time.Since(phase2Start))
 
-	// Phase 3: Fairness-aware inter-route optimization
+	// Phase 3: Min-max inter-route optimization
 	phase3Start := time.Now()
-	iterations := r.fairInterRouteOptimize(ctx, routes, driverIDs)
-	log.Printf("[TIMING] Phase 3 (fair inter-route): %v (iterations=%d)", time.Since(phase3Start), iterations)
+	iterations := r.minMaxOptimize(ctx, routes, driverIDs)
+	log.Printf("[TIMING] Phase 3 (min-max): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
 	// Check for unassigned participants
 	if len(unassigned) > 0 {
@@ -177,23 +163,17 @@ type balancedRoute struct {
 	totalDistance float64
 }
 
-// balancedInsertion assigns participants using round-robin with fairness penalty
-func (r *BalancedRouter) balancedInsertion(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
-	// Calculate target stops per driver for fairness reference
-	totalCapacity := 0
-	for _, route := range routes {
-		totalCapacity += route.driver.VehicleCapacity
-	}
-	targetPerDriver := float64(len(unassigned)) / float64(len(driverIDs))
-
-	log.Printf("[BALANCED] Target stops per driver: %.1f", targetPerDriver)
-
+// roundRobinInsertion assigns participants by cycling through drivers
+// Each driver gets one participant before any driver gets a second
+func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
 	// Sort drivers by ID for consistent ordering
 	sort.Slice(driverIDs, func(i, j int) bool {
 		return driverIDs[i] < driverIDs[j]
 	})
 
-	// Round-robin through drivers, assigning best participant to each
+	log.Printf("[BALANCED] Distributing %d participants across %d drivers", len(unassigned), len(driverIDs))
+
+	// Round-robin through drivers, assigning best-fit participant to each
 	driverIndex := 0
 	maxRounds := len(unassigned) + len(driverIDs) // Safety limit
 
@@ -225,36 +205,20 @@ func (r *BalancedRouter) balancedInsertion(ctx context.Context, routes map[int64
 		currentDriverID := driverIDs[driverIndex]
 		route := routes[currentDriverID]
 
-		// Find best participant for this driver (considering fairness)
+		// Find best participant and position for this driver (minimize insertion cost)
 		bestCost := math.Inf(1)
 		var bestParticipant *models.Participant
 		var bestPosition int
 
-		// Calculate average route distance for fairness penalty
-		avgDistance := r.averageRouteDistance(routes)
-
 		for _, p := range unassigned {
 			for pos := 0; pos <= len(route.stops); pos++ {
-				baseCost, err := r.insertionCost(ctx, route, p, pos)
+				cost, err := r.insertionCost(ctx, route, p, pos)
 				if err != nil {
 					return nil, err
 				}
 
-				// Apply fairness penalty: penalize routes that are already longer than average
-				fairnessPenalty := 0.0
-				if avgDistance > 0 && r.FairnessWeight > 0 {
-					// How much longer is this route than average?
-					routeExcess := route.totalDistance - avgDistance
-					if routeExcess > 0 {
-						// Penalize proportionally to how much this route exceeds average
-						fairnessPenalty = r.FairnessWeight * routeExcess * 0.5
-					}
-				}
-
-				adjustedCost := baseCost + fairnessPenalty
-
-				if adjustedCost < bestCost {
-					bestCost = adjustedCost
+				if cost < bestCost {
+					bestCost = cost
 					bestParticipant = p
 					bestPosition = pos
 				}
@@ -265,38 +229,21 @@ func (r *BalancedRouter) balancedInsertion(ctx context.Context, routes map[int64
 			break
 		}
 
-		// Insert the participant and update route distance
-		insertCost, _ := r.insertionCost(ctx, route, bestParticipant, bestPosition)
-		route.stops = insertAtBalanced(route.stops, bestParticipant, bestPosition)
-		route.totalDistance += insertCost
+		// Insert the participant
+		route.stops = insertAt(route.stops, bestParticipant, bestPosition)
+		r.updateRouteDistance(ctx, route)
 
 		// Remove from unassigned
-		unassigned = removeParticipantBalanced(unassigned, bestParticipant.ID)
+		unassigned = removeParticipant(unassigned, bestParticipant.ID)
 
-		log.Printf("[BALANCED] Assigned %s to %s (pos=%d, cost=%.0fm, route_total=%.0fm)",
-			bestParticipant.Name, route.driver.Name, bestPosition, insertCost, route.totalDistance)
+		log.Printf("[BALANCED] Assigned %s to %s (pos=%d, cost=%.0fm)",
+			bestParticipant.Name, route.driver.Name, bestPosition, bestCost)
 
 		// Move to next driver (round-robin)
 		driverIndex = (driverIndex + 1) % len(driverIDs)
 	}
 
 	return unassigned, nil
-}
-
-// averageRouteDistance calculates the mean distance across all non-empty routes
-func (r *BalancedRouter) averageRouteDistance(routes map[int64]*balancedRoute) float64 {
-	total := 0.0
-	count := 0
-	for _, route := range routes {
-		if len(route.stops) > 0 {
-			total += route.totalDistance
-			count++
-		}
-	}
-	if count == 0 {
-		return 0
-	}
-	return total / float64(count)
 }
 
 // insertionCost calculates the additional distance to insert p at position pos
@@ -312,7 +259,7 @@ func (r *BalancedRouter) insertionCost(ctx context.Context, route *balancedRoute
 	if pos < len(route.stops) {
 		next = route.stops[pos].GetCoords()
 	} else {
-		// Inserting at end
+		// Inserting at end - just distance from prev to new stop
 		distPrevP, err := r.distanceCalc.GetDistance(ctx, prev, p.GetCoords())
 		if err != nil {
 			return 0, err
@@ -337,6 +284,21 @@ func (r *BalancedRouter) insertionCost(ctx context.Context, route *balancedRoute
 	}
 
 	return distPrevP.DistanceMeters + distPNext.DistanceMeters - distPrevNext.DistanceMeters, nil
+}
+
+// optimizeAllRoutes runs 2-opt on each route and updates distances
+func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, routes map[int64]*balancedRoute) error {
+	for _, route := range routes {
+		if len(route.stops) >= 3 {
+			optimized, err := r.twoOpt(ctx, route, route.stops)
+			if err != nil {
+				return err
+			}
+			route.stops = optimized
+		}
+		r.updateRouteDistance(ctx, route)
+	}
+	return nil
 }
 
 // twoOpt applies 2-opt optimization to reduce route distance
@@ -372,7 +334,7 @@ func (r *BalancedRouter) twoOpt(ctx context.Context, route *balancedRoute, stops
 						return nil, err
 					}
 					if dist1New.DistanceMeters < dist1.DistanceMeters {
-						reverseBalanced(stops, i, j-1)
+						reverse(stops, i, j-1)
 						improved = true
 					}
 					continue
@@ -398,7 +360,7 @@ func (r *BalancedRouter) twoOpt(ctx context.Context, route *balancedRoute, stops
 				newDist := dist1New.DistanceMeters + dist2New.DistanceMeters
 
 				if newDist < currentDist {
-					reverseBalanced(stops, i, j-1)
+					reverse(stops, i, j-1)
 					improved = true
 				}
 			}
@@ -408,178 +370,143 @@ func (r *BalancedRouter) twoOpt(ctx context.Context, route *balancedRoute, stops
 	return stops, nil
 }
 
-// fairInterRouteOptimize tries moving participants between routes to minimize max route time
-// Goal: Reduce the longest route by moving participants to shorter routes
-func (r *BalancedRouter) fairInterRouteOptimize(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) int {
+// minMaxOptimize moves participants between routes to minimize the maximum route distance
+func (r *BalancedRouter) minMaxOptimize(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) int {
 	maxIterations := 50
 	iteration := 0
-	improved := true
 
-	// Calculate minimum stops per driver (hard floor)
+	// Calculate minimum stops per driver (hard floor to ensure all drivers used)
 	totalParticipants := 0
 	for _, route := range routes {
 		totalParticipants += len(route.stops)
 	}
-	minStopsPerDriver := totalParticipants / len(driverIDs)
+	minStopsPerDriver := 1 // At minimum, every driver should have 1 stop
+	if totalParticipants < len(driverIDs) {
+		minStopsPerDriver = 0 // Not enough participants for all drivers
+	}
 
-	for improved && iteration < maxIterations {
-		improved = false
+	for iteration < maxIterations {
 		iteration++
 
-		// Find the current longest route (the one we want to reduce)
-		currentMaxDist := 0.0
-		var longestDriverID int64
+		// Find routes sorted by distance (longest first)
+		type routeDist struct {
+			id   int64
+			dist float64
+		}
+		routesByDist := make([]routeDist, 0, len(driverIDs))
 		for _, id := range driverIDs {
 			route := routes[id]
 			dist := r.calculateRouteDistance(ctx, route)
-			if dist > currentMaxDist {
-				currentMaxDist = dist
-				longestDriverID = id
-			}
+			routesByDist = append(routesByDist, routeDist{id, dist})
 		}
+		sort.Slice(routesByDist, func(i, j int) bool {
+			return routesByDist[i].dist > routesByDist[j].dist
+		})
 
+		currentMaxDist := routesByDist[0].dist
 		if currentMaxDist == 0 {
 			break
 		}
 
-		// Try to move a participant FROM the longest route TO a shorter route
-		srcRoute := routes[longestDriverID]
+		// Try to reduce routes starting from longest
+		foundMove := false
+		for _, rd := range routesByDist {
+			srcRoute := routes[rd.id]
 
-		// HARD CONSTRAINT: Cannot go below minimum stops per driver
-		if len(srcRoute.stops) <= minStopsPerDriver {
-			// This driver is already at minimum, try moving from second-longest
-			// For now, just stop optimizing
-			break
-		}
+			// Skip if at minimum stops
+			if len(srcRoute.stops) <= minStopsPerDriver {
+				continue
+			}
 
-		var bestMove struct {
-			destID          int64
-			srcPos, destPos int
-			participant     *models.Participant
-			newMaxDist      float64
-		}
-		bestMove.newMaxDist = currentMaxDist // Must reduce max to be accepted
+			// Try moving each participant to a shorter route
+			var bestMove struct {
+				destID          int64
+				srcPos, destPos int
+				participant     *models.Participant
+				newMaxDist      float64
+			}
+			bestMove.newMaxDist = currentMaxDist
 
-		// Try moving each participant from longest route to other routes
-		for srcPos := 0; srcPos < len(srcRoute.stops); srcPos++ {
-			p := srcRoute.stops[srcPos]
+			for srcPos := 0; srcPos < len(srcRoute.stops); srcPos++ {
+				p := srcRoute.stops[srcPos]
 
-			for _, destID := range driverIDs {
-				if destID == longestDriverID {
-					continue
-				}
-
-				destRoute := routes[destID]
-				if len(destRoute.stops) >= destRoute.driver.VehicleCapacity {
-					continue
-				}
-
-				for destPos := 0; destPos <= len(destRoute.stops); destPos++ {
-					// Simulate the move
-					newSrcStops := removeAtBalanced(srcRoute.stops, srcPos)
-					newDestStops := insertAtBalanced(destRoute.stops, p, destPos)
-
-					oldSrcStops := srcRoute.stops
-					oldDestStops := destRoute.stops
-					srcRoute.stops = newSrcStops
-					destRoute.stops = newDestStops
-
-					// Calculate new max distance after the move
-					newMaxDist := 0.0
-					for _, id := range driverIDs {
-						dist := r.calculateRouteDistance(ctx, routes[id])
-						if dist > newMaxDist {
-							newMaxDist = dist
-						}
+				for _, destID := range driverIDs {
+					if destID == rd.id {
+						continue
 					}
 
-					// Restore
-					srcRoute.stops = oldSrcStops
-					destRoute.stops = oldDestStops
+					destRoute := routes[destID]
+					if len(destRoute.stops) >= destRoute.driver.VehicleCapacity {
+						continue
+					}
 
-					// Accept if it reduces the maximum route distance
-					if newMaxDist < bestMove.newMaxDist-10 { // 10 meter threshold
-						bestMove.destID = destID
-						bestMove.srcPos = srcPos
-						bestMove.destPos = destPos
-						bestMove.participant = p
-						bestMove.newMaxDist = newMaxDist
+					for destPos := 0; destPos <= len(destRoute.stops); destPos++ {
+						// Simulate the move
+						newSrcStops := removeAt(srcRoute.stops, srcPos)
+						newDestStops := insertAt(destRoute.stops, p, destPos)
+
+						oldSrcStops := srcRoute.stops
+						oldDestStops := destRoute.stops
+						srcRoute.stops = newSrcStops
+						destRoute.stops = newDestStops
+
+						// Calculate new max distance
+						newMaxDist := 0.0
+						for _, id := range driverIDs {
+							dist := r.calculateRouteDistance(ctx, routes[id])
+							if dist > newMaxDist {
+								newMaxDist = dist
+							}
+						}
+
+						// Restore
+						srcRoute.stops = oldSrcStops
+						destRoute.stops = oldDestStops
+
+						// Accept if it reduces the maximum
+						if newMaxDist < bestMove.newMaxDist-10 { // 10 meter threshold
+							bestMove.destID = destID
+							bestMove.srcPos = srcPos
+							bestMove.destPos = destPos
+							bestMove.participant = p
+							bestMove.newMaxDist = newMaxDist
+						}
 					}
 				}
 			}
+
+			// Execute best move if found
+			if bestMove.participant != nil {
+				destRoute := routes[bestMove.destID]
+
+				srcRoute.stops = removeAt(srcRoute.stops, bestMove.srcPos)
+				destRoute.stops = insertAt(destRoute.stops, bestMove.participant, bestMove.destPos)
+
+				// Re-optimize affected routes with 2-opt
+				r.twoOpt(ctx, srcRoute, srcRoute.stops)
+				r.twoOpt(ctx, destRoute, destRoute.stops)
+
+				r.updateRouteDistance(ctx, srcRoute)
+				r.updateRouteDistance(ctx, destRoute)
+
+				log.Printf("[BALANCED] Moved %s from %s to %s (max: %.0fm -> %.0fm)",
+					bestMove.participant.Name, srcRoute.driver.Name, destRoute.driver.Name,
+					currentMaxDist, bestMove.newMaxDist)
+
+				foundMove = true
+				break // Restart from longest route
+			}
 		}
 
-		// Execute the best move if found
-		if bestMove.participant != nil {
-			destRoute := routes[bestMove.destID]
-
-			srcRoute.stops = removeAtBalanced(srcRoute.stops, bestMove.srcPos)
-			destRoute.stops = insertAtBalanced(destRoute.stops, bestMove.participant, bestMove.destPos)
-
-			// Update cached distances
-			r.updateRouteDistance(ctx, srcRoute)
-			r.updateRouteDistance(ctx, destRoute)
-
-			log.Printf("[BALANCED] Moved %s from %s to %s (max_route: %.0fm -> %.0fm)",
-				bestMove.participant.Name, srcRoute.driver.Name, destRoute.driver.Name,
-				currentMaxDist, bestMove.newMaxDist)
-			improved = true
+		if !foundMove {
+			break // No improving moves found
 		}
 	}
 
 	return iteration
 }
 
-// calculateFairnessScore returns a score where lower = more balanced
-// Combines two factors:
-// 1. Standard deviation of route distances (balance among used drivers)
-// 2. Penalty for unused drivers (encourages using all available drivers)
-// NOTE: This recalculates distances from stops, not cached totalDistance,
-// so it works correctly during move simulations
-func (r *BalancedRouter) calculateFairnessScore(ctx context.Context, routes map[int64]*balancedRoute) float64 {
-	if len(routes) == 0 {
-		return 0
-	}
-
-	// Collect distances for ALL drivers (including empty routes as 0)
-	distances := make([]float64, 0, len(routes))
-	usedDrivers := 0
-	totalDistance := 0.0
-
-	for _, route := range routes {
-		if len(route.stops) > 0 {
-			dist := r.calculateRouteDistance(ctx, route)
-			distances = append(distances, dist)
-			totalDistance += dist
-			usedDrivers++
-		} else {
-			distances = append(distances, 0) // Empty routes count as 0 distance
-		}
-	}
-
-	if usedDrivers == 0 {
-		return 0
-	}
-
-	// Calculate standard deviation across ALL drivers (including empty ones)
-	mean := totalDistance / float64(len(routes))
-	variance := 0.0
-	for _, d := range distances {
-		diff := d - mean
-		variance += diff * diff
-	}
-	variance /= float64(len(distances))
-	stdDev := math.Sqrt(variance)
-
-	// Add penalty for unused drivers - each unused driver adds to unfairness
-	// This prevents consolidating onto fewer drivers
-	unusedDrivers := len(routes) - usedDrivers
-	unusedPenalty := float64(unusedDrivers) * mean * 0.5 // Penalty scales with average route distance
-
-	return stdDev + unusedPenalty
-}
-
-// calculateRouteDistance computes actual distance from current stops (without caching)
+// calculateRouteDistance computes distance from origin through all stops
 func (r *BalancedRouter) calculateRouteDistance(ctx context.Context, route *balancedRoute) float64 {
 	if len(route.stops) == 0 {
 		return 0
@@ -600,29 +527,6 @@ func (r *BalancedRouter) calculateRouteDistance(ctx context.Context, route *bala
 // updateRouteDistance recalculates and caches the total distance for a route
 func (r *BalancedRouter) updateRouteDistance(ctx context.Context, route *balancedRoute) {
 	route.totalDistance = r.calculateRouteDistance(ctx, route)
-}
-
-// totalDropoffDistance calculates total dropoff distance across all routes
-func (r *BalancedRouter) totalDropoffDistance(ctx context.Context, routes map[int64]*balancedRoute) (float64, error) {
-	total := 0.0
-
-	for _, route := range routes {
-		if len(route.stops) == 0 {
-			continue
-		}
-
-		prev := r.getOrigin(route.driver)
-		for _, stop := range route.stops {
-			dist, err := r.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
-			if err != nil {
-				return 0, err
-			}
-			total += dist.DistanceMeters
-			prev = stop.GetCoords()
-		}
-	}
-
-	return total, nil
 }
 
 // buildResult creates the final routing result
@@ -708,36 +612,5 @@ func (r *BalancedRouter) buildResult(ctx context.Context, routes map[int64]*bala
 	}, nil
 }
 
-// Helper functions
-func insertAtBalanced(stops []*models.Participant, p *models.Participant, pos int) []*models.Participant {
-	result := make([]*models.Participant, len(stops)+1)
-	copy(result[:pos], stops[:pos])
-	result[pos] = p
-	copy(result[pos+1:], stops[pos:])
-	return result
-}
-
-func removeAtBalanced(stops []*models.Participant, pos int) []*models.Participant {
-	result := make([]*models.Participant, len(stops)-1)
-	copy(result[:pos], stops[:pos])
-	copy(result[pos:], stops[pos+1:])
-	return result
-}
-
-func removeParticipantBalanced(stops []*models.Participant, id int64) []*models.Participant {
-	result := make([]*models.Participant, 0, len(stops)-1)
-	for _, p := range stops {
-		if p.ID != id {
-			result = append(result, p)
-		}
-	}
-	return result
-}
-
-func reverseBalanced(stops []*models.Participant, i, j int) {
-	for i < j {
-		stops[i], stops[j] = stops[j], stops[i]
-		i++
-		j--
-	}
-}
+// Note: Helper functions (insertAt, removeAt, removeParticipant, reverse)
+// are defined in distance_minimizer.go and shared across routing implementations
