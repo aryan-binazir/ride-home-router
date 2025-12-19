@@ -72,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Ride-Home-Router-macOS-arm64
-          path: build/bin/ride-home-router.app
+          path: Ride-Home-Router-macOS-arm64.dmg
 
   build-windows:
     needs: test
