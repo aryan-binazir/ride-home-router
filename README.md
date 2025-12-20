@@ -74,6 +74,22 @@ Download the latest release for your platform from the [Releases](../../releases
 | Windows | `Ride-Home-Router-Windows-amd64.exe` |
 | Linux | `Ride-Home-Router-Linux-amd64` |
 
+#### macOS Installation
+
+1. **Double-click** the downloaded `.dmg` file to mount it
+2. **Drag** the `Ride Home Router.app` to your **Applications** folder
+3. **Remove the quarantine attribute** by running the following command in Terminal:
+
+```bash
+xattr -d com.apple.quarantine /Applications/ride-home-router.app
+```
+
+**Why is this necessary?** macOS places a quarantine flag on applications downloaded from the internet. Since this app is not signed with an Apple Developer certificate, macOS Gatekeeper will block it from running. The command above removes this quarantine attribute, allowing the app to launch.
+
+**⚠️ Important:** Before running this command, you should:
+- **Understand the risk**: Removing the quarantine attribute bypasses macOS security checks. Only do this for software you trust and have downloaded from a verified source.
+- **Read the licenses**: Review the [MIT License](LICENSE) and understand that this software is provided "as is" without warranty. See the [Disclaimer](#disclaimer) section for full details.
+
 ### Build from Source
 
 Requires [Go 1.25+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/gettingstarted/installation).
