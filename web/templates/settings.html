@@ -6,67 +6,6 @@
     </div>
 </div>
 
-<!-- Activity Locations Management -->
-<div class="card">
-    <h3>Activity Locations</h3>
-    <p class="text-muted">Manage locations where activities take place (e.g., Soccer Practice, School).</p>
-
-    <!-- Add New Location Form -->
-    <form hx-post="/api/v1/activity-locations"
-          hx-target="#location-list"
-          hx-swap="beforeend"
-          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') this.reset()"
-          class="mb-4">
-        <div class="form-row">
-            <div class="form-group">
-                <label class="form-label">Location Name</label>
-                <input type="text"
-                       name="name"
-                       class="form-input"
-                       placeholder="e.g., Soccer Practice"
-                       required>
-            </div>
-            <div class="form-group form-group-wide">
-                <label class="form-label">Address</label>
-                {{template "address_input" ""}}
-            </div>
-            <div class="form-group form-group-actions">
-                <button type="submit" class="btn btn-primary">Add Location</button>
-            </div>
-        </div>
-    </form>
-
-    <!-- Existing Locations List -->
-    <div id="location-list">
-        {{if .ActivityLocations}}
-        {{range .ActivityLocations}}
-        <div class="list-card" id="activity-location-{{.ID}}">
-            <div class="d-flex justify-between align-center gap-2">
-                <div>
-                    <div class="d-flex align-center gap-2">
-                        <strong>{{.Name}}</strong>
-                    </div>
-                    <p class="text-muted mb-0">{{.Address}}</p>
-                    <p class="text-muted mb-0" style="font-size: 0.75rem;">
-                        Coordinates: {{printf "%.6f" .Lat}}, {{printf "%.6f" .Lng}}
-                    </p>
-                </div>
-                <button hx-delete="/api/v1/activity-locations/{{.ID}}"
-                        hx-confirm="Are you sure you want to delete this location?"
-                        hx-target="#activity-location-{{.ID}}"
-                        hx-swap="outerHTML swap:1s"
-                        class="btn btn-danger btn-sm">
-                    Delete
-                </button>
-            </div>
-        </div>
-        {{end}}
-        {{else}}
-        <p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
-        {{end}}
-    </div>
-</div>
-
 <!-- Organization Vehicles Management -->
 <div class="card">
     <h3>Organization Vehicles</h3>
@@ -126,6 +65,67 @@
         {{end}}
         {{else}}
         <p class="text-muted" id="no-vehicles-message">No organization vehicles yet. Add one above.</p>
+        {{end}}
+    </div>
+</div>
+
+<!-- Activity Locations Management -->
+<div class="card">
+    <h3>Activity Locations</h3>
+    <p class="text-muted">Manage locations where activities take place (e.g., Soccer Practice, School).</p>
+
+    <!-- Add New Location Form -->
+    <form hx-post="/api/v1/activity-locations"
+          hx-target="#location-list"
+          hx-swap="beforeend"
+          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') this.reset()"
+          class="mb-4">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Location Name</label>
+                <input type="text"
+                       name="name"
+                       class="form-input"
+                       placeholder="e.g., Soccer Practice"
+                       required>
+            </div>
+            <div class="form-group form-group-wide">
+                <label class="form-label">Address</label>
+                {{template "address_input" ""}}
+            </div>
+            <div class="form-group form-group-actions">
+                <button type="submit" class="btn btn-primary">Add Location</button>
+            </div>
+        </div>
+    </form>
+
+    <!-- Existing Locations List -->
+    <div id="location-list">
+        {{if .ActivityLocations}}
+        {{range .ActivityLocations}}
+        <div class="list-card" id="activity-location-{{.ID}}">
+            <div class="d-flex justify-between align-center gap-2">
+                <div>
+                    <div class="d-flex align-center gap-2">
+                        <strong>{{.Name}}</strong>
+                    </div>
+                    <p class="text-muted mb-0">{{.Address}}</p>
+                    <p class="text-muted mb-0" style="font-size: 0.75rem;">
+                        Coordinates: {{printf "%.6f" .Lat}}, {{printf "%.6f" .Lng}}
+                    </p>
+                </div>
+                <button hx-delete="/api/v1/activity-locations/{{.ID}}"
+                        hx-confirm="Are you sure you want to delete this location?"
+                        hx-target="#activity-location-{{.ID}}"
+                        hx-swap="outerHTML swap:1s"
+                        class="btn btn-danger btn-sm">
+                    Delete
+                </button>
+            </div>
+        </div>
+        {{end}}
+        {{else}}
+        <p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
         {{end}}
     </div>
 </div>
