@@ -19,6 +19,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/routing"
+	"ride-home-router/internal/sqlite"
 	"ride-home-router/web"
 )
 
@@ -32,26 +33,33 @@ const (
 type Server struct {
 	httpServer *http.Server
 	handler    *handlers.Handler
-	db         *database.JSONStore
+	db         database.DataStore
 	listener   net.Listener
 	addr       string
+	dbPath     string
 }
 
 // Config holds server configuration
 type Config struct {
-	Addr string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
+	Addr   string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
+	DBPath string // Optional: path to SQLite database, uses config file or default if empty
 }
 
 // New creates and initializes a new server (does not start it)
 func New(cfg Config) (*Server, error) {
-	log.Printf("Initializing distance cache...")
-	distanceCache, err := database.NewFileDistanceCache()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize distance cache: %w", err)
+	// Determine database path
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		// Load from config file or use default
+		appConfig, err := database.LoadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load config: %w", err)
+		}
+		dbPath = appConfig.DatabasePath
 	}
 
-	log.Printf("Initializing data store...")
-	db, err := database.NewJSONStore(distanceCache)
+	log.Printf("Initializing SQLite data store at: %s", dbPath)
+	db, err := sqlite.New(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data store: %w", err)
 	}
@@ -91,8 +99,15 @@ func New(cfg Config) (*Server, error) {
 		httpServer: httpServer,
 		handler:    handler,
 		db:         db,
+		listener:   nil,
 		addr:       cfg.Addr,
+		dbPath:     dbPath,
 	}, nil
+}
+
+// GetDBPath returns the current database path
+func (s *Server) GetDBPath() string {
+	return s.dbPath
 }
 
 // Start starts the server and returns the actual address (useful for random port)
@@ -257,6 +272,17 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			handler.HandleGetSettings(w, r)
 		case http.MethodPut:
 			handler.HandleUpdateSettings(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/v1/config/database", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetDatabaseConfig(w, r)
+		case http.MethodPut:
+			handler.HandleUpdateDatabaseConfig(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

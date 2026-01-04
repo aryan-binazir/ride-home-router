@@ -6,8 +6,11 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -111,4 +114,128 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, settings)
+}
+
+// HandleGetDatabaseConfig handles GET /api/v1/config/database
+func (h *Handler) HandleGetDatabaseConfig(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HTTP] GET /api/v1/config/database")
+
+	config, err := database.LoadConfig()
+	if err != nil {
+		log.Printf("[ERROR] Failed to load config: err=%v", err)
+		h.handleInternalError(w, err)
+		return
+	}
+
+	defaultPath, _ := database.GetDefaultDBPath()
+
+	response := struct {
+		DatabasePath string `json:"database_path"`
+		DefaultPath  string `json:"default_path"`
+		IsDefault    bool   `json:"is_default"`
+	}{
+		DatabasePath: config.DatabasePath,
+		DefaultPath:  defaultPath,
+		IsDefault:    config.DatabasePath == defaultPath,
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// HandleUpdateDatabaseConfig handles PUT /api/v1/config/database
+func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DatabasePath string `json:"database_path"`
+	}
+
+	if h.isHTMX(r) {
+		if err := r.ParseForm(); err != nil {
+			log.Printf("[ERROR] Failed to parse form: err=%v", err)
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		req.DatabasePath = r.FormValue("database_path")
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/config/database: invalid_body err=%v", err)
+			h.handleValidationError(w, "Invalid request body")
+			return
+		}
+	}
+
+	// If empty, use default
+	if req.DatabasePath == "" {
+		defaultPath, err := database.GetDefaultDBPath()
+		if err != nil {
+			log.Printf("[ERROR] Failed to get default DB path: err=%v", err)
+			h.handleInternalError(w, err)
+			return
+		}
+		req.DatabasePath = defaultPath
+	}
+
+	// Expand home directory if needed
+	if len(req.DatabasePath) > 0 && req.DatabasePath[0] == '~' {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			log.Printf("[ERROR] Failed to get home directory: err=%v", err)
+			h.handleInternalError(w, err)
+			return
+		}
+		req.DatabasePath = filepath.Join(homeDir, req.DatabasePath[1:])
+	}
+
+	// Validate the path is absolute
+	if !filepath.IsAbs(req.DatabasePath) {
+		if h.isHTMX(r) {
+			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Database path must be absolute", "type": "error"}}`)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		h.handleValidationError(w, "Database path must be absolute")
+		return
+	}
+
+	// Ensure the directory exists
+	dir := filepath.Dir(req.DatabasePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		log.Printf("[ERROR] Failed to create database directory: err=%v", err)
+		if h.isHTMX(r) {
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to create directory: %s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		h.handleValidationError(w, fmt.Sprintf("Failed to create directory: %v", err))
+		return
+	}
+
+	// Save config
+	config := &database.AppConfig{
+		DatabasePath: req.DatabasePath,
+	}
+
+	if err := database.SaveConfig(config); err != nil {
+		log.Printf("[ERROR] Failed to save config: err=%v", err)
+		if h.isHTMX(r) {
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Updated database config: path=%s", req.DatabasePath)
+
+	if h.isHTMX(r) {
+		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Database path updated. Restart the application to apply changes.", "type": "success"}}`)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"database_path": req.DatabasePath,
+		"message":       "Database path updated. Restart the application to apply changes.",
+	})
 }

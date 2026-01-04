@@ -220,4 +220,44 @@
         </div>
     </form>
 </div>
+
+<!-- Database Storage Location -->
+<div class="card">
+    <h3>Database Storage</h3>
+    <p class="text-muted">Configure where your data is stored. You can point this to a cloud-synced folder (like Dropbox or iCloud) for automatic backups.</p>
+
+    <form id="db-config-form"
+          hx-put="/api/v1/config/database"
+          hx-swap="none"
+          hx-indicator="#db-config-loading">
+        <div class="form-group">
+            <label class="form-label">Database File Path</label>
+            <input type="text"
+                   name="database_path"
+                   id="database-path-input"
+                   class="form-input"
+                   placeholder="{{.DatabaseConfig.DefaultPath}}"
+                   value="{{.DatabaseConfig.DatabasePath}}"
+                   hx-get="/api/v1/config/database"
+                   hx-trigger="load"
+                   hx-swap="none"
+                   hx-on::after-request="if(event.detail.successful) { const data = JSON.parse(event.detail.xhr.responseText); document.getElementById('database-path-input').value = data.database_path; document.getElementById('db-default-path').textContent = data.default_path; }">
+            <div class="form-help">
+                Default: <code id="db-default-path">{{.DatabaseConfig.DefaultPath}}</code>
+                <br>
+                <small>Changes require an application restart to take effect.</small>
+            </div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">
+                Save Database Path
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('database-path-input').value = document.getElementById('db-default-path').textContent;">
+                Reset to Default
+            </button>
+            <span class="loading htmx-indicator" id="db-config-loading"></span>
+        </div>
+    </form>
+</div>
 {{end}}
