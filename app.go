@@ -63,3 +63,17 @@ func (a *App) shutdown(ctx context.Context) {
 		}
 	}
 }
+
+// SelectDatabasePath opens a native file dialog for selecting the database path
+func (a *App) SelectDatabasePath() (string, error) {
+	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Select Database Location",
+		DefaultFilename: "data.db",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "SQLite Database (*.db)",
+				Pattern:     "*.db",
+			},
+		},
+	})
+}

@@ -232,16 +232,21 @@
           hx-indicator="#db-config-loading">
         <div class="form-group">
             <label class="form-label">Database File Path</label>
-            <input type="text"
-                   name="database_path"
-                   id="database-path-input"
-                   class="form-input"
-                   placeholder="{{.DatabaseConfig.DefaultPath}}"
-                   value="{{.DatabaseConfig.DatabasePath}}"
-                   hx-get="/api/v1/config/database"
-                   hx-trigger="load"
-                   hx-swap="none"
-                   hx-on::after-request="if(event.detail.successful) { const data = JSON.parse(event.detail.xhr.responseText); document.getElementById('database-path-input').value = data.database_path; document.getElementById('db-default-path').textContent = data.default_path; }">
+            <div class="d-flex gap-2">
+                <input type="text"
+                       name="database_path"
+                       id="database-path-input"
+                       class="form-input"
+                       placeholder="{{.DatabaseConfig.DefaultPath}}"
+                       value="{{.DatabaseConfig.DatabasePath}}"
+                       hx-get="/api/v1/config/database"
+                       hx-trigger="load"
+                       hx-swap="none"
+                       hx-on::after-request="if(event.detail.successful) { const data = JSON.parse(event.detail.xhr.responseText); document.getElementById('database-path-input').value = data.database_path; document.getElementById('db-default-path').textContent = data.default_path; }">
+                <button type="button" class="btn btn-secondary" onclick="selectDatabasePath()">
+                    Browse...
+                </button>
+            </div>
             <div class="form-help">
                 Default: <code id="db-default-path">{{.DatabaseConfig.DefaultPath}}</code>
                 <br>
@@ -260,4 +265,23 @@
         </div>
     </form>
 </div>
+
+<script>
+async function selectDatabasePath() {
+    // Check if Wails runtime is available (desktop app only)
+    if (typeof window.go === 'undefined' || typeof window.go.main === 'undefined') {
+        alert('File picker is only available in the desktop app.');
+        return;
+    }
+
+    try {
+        const path = await window.go.main.App.SelectDatabasePath();
+        if (path) {
+            document.getElementById('database-path-input').value = path;
+        }
+    } catch (err) {
+        console.error('Failed to open file picker:', err);
+    }
+}
+</script>
 {{end}}
