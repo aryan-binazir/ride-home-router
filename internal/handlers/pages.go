@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -93,6 +94,14 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Load database config
+	dbConfig, err := database.LoadConfig()
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	defaultDBPath, _ := database.GetDefaultDBPath()
+
 	data := map[string]interface{}{
 		"Title":             "Settings",
 		"ActivePage":        "settings",
@@ -100,6 +109,11 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		"ActivityLocations": activityLocations,
 		"OrgVehicles":       orgVehicles,
 		"SelectedLocation":  selectedLocation,
+		"DatabaseConfig": map[string]interface{}{
+			"DatabasePath": dbConfig.DatabasePath,
+			"DefaultPath":  defaultDBPath,
+			"IsDefault":    dbConfig.DatabasePath == defaultDBPath,
+		},
 	}
 
 	h.renderTemplate(w, "settings.html", data)

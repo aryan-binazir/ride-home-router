@@ -2,7 +2,10 @@ module ride-home-router
 
 go 1.25
 
-require github.com/wailsapp/wails/v2 v2.11.0
+require (
+	github.com/wailsapp/wails/v2 v2.11.0
+	modernc.org/sqlite v1.42.2
+)
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect
