@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 
 	_ "modernc.org/sqlite"
 )
