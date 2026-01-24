@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -85,8 +86,7 @@ func (r *activityLocationRepository) Delete(ctx context.Context, id int64) error
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 
-	query := `DELETE FROM activity_locations WHERE id = ?`
-	result, err := r.store.db.ExecContext(ctx, query, id)
+	result, err := r.store.db.ExecContext(ctx, `DELETE FROM activity_locations WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete activity location: %w", err)
 	}
@@ -96,7 +96,7 @@ func (r *activityLocationRepository) Delete(ctx context.Context, id int64) error
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("activity location not found")
+		return database.ErrNotFound
 	}
 
 	return nil

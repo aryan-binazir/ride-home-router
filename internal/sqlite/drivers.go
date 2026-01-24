@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -86,7 +87,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 	defer r.store.mu.RUnlock()
 
 	placeholders := make([]string, len(ids))
-	args := make([]interface{}, len(ids))
+	args := make([]any, len(ids))
 	for i, id := range ids {
 		placeholders[i] = "?"
 		args[i] = id
@@ -165,7 +166,7 @@ func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*model
 		return nil, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return nil, fmt.Errorf("driver not found")
+		return nil, database.ErrNotFound
 	}
 
 	return d, nil
@@ -175,8 +176,7 @@ func (r *driverRepository) Delete(ctx context.Context, id int64) error {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 
-	query := `DELETE FROM drivers WHERE id = ?`
-	result, err := r.store.db.ExecContext(ctx, query, id)
+	result, err := r.store.db.ExecContext(ctx, `DELETE FROM drivers WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete driver: %w", err)
 	}
@@ -186,7 +186,7 @@ func (r *driverRepository) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("driver not found")
+		return database.ErrNotFound
 	}
 
 	return nil

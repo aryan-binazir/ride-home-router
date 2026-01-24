@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -75,7 +76,7 @@ func (r *organizationVehicleRepository) GetByIDs(ctx context.Context, ids []int6
 	defer r.store.mu.RUnlock()
 
 	placeholders := make([]string, len(ids))
-	args := make([]interface{}, len(ids))
+	args := make([]any, len(ids))
 	for i, id := range ids {
 		placeholders[i] = "?"
 		args[i] = id
@@ -150,7 +151,7 @@ func (r *organizationVehicleRepository) Update(ctx context.Context, v *models.Or
 		return nil, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return nil, fmt.Errorf("organization vehicle not found")
+		return nil, database.ErrNotFound
 	}
 
 	return v, nil
@@ -160,8 +161,7 @@ func (r *organizationVehicleRepository) Delete(ctx context.Context, id int64) er
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 
-	query := `DELETE FROM organization_vehicles WHERE id = ?`
-	result, err := r.store.db.ExecContext(ctx, query, id)
+	result, err := r.store.db.ExecContext(ctx, `DELETE FROM organization_vehicles WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete organization vehicle: %w", err)
 	}
@@ -171,7 +171,7 @@ func (r *organizationVehicleRepository) Delete(ctx context.Context, id int64) er
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("organization vehicle not found")
+		return database.ErrNotFound
 	}
 
 	return nil

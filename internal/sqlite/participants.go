@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -87,7 +88,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []int64) ([]mo
 
 	// Build placeholders
 	placeholders := make([]string, len(ids))
-	args := make([]interface{}, len(ids))
+	args := make([]any, len(ids))
 	for i, id := range ids {
 		placeholders[i] = "?"
 		args[i] = id
@@ -166,7 +167,7 @@ func (r *participantRepository) Update(ctx context.Context, p *models.Participan
 		return nil, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return nil, fmt.Errorf("participant not found")
+		return nil, database.ErrNotFound
 	}
 
 	return p, nil
@@ -176,8 +177,7 @@ func (r *participantRepository) Delete(ctx context.Context, id int64) error {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 
-	query := `DELETE FROM participants WHERE id = ?`
-	result, err := r.store.db.ExecContext(ctx, query, id)
+	result, err := r.store.db.ExecContext(ctx, `DELETE FROM participants WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete participant: %w", err)
 	}
@@ -187,7 +187,7 @@ func (r *participantRepository) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("participant not found")
+		return database.ErrNotFound
 	}
 
 	return nil

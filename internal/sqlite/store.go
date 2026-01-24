@@ -94,15 +94,10 @@ func (s *Store) GetDBPath() string {
 }
 
 func (s *Store) initSchema() error {
-	// Check current schema version
 	var version int
 	err := s.db.QueryRow("SELECT version FROM schema_version LIMIT 1").Scan(&version)
 	if err != nil {
-		// Table doesn't exist, create everything
-		if err := s.createSchema(); err != nil {
-			return err
-		}
-		return nil
+		return s.createSchema()
 	}
 
 	// Run migrations if needed
