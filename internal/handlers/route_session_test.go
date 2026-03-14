@@ -3,6 +3,7 @@ package handlers
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"ride-home-router/internal/models"
 )
@@ -108,6 +109,7 @@ func TestDeepCopy_NilPointerHandling(t *testing.T) {
 
 func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	store := NewRouteSessionStore()
+	t.Cleanup(store.Close)
 
 	routes := []models.CalculatedRoute{
 		{
@@ -165,6 +167,7 @@ func TestSessionStore_ConcurrentAccess(t *testing.T) {
 
 func TestSessionStore_CreateAndGet(t *testing.T) {
 	store := NewRouteSessionStore()
+	t.Cleanup(store.Close)
 
 	routes := []models.CalculatedRoute{
 		{
@@ -216,6 +219,7 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 
 func TestSessionStore_Delete(t *testing.T) {
 	store := NewRouteSessionStore()
+	t.Cleanup(store.Close)
 
 	routes := []models.CalculatedRoute{}
 	drivers := []models.Driver{}
@@ -235,5 +239,48 @@ func TestSessionStore_Delete(t *testing.T) {
 	// Verify session no longer exists
 	if store.Get(sessionID) != nil {
 		t.Error("session should not exist after delete")
+	}
+}
+
+func TestSessionStore_GetExpiresIdleSession(t *testing.T) {
+	store := newRouteSessionStore(50*time.Millisecond, time.Hour)
+	t.Cleanup(store.Close)
+
+	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "dropoff")
+	session.LastAccessedAt = time.Now().Add(-time.Second)
+
+	if got := store.Get(session.ID); got != nil {
+		t.Fatal("expected expired session to be removed on get")
+	}
+}
+
+func TestSessionStore_GetTouchesSession(t *testing.T) {
+	store := newRouteSessionStore(50*time.Millisecond, time.Hour)
+	t.Cleanup(store.Close)
+
+	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "pickup")
+
+	time.Sleep(30 * time.Millisecond)
+	if got := store.Get(session.ID); got == nil {
+		t.Fatal("expected session to still exist after first access")
+	}
+
+	time.Sleep(30 * time.Millisecond)
+	if got := store.Get(session.ID); got == nil {
+		t.Fatal("expected session access to extend TTL")
+	}
+}
+
+func TestSessionStore_DeleteExpiredRemovesStaleSessions(t *testing.T) {
+	store := newRouteSessionStore(time.Hour, time.Hour)
+	t.Cleanup(store.Close)
+
+	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "dropoff")
+	session.LastAccessedAt = time.Now().Add(-2 * time.Hour)
+
+	store.deleteExpired(time.Now())
+
+	if got := store.Get(session.ID); got != nil {
+		t.Fatal("expected stale session to be removed during cleanup")
 	}
 }

@@ -132,6 +132,9 @@ func (s *Server) Start() (string, error) {
 
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.handler != nil && s.handler.RouteSession != nil {
+		s.handler.RouteSession.Close()
+	}
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return err
 	}

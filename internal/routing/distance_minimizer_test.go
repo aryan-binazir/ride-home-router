@@ -111,6 +111,46 @@ func TestCalculateRoutes_SingleParticipantSingleDriver(t *testing.T) {
 	}
 }
 
+func TestCalculateRoutes_SingleParticipantSingleDriverPickup(t *testing.T) {
+	mock := newMockDistanceAdapter()
+	router := NewDistanceMinimizer(mock)
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "Alice", Lat: 0.01, Lng: 0.01},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver1", Lat: 0.02, Lng: 0.02, VehicleCapacity: 4},
+		},
+		Mode: RouteModePickup,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Mode != "pickup" {
+		t.Fatalf("expected pickup result mode, got %q", result.Mode)
+	}
+	if len(result.Routes) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(result.Routes))
+	}
+
+	route := result.Routes[0]
+	if route.Mode != "pickup" {
+		t.Fatalf("expected pickup route mode, got %q", route.Mode)
+	}
+	if route.DistanceToDriverHomeMeters <= 0 {
+		t.Fatalf("expected positive pickup terminal leg, got %.0f", route.DistanceToDriverHomeMeters)
+	}
+	if route.TotalDistanceMeters != route.TotalDropoffDistanceMeters+route.DistanceToDriverHomeMeters {
+		t.Fatalf("total distance %.0f does not match stop %.0f plus terminal leg %.0f", route.TotalDistanceMeters, route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters)
+	}
+	if result.Summary.TotalDistanceMeters != route.TotalDistanceMeters {
+		t.Fatalf("summary total distance %.0f does not match route total %.0f", result.Summary.TotalDistanceMeters, route.TotalDistanceMeters)
+	}
+}
+
 func TestCalculateRoutes_MultipleParticipantsOptimalAssignment(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	router := NewDistanceMinimizer(mock)
@@ -260,9 +300,7 @@ func TestCalculateRoutes_InterRouteMovesParticipant(t *testing.T) {
 
 func TestInsertionCost_VariousPositions(t *testing.T) {
 	mock := newMockDistanceAdapter()
-	dm := &distanceMinimizer{distanceCalc: mock}
-
-	institute := models.Coordinates{Lat: 0, Lng: 0}
+	rc := newRouteContext(mock, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
 	driver := &models.Driver{ID: 1, Name: "D1", Lat: 1, Lng: 1, VehicleCapacity: 4}
 
 	p1 := &models.Participant{ID: 1, Name: "P1", Lat: 0.2, Lng: 0}
@@ -283,13 +321,9 @@ func TestInsertionCost_VariousPositions(t *testing.T) {
 		{"insert_at_end", 2},
 	}
 
-	// Set the institute coords and mode for this test
-	dm.instituteCoords = institute
-	dm.mode = RouteModeDropoff
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cost, err := dm.insertionCost(context.Background(), route, pNew, tt.pos)
+			cost, err := rc.insertionDeltaDistance(context.Background(), route.driver, route.stops, pNew, tt.pos)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -300,11 +334,12 @@ func TestInsertionCost_VariousPositions(t *testing.T) {
 	}
 }
 
-func TestTotalDropoffDistance_Accumulation(t *testing.T) {
+func TestTotalDropoffDistanceObjective_Accumulation(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	dm := &distanceMinimizer{distanceCalc: mock}
 
 	institute := models.Coordinates{Lat: 0, Lng: 0}
+	rc := newRouteContext(mock, institute, RouteModeDropoff)
 
 	// Create routes with known positions
 	routes := map[int64]*dmRoute{
@@ -323,16 +358,12 @@ func TestTotalDropoffDistance_Accumulation(t *testing.T) {
 		},
 	}
 
-	// Set the institute coords and mode for this test
-	dm.instituteCoords = institute
-	dm.mode = RouteModeDropoff
-
-	total, err := dm.totalDropoffDistance(context.Background(), routes)
+	total, err := dm.totalRouteDistance(context.Background(), rc, routes)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Total should be sum of all segment distances
+	// Dropoff optimization preserves the legacy stop-chain objective:
 	// Route 1: institute->P1 (0.1°) + P1->P2 (0.1°) = 0.2° * scale
 	// Route 2: institute->P3 (0.1°) = 0.1° * scale
 	// Total = 0.3° * 111000 m/° ≈ 33300m

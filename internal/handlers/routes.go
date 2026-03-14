@@ -181,16 +181,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
-		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":           result.Routes,
-			"Summary":          result.Summary,
-			"UseMiles":         settings.UseMiles,
-			"ActivityLocation": activityLocation,
-			"SessionID":        session.ID,
-			"IsEditing":        false,
-			"UnusedDrivers":    getUnusedDrivers(session),
-			"Mode":             mode,
-		})
+		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))
 		return
 	}
 
@@ -375,15 +366,5 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles, mode)
 
 	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
-	h.renderTemplate(w, "route_results", map[string]interface{}{
-		"Routes":           result.Routes,
-		"Summary":          result.Summary,
-		"UseMiles":         settings.UseMiles,
-		"ActivityLocation": activityLocation,
-		"SessionID":        session.ID,
-		"IsEditing":        false,
-		"UnusedDrivers":    getUnusedDrivers(session),
-		"Mode":             mode,
-	})
+	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))
 }
-

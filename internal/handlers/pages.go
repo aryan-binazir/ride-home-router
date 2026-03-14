@@ -121,43 +121,23 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleHistoryPage handles GET /history
 func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
-	events, total, err := h.DB.Events().List(r.Context(), 20, 0)
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-
-	// Build events with summaries for the template
-	eventsWithSummary := make([]EventWithSummary, len(events))
-	for i, event := range events {
-		_, _, summary, err := h.DB.Events().GetByID(r.Context(), event.ID)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-
-		eventsWithSummary[i] = EventWithSummary{
-			ID:        event.ID,
-			EventDate: event.EventDate,
-			Notes:     event.Notes,
-			CreatedAt: event.CreatedAt,
-			Summary:   summary,
-		}
-	}
-
-	// Get settings for UseMiles preference
-	settings, err := h.DB.Settings().Get(r.Context())
+	view, err := h.buildEventListView(r.Context(), 20, 0)
 	if err != nil {
 		h.renderError(w, r, err)
 		return
 	}
 
 	data := map[string]interface{}{
-		"Title":      "Event History",
-		"ActivePage": "history",
-		"Events":     eventsWithSummary,
-		"Total":      total,
-		"UseMiles":   settings.UseMiles,
+		"Title":          "Event History",
+		"ActivePage":     "history",
+		"Events":         view.Events,
+		"Total":          view.Total,
+		"UseMiles":       view.UseMiles,
+		"Limit":          view.Limit,
+		"Offset":         view.Offset,
+		"DisplayedCount": view.DisplayedCount,
+		"NextOffset":     view.NextOffset,
+		"PageSize":       view.PageSize,
 	}
 
 	h.renderTemplate(w, "history.html", data)

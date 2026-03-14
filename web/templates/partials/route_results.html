@@ -31,6 +31,7 @@
     <div class="route-card {{if .OrgVehicleID}}org-vehicle{{end}}"
          data-activity-location-address="{{$activityLocation.Address}}"
          data-driver-name="{{.Driver.Name}}"
+         data-driver-address="{{.Driver.Address}}"
          data-route-index="{{$routeIndex}}"
          data-driver-id="{{.Driver.ID}}">
         <div class="route-header">
@@ -222,7 +223,8 @@
         <form hx-post="/api/v1/events"
               hx-target="#save-result"
               hx-indicator="#save-loading">
-            <input type="hidden" name="routes_json" value="{{toJSON .}}">
+            <input type="hidden" name="routes_json" value="{{toJSON .RoutingPayload}}">
+            <input type="hidden" name="session_id" value="{{.SessionID}}">
 
             <div class="form-group">
                 <label class="form-label">Event Date</label>

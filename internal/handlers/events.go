@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,7 +13,7 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// EventListResponse represents the list response
+// EventListResponse represents the list response.
 type EventListResponse struct {
 	Events []EventWithSummary `json:"events"`
 	Total  int                `json:"total"`
@@ -20,7 +21,7 @@ type EventListResponse struct {
 	Offset int                `json:"offset"`
 }
 
-// EventWithSummary combines event and summary for list view
+// EventWithSummary combines event and summary for list view.
 type EventWithSummary struct {
 	ID        int64                `json:"id"`
 	EventDate time.Time            `json:"event_date"`
@@ -29,24 +30,39 @@ type EventWithSummary struct {
 	Summary   *models.EventSummary `json:"summary,omitempty"`
 }
 
-// CreateEventRequest represents the request to create an event
+// EventListViewData backs the history partial and page.
+type EventListViewData struct {
+	Events         []EventWithSummary `json:"events"`
+	Total          int                `json:"total"`
+	Limit          int                `json:"limit"`
+	Offset         int                `json:"offset"`
+	DisplayedCount int                `json:"displayed_count"`
+	NextOffset     int                `json:"next_offset"`
+	PageSize       int                `json:"page_size"`
+	UseMiles       bool               `json:"use_miles"`
+}
+
+const defaultEventListPageSize = 20
+
+// CreateEventRequest represents the request to create an event.
 type CreateEventRequest struct {
 	EventDate string                `json:"event_date"`
 	Notes     string                `json:"notes"`
 	Routes    *models.RoutingResult `json:"routes"`
+	SessionID string                `json:"session_id"`
 }
 
-// EventDetailResponse represents the detailed event response
+// EventDetailResponse represents the detailed event response.
 type EventDetailResponse struct {
-	ID          int64                     `json:"id"`
-	EventDate   time.Time                 `json:"event_date"`
-	Notes       string                    `json:"notes"`
-	CreatedAt   time.Time                 `json:"created_at"`
+	ID          int64                       `json:"id"`
+	EventDate   time.Time                   `json:"event_date"`
+	Notes       string                      `json:"notes"`
+	CreatedAt   time.Time                   `json:"created_at"`
 	Assignments []AssignmentGroupedByDriver `json:"assignments"`
-	Summary     *models.EventSummary      `json:"summary"`
+	Summary     *models.EventSummary        `json:"summary"`
 }
 
-// AssignmentGroupedByDriver groups stops by driver
+// AssignmentGroupedByDriver groups stops by driver for legacy-compatible responses.
 type AssignmentGroupedByDriver struct {
 	DriverName     string           `json:"driver_name"`
 	DriverAddress  string           `json:"driver_address"`
@@ -55,17 +71,26 @@ type AssignmentGroupedByDriver struct {
 	Stops          []AssignmentStop `json:"stops"`
 }
 
-// AssignmentStop represents a single stop in an assignment
+// AssignmentStop represents a single saved stop in legacy-compatible responses.
 type AssignmentStop struct {
-	RouteOrder           int     `json:"route_order"`
-	ParticipantName      string  `json:"participant_name"`
-	ParticipantAddress   string  `json:"participant_address"`
+	RouteOrder             int     `json:"route_order"`
+	ParticipantName        string  `json:"participant_name"`
+	ParticipantAddress     string  `json:"participant_address"`
 	DistanceFromPrevMeters float64 `json:"distance_from_prev_meters"`
 }
 
-// HandleListEvents handles GET /api/v1/events
+// EventDetailViewData backs the history detail partial.
+type EventDetailViewData struct {
+	Routes               []models.EventRoute         `json:"routes"`
+	Assignments          []AssignmentGroupedByDriver `json:"assignments"`
+	Summary              *models.EventSummary        `json:"summary"`
+	UseMiles             bool                        `json:"use_miles"`
+	UseLegacyAssignments bool                        `json:"use_legacy_assignments"`
+}
+
+// HandleListEvents handles GET /api/v1/events.
 func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
-	limit := 20
+	limit := defaultEventListPageSize
 	offset := 0
 
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
@@ -81,39 +106,32 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] GET /api/v1/events: limit=%d offset=%d", limit, offset)
-	events, total, err := h.DB.Events().List(r.Context(), limit, offset)
+
+	view, err := h.buildEventListView(r.Context(), limit, offset)
 	if err != nil {
-		log.Printf("[ERROR] Failed to list events: limit=%d offset=%d err=%v", limit, offset, err)
+		log.Printf("[ERROR] Failed to build event list view: limit=%d offset=%d err=%v", limit, offset, err)
 		h.handleInternalError(w, err)
 		return
 	}
 
-	eventsWithSummary := make([]EventWithSummary, len(events))
-	for i, event := range events {
-		_, _, summary, err := h.DB.Events().GetByID(r.Context(), event.ID)
-		if err != nil {
-			h.handleInternalError(w, err)
+	if h.isHTMX(r) {
+		if offset > 0 {
+			h.renderTemplate(w, "event_list_page", view)
 			return
 		}
-
-		eventsWithSummary[i] = EventWithSummary{
-			ID:        event.ID,
-			EventDate: event.EventDate,
-			Notes:     event.Notes,
-			CreatedAt: event.CreatedAt,
-			Summary:   summary,
-		}
+		h.renderTemplate(w, "event_list", view)
+		return
 	}
 
 	h.writeJSON(w, http.StatusOK, EventListResponse{
-		Events: eventsWithSummary,
-		Total:  total,
+		Events: view.Events,
+		Total:  view.Total,
 		Limit:  limit,
 		Offset: offset,
 	})
 }
 
-// HandleGetEvent handles GET /api/v1/events/{id}
+// HandleGetEvent handles GET /api/v1/events/{id}.
 func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -124,7 +142,7 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] GET /api/v1/events/{id}: id=%d", id)
-	event, assignments, summary, err := h.DB.Events().GetByID(r.Context(), id)
+	event, routes, summary, err := h.DB.Events().GetByID(r.Context(), id)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
@@ -137,42 +155,39 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return HTML for htmx, JSON for API calls
+	assignments := groupRoutesByDriver(routes)
+
 	if h.isHTMX(r) {
 		settings, err := h.DB.Settings().Get(r.Context())
 		if err != nil {
 			h.renderError(w, r, err)
 			return
 		}
-		h.renderTemplate(w, "event_detail", map[string]interface{}{
-			"Assignments": assignments,
-			"Summary":     summary,
-			"UseMiles":    settings.UseMiles,
+		h.renderTemplate(w, "event_detail", EventDetailViewData{
+			Routes:               routes,
+			Assignments:          assignments,
+			Summary:              summary,
+			UseMiles:             settings.UseMiles,
+			UseLegacyAssignments: routesNeedLegacyDetail(routes),
 		})
 		return
 	}
 
-	grouped := groupAssignmentsByDriver(assignments)
-
-	response := EventDetailResponse{
+	h.writeJSON(w, http.StatusOK, EventDetailResponse{
 		ID:          event.ID,
 		EventDate:   event.EventDate,
 		Notes:       event.Notes,
 		CreatedAt:   event.CreatedAt,
-		Assignments: grouped,
+		Assignments: assignments,
 		Summary:     summary,
-	}
-
-	h.writeJSON(w, http.StatusOK, response)
+	})
 }
 
-// HandleCreateEvent handles POST /api/v1/events
+// HandleCreateEvent handles POST /api/v1/events.
 func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
 
 	contentType := r.Header.Get("Content-Type")
-
-	// Handle form data (from htmx)
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: form_parse_error err=%v", err)
@@ -182,8 +197,8 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 		req.EventDate = r.FormValue("event_date")
 		req.Notes = r.FormValue("notes")
+		req.SessionID = r.FormValue("session_id")
 
-		// Parse routes_json from form
 		routesJSON := r.FormValue("routes_json")
 		if routesJSON != "" {
 			var routingResult models.RoutingResult
@@ -194,10 +209,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			}
 			req.Routes = &routingResult
 		}
-
-		log.Printf("[HTTP] POST /api/v1/events: form_data event_date=%s routes_count=%d", req.EventDate, len(req.Routes.Routes))
 	} else {
-		// Handle JSON
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
 			h.handleValidationError(w, "Invalid request body")
@@ -210,7 +222,6 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, "Event date is required")
 		return
 	}
-
 	if req.Routes == nil {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")
 		h.handleValidationError(w, "Routes are required")
@@ -224,52 +235,32 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mode, routes, summary, err := buildEventSnapshots(req.Routes)
+	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
+		h.handleValidationError(w, err.Error())
+		return
+	}
+
 	event := &models.Event{
 		EventDate: eventDate,
 		Notes:     req.Notes,
-		Mode:      req.Routes.Mode,
+		Mode:      mode,
 	}
 
-	var assignments []models.EventAssignment
-	orgVehiclesUsed := 0
-	for _, route := range req.Routes.Routes {
-		if route.OrgVehicleID > 0 {
-			orgVehiclesUsed++
-		}
-		for _, stop := range route.Stops {
-			assignments = append(assignments, models.EventAssignment{
-				DriverID:           route.Driver.ID,
-				DriverName:         route.Driver.Name,
-				DriverAddress:      route.Driver.Address,
-				RouteOrder:         stop.Order,
-				ParticipantID:      stop.Participant.ID,
-				ParticipantName:    stop.Participant.Name,
-				ParticipantAddress: stop.Participant.Address,
-				DistanceFromPrev:   stop.DistanceFromPrevMeters,
-				OrgVehicleID:       route.OrgVehicleID,
-				OrgVehicleName:     route.OrgVehicleName,
-			})
-		}
-	}
-
-	summary := &models.EventSummary{
-		TotalParticipants:   req.Routes.Summary.TotalParticipants,
-		TotalDrivers:        req.Routes.Summary.TotalDriversUsed,
-		TotalDistanceMeters: req.Routes.Summary.TotalDropoffDistanceMeters,
-		OrgVehiclesUsed:     orgVehiclesUsed,
-		Mode:                req.Routes.Mode,
-	}
-
-	event, err = h.DB.Events().Create(r.Context(), event, assignments, summary)
+	event, err = h.DB.Events().Create(r.Context(), event, routes, summary)
 	if err != nil {
-		log.Printf("[ERROR] Failed to create event: date=%s participants=%d err=%v", req.EventDate, len(assignments), err)
+		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%v", req.EventDate, len(routes), err)
 		h.handleInternalError(w, err)
 		return
 	}
 
-	log.Printf("[HTTP] Created event: id=%d date=%s assignments=%d", event.ID, event.EventDate.Format("2006-01-02"), len(assignments))
+	if req.SessionID != "" {
+		h.RouteSession.Delete(req.SessionID)
+	}
 
-	// Return HTML for htmx, JSON for API calls
+	log.Printf("[HTTP] Created event: id=%d date=%s routes=%d", event.ID, event.EventDate.Format("2006-01-02"), len(routes))
+
 	if h.isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusCreated)
@@ -280,7 +271,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, event)
 }
 
-// HandleDeleteEvent handles DELETE /api/v1/events/{id}
+// HandleDeleteEvent handles DELETE /api/v1/events/{id}.
 func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -305,41 +296,221 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Deleted event: id=%d", id)
 
-	// Return refreshed list for htmx, 204 for API
 	if h.isHTMX(r) {
-		events, total, err := h.DB.Events().List(r.Context(), 20, 0)
+		limit := defaultEventListPageSize
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+				limit = l
+			}
+		}
+
+		view, err := h.buildEventListView(r.Context(), limit, 0)
 		if err != nil {
 			h.renderError(w, r, err)
 			return
 		}
-
-		eventsWithSummary := make([]EventWithSummary, len(events))
-		for i, event := range events {
-			_, _, summary, err := h.DB.Events().GetByID(r.Context(), event.ID)
-			if err != nil {
-				h.renderError(w, r, err)
-				return
-			}
-			eventsWithSummary[i] = EventWithSummary{
-				ID:        event.ID,
-				EventDate: event.EventDate,
-				Notes:     event.Notes,
-				CreatedAt: event.CreatedAt,
-				Summary:   summary,
-			}
-		}
-
-		h.renderTemplate(w, "event_list", map[string]interface{}{
-			"Events": eventsWithSummary,
-			"Total":  total,
-		})
+		h.renderTemplate(w, "event_list", view)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandleHealthCheck handles GET /api/v1/health
+func (h *Handler) buildEventListView(ctx context.Context, limit, offset int) (*EventListViewData, error) {
+	events, total, err := h.DB.Events().List(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	eventIDs := make([]int64, len(events))
+	for i, event := range events {
+		eventIDs[i] = event.ID
+	}
+
+	summariesByEventID, err := h.DB.Events().GetSummariesByEventIDs(ctx, eventIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	eventsWithSummary := make([]EventWithSummary, len(events))
+	for i, event := range events {
+		eventsWithSummary[i] = EventWithSummary{
+			ID:        event.ID,
+			EventDate: event.EventDate,
+			Notes:     event.Notes,
+			CreatedAt: event.CreatedAt,
+			Summary:   summariesByEventID[event.ID],
+		}
+	}
+
+	settings, err := h.DB.Settings().Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	displayedCount := offset + len(events)
+
+	return &EventListViewData{
+		Events:         eventsWithSummary,
+		Total:          total,
+		Limit:          limit,
+		Offset:         offset,
+		DisplayedCount: displayedCount,
+		NextOffset:     displayedCount,
+		PageSize:       defaultEventListPageSize,
+		UseMiles:       settings.UseMiles,
+	}, nil
+}
+
+func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRoute, *models.EventSummary, error) {
+	if result == nil {
+		return "", nil, nil, fmt.Errorf("routes are required")
+	}
+
+	mode, err := normalizeRouteMode(result.Mode)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	routes := make([]models.EventRoute, 0, len(result.Routes))
+	totalParticipants := 0
+	totalDrivers := 0
+	totalDistance := 0.0
+	orgVehiclesUsed := 0
+
+	for _, route := range result.Routes {
+		if route.Driver == nil {
+			return "", nil, nil, fmt.Errorf("each route must include a driver")
+		}
+		if len(route.Stops) == 0 {
+			continue
+		}
+
+		routeMode := route.Mode
+		if routeMode == "" {
+			routeMode = mode
+		}
+		routeMode, err = normalizeRouteMode(routeMode)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if routeMode != mode {
+			return "", nil, nil, fmt.Errorf("all routes must use the same mode")
+		}
+
+		snapshot := models.EventRoute{
+			RouteOrder:                 len(routes),
+			DriverID:                   route.Driver.ID,
+			DriverName:                 route.Driver.Name,
+			DriverAddress:              route.Driver.Address,
+			EffectiveCapacity:          route.EffectiveCapacity,
+			OrgVehicleID:               route.OrgVehicleID,
+			OrgVehicleName:             route.OrgVehicleName,
+			TotalDropoffDistanceMeters: route.TotalDropoffDistanceMeters,
+			DistanceToDriverHomeMeters: route.DistanceToDriverHomeMeters,
+			TotalDistanceMeters:        route.TotalDistanceMeters,
+			BaselineDurationSecs:       route.BaselineDurationSecs,
+			RouteDurationSecs:          route.RouteDurationSecs,
+			DetourSecs:                 route.DetourSecs,
+			Mode:                       routeMode,
+			SnapshotVersion:            2,
+			MetricsComplete:            true,
+			Stops:                      make([]models.EventRouteStop, 0, len(route.Stops)),
+		}
+		if snapshot.EffectiveCapacity == 0 {
+			snapshot.EffectiveCapacity = route.Driver.VehicleCapacity
+		}
+
+		for stopIndex, stop := range route.Stops {
+			if stop.Participant == nil {
+				return "", nil, nil, fmt.Errorf("each route stop must include a participant")
+			}
+			snapshot.Stops = append(snapshot.Stops, models.EventRouteStop{
+				Order:                    stopIndex,
+				ParticipantID:            stop.Participant.ID,
+				ParticipantName:          stop.Participant.Name,
+				ParticipantAddress:       stop.Participant.Address,
+				DistanceFromPrevMeters:   stop.DistanceFromPrevMeters,
+				CumulativeDistanceMeters: stop.CumulativeDistanceMeters,
+				DurationFromPrevSecs:     stop.DurationFromPrevSecs,
+				CumulativeDurationSecs:   stop.CumulativeDurationSecs,
+			})
+			totalParticipants++
+		}
+
+		totalDrivers++
+		totalDistance += route.TotalDistanceMeters
+		if route.OrgVehicleID > 0 {
+			orgVehiclesUsed++
+		}
+		routes = append(routes, snapshot)
+	}
+
+	if len(routes) == 0 {
+		return "", nil, nil, fmt.Errorf("routes are required")
+	}
+
+	return mode, routes, &models.EventSummary{
+		TotalParticipants:   totalParticipants,
+		TotalDrivers:        totalDrivers,
+		TotalDistanceMeters: totalDistance,
+		OrgVehiclesUsed:     orgVehiclesUsed,
+		Mode:                mode,
+	}, nil
+}
+
+func normalizeRouteMode(mode string) (string, error) {
+	switch mode {
+	case "", "dropoff":
+		return "dropoff", nil
+	case "pickup":
+		return "pickup", nil
+	default:
+		return "", fmt.Errorf("invalid route mode")
+	}
+}
+
+func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver {
+	grouped := make([]AssignmentGroupedByDriver, 0, len(routes))
+
+	for _, route := range routes {
+		if len(route.Stops) == 0 {
+			continue
+		}
+
+		group := AssignmentGroupedByDriver{
+			DriverName:     route.DriverName,
+			DriverAddress:  route.DriverAddress,
+			OrgVehicleID:   route.OrgVehicleID,
+			OrgVehicleName: route.OrgVehicleName,
+			Stops:          make([]AssignmentStop, 0, len(route.Stops)),
+		}
+
+		for _, stop := range route.Stops {
+			group.Stops = append(group.Stops, AssignmentStop{
+				RouteOrder:             stop.Order,
+				ParticipantName:        stop.ParticipantName,
+				ParticipantAddress:     stop.ParticipantAddress,
+				DistanceFromPrevMeters: stop.DistanceFromPrevMeters,
+			})
+		}
+
+		grouped = append(grouped, group)
+	}
+
+	return grouped
+}
+
+func routesNeedLegacyDetail(routes []models.EventRoute) bool {
+	for _, route := range routes {
+		if !route.MetricsComplete || route.SnapshotVersion <= 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// HandleHealthCheck handles GET /api/v1/health.
 func (h *Handler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	status := "ok"
 	dbStatus := "connected"
@@ -354,36 +525,4 @@ func (h *Handler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 		"version":  "1.0.0",
 		"database": dbStatus,
 	})
-}
-
-func groupAssignmentsByDriver(assignments []models.EventAssignment) []AssignmentGroupedByDriver {
-	driverMap := make(map[int64]*AssignmentGroupedByDriver)
-	driverOrder := []int64{}
-
-	for _, a := range assignments {
-		if _, exists := driverMap[a.DriverID]; !exists {
-			driverMap[a.DriverID] = &AssignmentGroupedByDriver{
-				DriverName:     a.DriverName,
-				DriverAddress:  a.DriverAddress,
-				OrgVehicleID:   a.OrgVehicleID,
-				OrgVehicleName: a.OrgVehicleName,
-				Stops:          []AssignmentStop{},
-			}
-			driverOrder = append(driverOrder, a.DriverID)
-		}
-
-		driverMap[a.DriverID].Stops = append(driverMap[a.DriverID].Stops, AssignmentStop{
-			RouteOrder:             a.RouteOrder,
-			ParticipantName:        a.ParticipantName,
-			ParticipantAddress:     a.ParticipantAddress,
-			DistanceFromPrevMeters: a.DistanceFromPrev,
-		})
-	}
-
-	result := make([]AssignmentGroupedByDriver, len(driverOrder))
-	for i, driverID := range driverOrder {
-		result[i] = *driverMap[driverID]
-	}
-
-	return result
 }
