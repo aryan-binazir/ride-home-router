@@ -91,22 +91,6 @@ type Event struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// EventAssignment represents a snapshot of a participant assignment
-type EventAssignment struct {
-	ID                 int64   `json:"id"`
-	EventID            int64   `json:"event_id"`
-	DriverID           int64   `json:"driver_id"`
-	DriverName         string  `json:"driver_name"`
-	DriverAddress      string  `json:"driver_address"`
-	RouteOrder         int     `json:"route_order"`
-	ParticipantID      int64   `json:"participant_id"`
-	ParticipantName    string  `json:"participant_name"`
-	ParticipantAddress string  `json:"participant_address"`
-	DistanceFromPrev   float64 `json:"distance_from_prev_meters"`
-	OrgVehicleID       int64   `json:"org_vehicle_id,omitempty"`
-	OrgVehicleName     string  `json:"org_vehicle_name,omitempty"`
-}
-
 // EventRoute stores a saved route snapshot for a historical event.
 type EventRoute struct {
 	ID                         int64            `json:"id"`

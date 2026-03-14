@@ -32,14 +32,14 @@ type EventWithSummary struct {
 
 // EventListViewData backs the history partial and page.
 type EventListViewData struct {
-	Events        []EventWithSummary `json:"events"`
-	Total         int                `json:"total"`
-	Limit         int                `json:"limit"`
-	Offset        int                `json:"offset"`
-	DisplayedCount int               `json:"displayed_count"`
-	NextOffset    int                `json:"next_offset"`
-	PageSize      int                `json:"page_size"`
-	UseMiles      bool               `json:"use_miles"`
+	Events         []EventWithSummary `json:"events"`
+	Total          int                `json:"total"`
+	Limit          int                `json:"limit"`
+	Offset         int                `json:"offset"`
+	DisplayedCount int                `json:"displayed_count"`
+	NextOffset     int                `json:"next_offset"`
+	PageSize       int                `json:"page_size"`
+	UseMiles       bool               `json:"use_miles"`
 }
 
 const defaultEventListPageSize = 20

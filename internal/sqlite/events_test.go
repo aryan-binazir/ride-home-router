@@ -134,6 +134,87 @@ func TestStoreFreshSchemaCreatesV3EventTables(t *testing.T) {
 	assertTableMissing(t, store.db, "events_legacy")
 }
 
+func TestEventRepositoryGetSummariesByEventIDs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "event-list-summaries.db")
+
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	ctx := context.Background()
+	createEvent := func(eventDate string, totalDistance float64) int64 {
+		date, err := time.Parse("2006-01-02", eventDate)
+		if err != nil {
+			t.Fatalf("time.Parse() error = %v", err)
+		}
+
+		event := &models.Event{
+			EventDate: date,
+			Notes:     eventDate,
+			Mode:      "dropoff",
+		}
+		routes := []models.EventRoute{
+			{
+				RouteOrder:                 0,
+				DriverID:                   1,
+				DriverName:                 "Driver",
+				DriverAddress:              "1 Driver Way",
+				EffectiveCapacity:          4,
+				TotalDropoffDistanceMeters: totalDistance,
+				TotalDistanceMeters:        totalDistance,
+				Mode:                       "dropoff",
+				Stops: []models.EventRouteStop{
+					{
+						Order:                  0,
+						ParticipantID:          1,
+						ParticipantName:        "Passenger",
+						ParticipantAddress:     "1 Rider Road",
+						DistanceFromPrevMeters: totalDistance,
+					},
+				},
+			},
+		}
+		summary := &models.EventSummary{
+			TotalParticipants:   1,
+			TotalDrivers:        1,
+			TotalDistanceMeters: totalDistance,
+			Mode:                "dropoff",
+		}
+
+		created, err := store.Events().Create(ctx, event, routes, summary)
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		return created.ID
+	}
+
+	firstID := createEvent("2026-03-14", 1500)
+	secondID := createEvent("2026-03-15", 2300)
+
+	summaries, err := store.Events().GetSummariesByEventIDs(ctx, []int64{firstID, secondID, 999})
+	if err != nil {
+		t.Fatalf("GetSummariesByEventIDs() error = %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("GetSummariesByEventIDs() returned %d summaries, want 2", len(summaries))
+	}
+	if summaries[firstID] == nil || summaries[firstID].TotalDistanceMeters != 1500 {
+		t.Fatalf("first summary = %#v, want total distance 1500", summaries[firstID])
+	}
+	if summaries[secondID] == nil || summaries[secondID].TotalDistanceMeters != 2300 {
+		t.Fatalf("second summary = %#v, want total distance 2300", summaries[secondID])
+	}
+	if summaries[999] != nil {
+		t.Fatalf("unexpected summary for missing event: %#v", summaries[999])
+	}
+}
+
 func TestEventRepositoryPersistsFullRouteSummaryDistance(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "event-summary.db")
 

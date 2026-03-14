@@ -111,6 +111,46 @@ func TestCalculateRoutes_SingleParticipantSingleDriver(t *testing.T) {
 	}
 }
 
+func TestCalculateRoutes_SingleParticipantSingleDriverPickup(t *testing.T) {
+	mock := newMockDistanceAdapter()
+	router := NewDistanceMinimizer(mock)
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "Alice", Lat: 0.01, Lng: 0.01},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver1", Lat: 0.02, Lng: 0.02, VehicleCapacity: 4},
+		},
+		Mode: RouteModePickup,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Mode != "pickup" {
+		t.Fatalf("expected pickup result mode, got %q", result.Mode)
+	}
+	if len(result.Routes) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(result.Routes))
+	}
+
+	route := result.Routes[0]
+	if route.Mode != "pickup" {
+		t.Fatalf("expected pickup route mode, got %q", route.Mode)
+	}
+	if route.DistanceToDriverHomeMeters <= 0 {
+		t.Fatalf("expected positive pickup terminal leg, got %.0f", route.DistanceToDriverHomeMeters)
+	}
+	if route.TotalDistanceMeters != route.TotalDropoffDistanceMeters+route.DistanceToDriverHomeMeters {
+		t.Fatalf("total distance %.0f does not match stop %.0f plus terminal leg %.0f", route.TotalDistanceMeters, route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters)
+	}
+	if result.Summary.TotalDistanceMeters != route.TotalDistanceMeters {
+		t.Fatalf("summary total distance %.0f does not match route total %.0f", result.Summary.TotalDistanceMeters, route.TotalDistanceMeters)
+	}
+}
+
 func TestCalculateRoutes_MultipleParticipantsOptimalAssignment(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	router := NewDistanceMinimizer(mock)

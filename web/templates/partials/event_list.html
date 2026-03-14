@@ -1,10 +1,5 @@
-{{define "event_list"}}
+{{define "event_list_items"}}
 {{$useMiles := .UseMiles}}
-{{if .Events}}
-<div class="mb-3">
-    <p class="text-muted">Showing {{len .Events}} of {{.Total}} events</p>
-</div>
-
 {{range .Events}}
 <div class="event-item"
      onclick="toggleEventDetail(this, {{.ID}})">
@@ -12,6 +7,7 @@
         <div class="event-date">{{formatDate .EventDate}}</div>
         <button class="btn btn-sm btn-danger"
                 hx-delete="/api/v1/events/{{.ID}}"
+                hx-vals='js:{limit: document.querySelectorAll("#event-list-items .event-item").length}'
                 hx-target="#events-list"
                 hx-swap="innerHTML"
                 hx-confirm="Are you sure you want to delete this event?"
@@ -40,18 +36,48 @@
     <div id="event-detail-{{.ID}}" class="event-details"></div>
 </div>
 {{end}}
+{{end}}
 
-{{if gt .Total (len .Events)}}
+{{define "event_list_status_content"}}
+<p class="text-muted">Showing {{.DisplayedCount}} of {{.Total}} events</p>
+{{end}}
+
+{{define "event_list_pagination_content"}}
+{{if gt .Total .DisplayedCount}}
 <div class="text-center mt-3">
     <button class="btn btn-outline"
-            hx-get="/api/v1/events?limit={{add (len .Events) 20}}"
-            hx-target="#events-list"
-            hx-swap="innerHTML">
+            hx-get="/api/v1/events?offset={{.NextOffset}}&limit={{.PageSize}}"
+            hx-target="#event-list-items"
+            hx-swap="beforeend">
         Load More
     </button>
 </div>
 {{end}}
+{{end}}
 
+{{define "event_list_page"}}
+{{template "event_list_items" .}}
+<div id="event-list-status" class="mb-3" hx-swap-oob="outerHTML">
+    {{template "event_list_status_content" .}}
+</div>
+<div id="event-list-pagination" hx-swap-oob="outerHTML">
+    {{template "event_list_pagination_content" .}}
+</div>
+{{end}}
+
+{{define "event_list"}}
+{{if .Events}}
+<div id="event-list-status" class="mb-3">
+    {{template "event_list_status_content" .}}
+</div>
+
+<div id="event-list-items">
+    {{template "event_list_items" .}}
+</div>
+
+<div id="event-list-pagination">
+    {{template "event_list_pagination_content" .}}
+</div>
 {{else}}
 <div class="empty-state">
     <h3>No events yet</h3>

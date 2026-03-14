@@ -95,7 +95,7 @@
                         {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
                         | Total:
                         {{formatDistance .TotalDistanceMeters $useMiles}}
-                        {{if gt .DetourSecs 0}}
+                        {{if gt .DetourSecs 0.0}}
                         | Detour: {{formatDuration .DetourSecs}}
                         {{end}}
                     </p>

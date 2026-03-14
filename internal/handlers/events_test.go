@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -15,13 +17,17 @@ import (
 
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/sqlite"
+	"ride-home-router/web"
 
 	_ "modernc.org/sqlite"
 )
 
 const testEventTemplates = `
 {{define "event_list"}}
-{{range .Events}}<div class="event-item">{{.ID}}|{{.Notes}}</div>{{else}}<div class="empty">No events</div>{{end}}
+FULL|{{.DisplayedCount}}/{{.Total}}{{range .Events}}<div class="event-item">{{.ID}}|{{.Notes}}</div>{{else}}<div class="empty">No events</div>{{end}}
+{{end}}
+{{define "event_list_page"}}
+PAGE|{{.DisplayedCount}}/{{.Total}}{{range .Events}}<div class="event-item">{{.ID}}|{{.Notes}}</div>{{end}}<div id="event-list-status" hx-swap-oob="outerHTML">Showing {{.DisplayedCount}}</div><div id="event-list-pagination" hx-swap-oob="outerHTML"></div>
 {{end}}
 {{define "event_detail"}}
 {{if .UseLegacyAssignments}}Legacy Detail{{range .Assignments}}|{{.DriverName}}{{range .Stops}}|{{.ParticipantName}}|{{printf "%.0f" .DistanceFromPrevMeters}}{{end}}{{end}}{{else}}Native Detail{{range .Routes}}|{{.DriverName}}|Final Leg {{printf "%.0f" .DistanceToDriverHomeMeters}}|Detour {{printf "%.0f" .DetourSecs}}{{end}}{{end}}
@@ -209,6 +215,92 @@ func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
 	}
 	if !strings.Contains(body, "Final Leg 300") {
 		t.Fatalf("expected native detail to include final leg metrics, got %q", body)
+	}
+}
+
+func TestHandleListEvents_HTMXLoadMoreRendersAppendPartial(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+	for i := 0; i < 25; i++ {
+		createTestEvent(t, store, time.Date(2026, time.March, i+1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), "event "+strconv.Itoa(i))
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?offset=20&limit=20", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleListEvents(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "PAGE|25/25") {
+		t.Fatalf("expected append partial with updated counts, got %q", body)
+	}
+	if strings.Contains(body, "FULL|") {
+		t.Fatalf("expected append partial instead of full list, got %q", body)
+	}
+	if !strings.Contains(body, `hx-swap-oob="outerHTML"`) {
+		t.Fatalf("expected OOB updates in append partial, got %q", body)
+	}
+}
+
+func TestActualEventDetailTemplateRendersFloatDetourComparison(t *testing.T) {
+	content, err := fs.ReadFile(web.Templates, "templates/partials/event_detail.html")
+	if err != nil {
+		t.Fatalf("read event_detail template: %v", err)
+	}
+
+	tmpl, err := template.New("event_detail").Funcs(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"formatDistance": func(meters float64, useMiles bool) string {
+			if useMiles {
+				return "0.00 mi"
+			}
+			return "0.00 km"
+		},
+		"formatDuration": func(seconds float64) string {
+			return strconv.Itoa(int(seconds))
+		},
+		"initials": func(name string) string {
+			return name[:1]
+		},
+	}).Parse(string(content))
+	if err != nil {
+		t.Fatalf("parse event_detail template: %v", err)
+	}
+
+	data := EventDetailViewData{
+		Routes: []models.EventRoute{
+			{
+				DriverName:                 "Driver One",
+				DriverAddress:              "1 Driver Way",
+				TotalDropoffDistanceMeters: 1200,
+				DistanceToDriverHomeMeters: 300,
+				TotalDistanceMeters:        1500,
+				DetourSecs:                 300,
+				Mode:                       "dropoff",
+				Stops: []models.EventRouteStop{
+					{
+						Order:                  0,
+						ParticipantName:        "Passenger One",
+						ParticipantAddress:     "2 Rider Road",
+						DistanceFromPrevMeters: 1200,
+					},
+				},
+			},
+		},
+		Summary: &models.EventSummary{
+			TotalParticipants:   1,
+			TotalDrivers:        1,
+			TotalDistanceMeters: 1500,
+		},
+		UseMiles: false,
+	}
+
+	var rendered bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&rendered, "event_detail", data); err != nil {
+		t.Fatalf("execute event_detail template: %v", err)
 	}
 }
 

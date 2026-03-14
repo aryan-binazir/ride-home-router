@@ -409,10 +409,18 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	// Check capacity constraints (use effective capacity which may be org vehicle capacity)
 	cap1 := route1.EffectiveCapacity
 	if cap1 == 0 {
+		if route1.Driver == nil {
+			h.handleValidationErrorHTMX(w, r, "Cannot swap - route is missing a driver")
+			return
+		}
 		cap1 = route1.Driver.VehicleCapacity
 	}
 	cap2 := route2.EffectiveCapacity
 	if cap2 == 0 {
+		if route2.Driver == nil {
+			h.handleValidationErrorHTMX(w, r, "Cannot swap - route is missing a driver")
+			return
+		}
 		cap2 = route2.Driver.VehicleCapacity
 	}
 	if len(route1.Stops) > cap2 || len(route2.Stops) > cap1 {
@@ -572,6 +580,9 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 
 	// Check if driver is already in routes
 	for _, route := range session.CurrentRoutes {
+		if route.Driver == nil {
+			continue
+		}
 		if route.Driver.ID == req.DriverID {
 			h.handleValidationErrorHTMX(w, r, "Driver is already in routes")
 			return
