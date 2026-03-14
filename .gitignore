@@ -3,7 +3,7 @@
 #
 # Binaries for programs and plugins
 /bin/
-/build/
+/build/bin/
 .gocache/
 *.exe
 *.exe~
@@ -29,10 +29,14 @@ go.work.sum
 
 # env file
 .env
+.env.*
+!.env.example
+!.env.sample
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+.DS_Store
 
 # SQLite database files
 *.db
@@ -44,3 +48,6 @@ go.work.sum
 # Built executables
 /server
 /ride-home-router
+
+# Wails-generated frontend bindings/runtime
+/frontend/wailsjs/
