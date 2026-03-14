@@ -5,11 +5,19 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routing"
+)
+
+const (
+	routeSessionTTL             = 2 * time.Hour
+	routeSessionCleanupInterval = 15 * time.Minute
 )
 
 // RouteSession stores calculated routes for editing
@@ -21,20 +29,37 @@ type RouteSession struct {
 	ActivityLocation *models.ActivityLocation
 	UseMiles         bool
 	Mode             string // "pickup" or "dropoff"
+	LastAccessedAt   time.Time
 	mu               sync.Mutex // Protects session data during modifications
 }
 
 // RouteSessionStore manages route editing sessions in memory
 type RouteSessionStore struct {
-	sessions map[string]*RouteSession
-	mu       sync.RWMutex
+	sessions        map[string]*RouteSession
+	mu              sync.RWMutex
+	ttl             time.Duration
+	cleanupInterval time.Duration
+	stopCleanup     chan struct{}
+	cleanupDone     chan struct{}
+	closeOnce       sync.Once
 }
 
 // NewRouteSessionStore creates a new session store
 func NewRouteSessionStore() *RouteSessionStore {
-	return &RouteSessionStore{
-		sessions: make(map[string]*RouteSession),
+	return newRouteSessionStore(routeSessionTTL, routeSessionCleanupInterval)
+}
+
+func newRouteSessionStore(ttl, cleanupInterval time.Duration) *RouteSessionStore {
+	store := &RouteSessionStore{
+		sessions:        make(map[string]*RouteSession),
+		ttl:             ttl,
+		cleanupInterval: cleanupInterval,
+		stopCleanup:     make(chan struct{}),
+		cleanupDone:     make(chan struct{}),
 	}
+
+	go store.cleanupLoop()
+	return store
 }
 
 func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, mode string) *RouteSession {
@@ -55,6 +80,7 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []mo
 		ActivityLocation: activityLocation,
 		UseMiles:         useMiles,
 		Mode:             mode,
+		LastAccessedAt:   time.Now(),
 	}
 
 	s.sessions[id] = session
@@ -63,9 +89,23 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []mo
 }
 
 func (s *RouteSessionStore) Get(id string) *RouteSession {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.sessions[id]
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session := s.sessions[id]
+	if session == nil {
+		return nil
+	}
+	if s.sessionExpired(session, now) {
+		delete(s.sessions, id)
+		log.Printf("[SESSION] Expired route session: id=%s", id)
+		return nil
+	}
+
+	session.LastAccessedAt = now
+	return session
 }
 
 // Update executes a function on a session while holding the write lock.
@@ -74,10 +114,18 @@ func (s *RouteSessionStore) Get(id string) *RouteSession {
 func (s *RouteSessionStore) Update(id string, fn func(*RouteSession)) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	now := time.Now()
 	session := s.sessions[id]
 	if session == nil {
 		return false
 	}
+	if s.sessionExpired(session, now) {
+		delete(s.sessions, id)
+		log.Printf("[SESSION] Expired route session during update: id=%s", id)
+		return false
+	}
+	session.LastAccessedAt = now
 	fn(session)
 	return true
 }
@@ -87,6 +135,45 @@ func (s *RouteSessionStore) Delete(id string) {
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
 	log.Printf("[SESSION] Deleted route session: id=%s", id)
+}
+
+func (s *RouteSessionStore) Close() {
+	s.closeOnce.Do(func() {
+		close(s.stopCleanup)
+		<-s.cleanupDone
+	})
+}
+
+func (s *RouteSessionStore) cleanupLoop() {
+	defer close(s.cleanupDone)
+
+	ticker := time.NewTicker(s.cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.deleteExpired(time.Now())
+		case <-s.stopCleanup:
+			return
+		}
+	}
+}
+
+func (s *RouteSessionStore) deleteExpired(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, session := range s.sessions {
+		if s.sessionExpired(session, now) {
+			delete(s.sessions, id)
+			log.Printf("[SESSION] Expired route session: id=%s", id)
+		}
+	}
+}
+
+func (s *RouteSessionStore) sessionExpired(session *RouteSession, now time.Time) bool {
+	return now.Sub(session.LastAccessedAt) > s.ttl
 }
 
 func generateSessionID() string {
@@ -110,6 +197,7 @@ func deepCopyRoutes(routes []models.CalculatedRoute) []models.CalculatedRoute {
 			BaselineDurationSecs:       route.BaselineDurationSecs,
 			RouteDurationSecs:          route.RouteDurationSecs,
 			DetourSecs:                 route.DetourSecs,
+			Mode:                       route.Mode,
 		}
 	}
 	return result
@@ -146,14 +234,44 @@ func copyParticipant(p *models.Participant) *models.Participant {
 	return &copy
 }
 
+func buildRoutingPayload(routes []models.CalculatedRoute, summary models.RoutingSummary, mode string) models.RoutingResult {
+	return models.RoutingResult{
+		Routes:   routes,
+		Summary:  summary,
+		Warnings: []string{},
+		Mode:     mode,
+	}
+}
+
+func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode string) map[string]interface{} {
+	return map[string]interface{}{
+		"Routes":           routes,
+		"Summary":          summary,
+		"UseMiles":         useMiles,
+		"ActivityLocation": activityLocation,
+		"SessionID":        sessionID,
+		"IsEditing":        isEditing,
+		"UnusedDrivers":    unusedDrivers,
+		"Mode":             mode,
+		"RoutingPayload":   buildRoutingPayload(routes, summary, mode),
+	}
+}
+
+func (h *Handler) recalculateRoute(ctx context.Context, activityLocation *models.ActivityLocation, mode string, route *models.CalculatedRoute) error {
+	if activityLocation == nil {
+		return fmt.Errorf("activity location is required")
+	}
+	return routing.PopulateRouteMetrics(ctx, h.DistanceCalc, activityLocation.GetCoords(), routing.RouteMode(mode), route)
+}
+
 // HandleMoveParticipant handles POST /api/v1/routes/edit/move-participant
 func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SessionID         string `json:"session_id"`
-		ParticipantID     int64  `json:"participant_id"`
-		FromRouteIndex    int    `json:"from_route_index"`
-		ToRouteIndex      int    `json:"to_route_index"`
-		InsertAtPosition  int    `json:"insert_at_position"` // -1 for end
+		SessionID        string `json:"session_id"`
+		ParticipantID    int64  `json:"participant_id"`
+		FromRouteIndex   int    `json:"from_route_index"`
+		ToRouteIndex     int    `json:"to_route_index"`
+		InsertAtPosition int    `json:"insert_at_position"` // -1 for end
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -170,6 +288,8 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	// Lock session for thread-safe modification
 	session.mu.Lock()
 	defer session.mu.Unlock()
+
+	backupRoutes := deepCopyRoutes(session.CurrentRoutes)
 
 	if req.FromRouteIndex < 0 || req.FromRouteIndex >= len(session.CurrentRoutes) ||
 		req.ToRouteIndex < 0 || req.ToRouteIndex >= len(session.CurrentRoutes) {
@@ -222,8 +342,16 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Recalculate distances for both routes
-	h.recalculateRouteDistances(r.Context(), session.ActivityLocation, fromRoute)
-	h.recalculateRouteDistances(r.Context(), session.ActivityLocation, toRoute)
+	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, fromRoute); err != nil {
+		session.CurrentRoutes = backupRoutes
+		h.handleInternalError(w, err)
+		return
+	}
+	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, toRoute); err != nil {
+		session.CurrentRoutes = backupRoutes
+		h.handleInternalError(w, err)
+		return
+	}
 
 	// Recalculate summary
 	summary := h.calculateSummary(session.CurrentRoutes)
@@ -233,16 +361,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 
 	// Return updated routes
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":           session.CurrentRoutes,
-			"Summary":          summary,
-			"UseMiles":         session.UseMiles,
-			"ActivityLocation": session.ActivityLocation,
-			"SessionID":        session.ID,
-			"IsEditing":        true,
-			"UnusedDrivers":    getUnusedDrivers(session),
-			"Mode":             session.Mode,
-		})
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 
@@ -276,6 +395,8 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
+	backupRoutes := deepCopyRoutes(session.CurrentRoutes)
+
 	if req.RouteIndex1 < 0 || req.RouteIndex1 >= len(session.CurrentRoutes) ||
 		req.RouteIndex2 < 0 || req.RouteIndex2 >= len(session.CurrentRoutes) {
 		h.handleValidationErrorHTMX(w, r, "Invalid route index")
@@ -303,24 +424,23 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	route1.Driver, route2.Driver = route2.Driver, route1.Driver
 
 	// Recalculate distances for both routes (driver home changed)
-	h.recalculateRouteDistances(r.Context(), session.ActivityLocation, route1)
-	h.recalculateRouteDistances(r.Context(), session.ActivityLocation, route2)
+	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, route1); err != nil {
+		session.CurrentRoutes = backupRoutes
+		h.handleInternalError(w, err)
+		return
+	}
+	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, route2); err != nil {
+		session.CurrentRoutes = backupRoutes
+		h.handleInternalError(w, err)
+		return
+	}
 
 	summary := h.calculateSummary(session.CurrentRoutes)
 
 	log.Printf("[EDIT] Swapped drivers between routes %d and %d", req.RouteIndex1, req.RouteIndex2)
 
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":           session.CurrentRoutes,
-			"Summary":          summary,
-			"UseMiles":         session.UseMiles,
-			"ActivityLocation": session.ActivityLocation,
-			"SessionID":        session.ID,
-			"IsEditing":        true,
-			"UnusedDrivers":    getUnusedDrivers(session),
-			"Mode":             session.Mode,
-		})
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 
@@ -357,16 +477,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[EDIT] Reset routes for session %s", sessionID)
 
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":           session.CurrentRoutes,
-			"Summary":          summary,
-			"UseMiles":         session.UseMiles,
-			"ActivityLocation": session.ActivityLocation,
-			"SessionID":        session.ID,
-			"IsEditing":        true,
-			"UnusedDrivers":    getUnusedDrivers(session),
-			"Mode":             session.Mode,
-		})
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 
@@ -375,72 +486,6 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		"summary":    summary,
 		"session_id": session.ID,
 	})
-}
-
-// recalculateRouteDistances recalculates distances and durations for a single route after editing
-func (h *Handler) recalculateRouteDistances(ctx context.Context, activityLocation *models.ActivityLocation, route *models.CalculatedRoute) {
-	if len(route.Stops) == 0 {
-		route.TotalDropoffDistanceMeters = 0
-		route.DistanceToDriverHomeMeters = 0
-		route.TotalDistanceMeters = 0
-		route.BaselineDurationSecs = 0
-		route.RouteDurationSecs = 0
-		route.DetourSecs = 0
-		return
-	}
-
-	var totalDropoff float64
-	var totalRouteDuration float64
-	prevCoords := activityLocation.GetCoords()
-
-	for i := range route.Stops {
-		stop := &route.Stops[i]
-		stop.Order = i
-
-		// Calculate distance from previous point
-		result, err := h.DistanceCalc.GetDistance(ctx, prevCoords, stop.Participant.GetCoords())
-		if err != nil {
-			log.Printf("[ERROR] Failed to calculate distance: %v", err)
-			continue
-		}
-		stop.DistanceFromPrevMeters = result.DistanceMeters
-		stop.DurationFromPrevSecs = result.DurationSecs
-
-		if i == 0 {
-			stop.CumulativeDistanceMeters = result.DistanceMeters
-			stop.CumulativeDurationSecs = result.DurationSecs
-		} else {
-			stop.CumulativeDistanceMeters = route.Stops[i-1].CumulativeDistanceMeters + result.DistanceMeters
-			stop.CumulativeDurationSecs = route.Stops[i-1].CumulativeDurationSecs + result.DurationSecs
-		}
-
-		totalDropoff += result.DistanceMeters
-		totalRouteDuration += result.DurationSecs
-		prevCoords = stop.Participant.GetCoords()
-	}
-
-	route.TotalDropoffDistanceMeters = totalDropoff
-
-	// Calculate distance and duration to driver home
-	lastStop := route.Stops[len(route.Stops)-1]
-	var durationToHome float64
-	result, err := h.DistanceCalc.GetDistance(ctx, lastStop.Participant.GetCoords(), route.Driver.GetCoords())
-	if err == nil {
-		route.DistanceToDriverHomeMeters = result.DistanceMeters
-		durationToHome = result.DurationSecs
-	}
-
-	route.TotalDistanceMeters = totalDropoff + route.DistanceToDriverHomeMeters
-	route.RouteDurationSecs = totalRouteDuration + durationToHome
-
-	// Recalculate baseline and detour
-	if route.Driver != nil {
-		baselineResult, err := h.DistanceCalc.GetDistance(ctx, activityLocation.GetCoords(), route.Driver.GetCoords())
-		if err == nil {
-			route.BaselineDurationSecs = baselineResult.DurationSecs
-			route.DetourSecs = route.RouteDurationSecs - route.BaselineDurationSecs
-		}
-	}
 }
 
 // calculateSummary calculates the summary for a set of routes
@@ -474,6 +519,9 @@ func (h *Handler) calculateSummary(routes []models.CalculatedRoute) models.Routi
 func getUnusedDrivers(session *RouteSession) []models.Driver {
 	usedDriverIDs := make(map[int64]bool)
 	for _, route := range session.CurrentRoutes {
+		if route.Driver == nil {
+			continue
+		}
 		usedDriverIDs[route.Driver.ID] = true
 	}
 
@@ -532,8 +580,14 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 
 	// Create empty route for this driver
 	newRoute := models.CalculatedRoute{
-		Driver: driverToAdd,
-		Stops:  []models.RouteStop{},
+		Driver:            driverToAdd,
+		Stops:             []models.RouteStop{},
+		EffectiveCapacity: driverToAdd.VehicleCapacity,
+		Mode:              session.Mode,
+	}
+	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, &newRoute); err != nil {
+		h.handleInternalError(w, err)
+		return
 	}
 
 	session.CurrentRoutes = append(session.CurrentRoutes, newRoute)
@@ -543,16 +597,7 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[EDIT] Added unused driver %d (%s) to routes", req.DriverID, driverToAdd.Name)
 
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", map[string]interface{}{
-			"Routes":           session.CurrentRoutes,
-			"Summary":          summary,
-			"UseMiles":         session.UseMiles,
-			"ActivityLocation": session.ActivityLocation,
-			"SessionID":        session.ID,
-			"IsEditing":        true,
-			"UnusedDrivers":    getUnusedDrivers(session),
-			"Mode":             session.Mode,
-		})
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 

@@ -44,9 +44,9 @@
 {{if gt .Total (len .Events)}}
 <div class="text-center mt-3">
     <button class="btn btn-outline"
-            hx-get="/api/v1/events?offset={{len .Events}}&limit=20"
+            hx-get="/api/v1/events?limit={{add (len .Events) 20}}"
             hx-target="#events-list"
-            hx-swap="beforeend">
+            hx-swap="innerHTML">
         Load More
     </button>
 </div>

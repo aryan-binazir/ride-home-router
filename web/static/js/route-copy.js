@@ -295,18 +295,16 @@ function encodeAddressForMaps(address) {
 /**
  * Generates Google Maps directions URL for a route
  */
-function generateMapsUrl(instituteAddress, stops, mode = 'dropoff') {
+function generateMapsUrl(instituteAddress, driverAddress, stops, mode = 'dropoff') {
     if (!stops || stops.length === 0) {
         return '';
     }
 
     let addresses;
     if (mode === 'pickup') {
-        // Pickup mode: starts and ends at activity location (driver home is implicit)
-        addresses = [...stops.map(s => s.address), instituteAddress];
+        addresses = [driverAddress, ...stops.map(s => s.address), instituteAddress];
     } else {
-        // Dropoff mode: starts at activity, goes through stops
-        addresses = [instituteAddress, ...stops.map(s => s.address)];
+        addresses = [instituteAddress, ...stops.map(s => s.address), driverAddress];
     }
     const encodedAddresses = addresses.map(encodeAddressForMaps);
 
@@ -316,15 +314,15 @@ function generateMapsUrl(instituteAddress, stops, mode = 'dropoff') {
 /**
  * Formats a single route for copying
  */
-function formatRouteText(activityLocationName, activityLocationAddress, driverName, stops, mode = 'dropoff') {
+function formatRouteText(activityLocationName, activityLocationAddress, driverName, driverAddress, stops, mode = 'dropoff') {
     let text = `Activity Location: ${activityLocationName}\n${activityLocationAddress}\n\n`;
-    text += `Driver: ${driverName}\n`;
+    text += `Driver: ${driverName}\n${driverAddress}\n`;
 
     stops.forEach((stop, index) => {
         text += `${index + 1}. ${stop.name} - ${stop.address}\n`;
     });
 
-    const mapsUrl = generateMapsUrl(activityLocationAddress, stops, mode);
+    const mapsUrl = generateMapsUrl(activityLocationAddress, driverAddress, stops, mode);
     text += `\nMaps: ${mapsUrl}\n`;
 
     return text;
@@ -351,9 +349,10 @@ async function copyRoute(button) {
     const activityLocationAddress = container.dataset.activityLocationAddress;
     const mode = container.dataset.routeMode || 'dropoff';
     const driverName = routeCard.dataset.driverName;
+    const driverAddress = routeCard.dataset.driverAddress;
     const stops = getStopsFromRouteCard(routeCard);
 
-    const text = formatRouteText(activityLocationName, activityLocationAddress, driverName, stops, mode);
+    const text = formatRouteText(activityLocationName, activityLocationAddress, driverName, driverAddress, stops, mode);
 
     try {
         await navigator.clipboard.writeText(text);
@@ -392,18 +391,19 @@ async function copyAllRoutes() {
 
     routeCards.forEach((routeCard, cardIndex) => {
         const driverName = routeCard.dataset.driverName;
+        const driverAddress = routeCard.dataset.driverAddress;
         const stops = getStopsFromRouteCard(routeCard);
 
         if (cardIndex > 0) {
             allText += '\n';
         }
 
-        allText += `Driver: ${driverName}\n`;
+        allText += `Driver: ${driverName}\n${driverAddress}\n`;
         stops.forEach((stop, index) => {
             allText += `${index + 1}. ${stop.name} - ${stop.address}\n`;
         });
 
-        const mapsUrl = generateMapsUrl(activityLocationAddress, stops, mode);
+        const mapsUrl = generateMapsUrl(activityLocationAddress, driverAddress, stops, mode);
         allText += `Maps: ${mapsUrl}\n`;
     });
 
@@ -436,9 +436,10 @@ function previewRoute(button) {
     const container = routeCard.closest('.routes-container');
     const activityLocationAddress = container.dataset.activityLocationAddress;
     const mode = container.dataset.routeMode || 'dropoff';
+    const driverAddress = routeCard.dataset.driverAddress;
     const stops = getStopsFromRouteCard(routeCard);
 
-    const mapsUrl = generateMapsUrl(activityLocationAddress, stops, mode);
+    const mapsUrl = generateMapsUrl(activityLocationAddress, driverAddress, stops, mode);
     if (mapsUrl) {
         fetch('/api/v1/open-url', {
             method: 'POST',
@@ -452,4 +453,3 @@ function previewRoute(button) {
         showToast('No stops to preview', 'warning');
     }
 }
-

@@ -16,46 +16,23 @@ import (
 // 1. Uses all available drivers
 // 2. Minimizes the maximum route duration (load balancing)
 type BalancedRouter struct {
-	distanceCalc    distance.DistanceCalculator
-	instituteCoords models.Coordinates
-	mode            RouteMode
+	distanceCalc distance.DistanceCalculator
 }
 
-// NewBalancedRouter creates a router that balances load across all drivers
+// NewBalancedRouter creates a router that balances load across all drivers.
 func NewBalancedRouter(distanceCalc distance.DistanceCalculator) Router {
 	return &BalancedRouter{
 		distanceCalc: distanceCalc,
 	}
 }
 
-// getOrigin returns the starting point for a route based on the mode
-func (r *BalancedRouter) getOrigin(driver *models.Driver) models.Coordinates {
-	if r.mode == RouteModePickup {
-		return driver.GetCoords()
-	}
-	return r.instituteCoords // dropoff: start from institute
-}
-
-// getDestination returns the ending point for a route based on the mode
-func (r *BalancedRouter) getDestination(driver *models.Driver) models.Coordinates {
-	if r.mode == RouteModePickup {
-		return r.instituteCoords
-	}
-	return driver.GetCoords() // dropoff: end at driver home
-}
-
 func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest) (*models.RoutingResult, error) {
 	totalStart := time.Now()
 
-	// Initialize mode and institute coords for this calculation
-	r.instituteCoords = req.InstituteCoords
-	r.mode = req.Mode
-	if r.mode == "" {
-		r.mode = RouteModeDropoff
-	}
+	rc := newRouteContext(r.distanceCalc, req.InstituteCoords, req.Mode)
 
 	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s",
-		len(req.Participants), len(req.Drivers), r.mode)
+		len(req.Participants), len(req.Drivers), rc.mode)
 
 	// Handle empty participants
 	if len(req.Participants) == 0 {
@@ -63,7 +40,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 			Routes:   []models.CalculatedRoute{},
 			Summary:  models.RoutingSummary{},
 			Warnings: []string{},
-			Mode:     string(r.mode),
+			Mode:     string(rc.mode),
 		}, nil
 	}
 
@@ -112,7 +89,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 
 	// Phase 1: Round-robin insertion to distribute evenly across drivers
 	phase1Start := time.Now()
-	unassigned, err := r.roundRobinInsertion(ctx, routes, driverIDs, unassigned)
+	unassigned, err := r.roundRobinInsertion(ctx, rc, routes, driverIDs, unassigned)
 	if err != nil {
 		return nil, err
 	}
@@ -120,14 +97,14 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 
 	// Phase 2: 2-opt on each route
 	phase2Start := time.Now()
-	if err := r.optimizeAllRoutes(ctx, routes); err != nil {
+	if err := r.optimizeAllRoutes(ctx, rc, routes); err != nil {
 		return nil, err
 	}
 	log.Printf("[TIMING] Phase 2 (2-opt): %v", time.Since(phase2Start))
 
 	// Phase 3: Min-max inter-route optimization
 	phase3Start := time.Now()
-	iterations := r.minMaxOptimize(ctx, routes, driverIDs)
+	iterations := r.minMaxOptimize(ctx, rc, routes, driverIDs)
 	log.Printf("[TIMING] Phase 3 (min-max): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
 	// Check for unassigned participants
@@ -145,7 +122,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 
 	// Build result
-	result, err := r.buildResult(ctx, routes, len(req.Participants))
+	result, err := r.buildResult(ctx, rc, routes, len(req.Participants))
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +143,7 @@ type balancedRoute struct {
 
 // roundRobinInsertion assigns participants by cycling through drivers
 // Groups participants from the same household and assigns them together
-func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
+func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
 	// Sort drivers by ID for consistent ordering
 	sort.Slice(driverIDs, func(i, j int) bool {
 		return driverIDs[i] < driverIDs[j]
@@ -230,7 +207,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, routes map[int
 
 			// Try all insertion positions for this group
 			for pos := 0; pos <= len(route.stops); pos++ {
-				cost, err := r.groupInsertionCost(ctx, route, group, pos)
+				cost, err := rc.groupInsertionDeltaDuration(ctx, route.driver, route.stops, group, pos)
 				if err != nil {
 					return nil, err
 				}
@@ -254,7 +231,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, routes map[int
 
 				// Try just the first member of the group
 				for pos := 0; pos <= len(route.stops); pos++ {
-					cost, err := r.insertionCost(ctx, route, group.members[0], pos)
+					cost, err := rc.insertionDeltaDuration(ctx, route.driver, route.stops, group.members[0], pos)
 					if err != nil {
 						return nil, err
 					}
@@ -281,7 +258,9 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, routes map[int
 
 		// Insert the group
 		route.stops = insertGroupAt(route.stops, bestGroup, bestPosition)
-		r.updateRouteDuration(ctx, route)
+		if err := r.updateRouteDuration(ctx, rc, route); err != nil {
+			return nil, err
+		}
 
 		memberNames := make([]string, len(bestGroup.members))
 		for i, m := range bestGroup.members {
@@ -327,132 +306,30 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, routes map[int
 	return unassignedResult, nil
 }
 
-// insertionCost calculates the additional duration to insert p at position pos
-func (r *BalancedRouter) insertionCost(ctx context.Context, route *balancedRoute, p *models.Participant, pos int) (float64, error) {
-	var prev, next models.Coordinates
-
-	if pos == 0 {
-		prev = r.getOrigin(route.driver)
-	} else {
-		prev = route.stops[pos-1].GetCoords()
-	}
-
-	if pos < len(route.stops) {
-		next = route.stops[pos].GetCoords()
-	} else {
-		// Inserting at end - just duration from prev to new stop
-		distPrevP, err := r.distanceCalc.GetDistance(ctx, prev, p.GetCoords())
-		if err != nil {
-			return 0, err
-		}
-		return distPrevP.DurationSecs, nil
-	}
-
-	// Cost = duration(prev, p) + duration(p, next) - duration(prev, next)
-	distPrevP, err := r.distanceCalc.GetDistance(ctx, prev, p.GetCoords())
-	if err != nil {
-		return 0, err
-	}
-
-	distPNext, err := r.distanceCalc.GetDistance(ctx, p.GetCoords(), next)
-	if err != nil {
-		return 0, err
-	}
-
-	distPrevNext, err := r.distanceCalc.GetDistance(ctx, prev, next)
-	if err != nil {
-		return 0, err
-	}
-
-	return distPrevP.DurationSecs + distPNext.DurationSecs - distPrevNext.DurationSecs, nil
-}
-
 // optimizeAllRoutes runs 2-opt on each route and updates durations
-func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, routes map[int64]*balancedRoute) error {
+func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute) error {
 	for _, route := range routes {
 		if len(route.stops) >= 3 {
-			optimized, err := r.twoOpt(ctx, route, route.stops)
+			optimized, err := r.twoOpt(ctx, rc, route, route.stops)
 			if err != nil {
 				return err
 			}
 			route.stops = optimized
 		}
-		r.updateRouteDuration(ctx, route)
+		if err := r.updateRouteDuration(ctx, rc, route); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// twoOpt applies 2-opt optimization to reduce route duration
-func (r *BalancedRouter) twoOpt(ctx context.Context, route *balancedRoute, stops []*models.Participant) ([]*models.Participant, error) {
-	if len(stops) < 3 {
-		return stops, nil
-	}
-
-	start := r.getOrigin(route.driver)
-	improved := true
-	for improved {
-		improved = false
-		for i := 0; i < len(stops)-1; i++ {
-			for j := i + 2; j <= len(stops); j++ {
-				var beforeI models.Coordinates
-				if i == 0 {
-					beforeI = start
-				} else {
-					beforeI = stops[i-1].GetCoords()
-				}
-
-				dist1, err := r.distanceCalc.GetDistance(ctx, beforeI, stops[i].GetCoords())
-				if err != nil {
-					return nil, err
-				}
-
-				var afterJ models.Coordinates
-				if j < len(stops) {
-					afterJ = stops[j].GetCoords()
-				} else {
-					dist1New, err := r.distanceCalc.GetDistance(ctx, beforeI, stops[j-1].GetCoords())
-					if err != nil {
-						return nil, err
-					}
-					if dist1New.DurationSecs < dist1.DurationSecs {
-						reverse(stops, i, j-1)
-						improved = true
-					}
-					continue
-				}
-
-				dist2, err := r.distanceCalc.GetDistance(ctx, stops[j-1].GetCoords(), afterJ)
-				if err != nil {
-					return nil, err
-				}
-
-				currentDuration := dist1.DurationSecs + dist2.DurationSecs
-
-				dist1New, err := r.distanceCalc.GetDistance(ctx, beforeI, stops[j-1].GetCoords())
-				if err != nil {
-					return nil, err
-				}
-
-				dist2New, err := r.distanceCalc.GetDistance(ctx, stops[i].GetCoords(), afterJ)
-				if err != nil {
-					return nil, err
-				}
-
-				newDuration := dist1New.DurationSecs + dist2New.DurationSecs
-
-				if newDuration < currentDuration {
-					reverse(stops, i, j-1)
-					improved = true
-				}
-			}
-		}
-	}
-
-	return stops, nil
+// twoOpt applies 2-opt optimization to reduce the routing objective duration.
+func (r *BalancedRouter) twoOpt(ctx context.Context, rc routeContext, route *balancedRoute, stops []*models.Participant) ([]*models.Participant, error) {
+	return rc.twoOptDuration(ctx, route.driver, stops)
 }
 
 // minMaxOptimize moves participants between routes to minimize the maximum route duration
-func (r *BalancedRouter) minMaxOptimize(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) int {
+func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) int {
 	maxIterations := 50
 	iteration := 0
 
@@ -477,7 +354,10 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, routes map[int64]*b
 		routesByDuration := make([]routeDuration, 0, len(driverIDs))
 		for _, id := range driverIDs {
 			route := routes[id]
-			duration := r.calculateRouteDuration(ctx, route)
+			duration, err := r.calculateRouteDuration(ctx, rc, route)
+			if err != nil {
+				return iteration
+			}
 			routesByDuration = append(routesByDuration, routeDuration{id, duration})
 		}
 		sort.Slice(routesByDuration, func(i, j int) bool {
@@ -534,7 +414,11 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, routes map[int64]*b
 						// Calculate new max duration
 						newMaxDuration := 0.0
 						for _, id := range driverIDs {
-							duration := r.calculateRouteDuration(ctx, routes[id])
+							duration, err := r.calculateRouteDuration(ctx, rc, routes[id])
+							if err != nil {
+								newMaxDuration = currentMaxDuration
+								break
+							}
 							if duration > newMaxDuration {
 								newMaxDuration = duration
 							}
@@ -564,11 +448,19 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, routes map[int64]*b
 				destRoute.stops = insertAt(destRoute.stops, bestMove.participant, bestMove.destPos)
 
 				// Re-optimize affected routes with 2-opt
-				r.twoOpt(ctx, srcRoute, srcRoute.stops)
-				r.twoOpt(ctx, destRoute, destRoute.stops)
+				if optimized, err := r.twoOpt(ctx, rc, srcRoute, srcRoute.stops); err == nil {
+					srcRoute.stops = optimized
+				}
+				if optimized, err := r.twoOpt(ctx, rc, destRoute, destRoute.stops); err == nil {
+					destRoute.stops = optimized
+				}
 
-				r.updateRouteDuration(ctx, srcRoute)
-				r.updateRouteDuration(ctx, destRoute)
+				if err := r.updateRouteDuration(ctx, rc, srcRoute); err != nil {
+					return iteration
+				}
+				if err := r.updateRouteDuration(ctx, rc, destRoute); err != nil {
+					return iteration
+				}
 
 				log.Printf("[BALANCED] Moved %s from %s to %s (max: %.0fs -> %.0fs)",
 					bestMove.participant.Name, srcRoute.driver.Name, destRoute.driver.Name,
@@ -588,50 +480,45 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, routes map[int64]*b
 }
 
 // calculateRouteDuration computes duration from origin through all stops
-func (r *BalancedRouter) calculateRouteDuration(ctx context.Context, route *balancedRoute) float64 {
+func (r *BalancedRouter) calculateRouteDuration(ctx context.Context, rc routeContext, route *balancedRoute) (float64, error) {
 	if len(route.stops) == 0 {
-		return 0
+		return 0, nil
 	}
-
-	total := 0.0
-	prev := r.getOrigin(route.driver)
-	for _, stop := range route.stops {
-		dist, err := r.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
-		if err == nil {
-			total += dist.DurationSecs
-		}
-		prev = stop.GetCoords()
-	}
-	return total
+	return rc.routeDuration(ctx, route.driver, route.stops)
 }
 
 // updateRouteDuration recalculates and caches the total duration for a route
-func (r *BalancedRouter) updateRouteDuration(ctx context.Context, route *balancedRoute) {
+func (r *BalancedRouter) updateRouteDuration(ctx context.Context, rc routeContext, route *balancedRoute) error {
 	if len(route.stops) == 0 {
 		route.totalDuration = 0
-		return
+		return nil
 	}
 
-	total := 0.0
-	prev := r.getOrigin(route.driver)
-	for _, stop := range route.stops {
-		dist, err := r.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
-		if err == nil {
-			total += dist.DurationSecs
-		}
-		prev = stop.GetCoords()
+	total, err := rc.routeDuration(ctx, route.driver, route.stops)
+	if err != nil {
+		return err
 	}
 	route.totalDuration = total
+	return nil
 }
 
 // buildResult creates the final routing result
-func (r *BalancedRouter) buildResult(ctx context.Context, routes map[int64]*balancedRoute, totalParticipants int) (*models.RoutingResult, error) {
+func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, totalParticipants int) (*models.RoutingResult, error) {
 	calculatedRoutes := make([]models.CalculatedRoute, 0)
 	totalDropoff := 0.0
 	totalDist := 0.0
 	driversUsed := 0
 
-	for _, route := range routes {
+	driverIDs := make([]int64, 0, len(routes))
+	for id := range routes {
+		driverIDs = append(driverIDs, id)
+	}
+	sort.Slice(driverIDs, func(i, j int) bool {
+		return driverIDs[i] < driverIDs[j]
+	})
+
+	for _, driverID := range driverIDs {
+		route := routes[driverID]
 		if len(route.stops) == 0 {
 			continue
 		}
@@ -639,57 +526,35 @@ func (r *BalancedRouter) buildResult(ctx context.Context, routes map[int64]*bala
 		driversUsed++
 
 		routeStops := make([]models.RouteStop, len(route.stops))
-		cumulativeDistance := 0.0
-		cumulativeDuration := 0.0
-
-		origin := r.getOrigin(route.driver)
-		prev := origin
+		metrics, err := rc.evaluateParticipants(ctx, route.driver, route.stops)
+		if err != nil {
+			return nil, err
+		}
 		for i, p := range route.stops {
-			dist, err := r.distanceCalc.GetDistance(ctx, prev, p.GetCoords())
-			if err != nil {
-				return nil, err
-			}
-
-			cumulativeDistance += dist.DistanceMeters
-			cumulativeDuration += dist.DurationSecs
-
 			routeStops[i] = models.RouteStop{
 				Order:                    i,
 				Participant:              p,
-				DistanceFromPrevMeters:   dist.DistanceMeters,
-				CumulativeDistanceMeters: cumulativeDistance,
-				DurationFromPrevSecs:     dist.DurationSecs,
-				CumulativeDurationSecs:   cumulativeDuration,
+				DistanceFromPrevMeters:   metrics.Stops[i].DistanceFromPrevMeters,
+				CumulativeDistanceMeters: metrics.Stops[i].CumulativeDistanceMeters,
+				DurationFromPrevSecs:     metrics.Stops[i].DurationFromPrevSecs,
+				CumulativeDurationSecs:   metrics.Stops[i].CumulativeDurationSecs,
 			}
-
-			prev = p.GetCoords()
 		}
 
-		destination := r.getDestination(route.driver)
-		distToEnd, err := r.distanceCalc.GetDistance(ctx, prev, destination)
-		if err != nil {
-			return nil, err
-		}
-
-		baseline, err := r.distanceCalc.GetDistance(ctx, origin, destination)
-		if err != nil {
-			return nil, err
-		}
-
-		totalDropoff += cumulativeDistance
-		totalDist += cumulativeDistance + distToEnd.DistanceMeters
+		totalDropoff += metrics.TotalStopDistanceMeters
+		totalDist += metrics.TotalDistanceMeters
 
 		calculatedRoutes = append(calculatedRoutes, models.CalculatedRoute{
 			Driver:                     route.driver,
 			Stops:                      routeStops,
-			TotalDropoffDistanceMeters: cumulativeDistance,
-			DistanceToDriverHomeMeters: distToEnd.DistanceMeters,
-			TotalDistanceMeters:        cumulativeDistance + distToEnd.DistanceMeters,
+			TotalDropoffDistanceMeters: metrics.TotalStopDistanceMeters,
+			DistanceToDriverHomeMeters: metrics.FinalLegDistanceMeters,
+			TotalDistanceMeters:        metrics.TotalDistanceMeters,
 			EffectiveCapacity:          route.driver.VehicleCapacity,
-			BaselineDurationSecs:       baseline.DurationSecs,
-			RouteDurationSecs:          cumulativeDuration + distToEnd.DurationSecs,
-			DetourSecs:                 (cumulativeDuration + distToEnd.DurationSecs) - baseline.DurationSecs,
-			Mode:                       string(r.mode),
+			BaselineDurationSecs:       metrics.BaselineDurationSecs,
+			RouteDurationSecs:          metrics.RouteDurationSecs,
+			DetourSecs:                 metrics.DetourSecs,
+			Mode:                       string(rc.mode),
 		})
 	}
 
@@ -703,7 +568,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, routes map[int64]*bala
 			UnassignedParticipants:     []int64{},
 		},
 		Warnings: []string{},
-		Mode:     string(r.mode),
+		Mode:     string(rc.mode),
 	}, nil
 }
 
@@ -775,60 +640,6 @@ func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int
 	copy(newStops[pos+len(group.members):], stops[pos:])
 
 	return newStops
-}
-
-// groupInsertionCost calculates the cost to insert all group members at a position
-func (r *BalancedRouter) groupInsertionCost(ctx context.Context, route *balancedRoute, group *participantGroup, pos int) (float64, error) {
-	if len(group.members) == 0 {
-		return 0, nil
-	}
-
-	// For a group, we need to calculate the cost of inserting all members sequentially
-	// We'll insert them in order and calculate the total additional duration
-
-	var prev models.Coordinates
-	if pos == 0 {
-		prev = r.getOrigin(route.driver)
-	} else {
-		prev = route.stops[pos-1].GetCoords()
-	}
-
-	var next models.Coordinates
-	hasNext := pos < len(route.stops)
-	if hasNext {
-		next = route.stops[pos].GetCoords()
-	}
-
-	// Calculate cost through all group members
-	totalCost := 0.0
-	currentPrev := prev
-
-	for _, member := range group.members {
-		dist, err := r.distanceCalc.GetDistance(ctx, currentPrev, member.GetCoords())
-		if err != nil {
-			return 0, err
-		}
-		totalCost += dist.DurationSecs
-		currentPrev = member.GetCoords()
-	}
-
-	// Add cost from last group member to next stop (or end of route)
-	if hasNext {
-		distToNext, err := r.distanceCalc.GetDistance(ctx, currentPrev, next)
-		if err != nil {
-			return 0, err
-		}
-		totalCost += distToNext.DurationSecs
-
-		// Subtract the original direct distance
-		distPrevNext, err := r.distanceCalc.GetDistance(ctx, prev, next)
-		if err != nil {
-			return 0, err
-		}
-		totalCost -= distPrevNext.DurationSecs
-	}
-
-	return totalCost, nil
 }
 
 // Note: Helper functions (insertAt, removeAt, removeParticipant, reverse)

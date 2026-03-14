@@ -19,13 +19,13 @@ func RoundCoordinate(coord float64) float64 {
 
 // Participant represents a person to be driven home
 type Participant struct {
-	ID        int64       `json:"id"`
-	Name      string      `json:"name"`
-	Address   string      `json:"address"`
-	Lat       float64     `json:"lat"`
-	Lng       float64     `json:"lng"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Address   string    `json:"address"`
+	Lat       float64   `json:"lat"`
+	Lng       float64   `json:"lng"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // GetCoords returns the coordinates of the participant
@@ -105,6 +105,43 @@ type EventAssignment struct {
 	DistanceFromPrev   float64 `json:"distance_from_prev_meters"`
 	OrgVehicleID       int64   `json:"org_vehicle_id,omitempty"`
 	OrgVehicleName     string  `json:"org_vehicle_name,omitempty"`
+}
+
+// EventRoute stores a saved route snapshot for a historical event.
+type EventRoute struct {
+	ID                         int64            `json:"id"`
+	EventID                    int64            `json:"event_id"`
+	RouteOrder                 int              `json:"route_order"`
+	DriverID                   int64            `json:"driver_id"`
+	DriverName                 string           `json:"driver_name"`
+	DriverAddress              string           `json:"driver_address"`
+	EffectiveCapacity          int              `json:"effective_capacity"`
+	OrgVehicleID               int64            `json:"org_vehicle_id,omitempty"`
+	OrgVehicleName             string           `json:"org_vehicle_name,omitempty"`
+	TotalDropoffDistanceMeters float64          `json:"total_dropoff_distance_meters"`
+	DistanceToDriverHomeMeters float64          `json:"distance_to_driver_home_meters"`
+	TotalDistanceMeters        float64          `json:"total_distance_meters"`
+	BaselineDurationSecs       float64          `json:"baseline_duration_secs"`
+	RouteDurationSecs          float64          `json:"route_duration_secs"`
+	DetourSecs                 float64          `json:"detour_secs"`
+	Mode                       string           `json:"mode"`
+	SnapshotVersion            int              `json:"-"`
+	MetricsComplete            bool             `json:"-"`
+	Stops                      []EventRouteStop `json:"stops,omitempty"`
+}
+
+// EventRouteStop stores a saved participant stop snapshot for a historical event route.
+type EventRouteStop struct {
+	ID                       int64   `json:"id"`
+	EventRouteID             int64   `json:"event_route_id"`
+	Order                    int     `json:"order"`
+	ParticipantID            int64   `json:"participant_id"`
+	ParticipantName          string  `json:"participant_name"`
+	ParticipantAddress       string  `json:"participant_address"`
+	DistanceFromPrevMeters   float64 `json:"distance_from_prev_meters"`
+	CumulativeDistanceMeters float64 `json:"cumulative_distance_meters"`
+	DurationFromPrevSecs     float64 `json:"duration_from_prev_secs"`
+	CumulativeDurationSecs   float64 `json:"cumulative_duration_secs"`
 }
 
 // EventSummary contains aggregate stats for an event
