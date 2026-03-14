@@ -619,7 +619,9 @@ func backfillLegacyRoutes(tx *sql.Tx, eventID int64, mode string) error {
 
 		if current == nil ||
 			current.driverID != assignment.driverID ||
+			current.orgVehicleID.Valid != assignment.orgVehicleID.Valid ||
 			current.orgVehicleID.Int64 != assignment.orgVehicleID.Int64 ||
+			current.orgVehicleName.Valid != assignment.orgVehicleName.Valid ||
 			current.orgVehicleName.String != assignment.orgVehicleName.String {
 			routes = append(routes, legacyRoute{
 				driverID:       assignment.driverID,
