@@ -2149,6 +2149,49 @@ tbody tr:last-child td {
     animation: toast-out 0.2s ease-in forwards;
 }
 
+.confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-lg);
+    background: rgba(17, 24, 39, 0.48);
+}
+
+.confirm-overlay.is-open {
+    display: flex;
+}
+
+.confirm-dialog {
+    width: min(100%, 28rem);
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: var(--spacing-xl);
+}
+
+.confirm-dialog-body {
+    margin-bottom: var(--spacing-lg);
+}
+
+.confirm-dialog-title {
+    margin: 0 0 var(--spacing-sm);
+}
+
+.confirm-dialog-message {
+    margin: 0;
+    color: var(--color-text-muted);
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+}
+
 @media (max-width: 768px) {
     .toast-container {
         left: var(--spacing-md);
@@ -2158,5 +2201,13 @@ tbody tr:last-child td {
 
     .toast {
         max-width: none;
+    }
+
+    .confirm-dialog {
+        padding: var(--spacing-lg);
+    }
+
+    .confirm-dialog-actions {
+        flex-direction: column-reverse;
     }
 }

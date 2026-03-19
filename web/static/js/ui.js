@@ -40,6 +40,123 @@ function toggleEventDetail(eventItem, eventId) {
 }
 
 (function () {
+  let confirmDialog = null;
+  let confirmResolve = null;
+  let confirmLastFocused = null;
+
+  function ensureConfirmDialog() {
+    if (confirmDialog) return confirmDialog;
+
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.innerHTML = `
+      <div class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+        <div class="confirm-dialog-body">
+          <h3 id="confirm-dialog-title" class="confirm-dialog-title">Confirm Action</h3>
+          <p id="confirm-dialog-message" class="confirm-dialog-message" data-confirm-message></p>
+        </div>
+        <div class="confirm-dialog-actions">
+          <button type="button" class="btn btn-outline" data-confirm-action="cancel">Cancel</button>
+          <button type="button" class="btn btn-danger" data-confirm-action="confirm">Confirm</button>
+        </div>
+      </div>
+    `;
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        closeConfirmDialog(false);
+        return;
+      }
+
+      const action = e.target.closest("[data-confirm-action]");
+      if (!action) return;
+
+      closeConfirmDialog(action.dataset.confirmAction === "confirm");
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (!overlay.classList.contains("is-open")) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeConfirmDialog(false);
+        return;
+      }
+
+      if (e.key !== "Tab") return;
+
+      const focusable = Array.from(
+        overlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+      ).filter((el) => el.offsetParent !== null);
+
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (e.shiftKey) {
+        if (active === first || !overlay.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+
+      if (active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+
+    document.body.appendChild(overlay);
+    confirmDialog = overlay;
+    return overlay;
+  }
+
+  function closeConfirmDialog(confirmed) {
+    if (!confirmDialog || !confirmDialog.classList.contains("is-open")) return;
+
+    confirmDialog.classList.remove("is-open");
+    confirmDialog.setAttribute("aria-hidden", "true");
+
+    const resolve = confirmResolve;
+    confirmResolve = null;
+
+    if (confirmLastFocused && typeof confirmLastFocused.focus === "function") {
+      confirmLastFocused.focus();
+    }
+    confirmLastFocused = null;
+
+    if (resolve) resolve(confirmed);
+  }
+
+  function showConfirmDialog(message) {
+    const overlay = ensureConfirmDialog();
+    const messageEl = overlay.querySelector("[data-confirm-message]");
+    const confirmBtn = overlay.querySelector('[data-confirm-action="confirm"]');
+
+    if (messageEl) {
+      messageEl.textContent = message || "Are you sure you want to continue?";
+    }
+
+    confirmLastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    overlay.classList.add("is-open");
+    overlay.setAttribute("aria-hidden", "false");
+
+    if (confirmBtn) {
+      const schedule = typeof requestAnimationFrame === "function" ? requestAnimationFrame : setTimeout;
+      schedule(() => confirmBtn.focus(), 0);
+    }
+
+    return new Promise((resolve) => {
+      confirmResolve = resolve;
+    });
+  }
+
   function shouldEnhanceSelects() {
     const platform = (navigator.platform || "").toLowerCase();
     const uaPlatform = (navigator.userAgentData && navigator.userAgentData.platform
@@ -298,6 +415,7 @@ function toggleEventDetail(eventItem, eventId) {
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    ensureConfirmDialog();
     initAll(document);
     initSettingsValidation();
     initAddressAutocomplete();
@@ -307,5 +425,17 @@ function toggleEventDetail(eventItem, eventId) {
     initAll(e.target);
     initSettingsValidation();
     initAddressAutocomplete();
+  });
+
+  document.addEventListener("htmx:confirm", (e) => {
+    const question = e.detail && e.detail.question;
+    const issueRequest = e.detail && e.detail.issueRequest;
+
+    if (!question || typeof issueRequest !== "function") return;
+
+    e.preventDefault();
+    showConfirmDialog(question).then((confirmed) => {
+      if (confirmed) issueRequest(true);
+    });
   });
 })();

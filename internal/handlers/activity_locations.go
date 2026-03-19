@@ -146,7 +146,19 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 	if err := h.DB.ActivityLocations().Delete(r.Context(), id); err != nil {
 		log.Printf("[ERROR] Failed to delete activity location: id=%d err=%v", id, err)
 		if strings.Contains(err.Error(), "not found") {
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, "Activity location not found", "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			h.handleNotFound(w, "Activity location not found")
+			return
+		}
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Failed to delete location", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		h.handleInternalError(w, err)

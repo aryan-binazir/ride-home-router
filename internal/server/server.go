@@ -23,6 +23,7 @@ import (
 	"ride-home-router/internal/templateutil"
 	"ride-home-router/web"
 )
+
 // Server wraps the HTTP server and all dependencies
 type Server struct {
 	httpServer *http.Server
