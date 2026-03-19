@@ -1,6 +1,6 @@
 {{range .}}
-<button type="button" class="address-suggestion" data-address="{{.DisplayName}}">
-    {{.DisplayName}}
+<button type="button" class="address-suggestion" data-address="{{if .FormattedAddress}}{{.FormattedAddress}}{{else}}{{.DisplayName}}{{end}}">
+    {{if .FormattedAddress}}{{.FormattedAddress}}{{else}}{{.DisplayName}}{{end}}
 </button>
 {{else}}
 <div class="address-no-results">No addresses found</div>
