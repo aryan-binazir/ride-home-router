@@ -123,7 +123,7 @@ func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
 
 	// Create initial session
-	session := store.Create(routes, drivers, activityLoc, false, "dropoff")
+	session := store.Create(routes, drivers, activityLoc, false, "dropoff", nil)
 	sessionID := session.ID
 
 	var wg sync.WaitGroup
@@ -183,7 +183,7 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 	}
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ"}
 
-	session := store.Create(routes, drivers, activityLoc, true, "dropoff")
+	session := store.Create(routes, drivers, activityLoc, true, "dropoff", nil)
 
 	if session.ID == "" {
 		t.Error("session should have an ID")
@@ -225,7 +225,7 @@ func TestSessionStore_Delete(t *testing.T) {
 	drivers := []models.Driver{}
 	activityLoc := &models.ActivityLocation{ID: 1}
 
-	session := store.Create(routes, drivers, activityLoc, false, "dropoff")
+	session := store.Create(routes, drivers, activityLoc, false, "dropoff", nil)
 	sessionID := session.ID
 
 	// Verify session exists
@@ -246,7 +246,7 @@ func TestSessionStore_GetExpiresIdleSession(t *testing.T) {
 	store := newRouteSessionStore(50*time.Millisecond, time.Hour)
 	t.Cleanup(store.Close)
 
-	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "dropoff")
+	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "dropoff", nil)
 	session.LastAccessedAt = time.Now().Add(-time.Second)
 
 	if got := store.Get(session.ID); got != nil {
@@ -258,7 +258,7 @@ func TestSessionStore_GetTouchesSession(t *testing.T) {
 	store := newRouteSessionStore(50*time.Millisecond, time.Hour)
 	t.Cleanup(store.Close)
 
-	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "pickup")
+	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "pickup", nil)
 
 	time.Sleep(30 * time.Millisecond)
 	if got := store.Get(session.ID); got == nil {
@@ -275,7 +275,7 @@ func TestSessionStore_DeleteExpiredRemovesStaleSessions(t *testing.T) {
 	store := newRouteSessionStore(time.Hour, time.Hour)
 	t.Cleanup(store.Close)
 
-	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "dropoff")
+	session := store.Create(nil, nil, &models.ActivityLocation{ID: 1}, false, "dropoff", nil)
 	session.LastAccessedAt = time.Now().Add(-2 * time.Hour)
 
 	store.deleteExpired(time.Now())

@@ -26,12 +26,19 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	orgVehicles, err := h.DB.OrganizationVehicles().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
 	data := map[string]interface{}{
 		"Title":             "Event Planning",
 		"ActivePage":        "home",
 		"Participants":      participants,
 		"Drivers":           drivers,
 		"ActivityLocations": activityLocations,
+		"OrgVehicles":       orgVehicles,
 	}
 
 	h.renderTemplate(w, "index.html", data)
@@ -88,15 +95,26 @@ func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Req
 	h.renderTemplate(w, "activity_locations.html", data)
 }
 
-// HandleSettingsPage handles GET /settings
-func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	settings, err := h.DB.Settings().Get(r.Context())
+// HandleVansPage handles GET /vans
+func (h *Handler) HandleVansPage(w http.ResponseWriter, r *http.Request) {
+	orgVehicles, err := h.DB.OrganizationVehicles().List(r.Context())
 	if err != nil {
 		h.renderError(w, r, err)
 		return
 	}
 
-	orgVehicles, err := h.DB.OrganizationVehicles().List(r.Context())
+	data := map[string]interface{}{
+		"Title":       "Vans",
+		"ActivePage":  "vans",
+		"OrgVehicles": orgVehicles,
+	}
+
+	h.renderTemplate(w, "vans.html", data)
+}
+
+// HandleSettingsPage handles GET /settings
+func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -111,10 +129,9 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	defaultDBPath, _ := database.GetDefaultDBPath()
 
 	data := map[string]interface{}{
-		"Title":       "Settings",
-		"ActivePage":  "settings",
-		"Settings":    settings,
-		"OrgVehicles": orgVehicles,
+		"Title":      "Settings",
+		"ActivePage": "settings",
+		"Settings":   settings,
 		"DatabaseConfig": map[string]interface{}{
 			"DatabasePath": dbConfig.DatabasePath,
 			"DefaultPath":  defaultDBPath,

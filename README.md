@@ -40,7 +40,7 @@ Manually figuring out who goes with whom is tedious and often results in unfair 
 - **Smart Route Optimization** — Balances routes across all drivers to minimize the longest route time, ensuring everyone gets home quickly
 - **Household Grouping** — Participants from the same address automatically ride together
 - **Capacity Aware** — Respects each driver's vehicle capacity
-- **Organization Vehicle Support** — Optionally designate a shared vehicle (van, bus) for overflow when regular drivers can't fit everyone
+- **Van Support** — Save shared vans and assign them to drivers during planning when personal vehicles are not enough
 - **Address Autocomplete** — Search and select addresses with live suggestions from OpenStreetMap
 - **Multiple Activity Locations** — Save different starting points (office, place of worship, school, etc.)
 - **Event History** — Keep records of past events for reference
@@ -128,17 +128,18 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 
 ### Quick Start
 
-1. **Add an Activity Location** (Settings tab) — This is where your events happen
+1. **Add an Activity Location** — Save where your events happen on the Activity Locations page
 2. **Add Participants** — People who need rides
 3. **Add Drivers** — People with vehicles, including their capacity
-4. **Calculate Routes** — Select participants, drivers, and mode (pickup or dropoff), then click Calculate
+4. **Add Vans** (Optional) — Save shared vans on the Vans page for overflow events
+5. **Calculate Routes** — Select participants, drivers, activity location, optional van assignments, and mode, then click Calculate
 
 ### Workflow
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Settings  │ ──▶ │ Add People  │ ──▶ │  Calculate  │
-│  (location) │     │  & Drivers  │     │   Routes    │
+│ Locations & │ ──▶ │ Add People  │ ──▶ │  Calculate  │
+│    Vans     │     │  & Drivers  │     │   Routes    │
 └─────────────┘     └─────────────┘     └─────────────┘
                                                │
                     ┌─────────────┐            │
@@ -150,7 +151,7 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 ### Tips
 
 - **Route Modes**: Use **Dropoff** mode after events (activity → homes → driver home) or **Pickup** mode before events (driver home → homes → activity).
-- **Organization Vehicle**: If you have a shared vehicle (van, bus), add it as an organization vehicle. It's used as overflow when regular drivers can't fit everyone.
+- **Vans**: Drivers use personal vehicles by default. Assign a saved van to a selected driver when you need extra seats for that event.
 - **Editing Routes**: After calculation, you can manually move participants between routes or swap drivers if needed.
 - **Google Maps Links**: Click "Copy with Maps Link" to get directions you can paste into Google Maps.
 
