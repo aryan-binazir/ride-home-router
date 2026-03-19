@@ -14,8 +14,9 @@ import (
 
 // CalculateRoutesRequest represents the request for route calculation
 type CalculateRoutesRequest struct {
-	ParticipantIDs []int64 `json:"participant_ids"`
-	DriverIDs      []int64 `json:"driver_ids"`
+	ParticipantIDs     []int64 `json:"participant_ids"`
+	DriverIDs          []int64 `json:"driver_ids"`
+	ActivityLocationID int64   `json:"activity_location_id"`
 }
 
 // HandleCalculateRoutes handles POST /api/v1/routes/calculate
@@ -46,6 +47,15 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			if err == nil {
 				req.DriverIDs = append(req.DriverIDs, id)
 			}
+		}
+
+		if idStr := r.FormValue("activity_location_id"); idStr != "" {
+			id, err := strconv.ParseInt(idStr, 10, 64)
+			if err != nil {
+				h.handleValidationErrorHTMX(w, r, "Please choose a valid activity location.")
+				return
+			}
+			req.ActivityLocationID = id
 		}
 
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
@@ -84,22 +94,22 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if settings.SelectedActivityLocationID == 0 {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location not configured")
-		h.handleValidationErrorHTMX(w, r, "Activity location not configured. Please set it in Settings.")
+	activityLocationID := req.ActivityLocationID
+	if activityLocationID == 0 {
+		h.handleValidationErrorHTMX(w, r, "Please choose an activity location for this event.")
 		return
 	}
 
 	// Get the selected activity location
-	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
+	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil {
 		h.handleInternalError(w, err)
 		return
 	}
 
 	if activityLocation == nil {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", settings.SelectedActivityLocationID)
-		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Please update Settings.")
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
+		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Choose another location.")
 		return
 	}
 
@@ -160,6 +170,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 					"ParticipantIDs":   req.ParticipantIDs,
 					"DriverIDs":        req.DriverIDs,
 					"ActivityLocation": activityLocation,
+					"Mode":             mode,
 					"UseMiles":         settings.UseMiles,
 				})
 				return
@@ -219,6 +230,16 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		}
 	}
 
+	activityLocationID := int64(0)
+	if idStr := r.FormValue("activity_location_id"); idStr != "" {
+		parsedID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			h.handleValidationErrorHTMX(w, r, "Please choose a valid activity location.")
+			return
+		}
+		activityLocationID = parsedID
+	}
+
 	// Parse mode (default to "dropoff" if not provided)
 	mode := r.FormValue("mode")
 	if mode == "" {
@@ -261,9 +282,14 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
+	if activityLocationID == 0 {
+		h.handleValidationErrorHTMX(w, r, "Please choose an activity location for this event.")
+		return
+	}
+
+	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil || activityLocation == nil {
-		h.handleValidationErrorHTMX(w, r, "Activity location not configured.")
+		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Choose another location.")
 		return
 	}
 
@@ -336,6 +362,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 				"ParticipantIDs":   participantIDs,
 				"DriverIDs":        driverIDs,
 				"ActivityLocation": activityLocation,
+				"Mode":             mode,
 				"UseMiles":         settings.UseMiles,
 			})
 			return

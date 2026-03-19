@@ -26,6 +26,8 @@
             {{range .DriverIDs}}
             <input type="hidden" name="driver_ids" value="{{.}}">
             {{end}}
+            <input type="hidden" name="activity_location_id" value="{{.ActivityLocation.ID}}">
+            <input type="hidden" name="mode" value="{{.Mode}}">
 
             <div class="org-vehicle-assignments">
                 <table class="table">

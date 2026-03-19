@@ -3,6 +3,8 @@
 <div class="routes-container"
      data-activity-location-name="{{.ActivityLocation.Name}}"
      data-activity-location-address="{{.ActivityLocation.Address}}"
+     data-activity-location-lat="{{printf "%.6f" .ActivityLocation.Lat}}"
+     data-activity-location-lng="{{printf "%.6f" .ActivityLocation.Lng}}"
      data-session-id="{{.SessionID}}"
      data-route-count="{{len .Routes}}"
      data-route-mode="{{.Mode}}">
@@ -32,6 +34,8 @@
          data-activity-location-address="{{$activityLocation.Address}}"
          data-driver-name="{{.Driver.Name}}"
          data-driver-address="{{.Driver.Address}}"
+         data-driver-lat="{{printf "%.6f" .Driver.Lat}}"
+         data-driver-lng="{{printf "%.6f" .Driver.Lng}}"
          data-route-index="{{$routeIndex}}"
          data-driver-id="{{.Driver.ID}}">
         <div class="route-header">
@@ -104,6 +108,8 @@
             <div class="stop-item"
                  data-participant-name="{{.Participant.Name}}"
                  data-participant-address="{{.Participant.Address}}"
+                 data-participant-lat="{{printf "%.6f" .Participant.Lat}}"
+                 data-participant-lng="{{printf "%.6f" .Participant.Lng}}"
                  data-participant-id="{{.Participant.ID}}">
                 <div class="stop-number">{{add .Order 1}}</div>
                 <div class="stop-details">

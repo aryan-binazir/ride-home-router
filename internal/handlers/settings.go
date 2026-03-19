@@ -30,8 +30,8 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 // HandleUpdateSettings handles PUT /api/v1/settings
 func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SelectedActivityLocationID int64 `json:"selected_activity_location_id"`
-		UseMiles                   bool  `json:"use_miles"`
+		SelectedActivityLocationID *int64 `json:"selected_activity_location_id"`
+		UseMiles                   bool   `json:"use_miles"`
 	}
 
 	if h.isHTMX(r) {
@@ -43,7 +43,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if idStr := r.FormValue("selected_activity_location_id"); idStr != "" {
 			if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-				req.SelectedActivityLocationID = id
+				req.SelectedActivityLocationID = &id
 			}
 		}
 		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
@@ -55,21 +55,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.SelectedActivityLocationID == 0 {
-		log.Printf("[HTTP] PUT /api/v1/settings: missing selected_activity_location_id")
-		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Please select an activity location", "type": "error"}}`)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Activity location is required")
-		return
-	}
-
-	// Verify the location exists
-	location, err := h.DB.ActivityLocations().GetByID(r.Context(), req.SelectedActivityLocationID)
+	currentSettings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
-		log.Printf("[ERROR] Failed to get activity location: err=%v", err)
+		log.Printf("[ERROR] Failed to get existing settings: err=%v", err)
 		if h.isHTMX(r) {
 			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
 			w.WriteHeader(http.StatusInternalServerError)
@@ -79,19 +67,40 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if location == nil {
-		log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", req.SelectedActivityLocationID)
-		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Selected activity location not found", "type": "error"}}`)
-			w.WriteHeader(http.StatusNotFound)
-			return
+	selectedActivityLocationID := currentSettings.SelectedActivityLocationID
+	var location *models.ActivityLocation
+
+	if req.SelectedActivityLocationID != nil {
+		selectedActivityLocationID = *req.SelectedActivityLocationID
+
+		if selectedActivityLocationID > 0 {
+			location, err = h.DB.ActivityLocations().GetByID(r.Context(), selectedActivityLocationID)
+			if err != nil {
+				log.Printf("[ERROR] Failed to get activity location: err=%v", err)
+				if h.isHTMX(r) {
+					w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				h.handleInternalError(w, err)
+				return
+			}
+
+			if location == nil {
+				log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", selectedActivityLocationID)
+				if h.isHTMX(r) {
+					w.Header().Set("HX-Trigger", `{"showToast": {"message": "Selected activity location not found", "type": "error"}}`)
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				h.handleNotFound(w, "Activity location not found")
+				return
+			}
 		}
-		h.handleNotFound(w, "Activity location not found")
-		return
 	}
 
 	settings := &models.Settings{
-		SelectedActivityLocationID: req.SelectedActivityLocationID,
+		SelectedActivityLocationID: selectedActivityLocationID,
 		UseMiles:                   req.UseMiles,
 	}
 
@@ -108,7 +117,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Updated settings: selected_location_id=%d", settings.SelectedActivityLocationID)
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Settings saved! Using: %s", "type": "success"}}`, html.EscapeString(location.Name)))
+		message := "Preferences saved!"
+		if location != nil {
+			message = fmt.Sprintf("Settings saved! Using: %s", html.EscapeString(location.Name))
+		}
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "success"}}`, message))
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

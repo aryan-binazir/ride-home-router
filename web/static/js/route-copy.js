@@ -285,36 +285,69 @@ async function addUnusedDriver(driverId) {
 
 // ============= Route Copy Functions =============
 
-/**
- * Encodes an address for use in Google Maps URL
- */
-function encodeAddressForMaps(address) {
-    return encodeURIComponent(address.trim());
+function parseCoordinate(value) {
+    const num = Number.parseFloat(value);
+    return Number.isFinite(num) ? num : null;
+}
+
+function getLocationValue(location) {
+    const lat = parseCoordinate(location?.lat);
+    const lng = parseCoordinate(location?.lng);
+    if (lat !== null && lng !== null) {
+        return `${lat},${lng}`;
+    }
+
+    const address = (location?.address || '').trim();
+    return address || null;
 }
 
 /**
  * Generates Google Maps directions URL for a route
  */
-function generateMapsUrl(instituteAddress, driverAddress, stops, mode = 'dropoff') {
+function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff') {
     if (!stops || stops.length === 0) {
         return '';
     }
 
-    let addresses;
+    let locations;
     if (mode === 'pickup') {
-        addresses = [driverAddress, ...stops.map(s => s.address), instituteAddress];
+        locations = [driverLocation, ...stops, activityLocation];
     } else {
-        addresses = [instituteAddress, ...stops.map(s => s.address), driverAddress];
+        locations = [activityLocation, ...stops, driverLocation];
     }
-    const encodedAddresses = addresses.map(encodeAddressForMaps);
 
-    return `https://www.google.com/maps/dir/${encodedAddresses.join('/')}`;
+    const resolvedLocations = locations.map(getLocationValue);
+    if (resolvedLocations.some(location => !location)) {
+        return '';
+    }
+
+    if (resolvedLocations.length < 2) {
+        return '';
+    }
+
+    const [origin, ...rest] = resolvedLocations;
+    const destination = rest[rest.length - 1];
+    const waypoints = rest.slice(0, -1);
+    const params = new URLSearchParams({
+        api: '1',
+        travelmode: 'driving',
+        origin,
+        destination
+    });
+
+    if (waypoints.length > 0) {
+        params.set('waypoints', waypoints.join('|'));
+    }
+
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 /**
  * Formats a single route for copying
  */
-function formatRouteText(activityLocationName, activityLocationAddress, driverName, driverAddress, stops, mode = 'dropoff') {
+function formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode = 'dropoff') {
+    const activityLocationAddress = activityLocation?.address || '';
+    const driverAddress = driverLocation?.address || '';
     let text = `Activity Location: ${activityLocationName}\n${activityLocationAddress}\n\n`;
     text += `Driver: ${driverName}\n${driverAddress}\n`;
 
@@ -322,7 +355,7 @@ function formatRouteText(activityLocationName, activityLocationAddress, driverNa
         text += `${index + 1}. ${stop.name} - ${stop.address}\n`;
     });
 
-    const mapsUrl = generateMapsUrl(activityLocationAddress, driverAddress, stops, mode);
+    const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
     text += `\nMaps: ${mapsUrl}\n`;
 
     return text;
@@ -335,7 +368,9 @@ function getStopsFromRouteCard(routeCard) {
     const stopItems = routeCard.querySelectorAll('.stop-item');
     return Array.from(stopItems).map(item => ({
         name: item.dataset.participantName,
-        address: item.dataset.participantAddress
+        address: item.dataset.participantAddress,
+        lat: item.dataset.participantLat,
+        lng: item.dataset.participantLng
     }));
 }
 
@@ -346,13 +381,21 @@ async function copyRoute(button) {
     const routeCard = button.closest('.route-card');
     const container = routeCard.closest('.routes-container');
     const activityLocationName = container.dataset.activityLocationName;
-    const activityLocationAddress = container.dataset.activityLocationAddress;
+    const activityLocation = {
+        address: container.dataset.activityLocationAddress,
+        lat: container.dataset.activityLocationLat,
+        lng: container.dataset.activityLocationLng
+    };
     const mode = container.dataset.routeMode || 'dropoff';
     const driverName = routeCard.dataset.driverName;
-    const driverAddress = routeCard.dataset.driverAddress;
+    const driverLocation = {
+        address: routeCard.dataset.driverAddress,
+        lat: routeCard.dataset.driverLat,
+        lng: routeCard.dataset.driverLng
+    };
     const stops = getStopsFromRouteCard(routeCard);
 
-    const text = formatRouteText(activityLocationName, activityLocationAddress, driverName, driverAddress, stops, mode);
+    const text = formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode);
 
     try {
         await navigator.clipboard.writeText(text);
@@ -385,25 +428,33 @@ async function copyAllRoutes() {
     }
 
     const activityLocationName = container.dataset.activityLocationName;
-    const activityLocationAddress = container.dataset.activityLocationAddress;
+    const activityLocation = {
+        address: container.dataset.activityLocationAddress,
+        lat: container.dataset.activityLocationLat,
+        lng: container.dataset.activityLocationLng
+    };
     const mode = container.dataset.routeMode || 'dropoff';
-    let allText = `Activity Location: ${activityLocationName}\n${activityLocationAddress}\n\n`;
+    let allText = `Activity Location: ${activityLocationName}\n${activityLocation.address}\n\n`;
 
     routeCards.forEach((routeCard, cardIndex) => {
         const driverName = routeCard.dataset.driverName;
-        const driverAddress = routeCard.dataset.driverAddress;
+        const driverLocation = {
+            address: routeCard.dataset.driverAddress,
+            lat: routeCard.dataset.driverLat,
+            lng: routeCard.dataset.driverLng
+        };
         const stops = getStopsFromRouteCard(routeCard);
 
         if (cardIndex > 0) {
             allText += '\n';
         }
 
-        allText += `Driver: ${driverName}\n${driverAddress}\n`;
+        allText += `Driver: ${driverName}\n${driverLocation.address}\n`;
         stops.forEach((stop, index) => {
             allText += `${index + 1}. ${stop.name} - ${stop.address}\n`;
         });
 
-        const mapsUrl = generateMapsUrl(activityLocationAddress, driverAddress, stops, mode);
+        const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
         allText += `Maps: ${mapsUrl}\n`;
     });
 
@@ -434,12 +485,20 @@ async function copyAllRoutes() {
 function previewRoute(button) {
     const routeCard = button.closest('.route-card');
     const container = routeCard.closest('.routes-container');
-    const activityLocationAddress = container.dataset.activityLocationAddress;
+    const activityLocation = {
+        address: container.dataset.activityLocationAddress,
+        lat: container.dataset.activityLocationLat,
+        lng: container.dataset.activityLocationLng
+    };
     const mode = container.dataset.routeMode || 'dropoff';
-    const driverAddress = routeCard.dataset.driverAddress;
+    const driverLocation = {
+        address: routeCard.dataset.driverAddress,
+        lat: routeCard.dataset.driverLat,
+        lng: routeCard.dataset.driverLng
+    };
     const stops = getStopsFromRouteCard(routeCard);
 
-    const mapsUrl = generateMapsUrl(activityLocationAddress, driverAddress, stops, mode);
+    const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
     if (mapsUrl) {
         fetch('/api/v1/open-url', {
             method: 'POST',
@@ -450,6 +509,6 @@ function previewRoute(button) {
             showToast('Failed to open browser', 'error');
         });
     } else {
-        showToast('No stops to preview', 'warning');
+        showToast('Could not build a valid Google Maps route for this trip.', 'warning');
     }
 }

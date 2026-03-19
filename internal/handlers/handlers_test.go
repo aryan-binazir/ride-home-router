@@ -12,14 +12,14 @@ func TestHandleValidationErrorHTMX_SetsToastHeader(t *testing.T) {
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
 
-	handler.handleValidationErrorHTMX(rec, req, "Activity location not configured. Please set it in Settings.")
+	handler.handleValidationErrorHTMX(rec, req, "Please choose an activity location for this event.")
 
 	res := rec.Result()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusBadRequest)
 	}
 
-	expectedTrigger := `{"showToast":{"message":"Activity location not configured. Please set it in Settings.","type":"error"}}`
+	expectedTrigger := `{"showToast":{"message":"Please choose an activity location for this event.","type":"error"}}`
 	if got := res.Header.Get("HX-Trigger"); got != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expectedTrigger)
 	}

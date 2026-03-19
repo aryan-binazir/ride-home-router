@@ -2,11 +2,83 @@
 <div class="page-header">
     <div>
         <h2 class="page-title">Plan Event</h2>
-        <p class="page-subtitle">Pick participants and available drivers, then calculate the best drop-off routes.</p>
+        <p class="page-subtitle">Choose the activity location, pick participants and drivers, then calculate the best routes.</p>
     </div>
 </div>
 
 <form id="event-form">
+    <section class="panel" style="margin-bottom: 1.5rem;">
+        <div class="panel-header">
+            <div>
+                <h3 class="panel-title">Activity Location</h3>
+                <p class="panel-subtitle">Pick where this event starts or ends.</p>
+            </div>
+            <div class="panel-actions">
+                <a href="/activity-locations" class="btn btn-sm btn-outline">Manage locations</a>
+            </div>
+        </div>
+
+        {{if .ActivityLocations}}
+        <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="activity-location-native">Location</label>
+            <div class="ui-select" id="event-activity-location-select">
+                <select id="activity-location-native" name="activity_location_id" class="form-select ui-select-native" required>
+                    <option value="">-- Select a location --</option>
+                    {{range .ActivityLocations}}
+                    <option value="{{.ID}}">
+                        {{.Name}} ({{.Address}})
+                    </option>
+                    {{end}}
+                </select>
+
+                <button type="button"
+                        class="ui-select-trigger"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        aria-label="Activity location">
+                    <span class="ui-select-trigger-text">
+                        <span class="ui-select-trigger-title">-- Select a location --</span>
+                        <span class="ui-select-trigger-subtitle hidden"></span>
+                    </span>
+                    <span class="ui-select-chevron" aria-hidden="true"></span>
+                </button>
+
+                <div class="ui-select-menu" role="listbox" tabindex="-1">
+                    <button type="button"
+                            class="ui-select-option is-selected"
+                            role="option"
+                            aria-selected="true"
+                            data-value=""
+                            data-title="-- Select a location --"
+                            data-subtitle="">
+                        <span class="ui-select-option-title">-- Select a location --</span>
+                    </button>
+                    {{range .ActivityLocations}}
+                    <button type="button"
+                            class="ui-select-option"
+                            role="option"
+                            aria-selected="false"
+                            data-value="{{.ID}}"
+                            data-title="{{.Name}}"
+                            data-subtitle="{{.Address}}">
+                        <span class="ui-select-option-title">{{.Name}}</span>
+                        <span class="ui-select-option-subtitle">{{.Address}}</span>
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+            <div class="form-help">
+                Dropoff routes begin at the activity location. Pickup routes end there.
+            </div>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <h3>No activity locations yet</h3>
+            <p>Add one on the <a href="/activity-locations">Activity Locations</a> page before calculating routes.</p>
+        </div>
+        {{end}}
+    </section>
+
     <div class="grid grid-2">
         <!-- Participants -->
         <section class="panel">
@@ -246,6 +318,12 @@
     function validateBeforeCalculate() {
         const participants = document.querySelectorAll('.participant-checkbox:checked');
         const drivers = document.querySelectorAll('.driver-checkbox:checked');
+        const activityLocation = document.querySelector('select[name="activity_location_id"]');
+
+        if (activityLocation && !activityLocation.value) {
+            showToast('Please choose an activity location for this event.', 'warning');
+            return false;
+        }
 
         if (participants.length === 0 && drivers.length === 0) {
             showToast('Please select at least one participant and one driver.', 'warning');

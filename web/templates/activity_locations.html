@@ -1,0 +1,47 @@
+{{define "content"}}
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Activity Locations</h2>
+        <p class="page-subtitle">Manage the places events happen, then pick one during event planning.</p>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Saved Locations</h3>
+    <p class="text-muted">Examples: school, soccer practice, rehearsal, or any recurring destination.</p>
+
+    <form hx-post="/api/v1/activity-locations"
+          hx-target="#location-list"
+          hx-swap="beforeend"
+          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') { this.reset(); const empty = document.getElementById('no-locations-message'); if (empty) empty.remove(); }"
+          class="mb-4">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Location Name</label>
+                <input type="text"
+                       name="name"
+                       class="form-input"
+                       placeholder="e.g., Soccer Practice"
+                       required>
+            </div>
+            <div class="form-group form-group-wide">
+                <label class="form-label">Address</label>
+                {{template "address_input" ""}}
+            </div>
+            <div class="form-group form-group-actions">
+                <button type="submit" class="btn btn-primary">Add Location</button>
+            </div>
+        </div>
+    </form>
+
+    <div id="location-list">
+        {{if .ActivityLocations}}
+        {{range .ActivityLocations}}
+        {{template "activity_location_row" .}}
+        {{end}}
+        {{else}}
+        <p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
+        {{end}}
+    </div>
+</div>
+{{end}}

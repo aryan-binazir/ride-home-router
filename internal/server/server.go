@@ -238,7 +238,7 @@ func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
 
 	// Load page templates as strings (don't parse into base)
 	pages := make(map[string]string)
-	pageFiles := []string{"index.html", "participants.html", "drivers.html", "settings.html", "history.html"}
+	pageFiles := []string{"index.html", "participants.html", "drivers.html", "activity_locations.html", "settings.html", "history.html"}
 	for _, name := range pageFiles {
 		content, err := fs.ReadFile(templatesFS, "templates/"+name)
 		if err != nil {
@@ -536,6 +536,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 		handler.HandleDriversPage(w, r)
+	})
+
+	mux.HandleFunc("/activity-locations", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleActivityLocationsPage(w, r)
 	})
 
 	mux.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {

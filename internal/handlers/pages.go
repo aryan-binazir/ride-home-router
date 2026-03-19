@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 )
 
 // HandleIndexPage handles GET /
@@ -21,11 +20,18 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	activityLocations, err := h.DB.ActivityLocations().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
 	data := map[string]interface{}{
-		"Title":        "Event Planning",
-		"ActivePage":   "home",
-		"Participants": participants,
-		"Drivers":      drivers,
+		"Title":             "Event Planning",
+		"ActivePage":        "home",
+		"Participants":      participants,
+		"Drivers":           drivers,
+		"ActivityLocations": activityLocations,
 	}
 
 	h.renderTemplate(w, "index.html", data)
@@ -65,15 +71,26 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 	h.renderTemplate(w, "drivers.html", data)
 }
 
-// HandleSettingsPage handles GET /settings
-func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	settings, err := h.DB.Settings().Get(r.Context())
+// HandleActivityLocationsPage handles GET /activity-locations
+func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Request) {
+	activityLocations, err := h.DB.ActivityLocations().List(r.Context())
 	if err != nil {
 		h.renderError(w, r, err)
 		return
 	}
 
-	activityLocations, err := h.DB.ActivityLocations().List(r.Context())
+	data := map[string]interface{}{
+		"Title":             "Activity Locations",
+		"ActivePage":        "activity_locations",
+		"ActivityLocations": activityLocations,
+	}
+
+	h.renderTemplate(w, "activity_locations.html", data)
+}
+
+// HandleSettingsPage handles GET /settings
+func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -85,15 +102,6 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var selectedLocation *models.ActivityLocation
-	if settings.SelectedActivityLocationID > 0 {
-		selectedLocation, err = h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-	}
-
 	// Load database config
 	dbConfig, err := database.LoadConfig()
 	if err != nil {
@@ -103,12 +111,10 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	defaultDBPath, _ := database.GetDefaultDBPath()
 
 	data := map[string]interface{}{
-		"Title":             "Settings",
-		"ActivePage":        "settings",
-		"Settings":          settings,
-		"ActivityLocations": activityLocations,
-		"OrgVehicles":       orgVehicles,
-		"SelectedLocation":  selectedLocation,
+		"Title":       "Settings",
+		"ActivePage":  "settings",
+		"Settings":    settings,
+		"OrgVehicles": orgVehicles,
 		"DatabaseConfig": map[string]interface{}{
 			"DatabasePath": dbConfig.DatabasePath,
 			"DefaultPath":  defaultDBPath,
