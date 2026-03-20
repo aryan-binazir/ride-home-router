@@ -51,6 +51,18 @@ type osrmTableResponse struct {
 	Durations [][]float64 `json:"durations"`
 }
 
+type matrixPair struct {
+	source      int
+	destination int
+}
+
+type missingMatrixPlan struct {
+	pairs        map[matrixPair]struct{}
+	sources      []int
+	destinations []int
+	count        int
+}
+
 // NewOSRMCalculator creates a new OSRM distance calculator with caching
 func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculator {
 	return &osrmCalculator{
@@ -115,125 +127,62 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 		matrix[i] = make([]DistanceResult, n)
 	}
 
-	// First, check cache for all pairs
-	var missingPairs []struct {
-		i, j int
+	missingPlan, err := c.hydrateMatrixFromCache(ctx, points, matrix)
+	if err != nil {
+		return nil, err
 	}
 
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if i == j {
-				matrix[i][j] = DistanceResult{DistanceMeters: 0, DurationSecs: 0}
-				continue
-			}
-
-			cached, err := c.cache.Get(ctx, points[i], points[j])
-			if err != nil {
-				return nil, err
-			}
-			if cached != nil {
-				matrix[i][j] = DistanceResult{
-					DistanceMeters: cached.DistanceMeters,
-					DurationSecs:   cached.DurationSecs,
-				}
-			} else {
-				missingPairs = append(missingPairs, struct{ i, j int }{i, j})
-			}
-		}
-	}
-
-	if len(missingPairs) == 0 {
+	if missingPlan.count == 0 {
 		log.Printf("[OSRM] Distance matrix all cached: points=%d", n)
 		return matrix, nil
 	}
 
-	log.Printf("[OSRM] Distance matrix request: points=%d cached=%d missing=%d", n, n*n-len(missingPairs), len(missingPairs))
+	log.Printf("[OSRM] Distance matrix request: points=%d cached=%d missing=%d", n, n*n-missingPlan.count, missingPlan.count)
 
 	// If points fit in one request, do single request
 	if n <= maxOSRMCoordinates {
-		return c.fetchDistanceMatrixSingle(ctx, points, matrix)
+		return c.fetchDistanceMatrixSingle(ctx, points, matrix, missingPlan)
 	}
 
 	// Otherwise, batch requests
 	log.Printf("[OSRM] Using batched requests: points=%d batches=%d", n, (n+maxOSRMCoordinates-1)/maxOSRMCoordinates)
-	return c.fetchDistanceMatrixBatched(ctx, points, matrix)
+	return c.fetchDistanceMatrixBatched(ctx, points, matrix, missingPlan)
 }
 
 // fetchDistanceMatrixSingle fetches distance matrix in a single OSRM request
-func (c *osrmCalculator) fetchDistanceMatrixSingle(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) ([][]DistanceResult, error) {
+func (c *osrmCalculator) fetchDistanceMatrixSingle(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult, missingPlan *missingMatrixPlan) ([][]DistanceResult, error) {
 	n := len(points)
-	coords := make([]string, n)
-	for i, p := range points {
-		coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
-	}
+	fullCells := n * (n - 1)
+	partialCells := len(missingPlan.sources) * len(missingPlan.destinations)
 
-	coordsStr := strings.Join(coords, ";")
-	queryURL := fmt.Sprintf("%s/table/v1/driving/%s?annotations=distance,duration", c.baseURL, coordsStr)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
-	if err != nil {
-		log.Printf("[ERROR] Failed to create OSRM request: points=%d err=%v", n, err)
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		log.Printf("[ERROR] OSRM API request failed: points=%d err=%v", n, err)
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("[ERROR] OSRM API error: points=%d status=%d body=%s", n, resp.StatusCode, string(body))
-		return nil, &ErrDistanceCalculationFailed{
-			Reason: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
-		}
-	}
-
-	var osrmResp osrmTableResponse
-	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
-		log.Printf("[ERROR] Failed to decode OSRM response: points=%d err=%v", n, err)
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-	}
-
-	if osrmResp.Code != "Ok" {
-		log.Printf("[ERROR] OSRM returned error code: points=%d code=%s", n, osrmResp.Code)
-		return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("OSRM error: %s", osrmResp.Code)}
-	}
-
-	log.Printf("[OSRM] Distance matrix response: points=%d code=%s", n, osrmResp.Code)
-
-	var cacheEntries []models.DistanceCacheEntry
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if i != j && osrmResp.Distances[i][j] > 0 {
-				matrix[i][j] = DistanceResult{
-					DistanceMeters: osrmResp.Distances[i][j],
-					DurationSecs:   osrmResp.Durations[i][j],
-				}
-
-				cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
-					Origin:         points[i],
-					Destination:    points[j],
-					DistanceMeters: osrmResp.Distances[i][j],
-					DurationSecs:   osrmResp.Durations[i][j],
-				})
-			}
-		}
-	}
-
-	if len(cacheEntries) > 0 {
-		if err := c.cache.SetBatch(ctx, cacheEntries); err != nil {
+	if partialCells < fullCells {
+		log.Printf("[OSRM] Distance matrix partial request: points=%d missing=%d sources=%d destinations=%d",
+			n, missingPlan.count, len(missingPlan.sources), len(missingPlan.destinations))
+		cacheEntries, err := c.fetchTableIntoMatrix(ctx, points, missingPlan.sources, missingPlan.destinations, missingPlan.sources, missingPlan.destinations, points, matrix, missingPlan.pairs)
+		if err != nil {
 			return nil, err
 		}
+		if err := c.persistCacheEntries(ctx, cacheEntries); err != nil {
+			return nil, err
+		}
+		return matrix, nil
+	}
+
+	log.Printf("[OSRM] Distance matrix full request: points=%d missing=%d", n, missingPlan.count)
+	allIndices := makeRangeIndices(n)
+	cacheEntries, err := c.fetchTableIntoMatrix(ctx, points, nil, nil, allIndices, allIndices, points, matrix, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.persistCacheEntries(ctx, cacheEntries); err != nil {
+		return nil, err
 	}
 
 	return matrix, nil
 }
 
 // fetchDistanceMatrixBatched fetches distance matrix using multiple batched OSRM requests
-func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) ([][]DistanceResult, error) {
+func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult, missingPlan *missingMatrixPlan) ([][]DistanceResult, error) {
 	n := len(points)
 
 	// Create batches of point indices
@@ -258,101 +207,38 @@ func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points 
 
 	for bi, batchI := range batches {
 		for bj, batchJ := range batches {
-			// Collect unique points for this batch pair
-			pointSet := make(map[int]bool)
-			for _, idx := range batchI {
-				pointSet[idx] = true
-			}
-			for _, idx := range batchJ {
-				pointSet[idx] = true
-			}
-
-			// Convert to slice and create coordinate mapping
-			var batchPoints []models.Coordinates
-			globalToLocal := make(map[int]int)
-			localIdx := 0
-			for idx := range pointSet {
-				globalToLocal[idx] = localIdx
-				batchPoints = append(batchPoints, points[idx])
-				localIdx++
-			}
-
-			if len(batchPoints) == 0 {
+			blockMissingPlan := collectMissingBlockPlan(batchI, batchJ, missingPlan.pairs)
+			if blockMissingPlan.count == 0 {
 				continue
 			}
 
-			// Build OSRM request
-			coords := make([]string, len(batchPoints))
-			for i, p := range batchPoints {
-				coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
+			batchPoints, globalToLocal := buildBatchPoints(points, batchI, batchJ)
+			fullCells := len(batchI) * len(batchJ)
+			if bi == bj {
+				fullCells -= len(batchI)
+			}
+			partialCells := len(blockMissingPlan.sources) * len(blockMissingPlan.destinations)
+
+			querySourcesGlobal := batchI
+			queryDestinationsGlobal := batchJ
+			blockMissingPairs := map[matrixPair]struct{}(nil)
+			if partialCells < fullCells {
+				log.Printf("[OSRM] Batched partial request: batch=(%d,%d) missing=%d sources=%d destinations=%d",
+					bi, bj, blockMissingPlan.count, len(blockMissingPlan.sources), len(blockMissingPlan.destinations))
+				querySourcesGlobal = blockMissingPlan.sources
+				queryDestinationsGlobal = blockMissingPlan.destinations
+				blockMissingPairs = blockMissingPlan.pairs
 			}
 
-			// Build sources and destinations indices
-			var sources, destinations []string
-			for _, idx := range batchI {
-				sources = append(sources, fmt.Sprintf("%d", globalToLocal[idx]))
-			}
-			for _, idx := range batchJ {
-				destinations = append(destinations, fmt.Sprintf("%d", globalToLocal[idx]))
-			}
-
-			coordsStr := strings.Join(coords, ";")
-			queryURL := fmt.Sprintf("%s/table/v1/driving/%s?annotations=distance,duration&sources=%s&destinations=%s",
-				c.baseURL, coordsStr, strings.Join(sources, ";"), strings.Join(destinations, ";"))
-
-			req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+			querySourcesLocal := mapIndicesToLocal(querySourcesGlobal, globalToLocal)
+			queryDestinationsLocal := mapIndicesToLocal(queryDestinationsGlobal, globalToLocal)
+			cacheEntries, err := c.fetchTableIntoMatrix(ctx, batchPoints, querySourcesLocal, queryDestinationsLocal, querySourcesGlobal, queryDestinationsGlobal, points, matrix, blockMissingPairs)
 			if err != nil {
-				return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-			}
-
-			resp, err := c.httpClient.Do(req)
-			if err != nil {
-				return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				return nil, &ErrDistanceCalculationFailed{
-					Reason: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
-				}
-			}
-
-			var osrmResp osrmTableResponse
-			if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
-				resp.Body.Close()
-				return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-			}
-			resp.Body.Close()
-
-			if osrmResp.Code != "Ok" {
-				return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("OSRM error: %s", osrmResp.Code)}
+				return nil, err
 			}
 
 			requestCount++
-
-			// Fill in matrix values
-			for si, srcIdx := range batchI {
-				for di, dstIdx := range batchJ {
-					if srcIdx == dstIdx {
-						continue
-					}
-					dist := osrmResp.Distances[si][di]
-					dur := osrmResp.Durations[si][di]
-					if dist > 0 {
-						matrix[srcIdx][dstIdx] = DistanceResult{
-							DistanceMeters: dist,
-							DurationSecs:   dur,
-						}
-						allCacheEntries = append(allCacheEntries, models.DistanceCacheEntry{
-							Origin:         points[srcIdx],
-							Destination:    points[dstIdx],
-							DistanceMeters: dist,
-							DurationSecs:   dur,
-						})
-					}
-				}
-			}
+			allCacheEntries = append(allCacheEntries, cacheEntries...)
 
 			// Rate limit between batch requests
 			if bi < len(batches)-1 || bj < len(batches)-1 {
@@ -363,10 +249,8 @@ func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points 
 
 	log.Printf("[OSRM] Batched requests complete: requests=%d entries=%d", requestCount, len(allCacheEntries))
 
-	if len(allCacheEntries) > 0 {
-		if err := c.cache.SetBatch(ctx, allCacheEntries); err != nil {
-			return nil, err
-		}
+	if err := c.persistCacheEntries(ctx, allCacheEntries); err != nil {
+		return nil, err
 	}
 
 	return matrix, nil
@@ -394,4 +278,234 @@ func (c *osrmCalculator) GetDistancesFromPoint(ctx context.Context, origin model
 func (c *osrmCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
 	_, err := c.GetDistanceMatrix(ctx, points)
 	return err
+}
+
+func (c *osrmCalculator) hydrateMatrixFromCache(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) (*missingMatrixPlan, error) {
+	n := len(points)
+	plan := &missingMatrixPlan{
+		pairs: make(map[matrixPair]struct{}),
+	}
+	sourceSeen := make([]bool, n)
+	destinationSeen := make([]bool, n)
+
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if i == j {
+				matrix[i][j] = DistanceResult{DistanceMeters: 0, DurationSecs: 0}
+				continue
+			}
+
+			cached, err := c.cache.Get(ctx, points[i], points[j])
+			if err != nil {
+				return nil, err
+			}
+			if cached != nil {
+				matrix[i][j] = DistanceResult{
+					DistanceMeters: cached.DistanceMeters,
+					DurationSecs:   cached.DurationSecs,
+				}
+				continue
+			}
+
+			pair := matrixPair{source: i, destination: j}
+			plan.pairs[pair] = struct{}{}
+			plan.count++
+			if !sourceSeen[i] {
+				sourceSeen[i] = true
+				plan.sources = append(plan.sources, i)
+			}
+			if !destinationSeen[j] {
+				destinationSeen[j] = true
+				plan.destinations = append(plan.destinations, j)
+			}
+		}
+	}
+
+	return plan, nil
+}
+
+func (c *osrmCalculator) fetchTableIntoMatrix(
+	ctx context.Context,
+	queryPoints []models.Coordinates,
+	querySources []int,
+	queryDestinations []int,
+	targetSources []int,
+	targetDestinations []int,
+	matrixPoints []models.Coordinates,
+	matrix [][]DistanceResult,
+	missingPairs map[matrixPair]struct{},
+) ([]models.DistanceCacheEntry, error) {
+	response, err := c.requestTable(ctx, queryPoints, querySources, queryDestinations)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheEntries := make([]models.DistanceCacheEntry, 0, len(targetSources)*len(targetDestinations))
+	for si, srcIdx := range targetSources {
+		for di, dstIdx := range targetDestinations {
+			if srcIdx == dstIdx {
+				continue
+			}
+			if missingPairs != nil {
+				if _, ok := missingPairs[matrixPair{source: srcIdx, destination: dstIdx}]; !ok {
+					continue
+				}
+			}
+
+			dist := response.Distances[si][di]
+			dur := response.Durations[si][di]
+			if dist <= 0 {
+				continue
+			}
+
+			matrix[srcIdx][dstIdx] = DistanceResult{
+				DistanceMeters: dist,
+				DurationSecs:   dur,
+			}
+			cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
+				Origin:         matrixPoints[srcIdx],
+				Destination:    matrixPoints[dstIdx],
+				DistanceMeters: dist,
+				DurationSecs:   dur,
+			})
+		}
+	}
+
+	return cacheEntries, nil
+}
+
+func (c *osrmCalculator) requestTable(ctx context.Context, points []models.Coordinates, sources []int, destinations []int) (*osrmTableResponse, error) {
+	coords := make([]string, len(points))
+	for i, p := range points {
+		coords[i] = fmt.Sprintf("%.6f,%.6f", p.Lng, p.Lat)
+	}
+
+	queryURL := fmt.Sprintf("%s/table/v1/driving/%s?annotations=distance,duration", c.baseURL, strings.Join(coords, ";"))
+	if len(sources) > 0 {
+		queryURL += "&sources=" + joinIndices(sources)
+	}
+	if len(destinations) > 0 {
+		queryURL += "&destinations=" + joinIndices(destinations)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create OSRM request: points=%d err=%v", len(points), err)
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		log.Printf("[ERROR] OSRM API request failed: points=%d err=%v", len(points), err)
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[ERROR] OSRM API error: points=%d status=%d body=%s", len(points), resp.StatusCode, string(body))
+		return nil, &ErrDistanceCalculationFailed{
+			Reason: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var osrmResp osrmTableResponse
+	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
+		log.Printf("[ERROR] Failed to decode OSRM response: points=%d err=%v", len(points), err)
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+	}
+
+	if osrmResp.Code != "Ok" {
+		log.Printf("[ERROR] OSRM returned error code: points=%d code=%s", len(points), osrmResp.Code)
+		return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("OSRM error: %s", osrmResp.Code)}
+	}
+
+	log.Printf("[OSRM] Distance matrix response: points=%d code=%s", len(points), osrmResp.Code)
+	return &osrmResp, nil
+}
+
+func (c *osrmCalculator) persistCacheEntries(ctx context.Context, cacheEntries []models.DistanceCacheEntry) error {
+	if len(cacheEntries) == 0 {
+		return nil
+	}
+	return c.cache.SetBatch(ctx, cacheEntries)
+}
+
+func collectMissingBlockPlan(batchI, batchJ []int, missingPairs map[matrixPair]struct{}) *missingMatrixPlan {
+	plan := &missingMatrixPlan{
+		pairs: make(map[matrixPair]struct{}),
+	}
+	sourceSeen := make(map[int]struct{}, len(batchI))
+	destinationSeen := make(map[int]struct{}, len(batchJ))
+
+	for _, srcIdx := range batchI {
+		for _, dstIdx := range batchJ {
+			if srcIdx == dstIdx {
+				continue
+			}
+
+			pair := matrixPair{source: srcIdx, destination: dstIdx}
+			if _, ok := missingPairs[pair]; !ok {
+				continue
+			}
+
+			plan.pairs[pair] = struct{}{}
+			plan.count++
+			if _, ok := sourceSeen[srcIdx]; !ok {
+				sourceSeen[srcIdx] = struct{}{}
+				plan.sources = append(plan.sources, srcIdx)
+			}
+			if _, ok := destinationSeen[dstIdx]; !ok {
+				destinationSeen[dstIdx] = struct{}{}
+				plan.destinations = append(plan.destinations, dstIdx)
+			}
+		}
+	}
+
+	return plan
+}
+
+func buildBatchPoints(points []models.Coordinates, batchI, batchJ []int) ([]models.Coordinates, map[int]int) {
+	batchPoints := make([]models.Coordinates, 0, len(batchI)+len(batchJ))
+	globalToLocal := make(map[int]int, len(batchI)+len(batchJ))
+	addPoint := func(idx int) {
+		if _, ok := globalToLocal[idx]; ok {
+			return
+		}
+		globalToLocal[idx] = len(batchPoints)
+		batchPoints = append(batchPoints, points[idx])
+	}
+
+	for _, idx := range batchI {
+		addPoint(idx)
+	}
+	for _, idx := range batchJ {
+		addPoint(idx)
+	}
+
+	return batchPoints, globalToLocal
+}
+
+func mapIndicesToLocal(indices []int, globalToLocal map[int]int) []int {
+	local := make([]int, len(indices))
+	for i, idx := range indices {
+		local[i] = globalToLocal[idx]
+	}
+	return local
+}
+
+func makeRangeIndices(n int) []int {
+	indices := make([]int, n)
+	for i := range indices {
+		indices[i] = i
+	}
+	return indices
+}
+
+func joinIndices(indices []int) string {
+	parts := make([]string, len(indices))
+	for i, idx := range indices {
+		parts[i] = fmt.Sprintf("%d", idx)
+	}
+	return strings.Join(parts, ";")
 }
