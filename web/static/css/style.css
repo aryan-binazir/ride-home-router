@@ -1101,6 +1101,95 @@ tbody tr:last-child td {
     flex-wrap: wrap;
 }
 
+.van-assignment-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    padding: 0.875rem 1rem;
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-bg-alt);
+}
+
+.van-assignment-instructions {
+    margin-bottom: var(--spacing-md);
+    padding: 0.875rem 1rem;
+    border-left: 4px solid var(--color-primary);
+    border-radius: var(--border-radius);
+    background: var(--color-primary-light);
+}
+
+.van-assignment-summary-value {
+    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+    font-size: 1.125rem;
+    font-weight: 700;
+}
+
+.van-assignment-list {
+    display: grid;
+    gap: var(--spacing-md);
+}
+
+.van-assignment-row {
+    display: grid;
+    gap: var(--spacing-md);
+}
+
+.van-assignment-row-main {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+
+.van-assignment-driver {
+    font-weight: 700;
+}
+
+.van-assignment-address {
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+}
+
+.van-assignment-stats {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.onboarding-card {
+    margin-bottom: var(--spacing-xl);
+}
+
+.onboarding-steps {
+    display: grid;
+    gap: var(--spacing-md);
+}
+
+.onboarding-step {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+}
+
+.onboarding-step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: white;
+    font-weight: 700;
+    box-shadow: var(--shadow-primary);
+    flex-shrink: 0;
+}
+
 .badge {
     display: inline-flex;
     align-items: center;
@@ -1750,6 +1839,15 @@ tbody tr:last-child td {
         grid-template-columns: 1fr;
     }
 
+    .van-assignment-summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .van-assignment-row-main {
+        flex-direction: column;
+    }
+
     .route-header {
         flex-direction: column;
         align-items: flex-start;
@@ -2051,6 +2149,49 @@ tbody tr:last-child td {
     animation: toast-out 0.2s ease-in forwards;
 }
 
+.confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-lg);
+    background: rgba(17, 24, 39, 0.48);
+}
+
+.confirm-overlay.is-open {
+    display: flex;
+}
+
+.confirm-dialog {
+    width: min(100%, 28rem);
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: var(--spacing-xl);
+}
+
+.confirm-dialog-body {
+    margin-bottom: var(--spacing-lg);
+}
+
+.confirm-dialog-title {
+    margin: 0 0 var(--spacing-sm);
+}
+
+.confirm-dialog-message {
+    margin: 0;
+    color: var(--color-text-muted);
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+}
+
 @media (max-width: 768px) {
     .toast-container {
         left: var(--spacing-md);
@@ -2060,5 +2201,13 @@ tbody tr:last-child td {
 
     .toast {
         max-width: none;
+    }
+
+    .confirm-dialog {
+        padding: var(--spacing-lg);
+    }
+
+    .confirm-dialog-actions {
+        flex-direction: column-reverse;
     }
 }

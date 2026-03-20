@@ -22,15 +22,16 @@ const (
 
 // RouteSession stores calculated routes for editing
 type RouteSession struct {
-	ID               string
-	OriginalRoutes   []models.CalculatedRoute
-	CurrentRoutes    []models.CalculatedRoute
-	SelectedDrivers  []models.Driver
-	ActivityLocation *models.ActivityLocation
-	UseMiles         bool
-	Mode             string // "pickup" or "dropoff"
-	LastAccessedAt   time.Time
-	mu               sync.Mutex // Protects session data during modifications
+	ID                string
+	OriginalRoutes    []models.CalculatedRoute
+	CurrentRoutes     []models.CalculatedRoute
+	SelectedDrivers   []models.Driver
+	DriverOrgVehicles map[int64]*models.OrganizationVehicle
+	ActivityLocation  *models.ActivityLocation
+	UseMiles          bool
+	Mode              string // "pickup" or "dropoff"
+	LastAccessedAt    time.Time
+	mu                sync.Mutex // Protects session data during modifications
 }
 
 // RouteSessionStore manages route editing sessions in memory
@@ -62,7 +63,7 @@ func newRouteSessionStore(ttl, cleanupInterval time.Duration) *RouteSessionStore
 	return store
 }
 
-func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, mode string) *RouteSession {
+func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, mode string, driverOrgVehicles map[int64]*models.OrganizationVehicle) *RouteSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -73,14 +74,15 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []mo
 	currentRoutes := deepCopyRoutes(routes)
 
 	session := &RouteSession{
-		ID:               id,
-		OriginalRoutes:   originalRoutes,
-		CurrentRoutes:    currentRoutes,
-		SelectedDrivers:  drivers,
-		ActivityLocation: activityLocation,
-		UseMiles:         useMiles,
-		Mode:             mode,
-		LastAccessedAt:   time.Now(),
+		ID:                id,
+		OriginalRoutes:    originalRoutes,
+		CurrentRoutes:     currentRoutes,
+		SelectedDrivers:   drivers,
+		DriverOrgVehicles: copyOrgVehicleAssignments(driverOrgVehicles),
+		ActivityLocation:  activityLocation,
+		UseMiles:          useMiles,
+		Mode:              mode,
+		LastAccessedAt:    time.Now(),
 	}
 
 	s.sessions[id] = session
@@ -232,6 +234,22 @@ func copyParticipant(p *models.Participant) *models.Participant {
 	}
 	copy := *p
 	return &copy
+}
+
+func copyOrgVehicleAssignments(assignments map[int64]*models.OrganizationVehicle) map[int64]*models.OrganizationVehicle {
+	if len(assignments) == 0 {
+		return map[int64]*models.OrganizationVehicle{}
+	}
+
+	result := make(map[int64]*models.OrganizationVehicle, len(assignments))
+	for driverID, vehicle := range assignments {
+		if vehicle == nil {
+			continue
+		}
+		copy := *vehicle
+		result[driverID] = &copy
+	}
+	return result
 }
 
 func buildRoutingPayload(routes []models.CalculatedRoute, summary models.RoutingSummary, mode string) models.RoutingResult {
@@ -507,14 +525,12 @@ func (h *Handler) calculateSummary(routes []models.CalculatedRoute) models.Routi
 		}
 		summary.TotalDropoffDistanceMeters += route.TotalDropoffDistanceMeters
 		summary.TotalDistanceMeters += route.TotalDistanceMeters
-		if route.OrgVehicleID > 0 {
-			summary.OrgVehiclesUsed++
-		}
 		if route.DetourSecs > summary.MaxDetourSecs {
 			summary.MaxDetourSecs = route.DetourSecs
 		}
 		summary.SumDetourSecs += route.DetourSecs
 	}
+	summary.OrgVehiclesUsed = countUsedOrgVehicles(routes)
 
 	if summary.TotalDriversUsed > 0 {
 		summary.AverageDetourSecs = summary.SumDetourSecs / float64(summary.TotalDriversUsed)
@@ -595,6 +611,11 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		Stops:             []models.RouteStop{},
 		EffectiveCapacity: driverToAdd.VehicleCapacity,
 		Mode:              session.Mode,
+	}
+	if van, ok := session.DriverOrgVehicles[driverToAdd.ID]; ok && van != nil {
+		newRoute.OrgVehicleID = van.ID
+		newRoute.OrgVehicleName = van.Name
+		newRoute.EffectiveCapacity = van.Capacity
 	}
 	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, &newRoute); err != nil {
 		h.handleInternalError(w, err)

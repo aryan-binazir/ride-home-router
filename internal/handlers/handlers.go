@@ -91,12 +91,28 @@ func (h *Handler) handleValidationError(w http.ResponseWriter, message string) {
 // handleValidationErrorHTMX handles 400 errors with htmx support
 func (h *Handler) handleValidationErrorHTMX(w http.ResponseWriter, r *http.Request, message string) {
 	if h.isHTMX(r) {
+		h.setHTMXToast(w, message, "error")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
 		return
 	}
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
+}
+
+func (h *Handler) setHTMXToast(w http.ResponseWriter, message, toastType string) {
+	payload, err := json.Marshal(map[string]map[string]string{
+		"showToast": {
+			"message": message,
+			"type":    toastType,
+		},
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal HX-Trigger toast payload: %v", err)
+		return
+	}
+
+	w.Header().Set("HX-Trigger", string(payload))
 }
 
 // handleGeocodingError handles 422 errors for geocoding failures

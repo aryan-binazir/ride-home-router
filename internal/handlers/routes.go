@@ -2,20 +2,21 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 )
 
 // CalculateRoutesRequest represents the request for route calculation
 type CalculateRoutesRequest struct {
-	ParticipantIDs []int64 `json:"participant_ids"`
-	DriverIDs      []int64 `json:"driver_ids"`
+	ParticipantIDs     []int64 `json:"participant_ids"`
+	DriverIDs          []int64 `json:"driver_ids"`
+	ActivityLocationID int64   `json:"activity_location_id"`
 }
 
 // HandleCalculateRoutes handles POST /api/v1/routes/calculate
@@ -48,6 +49,15 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
+		if idStr := r.FormValue("activity_location_id"); idStr != "" {
+			id, err := strconv.ParseInt(idStr, 10, 64)
+			if err != nil {
+				h.handleValidationErrorHTMX(w, r, "Please choose a valid activity location.")
+				return
+			}
+			req.ActivityLocationID = id
+		}
+
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
 	} else {
 		// Handle JSON
@@ -76,6 +86,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		mode = "dropoff"
 	}
 
+	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, req.DriverIDs)
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
+		return
+	}
+
 	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d mode=%s", len(req.ParticipantIDs), len(req.DriverIDs), mode)
 
 	settings, err := h.DB.Settings().Get(r.Context())
@@ -84,22 +100,22 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if settings.SelectedActivityLocationID == 0 {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location not configured")
-		h.handleValidationErrorHTMX(w, r, "Activity location not configured. Please set it in Settings.")
+	activityLocationID := req.ActivityLocationID
+	if activityLocationID == 0 {
+		h.handleValidationErrorHTMX(w, r, "Please choose an activity location for this event.")
 		return
 	}
 
 	// Get the selected activity location
-	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
+	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil {
 		h.handleInternalError(w, err)
 		return
 	}
 
 	if activityLocation == nil {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", settings.SelectedActivityLocationID)
-		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Please update Settings.")
+		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
+		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Choose another location.")
 		return
 	}
 
@@ -127,10 +143,21 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	orgVehicleMap, err := h.loadAssignedOrgVehicles(r.Context(), orgVehicleAssignments)
+	if err != nil {
+		if errors.Is(err, errSelectedVanNotFound) {
+			h.handleValidationErrorHTMX(w, r, err.Error())
+		} else {
+			h.handleInternalError(w, err)
+		}
+		return
+	}
+	modifiedDrivers, driverOrgVehicle := applyOrgVehicleAssignments(drivers, orgVehicleAssignments, orgVehicleMap)
+
 	routingReq := &routing.RoutingRequest{
 		InstituteCoords: activityLocation.GetCoords(),
 		Participants:    participants,
-		Drivers:         drivers,
+		Drivers:         modifiedDrivers,
 		Mode:            routing.RouteMode(mode),
 	}
 
@@ -142,26 +169,22 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			// For HTMX requests, show the capacity shortage UI with org vehicle assignment options
 			if h.isHTMX(r) {
 				orgVehicles, _ := h.DB.OrganizationVehicles().List(r.Context())
-				shortage := rerr.TotalParticipants - rerr.TotalCapacity
 
 				// Trigger a warning toast
-				w.Header().Set("HX-Trigger", `{"showToast":{"message":"Not enough capacity - need `+strconv.Itoa(shortage)+` more seats","type":"warning"}}`)
+				w.Header().Set("HX-Trigger", `{"showToast":{"message":"Not enough capacity - need `+strconv.Itoa(rerr.TotalParticipants-rerr.TotalCapacity)+` more seats","type":"warning"}}`)
 
-				h.renderTemplate(w, "capacity_shortage", map[string]interface{}{
-					"Error": map[string]interface{}{
-						"Message":           rerr.Reason,
-						"UnassignedCount":   rerr.UnassignedCount,
-						"TotalCapacity":     rerr.TotalCapacity,
-						"TotalParticipants": rerr.TotalParticipants,
-						"Shortage":          shortage,
-					},
-					"Drivers":          drivers,
-					"OrgVehicles":      orgVehicles,
-					"ParticipantIDs":   req.ParticipantIDs,
-					"DriverIDs":        req.DriverIDs,
-					"ActivityLocation": activityLocation,
-					"UseMiles":         settings.UseMiles,
-				})
+				h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
+					rerr,
+					drivers,
+					orgVehicles,
+					req.ParticipantIDs,
+					req.DriverIDs,
+					activityLocation,
+					mode,
+					settings.UseMiles,
+					orgVehicleAssignments,
+					driverOrgVehicle,
+				))
 				return
 			}
 
@@ -175,8 +198,11 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
 
+	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicle)
+	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
+
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles, mode)
+	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, mode, driverOrgVehicle)
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
@@ -219,27 +245,26 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		}
 	}
 
+	activityLocationID := int64(0)
+	if idStr := r.FormValue("activity_location_id"); idStr != "" {
+		parsedID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			h.handleValidationErrorHTMX(w, r, "Please choose a valid activity location.")
+			return
+		}
+		activityLocationID = parsedID
+	}
+
 	// Parse mode (default to "dropoff" if not provided)
 	mode := r.FormValue("mode")
 	if mode == "" {
 		mode = "dropoff"
 	}
 
-	// Parse org vehicle assignments (org_vehicle_{driverID} = orgVehicleID)
-	orgVehicleAssignments := make(map[int64]int64) // driverID -> orgVehicleID
-	for key, values := range r.Form {
-		if strings.HasPrefix(key, "org_vehicle_") && len(values) > 0 && values[0] != "" {
-			driverIDStr := strings.TrimPrefix(key, "org_vehicle_")
-			driverID, err := strconv.ParseInt(driverIDStr, 10, 64)
-			if err != nil {
-				continue
-			}
-			orgVehicleID, err := strconv.ParseInt(values[0], 10, 64)
-			if err != nil {
-				continue
-			}
-			orgVehicleAssignments[driverID] = orgVehicleID
-		}
+	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
+		return
 	}
 
 	log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: participants=%d drivers=%d org_assignments=%d mode=%s",
@@ -261,9 +286,14 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), settings.SelectedActivityLocationID)
+	if activityLocationID == 0 {
+		h.handleValidationErrorHTMX(w, r, "Please choose an activity location for this event.")
+		return
+	}
+
+	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil || activityLocation == nil {
-		h.handleValidationErrorHTMX(w, r, "Activity location not configured.")
+		h.handleValidationErrorHTMX(w, r, "Selected activity location not found. Choose another location.")
 		return
 	}
 
@@ -279,33 +309,20 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	// Load org vehicles that are assigned
-	var orgVehicleIDs []int64
-	for _, ovID := range orgVehicleAssignments {
-		orgVehicleIDs = append(orgVehicleIDs, ovID)
-	}
-	orgVehicles, err := h.DB.OrganizationVehicles().GetByIDs(r.Context(), orgVehicleIDs)
+	orgVehicleMap, err := h.loadAssignedOrgVehicles(r.Context(), orgVehicleAssignments)
 	if err != nil {
-		h.handleInternalError(w, err)
+		if errors.Is(err, errSelectedVanNotFound) {
+			h.handleValidationErrorHTMX(w, r, err.Error())
+		} else {
+			h.handleInternalError(w, err)
+		}
 		return
 	}
-	orgVehicleMap := make(map[int64]*models.OrganizationVehicle)
-	for i := range orgVehicles {
-		orgVehicleMap[orgVehicles[i].ID] = &orgVehicles[i]
-	}
-
-	// Modify driver capacities based on org vehicle assignments
-	modifiedDrivers := make([]models.Driver, len(drivers))
-	driverOrgVehicle := make(map[int64]*models.OrganizationVehicle) // track which driver has which org vehicle
-	for i, d := range drivers {
-		modifiedDrivers[i] = d
-		if ovID, ok := orgVehicleAssignments[d.ID]; ok {
-			if ov, exists := orgVehicleMap[ovID]; exists {
-				modifiedDrivers[i].VehicleCapacity = ov.Capacity
-				driverOrgVehicle[d.ID] = ov
-				log.Printf("[ROUTING] Driver %s assigned org vehicle %s (capacity %d -> %d)",
-					d.Name, ov.Name, d.VehicleCapacity, ov.Capacity)
-			}
+	modifiedDrivers, driverOrgVehicle := applyOrgVehicleAssignments(drivers, orgVehicleAssignments, orgVehicleMap)
+	for _, driver := range drivers {
+		if vehicle, ok := driverOrgVehicle[driver.ID]; ok && vehicle != nil {
+			log.Printf("[ROUTING] Driver %s assigned org vehicle %s (capacity %d -> %d)",
+				driver.Name, vehicle.Name, driver.VehicleCapacity, vehicle.Capacity)
 		}
 	}
 
@@ -321,49 +338,35 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		if rerr, ok := err.(*routing.ErrRoutingFailed); ok {
 			// Still not enough capacity - show the UI again
 			allOrgVehicles, _ := h.DB.OrganizationVehicles().List(r.Context())
-			shortage := rerr.TotalParticipants - rerr.TotalCapacity
 
-			h.renderTemplate(w, "capacity_shortage", map[string]interface{}{
-				"Error": map[string]interface{}{
-					"Message":           rerr.Reason,
-					"UnassignedCount":   rerr.UnassignedCount,
-					"TotalCapacity":     rerr.TotalCapacity,
-					"TotalParticipants": rerr.TotalParticipants,
-					"Shortage":          shortage,
-				},
-				"Drivers":          drivers, // Original drivers for display
-				"OrgVehicles":      allOrgVehicles,
-				"ParticipantIDs":   participantIDs,
-				"DriverIDs":        driverIDs,
-				"ActivityLocation": activityLocation,
-				"UseMiles":         settings.UseMiles,
-			})
+			h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
+				rerr,
+				drivers,
+				allOrgVehicles,
+				participantIDs,
+				driverIDs,
+				activityLocation,
+				mode,
+				settings.UseMiles,
+				orgVehicleAssignments,
+				driverOrgVehicle,
+			))
 			return
 		}
 		h.handleInternalError(w, err)
 		return
 	}
 
-	// Update routes with org vehicle info
-	for i := range result.Routes {
-		route := &result.Routes[i]
-		if ov, ok := driverOrgVehicle[route.Driver.ID]; ok {
-			route.OrgVehicleID = ov.ID
-			route.OrgVehicleName = ov.Name
-			route.EffectiveCapacity = ov.Capacity
-		} else {
-			route.EffectiveCapacity = route.Driver.VehicleCapacity
-		}
-	}
+	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicle)
 
 	// Count org vehicles used in summary
-	result.Summary.OrgVehiclesUsed = len(driverOrgVehicle)
+	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
 
 	log.Printf("[HTTP] Routes calculated with org vehicles: drivers=%d org_vehicles=%d total_distance=%.0f",
 		result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, drivers, activityLocation, settings.UseMiles, mode)
+	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, mode, driverOrgVehicle)
 
 	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
 	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))

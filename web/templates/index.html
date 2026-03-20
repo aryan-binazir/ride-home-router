@@ -2,13 +2,84 @@
 <div class="page-header">
     <div>
         <h2 class="page-title">Plan Event</h2>
-        <p class="page-subtitle">Pick participants and available drivers, then calculate the best drop-off routes.</p>
+        <p class="page-subtitle">Choose the activity location, pick participants and drivers, and assign a van when overflow capacity is needed before calculating routes.</p>
     </div>
 </div>
 
 <form id="event-form">
+    <section class="panel" style="margin-bottom: 1.5rem;">
+        <div class="panel-header">
+            <div>
+                <h3 class="panel-title">Activity Location</h3>
+                <p class="panel-subtitle">Pick where this event starts or ends.</p>
+            </div>
+            <div class="panel-actions">
+                <a href="/activity-locations" class="btn btn-sm btn-outline">Manage locations</a>
+            </div>
+        </div>
+
+        {{if .ActivityLocations}}
+        <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="activity-location-native">Location</label>
+            <div class="ui-select" id="event-activity-location-select">
+                <select id="activity-location-native" name="activity_location_id" class="form-select ui-select-native" required>
+                    <option value="">-- Select a location --</option>
+                    {{range .ActivityLocations}}
+                    <option value="{{.ID}}">
+                        {{.Name}} ({{.Address}})
+                    </option>
+                    {{end}}
+                </select>
+
+                <button type="button"
+                        class="ui-select-trigger"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        aria-label="Activity location">
+                    <span class="ui-select-trigger-text">
+                        <span class="ui-select-trigger-title">-- Select a location --</span>
+                        <span class="ui-select-trigger-subtitle hidden"></span>
+                    </span>
+                    <span class="ui-select-chevron" aria-hidden="true"></span>
+                </button>
+
+                <div class="ui-select-menu" role="listbox" tabindex="-1">
+                    <button type="button"
+                            class="ui-select-option is-selected"
+                            role="option"
+                            aria-selected="true"
+                            data-value=""
+                            data-title="-- Select a location --"
+                            data-subtitle="">
+                        <span class="ui-select-option-title">-- Select a location --</span>
+                    </button>
+                    {{range .ActivityLocations}}
+                    <button type="button"
+                            class="ui-select-option"
+                            role="option"
+                            aria-selected="false"
+                            data-value="{{.ID}}"
+                            data-title="{{.Name}}"
+                            data-subtitle="{{.Address}}">
+                        <span class="ui-select-option-title">{{.Name}}</span>
+                        <span class="ui-select-option-subtitle">{{.Address}}</span>
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+            <div class="form-help">
+                Dropoff routes begin at the activity location. Pickup routes end there.
+            </div>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <h3>No activity locations yet</h3>
+            <p>Add one on the <a href="/activity-locations">Activity Locations</a> page before calculating routes.</p>
+        </div>
+        {{end}}
+    </section>
+
     <div class="grid grid-2">
-        <!-- Participants -->
         <section class="panel">
             <div class="panel-header">
                 <div>
@@ -54,12 +125,11 @@
             {{end}}
         </section>
 
-        <!-- Drivers -->
         <section class="panel">
             <div class="panel-header">
                 <div>
                     <h3 class="panel-title">Drivers</h3>
-                    <p class="panel-subtitle">Who's available to drive?</p>
+                    <p class="panel-subtitle">Who's available to drive? After you select drivers, you can assign vans below if extra seats are needed.</p>
                 </div>
                 <div class="panel-actions">
                     <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select all</button>
@@ -86,7 +156,9 @@
                            name="driver_ids"
                            value="{{.ID}}"
                            class="form-checkbox driver-checkbox select-control"
-                           data-capacity="{{.VehicleCapacity}}">
+                           data-capacity="{{.VehicleCapacity}}"
+                           data-driver-name="{{.Name}}"
+                           data-driver-address="{{.Address}}">
                     <span class="select-row-content">
                         <span class="select-row-title">{{.Name}}</span>
                         <span class="select-row-subtitle">{{.Address}}</span>
@@ -106,7 +178,16 @@
         </section>
     </div>
 
-    <!-- Action Bar -->
+    <section class="panel hidden" id="van-assignments-panel" style="margin-top: 1.5rem;">
+        <div class="panel-header">
+            <div>
+                <h3 class="panel-title">Van Assignments</h3>
+                <p class="panel-subtitle">Use this only if a selected driver should drive a van instead of their personal vehicle for this event.</p>
+            </div>
+        </div>
+        <div id="van-assignments-content"></div>
+    </section>
+
     <div class="action-bar">
         <div class="action-bar-left">
             <button type="button" class="btn btn-secondary" onclick="clearSelections()">
@@ -150,7 +231,8 @@
     </div>
 </form>
 
-<!-- Results Section -->
+<script type="application/json" id="event-org-vehicles">{{toJSONRaw .OrgVehicles}}</script>
+
 <div id="results-section">
     <div class="results-loading htmx-indicator calculate-indicator">
         <div class="loading-overlay">
@@ -161,13 +243,182 @@
 </div>
 
 <script>
+    function getCheckedInputs(selector) {
+        return Array.from(document.querySelectorAll(selector)).filter(input => input.checked);
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getOrgVehicles() {
+        const el = document.getElementById('event-org-vehicles');
+        if (!el) return [];
+
+        try {
+            const parsed = JSON.parse(el.textContent || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (err) {
+            console.error('Failed to parse vans JSON', err);
+            return [];
+        }
+    }
+
+    function getVanAssignments() {
+        const assignments = {};
+        document.querySelectorAll('.van-assignment-select').forEach(select => {
+            if (select.value) {
+                assignments[select.dataset.driverId] = select.value;
+            }
+        });
+        return assignments;
+    }
+
+    function updateVanSelectionOptions() {
+        const selects = document.querySelectorAll('.van-assignment-select');
+        const assignedVehicles = new Map();
+
+        selects.forEach(select => {
+            if (select.value) {
+                assignedVehicles.set(select.value, select.dataset.driverId);
+            }
+        });
+
+        selects.forEach(select => {
+            Array.from(select.options).forEach(option => {
+                if (!option.value) {
+                    option.disabled = false;
+                    return;
+                }
+
+                const owner = assignedVehicles.get(option.value);
+                option.disabled = !!owner && owner !== select.dataset.driverId;
+            });
+        });
+    }
+
+    function updateVanCapacitySummary() {
+        let totalCapacity = 0;
+        document.querySelectorAll('.van-assignment-row').forEach(row => {
+            const select = row.querySelector('.van-assignment-select');
+            const selectedOption = select ? select.options[select.selectedIndex] : null;
+            const capacity = selectedOption ? (parseInt(selectedOption.dataset.capacity, 10) || 0) : 0;
+            totalCapacity += capacity;
+
+            const valueEl = row.querySelector('.van-effective-capacity-value');
+            if (valueEl) {
+                valueEl.textContent = `${capacity} seats`;
+            }
+        });
+
+        const totalEl = document.getElementById('van-total-capacity');
+        if (totalEl) {
+            totalEl.textContent = `${totalCapacity} available seats`;
+        }
+    }
+
+    function handleVanAssignmentChange() {
+        updateVanSelectionOptions();
+        updateVanCapacitySummary();
+        updateEventStats();
+    }
+
+    function renderVanAssignmentsPanel() {
+        const panel = document.getElementById('van-assignments-panel');
+        const content = document.getElementById('van-assignments-content');
+        if (!panel || !content) return;
+
+        const selectedDrivers = getCheckedInputs('.driver-checkbox');
+        if (selectedDrivers.length === 0) {
+            panel.classList.add('hidden');
+            content.innerHTML = '';
+            return;
+        }
+
+        panel.classList.remove('hidden');
+
+        const orgVehicles = getOrgVehicles();
+        if (orgVehicles.length === 0) {
+            content.innerHTML = `
+                <div class="empty-state compact-empty-state">
+                    <h3>No vans saved yet</h3>
+                    <p>Add a van on the <a href="/vans">Vans</a> page first. Then return here, select drivers, and assign the van to the driver who will use it.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const existingAssignments = getVanAssignments();
+        const rows = selectedDrivers.map((checkbox) => {
+            const driverId = checkbox.value;
+            const personalCapacity = parseInt(checkbox.dataset.capacity, 10) || 0;
+            const selectedVehicleId = existingAssignments[driverId] || '';
+            const options = orgVehicles.map((vehicle) => {
+                const selected = String(vehicle.id) === String(selectedVehicleId) ? ' selected' : '';
+                return `<option value="${vehicle.id}" data-capacity="${vehicle.capacity}"${selected}>${escapeHtml(vehicle.name)} (${vehicle.capacity} available seats)</option>`;
+            }).join('');
+
+            return `
+                <div class="list-card van-assignment-row" data-driver-id="${driverId}">
+                    <div class="van-assignment-row-main">
+                        <div>
+                            <div class="van-assignment-driver">${escapeHtml(checkbox.dataset.driverName)}</div>
+                            <div class="van-assignment-address">${escapeHtml(checkbox.dataset.driverAddress)}</div>
+                        </div>
+                        <div class="van-assignment-stats">
+                            <span class="badge badge-muted">Personal: ${personalCapacity} seats</span>
+                            <span class="badge badge-info van-effective-capacity-value">${personalCapacity} seats</span>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" for="van-assignment-${driverId}">Vehicle for ${escapeHtml(checkbox.dataset.driverName)}</label>
+                        <select id="van-assignment-${driverId}"
+                                name="org_vehicle_${driverId}"
+                                class="form-select van-assignment-select"
+                                data-driver-id="${driverId}"
+                                onchange="handleVanAssignmentChange()">
+                            <option value="" data-capacity="${personalCapacity}">Personal vehicle</option>
+                            ${options}
+                        </select>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        content.innerHTML = `
+            <div class="van-assignment-instructions">
+                <strong>How to use this:</strong> select a van for the driver who will use it. Leave "Personal vehicle" selected for everyone else.
+            </div>
+            <div class="van-assignment-summary">
+                <div>
+                    <strong>Total available seats</strong>
+                    <span class="text-muted">across the selected drivers after van assignments are applied</span>
+                </div>
+                <div id="van-total-capacity" class="van-assignment-summary-value"></div>
+            </div>
+            <div class="van-assignment-list">${rows}</div>
+        `;
+
+        handleVanAssignmentChange();
+    }
+
     function updateEventStats() {
-        const participants = document.querySelectorAll('.participant-checkbox:checked');
-        const drivers = document.querySelectorAll('.driver-checkbox:checked');
+        const participants = getCheckedInputs('.participant-checkbox');
+        const drivers = getCheckedInputs('.driver-checkbox');
 
         let totalCapacity = 0;
         drivers.forEach(cb => {
-            totalCapacity += parseInt(cb.dataset.capacity) || 0;
+            const select = document.getElementById(`van-assignment-${cb.value}`);
+            if (select) {
+                totalCapacity += parseInt(select.options[select.selectedIndex].dataset.capacity, 10) || 0;
+                return;
+            }
+            totalCapacity += parseInt(cb.dataset.capacity, 10) || 0;
         });
 
         const participantsCount = participants.length;
@@ -223,6 +474,7 @@
             const row = cb.closest('.select-row');
             if (row) row.classList.add('is-selected');
         });
+        renderVanAssignmentsPanel();
         updateEventStats();
     }
 
@@ -240,12 +492,19 @@
         </div>
     </div>
 `;
+        renderVanAssignmentsPanel();
         updateEventStats();
     }
 
     function validateBeforeCalculate() {
-        const participants = document.querySelectorAll('.participant-checkbox:checked');
-        const drivers = document.querySelectorAll('.driver-checkbox:checked');
+        const participants = getCheckedInputs('.participant-checkbox');
+        const drivers = getCheckedInputs('.driver-checkbox');
+        const activityLocation = document.querySelector('select[name="activity_location_id"]');
+
+        if (activityLocation && !activityLocation.value) {
+            showToast('Please choose an activity location for this event.', 'warning');
+            return false;
+        }
 
         if (participants.length === 0 && drivers.length === 0) {
             showToast('Please select at least one participant and one driver.', 'warning');
@@ -260,25 +519,25 @@
             return false;
         }
 
-        // Note: Capacity check removed - org vehicles can be assigned after calculation
-        // to fix capacity issues
         return true;
     }
 
-    // Listen for changes on driver checkboxes
     document.addEventListener('change', function(e) {
         if (e.target.classList.contains('driver-checkbox') || e.target.classList.contains('participant-checkbox')) {
             const row = e.target.closest('.select-row');
             if (row) row.classList.toggle('is-selected', e.target.checked);
+            if (e.target.classList.contains('driver-checkbox')) {
+                renderVanAssignmentsPanel();
+            }
             updateEventStats();
         }
     });
 
-    // Initialize on page load
-    updateEventStats();
     document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
         const row = cb.closest('.select-row');
         if (row) row.classList.toggle('is-selected', cb.checked);
     });
+    renderVanAssignmentsPanel();
+    updateEventStats();
 </script>
 {{end}}

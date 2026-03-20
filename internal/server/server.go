@@ -20,13 +20,8 @@ import (
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
+	"ride-home-router/internal/templateutil"
 	"ride-home-router/web"
-)
-
-// Distance conversion constants
-const (
-	MetersPerMile      = 1609.344
-	MetersPerKilometer = 1000.0
 )
 
 // Server wraps the HTTP server and all dependencies
@@ -141,70 +136,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.db.Close()
 }
 
-// Template helper functions
-func templateFuncs() template.FuncMap {
-	return template.FuncMap{
-		"formatDate": func(t time.Time) string {
-			return t.Format("2006-01-02")
-		},
-		"add": func(a, b int) int {
-			return a + b
-		},
-		"currentDate": func() string {
-			return time.Now().Format("2006-01-02")
-		},
-		"toJSON": func(v interface{}) string {
-			b, err := json.Marshal(v)
-			if err != nil {
-				return "{}"
-			}
-			return string(b)
-		},
-		"formatDistance": func(meters float64, useMiles bool) string {
-			if useMiles {
-				miles := meters / MetersPerMile
-				return fmt.Sprintf("%.2f mi", miles)
-			}
-			km := meters / MetersPerKilometer
-			return fmt.Sprintf("%.2f km", km)
-		},
-		"formatDuration": func(seconds float64) string {
-			mins := int(seconds / 60)
-			secs := int(seconds) % 60
-			if mins == 0 {
-				return fmt.Sprintf("%ds", secs)
-			}
-			if secs == 0 {
-				return fmt.Sprintf("%dm", mins)
-			}
-			return fmt.Sprintf("%dm %ds", mins, secs)
-		},
-		"initials": func(name string) string {
-			parts := strings.Fields(strings.TrimSpace(name))
-			if len(parts) == 0 {
-				return ""
-			}
-
-			first := []rune(parts[0])
-			if len(parts) == 1 {
-				if len(first) == 0 {
-					return ""
-				}
-				return strings.ToUpper(string(first[0]))
-			}
-
-			last := []rune(parts[len(parts)-1])
-			if len(first) == 0 || len(last) == 0 {
-				return ""
-			}
-			return strings.ToUpper(string(first[0]) + string(last[0]))
-		},
-	}
-}
-
 // loadTemplates loads all templates from the embedded filesystem
 func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
-	funcs := templateFuncs()
+	funcs := templateutil.FuncMap()
 	base := template.New("").Funcs(funcs)
 
 	// Load layout.html
@@ -238,7 +172,7 @@ func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
 
 	// Load page templates as strings (don't parse into base)
 	pages := make(map[string]string)
-	pageFiles := []string{"index.html", "participants.html", "drivers.html", "settings.html", "history.html"}
+	pageFiles := []string{"index.html", "participants.html", "drivers.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
 	for _, name := range pageFiles {
 		content, err := fs.ReadFile(templatesFS, "templates/"+name)
 		if err != nil {
@@ -450,7 +384,16 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 
+		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
+			handler.HandleActivityLocationForm(w, r)
+			return
+		}
+
 		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetActivityLocation(w, r)
+		case http.MethodPut:
+			handler.HandleUpdateActivityLocation(w, r)
 		case http.MethodDelete:
 			handler.HandleDeleteActivityLocation(w, r)
 		default:
@@ -476,7 +419,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 
+		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
+			handler.HandleOrgVehicleForm(w, r)
+			return
+		}
+
 		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetOrgVehicle(w, r)
 		case http.MethodPut:
 			handler.HandleUpdateOrgVehicle(w, r)
 		case http.MethodDelete:
@@ -536,6 +486,22 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 		handler.HandleDriversPage(w, r)
+	})
+
+	mux.HandleFunc("/activity-locations", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleActivityLocationsPage(w, r)
+	})
+
+	mux.HandleFunc("/vans", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleVansPage(w, r)
 	})
 
 	mux.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {

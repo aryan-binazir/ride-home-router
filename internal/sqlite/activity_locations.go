@@ -82,6 +82,30 @@ func (r *activityLocationRepository) Create(ctx context.Context, loc *models.Act
 	return loc, nil
 }
 
+func (r *activityLocationRepository) Update(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	query := `UPDATE activity_locations
+	          SET name = ?, address = ?, lat = ?, lng = ?
+	          WHERE id = ?`
+
+	result, err := r.store.db.ExecContext(ctx, query, loc.Name, loc.Address, loc.Lat, loc.Lng, loc.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update activity location: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, database.ErrNotFound
+	}
+
+	return loc, nil
+}
+
 func (r *activityLocationRepository) Delete(ctx context.Context, id int64) error {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()

@@ -11,8 +11,8 @@
 
     {{if .OrgVehicles}}
     <div class="card mt-3">
-        <h3>Assign Organization Vehicles</h3>
-        <p class="text-muted">Assign org vehicles to drivers to increase capacity, then recalculate.</p>
+        <h3>Adjust Van Assignments</h3>
+        <p class="text-muted">Pick the driver who will use each van. That driver's available seats will switch from their personal vehicle capacity to the van capacity for this event.</p>
 
         <form id="recalc-form"
               hx-post="/api/v1/routes/calculate-with-org-vehicles"
@@ -26,6 +26,8 @@
             {{range .DriverIDs}}
             <input type="hidden" name="driver_ids" value="{{.}}">
             {{end}}
+            <input type="hidden" name="activity_location_id" value="{{.ActivityLocation.ID}}">
+            <input type="hidden" name="mode" value="{{.Mode}}">
 
             <div class="org-vehicle-assignments">
                 <table class="table">
@@ -33,12 +35,13 @@
                         <tr>
                             <th>Driver</th>
                             <th>Personal Available Capacity</th>
-                            <th>Assign Org Vehicle</th>
+                            <th>Assign Van</th>
                             <th>New Available Capacity</th>
                         </tr>
                     </thead>
                     <tbody>
                         {{range .Drivers}}
+                        {{$driver := .}}
                         <tr class="driver-row" data-driver-id="{{.ID}}" data-base-capacity="{{.VehicleCapacity}}">
                             <td>
                                 <strong>{{.Name}}</strong>
@@ -52,11 +55,11 @@
                                         onchange="updateCapacityDisplay(this)">
                                     <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
                                     {{range $.OrgVehicles}}
-                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}">{{.Name}} ({{.Capacity}} available seats)</option>
+                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}" {{if eq .ID (index $.SelectedOrgVehicles $driver.ID)}}selected{{end}}>{{.Name}} ({{.Capacity}} available seats)</option>
                                     {{end}}
                                 </select>
                             </td>
-                            <td class="capacity-display">{{.VehicleCapacity}} available seats</td>
+                            <td class="capacity-display">{{index $.EffectiveCapacityByDriver .ID}} available seats</td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -101,7 +104,31 @@
 
             row.querySelector('.capacity-display').textContent = newCapacity + ' available seats';
 
+            syncAssignedVans();
             updateTotalCapacity();
+        }
+
+        function syncAssignedVans() {
+            const selects = document.querySelectorAll('.org-vehicle-select');
+            const assigned = new Map();
+
+            selects.forEach(select => {
+                if (select.value) {
+                    assigned.set(select.value, select.dataset.driverId);
+                }
+            });
+
+            selects.forEach(select => {
+                Array.from(select.options).forEach(option => {
+                    if (!option.value) {
+                        option.disabled = false;
+                        return;
+                    }
+
+                    const owner = assigned.get(option.value);
+                    option.disabled = !!owner && owner !== select.dataset.driverId;
+                });
+            });
         }
 
         function updateTotalCapacity() {
@@ -126,11 +153,14 @@
                 statusEl.className = 'text-danger';
             }
         }
+
+        syncAssignedVans();
+        updateTotalCapacity();
     </script>
 
     {{else}}
     <div class="alert alert-info mt-3">
-        <p>No organization vehicles configured. You can add them in <a href="/settings">Settings</a>.</p>
+        <p>No vans configured yet. Add one on the <a href="/vans">Vans</a> page.</p>
         <p>Alternatively, select more drivers or fewer participants.</p>
     </div>
     {{end}}

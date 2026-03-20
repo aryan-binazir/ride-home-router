@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"ride-home-router/internal/models"
@@ -15,8 +16,9 @@ import (
 
 // GeocodingResult contains the result of a geocoding operation
 type GeocodingResult struct {
-	Coords      models.Coordinates
-	DisplayName string
+	Coords           models.Coordinates
+	DisplayName      string
+	FormattedAddress string
 }
 
 // Geocoder provides address-to-coordinates conversion
@@ -37,15 +39,47 @@ func (e *ErrGeocodingFailed) Error() string {
 }
 
 type nominatimGeocoder struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL     string
+	httpClient  *http.Client
 	rateLimiter *time.Ticker
 }
 
 type nominatimResponse struct {
-	Lat         string `json:"lat"`
-	Lon         string `json:"lon"`
-	DisplayName string `json:"display_name"`
+	Lat         string           `json:"lat"`
+	Lon         string           `json:"lon"`
+	DisplayName string           `json:"display_name"`
+	Address     nominatimAddress `json:"address"`
+	Name        string           `json:"name"`
+}
+
+type nominatimAddress struct {
+	HouseNumber   string `json:"house_number"`
+	Road          string `json:"road"`
+	Pedestrian    string `json:"pedestrian"`
+	Footway       string `json:"footway"`
+	Cycleway      string `json:"cycleway"`
+	Path          string `json:"path"`
+	Amenity       string `json:"amenity"`
+	Building      string `json:"building"`
+	House         string `json:"house"`
+	Shop          string `json:"shop"`
+	Tourism       string `json:"tourism"`
+	Leisure       string `json:"leisure"`
+	Office        string `json:"office"`
+	Suburb        string `json:"suburb"`
+	Neighbourhood string `json:"neighbourhood"`
+	CityDistrict  string `json:"city_district"`
+	Quarter       string `json:"quarter"`
+	City          string `json:"city"`
+	Town          string `json:"town"`
+	Village       string `json:"village"`
+	Hamlet        string `json:"hamlet"`
+	Municipality  string `json:"municipality"`
+	County        string `json:"county"`
+	State         string `json:"state"`
+	Postcode      string `json:"postcode"`
+	Country       string `json:"country"`
+	CountryCode   string `json:"country_code"`
 }
 
 // NewNominatimGeocoder creates a new Nominatim geocoder with rate limiting
@@ -66,7 +100,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 		return nil, ctx.Err()
 	}
 
-	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&limit=1", g.baseURL, url.QueryEscape(address))
+	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&addressdetails=1&limit=1", g.baseURL, url.QueryEscape(address))
 	log.Printf("[GEOCODING] Request: address=%s url=%s", address, queryURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
@@ -121,7 +155,8 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 			Lat: lat,
 			Lng: lng,
 		},
-		DisplayName: result.DisplayName,
+		DisplayName:      result.DisplayName,
+		FormattedAddress: formatAddressLabel(result),
 	}, nil
 }
 
@@ -159,7 +194,7 @@ func (g *nominatimGeocoder) Search(ctx context.Context, query string, limit int)
 		return nil, ctx.Err()
 	}
 
-	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&limit=%d", g.baseURL, url.QueryEscape(query), limit)
+	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&addressdetails=1&limit=%d", g.baseURL, url.QueryEscape(query), limit)
 	log.Printf("[GEOCODING] Search request: query=%s limit=%d url=%s", query, limit, queryURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
@@ -211,9 +246,177 @@ func (g *nominatimGeocoder) Search(ctx context.Context, query string, limit int)
 				Lat: lat,
 				Lng: lng,
 			},
-			DisplayName: result.DisplayName,
+			DisplayName:      result.DisplayName,
+			FormattedAddress: formatAddressLabel(result),
 		})
 	}
 
 	return geocodingResults, nil
+}
+
+func formatAddressLabel(result nominatimResponse) string {
+	primary := firstNonEmpty(
+		joinNonEmpty(" ", result.Address.HouseNumber, firstNonEmpty(
+			result.Address.Road,
+			result.Address.Pedestrian,
+			result.Address.Footway,
+			result.Address.Cycleway,
+			result.Address.Path,
+		)),
+		result.Name,
+		result.Address.Amenity,
+		result.Address.Building,
+		result.Address.House,
+		result.Address.Shop,
+		result.Address.Tourism,
+		result.Address.Leisure,
+		result.Address.Office,
+	)
+
+	locality := firstNonEmpty(
+		result.Address.City,
+		result.Address.Town,
+		result.Address.Village,
+		result.Address.Hamlet,
+		result.Address.Municipality,
+		result.Address.Suburb,
+		result.Address.Neighbourhood,
+		result.Address.CityDistrict,
+		result.Address.Quarter,
+		result.Address.County,
+	)
+
+	region := strings.TrimSpace(result.Address.State)
+	if strings.EqualFold(result.Address.CountryCode, "us") {
+		if abbrev, ok := usStateAbbreviations[strings.ToLower(region)]; ok {
+			region = abbrev
+		}
+	}
+
+	regionAndPostcode := joinNonEmpty(" ", region, result.Address.Postcode)
+	parts := uniqueNonEmpty(primary, locality, regionAndPostcode)
+	if len(parts) > 0 {
+		return strings.Join(parts, ", ")
+	}
+
+	return fallbackDisplayName(result.DisplayName)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
+}
+
+func joinNonEmpty(sep string, values ...string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+
+	return strings.Join(parts, sep)
+}
+
+func uniqueNonEmpty(values ...string) []string {
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		unique = append(unique, trimmed)
+	}
+
+	return unique
+}
+
+func fallbackDisplayName(displayName string) string {
+	parts := strings.Split(displayName, ",")
+	trimmed := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			trimmed = append(trimmed, value)
+		}
+		if len(trimmed) == 4 {
+			break
+		}
+	}
+
+	if len(trimmed) == 0 {
+		return strings.TrimSpace(displayName)
+	}
+
+	return strings.Join(trimmed, ", ")
+}
+
+var usStateAbbreviations = map[string]string{
+	"alabama":              "AL",
+	"alaska":               "AK",
+	"arizona":              "AZ",
+	"arkansas":             "AR",
+	"california":           "CA",
+	"colorado":             "CO",
+	"connecticut":          "CT",
+	"delaware":             "DE",
+	"district of columbia": "DC",
+	"florida":              "FL",
+	"georgia":              "GA",
+	"hawaii":               "HI",
+	"idaho":                "ID",
+	"illinois":             "IL",
+	"indiana":              "IN",
+	"iowa":                 "IA",
+	"kansas":               "KS",
+	"kentucky":             "KY",
+	"louisiana":            "LA",
+	"maine":                "ME",
+	"maryland":             "MD",
+	"massachusetts":        "MA",
+	"michigan":             "MI",
+	"minnesota":            "MN",
+	"mississippi":          "MS",
+	"missouri":             "MO",
+	"montana":              "MT",
+	"nebraska":             "NE",
+	"nevada":               "NV",
+	"new hampshire":        "NH",
+	"new jersey":           "NJ",
+	"new mexico":           "NM",
+	"new york":             "NY",
+	"north carolina":       "NC",
+	"north dakota":         "ND",
+	"ohio":                 "OH",
+	"oklahoma":             "OK",
+	"oregon":               "OR",
+	"pennsylvania":         "PA",
+	"rhode island":         "RI",
+	"south carolina":       "SC",
+	"south dakota":         "SD",
+	"tennessee":            "TN",
+	"texas":                "TX",
+	"utah":                 "UT",
+	"vermont":              "VT",
+	"virginia":             "VA",
+	"washington":           "WA",
+	"west virginia":        "WV",
+	"wisconsin":            "WI",
+	"wyoming":              "WY",
 }

@@ -1,0 +1,79 @@
+{{define "content"}}
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Vans</h2>
+        <p class="page-subtitle">Save shared vans here, then assign them to drivers during Event Planning when personal vehicles are not enough.</p>
+    </div>
+</div>
+
+<div class="card onboarding-card">
+    <h3>How Vans Work</h3>
+    <div class="onboarding-steps">
+        <div class="onboarding-step">
+            <span class="onboarding-step-number">1</span>
+            <div>
+                <strong>Save the van here once.</strong>
+                <p class="text-muted">Add each van with the number of passenger seats it provides.</p>
+            </div>
+        </div>
+        <div class="onboarding-step">
+            <span class="onboarding-step-number">2</span>
+            <div>
+                <strong>Select drivers on Event Planning.</strong>
+                <p class="text-muted">After you pick drivers, a Van Assignments section appears below the driver list.</p>
+            </div>
+        </div>
+        <div class="onboarding-step">
+            <span class="onboarding-step-number">3</span>
+            <div>
+                <strong>Assign one van to one driver for that event.</strong>
+                <p class="text-muted">That driver keeps their route, but the van's seat count replaces their personal vehicle capacity for that event only.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Saved Vans</h3>
+    <p class="text-muted">Vans are optional overflow capacity. Each van can be assigned to one driver per event.</p>
+
+    <form hx-post="/api/v1/org-vehicles"
+          hx-target="#org-vehicle-list"
+          hx-swap="beforeend"
+          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') { this.reset(); const empty = document.getElementById('no-vans-message'); if (empty) empty.remove(); }"
+          class="mb-4">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Van Name</label>
+                <input type="text"
+                       name="name"
+                       class="form-input"
+                       placeholder="e.g., School Van"
+                       required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Available Capacity</label>
+                <input type="number"
+                       name="capacity"
+                       class="form-input"
+                       placeholder="Available Seats"
+                       min="1"
+                       required>
+            </div>
+            <div class="form-group form-group-actions">
+                <button type="submit" class="btn btn-primary">Add Van</button>
+            </div>
+        </div>
+    </form>
+
+    <div id="org-vehicle-list">
+        {{if .OrgVehicles}}
+        {{range .OrgVehicles}}
+        {{template "org_vehicle_row" .}}
+        {{end}}
+        {{else}}
+        <p class="text-muted" id="no-vans-message">No vans yet. Add one above.</p>
+        {{end}}
+    </div>
+</div>
+{{end}}

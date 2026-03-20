@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -9,8 +10,15 @@ import (
 	"strconv"
 	"strings"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
+
+func parseActivityLocationID(path string) (int64, error) {
+	idStr := strings.TrimPrefix(path, "/api/v1/activity-locations/")
+	idStr = strings.TrimSuffix(idStr, "/edit")
+	return strconv.ParseInt(idStr, 10, 64)
+}
 
 // HandleListActivityLocations handles GET /api/v1/activity-locations
 func (h *Handler) HandleListActivityLocations(w http.ResponseWriter, r *http.Request) {
@@ -125,18 +133,198 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	h.writeJSON(w, http.StatusCreated, createdLocation)
 }
 
-// HandleDeleteActivityLocation handles DELETE /api/v1/activity-locations/{id}
-func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from path
-	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 4 {
+// HandleGetActivityLocation handles GET /api/v1/activity-locations/{id}
+func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Request) {
+	id, err := parseActivityLocationID(r.URL.Path)
+	if err != nil {
+		log.Printf("[HTTP] GET /api/v1/activity-locations/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
+		h.handleValidationError(w, "Invalid activity location ID")
+		return
+	}
+
+	log.Printf("[HTTP] GET /api/v1/activity-locations/%d", id)
+	location, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get activity location: id=%d err=%v", id, err)
+		h.handleInternalError(w, err)
+		return
+	}
+	if location == nil {
+		h.handleNotFoundHTMX(w, r, "Activity location not found")
+		return
+	}
+
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "activity_location_row", location)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, location)
+}
+
+// HandleActivityLocationForm handles GET /api/v1/activity-locations/{id}/edit
+func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Request) {
+	id, err := parseActivityLocationID(r.URL.Path)
+	if err != nil {
+		h.renderError(w, r, fmt.Errorf("Invalid activity location ID"))
+		return
+	}
+
+	location, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	if location == nil {
+		h.renderError(w, r, fmt.Errorf("Activity location not found"))
+		return
+	}
+
+	h.renderTemplate(w, "activity_location_form", map[string]interface{}{
+		"ActivityLocation": location,
+	})
+}
+
+// HandleUpdateActivityLocation handles PUT /api/v1/activity-locations/{id}
+func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Request) {
+	id, err := parseActivityLocationID(r.URL.Path)
+	if err != nil {
+		log.Printf("[HTTP] PUT /api/v1/activity-locations/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
+		h.handleValidationError(w, "Invalid activity location ID")
+		return
+	}
+
+	existing, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get activity location for update: id=%d err=%v", id, err)
+		h.handleInternalError(w, err)
+		return
+	}
+	if existing == nil {
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Activity location not found", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		h.handleNotFound(w, "Activity location not found")
 		return
 	}
 
-	id, err := strconv.ParseInt(pathParts[3], 10, 64)
+	var req struct {
+		Name    string `json:"name"`
+		Address string `json:"address"`
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
+		if err := r.ParseForm(); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: form_parse_error err=%v", id, err)
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, "Invalid form data", "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			h.handleValidationError(w, "Invalid form data")
+			return
+		}
+		req.Name = r.FormValue("name")
+		req.Address = r.FormValue("address")
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: invalid_json err=%v", id, err)
+			h.handleValidationError(w, "Invalid request body")
+			return
+		}
+	}
+
+	if req.Name == "" {
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Name is required", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		h.handleValidationError(w, "Name is required")
+		return
+	}
+
+	if req.Address == "" {
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Address is required", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		h.handleValidationError(w, "Address is required")
+		return
+	}
+
+	location := &models.ActivityLocation{
+		ID:      id,
+		Name:    req.Name,
+		Address: req.Address,
+		Lat:     existing.Lat,
+		Lng:     existing.Lng,
+	}
+
+	if req.Address != existing.Address {
+		geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
+		if err != nil {
+			log.Printf("[ERROR] Failed to geocode updated activity location: id=%d address=%s err=%v", id, req.Address, err)
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, fmt.Sprintf("Failed to geocode address: %s", err.Error()), "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				return
+			}
+			h.handleGeocodingError(w, err)
+			return
+		}
+		location.Lat = geocodeResult.Coords.Lat
+		location.Lng = geocodeResult.Coords.Lng
+	}
+
+	updatedLocation, err := h.DB.ActivityLocations().Update(r.Context(), location)
 	if err != nil {
-		log.Printf("[HTTP] DELETE /api/v1/activity-locations/{id}: invalid_id id=%s", pathParts[3])
+		log.Printf("[ERROR] Failed to update activity location: id=%d err=%v", id, err)
+		if errors.Is(err, database.ErrNotFound) {
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, "Activity location not found", "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			h.handleNotFound(w, "Activity location not found")
+			return
+		}
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Failed to update location", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Updated activity location: id=%d name=%s", updatedLocation.ID, updatedLocation.Name)
+
+	if h.isHTMX(r) {
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Location '%s' updated!", "type": "success"}}`, html.EscapeString(updatedLocation.Name)))
+		h.renderTemplate(w, "activity_location_row", updatedLocation)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, updatedLocation)
+}
+
+// HandleDeleteActivityLocation handles DELETE /api/v1/activity-locations/{id}
+func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Request) {
+	id, err := parseActivityLocationID(r.URL.Path)
+	if err != nil {
+		log.Printf("[HTTP] DELETE /api/v1/activity-locations/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
 		h.handleValidationError(w, "Invalid activity location ID")
 		return
 	}
@@ -145,8 +333,20 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 
 	if err := h.DB.ActivityLocations().Delete(r.Context(), id); err != nil {
 		log.Printf("[ERROR] Failed to delete activity location: id=%d err=%v", id, err)
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, database.ErrNotFound) {
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, "Activity location not found", "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			h.handleNotFound(w, "Activity location not found")
+			return
+		}
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Failed to delete location", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		h.handleInternalError(w, err)

@@ -16,7 +16,7 @@
           hx-target="#participants-list"
           hx-swap="innerHTML"
           hx-indicator="#participant-form-loading"
-          hx-on::after-request="if(event.detail.successful && event.detail.requestConfig.verb === 'post') document.getElementById('participant-form-container').innerHTML = ''">
+          hx-on::after-request="if(event.detail.successful && event.detail.elt === this) document.getElementById('participant-form-container').innerHTML = ''">
 
         <div class="form-group">
             <label class="form-label">Name</label>
