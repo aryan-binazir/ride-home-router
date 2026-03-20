@@ -1,0 +1,44 @@
+{{define "org_vehicle_form"}}
+<div class="list-card" id="org-vehicle-{{.OrgVehicle.ID}}">
+    <div class="card-header">
+        <h3 class="card-title">Edit Van</h3>
+        <button class="btn btn-sm btn-outline"
+                hx-get="/api/v1/org-vehicles/{{.OrgVehicle.ID}}"
+                hx-target="#org-vehicle-{{.OrgVehicle.ID}}"
+                hx-swap="outerHTML">
+            Cancel
+        </button>
+    </div>
+
+    <form hx-put="/api/v1/org-vehicles/{{.OrgVehicle.ID}}"
+          hx-target="#org-vehicle-{{.OrgVehicle.ID}}"
+          hx-swap="outerHTML"
+          hx-indicator="#org-vehicle-form-loading-{{.OrgVehicle.ID}}">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Van Name</label>
+                <input type="text"
+                       name="name"
+                       class="form-input"
+                       value="{{.OrgVehicle.Name}}"
+                       placeholder="e.g., School Van"
+                       required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Available Capacity</label>
+                <input type="number"
+                       name="capacity"
+                       class="form-input"
+                       value="{{.OrgVehicle.Capacity}}"
+                       min="1"
+                       required>
+            </div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">Update Van</button>
+            <span class="loading htmx-indicator" id="org-vehicle-form-loading-{{.OrgVehicle.ID}}"></span>
+        </div>
+    </form>
+</div>
+{{end}}

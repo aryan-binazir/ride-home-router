@@ -50,6 +50,7 @@ type ActivityLocationRepository interface {
 	List(ctx context.Context) ([]models.ActivityLocation, error)
 	GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error)
 	Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error)
+	Update(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error)
 	Delete(ctx context.Context, id int64) error
 }
 

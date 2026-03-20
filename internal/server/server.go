@@ -384,7 +384,16 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 
+		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
+			handler.HandleActivityLocationForm(w, r)
+			return
+		}
+
 		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetActivityLocation(w, r)
+		case http.MethodPut:
+			handler.HandleUpdateActivityLocation(w, r)
 		case http.MethodDelete:
 			handler.HandleDeleteActivityLocation(w, r)
 		default:
@@ -410,7 +419,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 
+		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
+			handler.HandleOrgVehicleForm(w, r)
+			return
+		}
+
 		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetOrgVehicle(w, r)
 		case http.MethodPut:
 			handler.HandleUpdateOrgVehicle(w, r)
 		case http.MethodDelete:

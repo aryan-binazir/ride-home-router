@@ -1,0 +1,40 @@
+{{define "activity_location_form"}}
+<div class="list-card" id="activity-location-{{.ActivityLocation.ID}}">
+    <div class="card-header">
+        <h3 class="card-title">Edit Location</h3>
+        <button class="btn btn-sm btn-outline"
+                hx-get="/api/v1/activity-locations/{{.ActivityLocation.ID}}"
+                hx-target="#activity-location-{{.ActivityLocation.ID}}"
+                hx-swap="outerHTML">
+            Cancel
+        </button>
+    </div>
+
+    <form hx-put="/api/v1/activity-locations/{{.ActivityLocation.ID}}"
+          hx-target="#activity-location-{{.ActivityLocation.ID}}"
+          hx-swap="outerHTML"
+          hx-indicator="#activity-location-form-loading-{{.ActivityLocation.ID}}">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Location Name</label>
+                <input type="text"
+                       name="name"
+                       class="form-input"
+                       value="{{.ActivityLocation.Name}}"
+                       placeholder="e.g., Soccer Practice"
+                       required>
+            </div>
+            <div class="form-group form-group-wide">
+                <label class="form-label">Address</label>
+                {{template "address_input" .ActivityLocation.Address}}
+                <div class="form-help">Address will be geocoded automatically</div>
+            </div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">Update Location</button>
+            <span class="loading htmx-indicator" id="activity-location-form-loading-{{.ActivityLocation.ID}}"></span>
+        </div>
+    </form>
+</div>
+{{end}}

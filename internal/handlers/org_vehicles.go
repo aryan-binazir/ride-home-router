@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -9,8 +10,15 @@ import (
 	"strconv"
 	"strings"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
+
+func parseOrgVehicleID(path string) (int64, error) {
+	idStr := strings.TrimPrefix(path, "/api/v1/org-vehicles/")
+	idStr = strings.TrimSuffix(idStr, "/edit")
+	return strconv.ParseInt(idStr, 10, 64)
+}
 
 // HandleListOrgVehicles handles GET /api/v1/org-vehicles
 func (h *Handler) HandleListOrgVehicles(w http.ResponseWriter, r *http.Request) {
@@ -102,18 +110,63 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	h.writeJSON(w, http.StatusCreated, createdVehicle)
 }
 
-// HandleUpdateOrgVehicle handles PUT /api/v1/org-vehicles/{id}
-func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from path
-	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 4 {
+// HandleGetOrgVehicle handles GET /api/v1/org-vehicles/{id}
+func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
+	id, err := parseOrgVehicleID(r.URL.Path)
+	if err != nil {
+		log.Printf("[HTTP] GET /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
+		h.handleValidationError(w, "Invalid organization vehicle ID")
+		return
+	}
+
+	log.Printf("[HTTP] GET /api/v1/org-vehicles/%d", id)
+	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get organization vehicle: id=%d err=%v", id, err)
+		h.handleInternalError(w, err)
+		return
+	}
+	if vehicle == nil {
 		h.handleNotFoundHTMX(w, r, "Organization vehicle not found")
 		return
 	}
 
-	id, err := strconv.ParseInt(pathParts[3], 10, 64)
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "org_vehicle_row", vehicle)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, vehicle)
+}
+
+// HandleOrgVehicleForm handles GET /api/v1/org-vehicles/{id}/edit
+func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
+	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		log.Printf("[HTTP] PUT /api/v1/org-vehicles/{id}: invalid_id id=%s", pathParts[3])
+		h.renderError(w, r, fmt.Errorf("Invalid organization vehicle ID"))
+		return
+	}
+
+	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	if vehicle == nil {
+		h.renderError(w, r, fmt.Errorf("Organization vehicle not found"))
+		return
+	}
+
+	h.renderTemplate(w, "org_vehicle_form", map[string]interface{}{
+		"OrgVehicle": vehicle,
+	})
+}
+
+// HandleUpdateOrgVehicle handles PUT /api/v1/org-vehicles/{id}
+func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request) {
+	id, err := parseOrgVehicleID(r.URL.Path)
+	if err != nil {
+		log.Printf("[HTTP] PUT /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
 		h.handleValidationErrorHTMX(w, r, "Invalid organization vehicle ID")
 		return
 	}
@@ -127,14 +180,26 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
 		if err := r.ParseForm(); err != nil {
-			h.handleValidationErrorHTMX(w, r, "Invalid form data")
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, "Invalid form data", "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			h.handleValidationError(w, "Invalid form data")
 			return
 		}
 		req.Name = r.FormValue("name")
 		if capStr := r.FormValue("capacity"); capStr != "" {
 			cap, err := strconv.Atoi(capStr)
 			if err != nil {
-				h.handleValidationErrorHTMX(w, r, "Invalid capacity")
+				if h.isHTMX(r) {
+					h.setHTMXToast(w, "Invalid capacity", "error")
+					w.Header().Set("HX-Reswap", "none")
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				h.handleValidationError(w, "Invalid capacity")
 				return
 			}
 			req.Capacity = cap
@@ -147,12 +212,24 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	}
 
 	if req.Name == "" {
-		h.handleValidationErrorHTMX(w, r, "Name is required")
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Name is required", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		h.handleValidationError(w, "Name is required")
 		return
 	}
 
 	if req.Capacity < 1 {
-		h.handleValidationErrorHTMX(w, r, "Capacity must be at least 1")
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, "Capacity must be at least 1", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		h.handleValidationError(w, "Capacity must be at least 1")
 		return
 	}
 
@@ -167,12 +244,20 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	updatedVehicle, err := h.DB.OrganizationVehicles().Update(r.Context(), vehicle)
 	if err != nil {
 		log.Printf("[ERROR] Failed to update organization vehicle: id=%d err=%v", id, err)
-		if strings.Contains(err.Error(), "not found") {
-			h.handleNotFoundHTMX(w, r, "Organization vehicle not found")
+		if errors.Is(err, database.ErrNotFound) {
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, "Organization vehicle not found", "error")
+				w.Header().Set("HX-Reswap", "none")
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			h.handleNotFound(w, "Organization vehicle not found")
 			return
 		}
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			h.setHTMXToast(w, "Failed to update van", "error")
+			w.Header().Set("HX-Reswap", "none")
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		h.handleInternalError(w, err)
@@ -182,6 +267,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	log.Printf("[HTTP] Updated organization vehicle: id=%d", id)
 
 	if h.isHTMX(r) {
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Van '%s' updated!", "type": "success"}}`, html.EscapeString(updatedVehicle.Name)))
 		h.renderTemplate(w, "org_vehicle_row", updatedVehicle)
 		return
 	}
@@ -191,16 +277,9 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 // HandleDeleteOrgVehicle handles DELETE /api/v1/org-vehicles/{id}
 func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from path
-	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 4 {
-		h.handleNotFoundHTMX(w, r, "Organization vehicle not found")
-		return
-	}
-
-	id, err := strconv.ParseInt(pathParts[3], 10, 64)
+	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		log.Printf("[HTTP] DELETE /api/v1/org-vehicles/{id}: invalid_id id=%s", pathParts[3])
+		log.Printf("[HTTP] DELETE /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
 		h.handleValidationErrorHTMX(w, r, "Invalid organization vehicle ID")
 		return
 	}
@@ -209,7 +288,7 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if err := h.DB.OrganizationVehicles().Delete(r.Context(), id); err != nil {
 		log.Printf("[ERROR] Failed to delete organization vehicle: id=%d err=%v", id, err)
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, database.ErrNotFound) {
 			h.handleNotFoundHTMX(w, r, "Organization vehicle not found")
 			return
 		}
