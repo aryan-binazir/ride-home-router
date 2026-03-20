@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -17,6 +16,10 @@ import (
 func parseActivityLocationID(path string) (int64, error) {
 	idStr := strings.TrimPrefix(path, "/api/v1/activity-locations/")
 	idStr = strings.TrimSuffix(idStr, "/edit")
+	idStr = strings.Trim(idStr, "/")
+	if idStr == "" || strings.Contains(idStr, "/") {
+		return 0, fmt.Errorf("invalid activity location path")
+	}
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
@@ -62,25 +65,13 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 
 	if req.Name == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing name")
-		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Name is required", "type": "error"}}`)
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Name is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Name is required")
 		return
 	}
 
 	if req.Address == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing address")
-		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Address is required", "type": "error"}}`)
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Address is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Address is required")
 		return
 	}
 
@@ -90,13 +81,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
 		log.Printf("[ERROR] Failed to geocode address: address=%s err=%v", req.Address, err)
-		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to geocode address: %s", "type": "error"}}`, html.EscapeString(err.Error())))
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			return
-		}
-		h.handleGeocodingError(w, err)
+		h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", fmt.Sprintf("Failed to geocode address: %s", err.Error()))
 		return
 	}
 
@@ -110,13 +95,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	createdLocation, err := h.DB.ActivityLocations().Create(r.Context(), location)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create activity location: err=%v", err)
-		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to save location: %s", "type": "error"}}`, html.EscapeString(err.Error())))
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		h.handleInternalError(w, err)
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", fmt.Sprintf("Failed to save location: %s", err.Error()))
 		return
 	}
 
@@ -125,7 +104,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 
 	if h.isHTMX(r) {
 		// Return the new location row HTML and trigger a success toast
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Location '%s' added!", "type": "success"}}`, html.EscapeString(createdLocation.Name)))
+		h.setHTMXToast(w, fmt.Sprintf("Location '%s' added!", createdLocation.Name), "success")
 		h.renderTemplate(w, "activity_location_row", createdLocation)
 		return
 	}
@@ -201,13 +180,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if existing == nil {
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Activity location not found", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		h.handleNotFound(w, "Activity location not found")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
 		return
 	}
 
@@ -220,13 +193,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: form_parse_error err=%v", id, err)
-			if h.isHTMX(r) {
-				h.setHTMXToast(w, "Invalid form data", "error")
-				w.Header().Set("HX-Reswap", "none")
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			h.handleValidationError(w, "Invalid form data")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid form data")
 			return
 		}
 		req.Name = r.FormValue("name")
@@ -240,24 +207,12 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	}
 
 	if req.Name == "" {
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Name is required", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Name is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Name is required")
 		return
 	}
 
 	if req.Address == "" {
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Address is required", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Address is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Address is required")
 		return
 	}
 
@@ -273,13 +228,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 		if err != nil {
 			log.Printf("[ERROR] Failed to geocode updated activity location: id=%d address=%s err=%v", id, req.Address, err)
-			if h.isHTMX(r) {
-				h.setHTMXToast(w, fmt.Sprintf("Failed to geocode address: %s", err.Error()), "error")
-				w.Header().Set("HX-Reswap", "none")
-				w.WriteHeader(http.StatusUnprocessableEntity)
-				return
-			}
-			h.handleGeocodingError(w, err)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", fmt.Sprintf("Failed to geocode address: %s", err.Error()))
 			return
 		}
 		location.Lat = geocodeResult.Coords.Lat
@@ -290,29 +239,17 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		log.Printf("[ERROR] Failed to update activity location: id=%d err=%v", id, err)
 		if errors.Is(err, database.ErrNotFound) {
-			if h.isHTMX(r) {
-				h.setHTMXToast(w, "Activity location not found", "error")
-				w.Header().Set("HX-Reswap", "none")
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			h.handleNotFound(w, "Activity location not found")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
 			return
 		}
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Failed to update location", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		h.handleInternalError(w, err)
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update location")
 		return
 	}
 
 	log.Printf("[HTTP] Updated activity location: id=%d name=%s", updatedLocation.ID, updatedLocation.Name)
 
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Location '%s' updated!", "type": "success"}}`, html.EscapeString(updatedLocation.Name)))
+		h.setHTMXToast(w, fmt.Sprintf("Location '%s' updated!", updatedLocation.Name), "success")
 		h.renderTemplate(w, "activity_location_row", updatedLocation)
 		return
 	}

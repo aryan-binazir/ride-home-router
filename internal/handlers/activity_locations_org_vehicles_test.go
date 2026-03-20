@@ -123,8 +123,9 @@ func TestHandleUpdateActivityLocation_HTMXReturnsUpdatedRow(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "Updated Gym") {
 		t.Fatalf("expected updated row HTML, body=%q", rr.Body.String())
 	}
-	if !strings.Contains(rr.Header().Get("HX-Trigger"), "updated!") {
-		t.Fatalf("expected success toast trigger, got %q", rr.Header().Get("HX-Trigger"))
+	expectedTrigger := `{"showToast":{"message":"Location 'Updated Gym' updated!","type":"success"}}`
+	if rr.Header().Get("HX-Trigger") != expectedTrigger {
+		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}
 
 	updated, err := store.ActivityLocations().GetByID(context.Background(), location.ID)
@@ -169,6 +170,42 @@ func TestHandleOrgVehicleForm_RendersInlineEditForm(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateActivityLocation_HTMXValidationKeepsForm(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
+		Name:    "Gym",
+		Address: "1 Main St",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("name", "")
+	form.Set("address", "2 Main St")
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/activity-locations/"+int64ToString(location.ID), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateActivityLocation(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	if got := rr.Header().Get("HX-Reswap"); got != "none" {
+		t.Fatalf("HX-Reswap = %q, want %q", got, "none")
+	}
+	expectedTrigger := `{"showToast":{"message":"Name is required","type":"error"}}`
+	if rr.Header().Get("HX-Trigger") != expectedTrigger {
+		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
+	}
+}
+
 func TestHandleUpdateOrgVehicle_HTMXReturnsUpdatedRow(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
@@ -197,8 +234,9 @@ func TestHandleUpdateOrgVehicle_HTMXReturnsUpdatedRow(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "Updated Van") {
 		t.Fatalf("expected updated row HTML, body=%q", rr.Body.String())
 	}
-	if !strings.Contains(rr.Header().Get("HX-Trigger"), "updated!") {
-		t.Fatalf("expected success toast trigger, got %q", rr.Header().Get("HX-Trigger"))
+	expectedTrigger := `{"showToast":{"message":"Van 'Updated Van' updated!","type":"success"}}`
+	if rr.Header().Get("HX-Trigger") != expectedTrigger {
+		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}
 
 	updated, err := store.OrganizationVehicles().GetByID(context.Background(), vehicle.ID)
@@ -207,5 +245,39 @@ func TestHandleUpdateOrgVehicle_HTMXReturnsUpdatedRow(t *testing.T) {
 	}
 	if updated.Name != "Updated Van" || updated.Capacity != 10 {
 		t.Fatalf("updated vehicle = %+v", updated)
+	}
+}
+
+func TestHandleUpdateOrgVehicle_HTMXValidationKeepsForm(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	vehicle, err := store.OrganizationVehicles().Create(context.Background(), &models.OrganizationVehicle{
+		Name:     "Overflow Van",
+		Capacity: 8,
+	})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("name", "Updated Van")
+	form.Set("capacity", "0")
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateOrgVehicle(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	if got := rr.Header().Get("HX-Reswap"); got != "none" {
+		t.Fatalf("HX-Reswap = %q, want %q", got, "none")
+	}
+	expectedTrigger := `{"showToast":{"message":"Capacity must be at least 1","type":"error"}}`
+	if rr.Header().Get("HX-Trigger") != expectedTrigger {
+		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}
 }

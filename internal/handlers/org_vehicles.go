@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -17,6 +16,10 @@ import (
 func parseOrgVehicleID(path string) (int64, error) {
 	idStr := strings.TrimPrefix(path, "/api/v1/org-vehicles/")
 	idStr = strings.TrimSuffix(idStr, "/edit")
+	idStr = strings.Trim(idStr, "/")
+	if idStr == "" || strings.Contains(idStr, "/") {
+		return 0, fmt.Errorf("invalid organization vehicle path")
+	}
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
@@ -46,14 +49,14 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/org-vehicles: form_parse_error err=%v", err)
-			h.handleValidationErrorHTMX(w, r, "Invalid form data")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid form data")
 			return
 		}
 		req.Name = r.FormValue("name")
 		if capStr := r.FormValue("capacity"); capStr != "" {
 			cap, err := strconv.Atoi(capStr)
 			if err != nil {
-				h.handleValidationErrorHTMX(w, r, "Invalid capacity")
+				h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid capacity")
 				return
 			}
 			req.Capacity = cap
@@ -69,13 +72,13 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if req.Name == "" {
 		log.Printf("[HTTP] POST /api/v1/org-vehicles: missing name")
-		h.handleValidationErrorHTMX(w, r, "Name is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Name is required")
 		return
 	}
 
 	if req.Capacity < 1 {
 		log.Printf("[HTTP] POST /api/v1/org-vehicles: invalid capacity=%d", req.Capacity)
-		h.handleValidationErrorHTMX(w, r, "Capacity must be at least 1")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Capacity must be at least 1")
 		return
 	}
 
@@ -89,11 +92,7 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	createdVehicle, err := h.DB.OrganizationVehicles().Create(r.Context(), vehicle)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create organization vehicle: err=%v", err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, err)
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", fmt.Sprintf("Failed to save van: %s", err.Error()))
 		return
 	}
 
@@ -102,7 +101,7 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if h.isHTMX(r) {
 		// Return the new vehicle row HTML and trigger a success toast
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Van '%s' added!", "type": "success"}}`, html.EscapeString(createdVehicle.Name)))
+		h.setHTMXToast(w, fmt.Sprintf("Van '%s' added!", createdVehicle.Name), "success")
 		h.renderTemplate(w, "org_vehicle_row", createdVehicle)
 		return
 	}
@@ -167,7 +166,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
 		log.Printf("[HTTP] PUT /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
-		h.handleValidationErrorHTMX(w, r, "Invalid organization vehicle ID")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid organization vehicle ID")
 		return
 	}
 
@@ -180,26 +179,14 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
 		if err := r.ParseForm(); err != nil {
-			if h.isHTMX(r) {
-				h.setHTMXToast(w, "Invalid form data", "error")
-				w.Header().Set("HX-Reswap", "none")
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			h.handleValidationError(w, "Invalid form data")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid form data")
 			return
 		}
 		req.Name = r.FormValue("name")
 		if capStr := r.FormValue("capacity"); capStr != "" {
 			cap, err := strconv.Atoi(capStr)
 			if err != nil {
-				if h.isHTMX(r) {
-					h.setHTMXToast(w, "Invalid capacity", "error")
-					w.Header().Set("HX-Reswap", "none")
-					w.WriteHeader(http.StatusBadRequest)
-					return
-				}
-				h.handleValidationError(w, "Invalid capacity")
+				h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid capacity")
 				return
 			}
 			req.Capacity = cap
@@ -212,24 +199,12 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	}
 
 	if req.Name == "" {
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Name is required", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Name is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Name is required")
 		return
 	}
 
 	if req.Capacity < 1 {
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Capacity must be at least 1", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.handleValidationError(w, "Capacity must be at least 1")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Capacity must be at least 1")
 		return
 	}
 
@@ -245,29 +220,17 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Printf("[ERROR] Failed to update organization vehicle: id=%d err=%v", id, err)
 		if errors.Is(err, database.ErrNotFound) {
-			if h.isHTMX(r) {
-				h.setHTMXToast(w, "Organization vehicle not found", "error")
-				w.Header().Set("HX-Reswap", "none")
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			h.handleNotFound(w, "Organization vehicle not found")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Organization vehicle not found")
 			return
 		}
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Failed to update van", "error")
-			w.Header().Set("HX-Reswap", "none")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		h.handleInternalError(w, err)
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update van")
 		return
 	}
 
 	log.Printf("[HTTP] Updated organization vehicle: id=%d", id)
 
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Van '%s' updated!", "type": "success"}}`, html.EscapeString(updatedVehicle.Name)))
+		h.setHTMXToast(w, fmt.Sprintf("Van '%s' updated!", updatedVehicle.Name), "success")
 		h.renderTemplate(w, "org_vehicle_row", updatedVehicle)
 		return
 	}
