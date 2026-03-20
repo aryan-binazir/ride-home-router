@@ -27,13 +27,11 @@
             <div class="form-group form-group-wide">
                 <label class="form-label">Address</label>
                 {{template "address_input" .ActivityLocation.Address}}
-                <div class="form-help">Address will be geocoded automatically</div>
             </div>
-        </div>
-
-        <div class="d-flex align-center gap-2">
-            <button type="submit" class="btn btn-primary">Update Location</button>
-            <span class="loading htmx-indicator" id="activity-location-form-loading-{{.ActivityLocation.ID}}"></span>
+            <div class="form-group form-group-actions">
+                <button type="submit" class="btn btn-primary">Update Location</button>
+                <span class="loading htmx-indicator" id="activity-location-form-loading-{{.ActivityLocation.ID}}"></span>
+            </div>
         </div>
     </form>
 </div>

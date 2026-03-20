@@ -100,6 +100,16 @@ func (h *Handler) handleValidationErrorHTMX(w http.ResponseWriter, r *http.Reque
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
 }
 
+func (h *Handler) handleHTMXErrorNoSwap(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if h.isHTMX(r) {
+		h.setHTMXToast(w, message, "error")
+		w.Header().Set("HX-Reswap", "none")
+		w.WriteHeader(status)
+		return
+	}
+	h.writeError(w, status, code, message, nil)
+}
+
 func (h *Handler) setHTMXToast(w http.ResponseWriter, message, toastType string) {
 	payload, err := json.Marshal(map[string]map[string]string{
 		"showToast": {
