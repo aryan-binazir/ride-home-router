@@ -85,7 +85,79 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 		{Lat: 0.1, Lng: 0},
 	}
 
-	// Only cache one direction
+	// Only cache the reverse direction.
+	cache.Set(context.Background(), &models.DistanceCacheEntry{
+		Origin:         points[1],
+		Destination:    points[0],
+		DistanceMeters: 5000,
+		DurationSecs:   300,
+	})
+
+	requestCount := 0
+	var requestSources string
+	var requestDestinations string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		requestSources = r.URL.Query().Get("sources")
+		requestDestinations = r.URL.Query().Get("destinations")
+		resp := osrmTableResponse{
+			Code:      "Ok",
+			Distances: [][]float64{{11100}},
+			Durations: [][]float64{{600}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	calc := &osrmCalculator{
+		baseURL:    server.URL,
+		httpClient: server.Client(),
+		cache:      cache,
+	}
+
+	matrix, err := calc.GetDistanceMatrix(context.Background(), points)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Fatalf("expected one API request for the missing direction, got %d", requestCount)
+	}
+	if requestSources != "0" || requestDestinations != "1" {
+		t.Fatalf("expected restricted request for 0->1, got sources=%q destinations=%q", requestSources, requestDestinations)
+	}
+	if matrix[0][1].DistanceMeters != 11100 {
+		t.Errorf("expected fetched distance for matrix[0][1], got %f", matrix[0][1].DistanceMeters)
+	}
+	if matrix[1][0].DistanceMeters != 5000 {
+		t.Errorf("expected cached reverse distance to remain 5000, got %f", matrix[1][0].DistanceMeters)
+	}
+	if cache.Count() != 2 {
+		t.Errorf("expected both directions to be cached after fetch, got %d entries", cache.Count())
+	}
+
+	matrix, err = calc.GetDistanceMatrix(context.Background(), points)
+	if err != nil {
+		t.Fatalf("unexpected error on second request: %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected second request to hit cache, got %d API calls", requestCount)
+	}
+	if matrix[0][1].DistanceMeters != 11100 || matrix[1][0].DistanceMeters != 5000 {
+		t.Errorf("unexpected matrix values after cache reuse: forward=%f reverse=%f",
+			matrix[0][1].DistanceMeters, matrix[1][0].DistanceMeters)
+	}
+}
+
+func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
+	cache := testutil.NewMockDistanceCache()
+
+	points := []models.Coordinates{
+		{Lat: 0, Lng: 0},
+		{Lat: 0.1, Lng: 0},
+		{Lat: 0, Lng: 0.1},
+	}
+
 	cache.Set(context.Background(), &models.DistanceCacheEntry{
 		Origin:         points[0],
 		Destination:    points[1],
@@ -93,18 +165,27 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 		DurationSecs:   300,
 	})
 
-	apiCalled := false
+	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		apiCalled = true
+		requestCount++
+		if got := r.URL.Query().Get("sources"); got != "" {
+			t.Errorf("expected full request without sources filter, got %q", got)
+		}
+		if got := r.URL.Query().Get("destinations"); got != "" {
+			t.Errorf("expected full request without destinations filter, got %q", got)
+		}
+
 		resp := osrmTableResponse{
 			Code: "Ok",
 			Distances: [][]float64{
-				{0, 11100},
-				{11100, 0},
+				{0, 1100, 1200},
+				{2100, 0, 2300},
+				{3100, 3200, 0},
 			},
 			Durations: [][]float64{
-				{0, 600},
-				{600, 0},
+				{0, 11, 12},
+				{21, 0, 23},
+				{31, 32, 0},
 			},
 		}
 		json.NewEncoder(w).Encode(resp)
@@ -122,22 +203,11 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// API should be called because there were missing pairs
-	if !apiCalled {
-		t.Error("expected API to be called for missing pairs")
+	if requestCount != 1 {
+		t.Fatalf("expected one full-matrix request, got %d", requestCount)
 	}
-
-	// Matrix should have values (from API)
-	if matrix[0][1].DistanceMeters == 0 {
-		t.Error("expected matrix[0][1] to have distance")
-	}
-	if matrix[1][0].DistanceMeters == 0 {
-		t.Error("expected matrix[1][0] to have distance")
-	}
-
-	// Verify cache was updated with entries from API
-	if cache.Count() < 1 {
-		t.Errorf("expected cache to be populated after API call, got %d entries", cache.Count())
+	if matrix[2][1].DistanceMeters != 3200 {
+		t.Errorf("expected full-matrix response to populate matrix[2][1], got %f", matrix[2][1].DistanceMeters)
 	}
 }
 
@@ -237,6 +307,83 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 		if matrix[i][i].DistanceMeters != 0 {
 			t.Errorf("diagonal [%d][%d] should be 0, got %f", i, i, matrix[i][i].DistanceMeters)
 		}
+	}
+}
+
+func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
+	cache := testutil.NewMockDistanceCache()
+
+	numPoints := 81
+	points := make([]models.Coordinates, numPoints)
+	for i := 0; i < numPoints; i++ {
+		points[i] = models.Coordinates{
+			Lat: float64(i) * 0.01,
+			Lng: float64(i) * 0.01,
+		}
+	}
+
+	expectedDistance := func(i, j int) float64 {
+		return float64((i+1)*1000 + j)
+	}
+	expectedDuration := func(i, j int) float64 {
+		return float64((i+1)*10 + j)
+	}
+
+	missingSource := 5
+	missingDestination := 80
+	for i := 0; i < numPoints; i++ {
+		for j := 0; j < numPoints; j++ {
+			if i == j || (i == missingSource && j == missingDestination) {
+				continue
+			}
+			cache.Set(context.Background(), &models.DistanceCacheEntry{
+				Origin:         points[i],
+				Destination:    points[j],
+				DistanceMeters: expectedDistance(i, j),
+				DurationSecs:   expectedDuration(i, j),
+			})
+		}
+	}
+
+	requestCount := 0
+	var requestSources string
+	var requestDestinations string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		requestSources = r.URL.Query().Get("sources")
+		requestDestinations = r.URL.Query().Get("destinations")
+
+		resp := osrmTableResponse{
+			Code:      "Ok",
+			Distances: [][]float64{{4242}},
+			Durations: [][]float64{{242}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	calc := &osrmCalculator{
+		baseURL:    server.URL,
+		httpClient: server.Client(),
+		cache:      cache,
+	}
+
+	matrix, err := calc.GetDistanceMatrix(context.Background(), points)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Fatalf("expected one batched partial request, got %d", requestCount)
+	}
+	if requestSources != "5" || requestDestinations != "80" {
+		t.Fatalf("expected restricted batched request for 5->80, got sources=%q destinations=%q", requestSources, requestDestinations)
+	}
+	if matrix[missingSource][missingDestination].DistanceMeters != 4242 {
+		t.Errorf("expected fetched distance for missing batched pair, got %f", matrix[missingSource][missingDestination].DistanceMeters)
+	}
+	if matrix[missingDestination][missingSource].DistanceMeters != expectedDistance(missingDestination, missingSource) {
+		t.Errorf("expected cached reverse batched distance to remain, got %f", matrix[missingDestination][missingSource].DistanceMeters)
 	}
 }
 
