@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"ride-home-router/internal/models"
@@ -187,6 +188,50 @@ func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
 	// Should use both drivers
 	if result.Summary.TotalDriversUsed != 2 {
 		t.Errorf("expected 2 drivers used, got %d", result.Summary.TotalDriversUsed)
+	}
+}
+
+func TestBalancedRouter_LargeHouseholdSplit(t *testing.T) {
+	mock := newMockDistanceAdapter()
+	router := NewBalancedRouter(mock)
+
+	// 10-person household, 2 cars with 5 seats each
+	// Previously this would fail because maxRounds was based on group count (1)
+	// instead of participant count (10), causing the loop to exit early
+	participants := make([]models.Participant, 10)
+	for i := range participants {
+		participants[i] = models.Participant{
+			ID:   int64(i + 1),
+			Name: fmt.Sprintf("Person%d", i+1),
+			Lat:  0.01,
+			Lng:  0.01,
+		}
+	}
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants:    participants,
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver1", Lat: 0.05, Lng: 0.05, VehicleCapacity: 5},
+			{ID: 2, Name: "Driver2", Lat: 0.06, Lng: 0.06, VehicleCapacity: 5},
+		},
+		Mode: RouteModeDropoff,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Summary.UnassignedParticipants) != 0 {
+		t.Errorf("expected 0 unassigned, got %d", len(result.Summary.UnassignedParticipants))
+	}
+
+	totalAssigned := 0
+	for _, route := range result.Routes {
+		totalAssigned += len(route.Stops)
+	}
+	if totalAssigned != 10 {
+		t.Errorf("expected 10 assigned, got %d", totalAssigned)
 	}
 }
 

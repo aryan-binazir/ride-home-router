@@ -165,7 +165,7 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 
 The router uses a three-phase optimization approach:
 
-1. **Round-Robin Assignment**: Distributes participants evenly across all drivers. Participants from the same address are grouped together and assigned as a unit, keeping households in the same vehicle.
+1. **Round-Robin Assignment**: Distributes participants evenly across all drivers. Participants from the same address are grouped together and assigned as a unit, keeping households in the same vehicle when possible.
 2. **2-Opt Local Optimization**: Refines each driver's route by iteratively swapping edge pairs to find faster paths.
 3. **Min-Max Balancing**: Moves participants from the longest route to shorter routes, reducing the maximum route time until no improvement is possible.
 

@@ -158,7 +158,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 
 	// Round-robin through drivers, assigning best-fit group to each
 	driverIndex := 0
-	maxRounds := len(groups) * len(driverIDs) * 2 // Safety limit
+	maxRounds := totalParticipants * len(driverIDs) * 2 // Safety limit (based on participants, not groups, to handle household splitting)
 
 	for len(groups) > 0 && maxRounds > 0 {
 		maxRounds--
