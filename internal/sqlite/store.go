@@ -163,10 +163,10 @@ func (s *Store) createSchema() error {
 	CREATE TABLE IF NOT EXISTS settings (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		selected_activity_location_id INTEGER,
-		use_miles INTEGER NOT NULL DEFAULT 0,
+		use_miles INTEGER NOT NULL DEFAULT 1,
 		FOREIGN KEY (selected_activity_location_id) REFERENCES activity_locations(id) ON DELETE SET NULL
 	);
-	INSERT OR IGNORE INTO settings (id, use_miles) VALUES (1, 0);
+	INSERT OR IGNORE INTO settings (id, use_miles) VALUES (1, 1);
 
 	-- Events
 	CREATE TABLE IF NOT EXISTS events (
