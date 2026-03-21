@@ -302,6 +302,28 @@ function getLocationValue(location) {
 }
 
 /**
+ * Returns stops with duplicate map locations removed while preserving order
+ */
+function dedupeStopsByLocation(stops) {
+    const seen = new Set();
+
+    return stops.filter(stop => {
+        const locationValue = getLocationValue(stop);
+        if (!locationValue) {
+            return true;
+        }
+
+        const normalizedValue = locationValue.trim().toLowerCase();
+        if (seen.has(normalizedValue)) {
+            return false;
+        }
+
+        seen.add(normalizedValue);
+        return true;
+    });
+}
+
+/**
  * Generates Google Maps directions URL for a route
  */
 function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff') {
@@ -309,11 +331,13 @@ function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropof
         return '';
     }
 
+    const uniqueStops = dedupeStopsByLocation(stops);
+
     let locations;
     if (mode === 'pickup') {
-        locations = [driverLocation, ...stops, activityLocation];
+        locations = [driverLocation, ...uniqueStops, activityLocation];
     } else {
-        locations = [activityLocation, ...stops, driverLocation];
+        locations = [activityLocation, ...uniqueStops, driverLocation];
     }
 
     const resolvedLocations = locations.map(getLocationValue);
