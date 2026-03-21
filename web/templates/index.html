@@ -392,7 +392,7 @@
         const assignedVehicles = new Map();
 
         selects.forEach(select => {
-            if (select.value) {
+            if (!select.disabled && select.value) {
                 assignedVehicles.set(select.value, select.dataset.driverId);
             }
         });

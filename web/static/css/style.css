@@ -1122,12 +1122,6 @@ tbody tr:last-child td {
     font-weight: 600;
 }
 
-.van-assignment-summary-value {
-    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
-    font-size: 1.125rem;
-    font-weight: 700;
-}
-
 .onboarding-card {
     margin-bottom: var(--spacing-xl);
 }
