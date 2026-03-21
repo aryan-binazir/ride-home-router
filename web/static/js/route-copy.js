@@ -291,14 +291,18 @@ function parseCoordinate(value) {
 }
 
 function getLocationValue(location) {
+    const address = (location?.address || '').trim();
+    if (address) {
+        return address;
+    }
+
     const lat = parseCoordinate(location?.lat);
     const lng = parseCoordinate(location?.lng);
     if (lat !== null && lng !== null) {
         return `${lat},${lng}`;
     }
 
-    const address = (location?.address || '').trim();
-    return address || null;
+    return null;
 }
 
 /**
