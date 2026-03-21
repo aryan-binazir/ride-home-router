@@ -243,8 +243,111 @@
 </div>
 
 <script>
+    const EVENT_PLANNER_DRAFT_KEY = 'ride-home-router:event-planner-draft:v1';
+    const EVENT_PLANNER_MODES = new Set(['dropoff', 'pickup']);
+    let isRestoringEventPlannerDraft = false;
+
     function getCheckedInputs(selector) {
         return Array.from(document.querySelectorAll(selector)).filter(input => input.checked);
+    }
+
+    function getEventForm() {
+        return document.getElementById('event-form');
+    }
+
+    function getEventPlannerDraft() {
+        try {
+            const raw = window.localStorage.getItem(EVENT_PLANNER_DRAFT_KEY);
+            if (!raw) return null;
+
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (err) {
+            console.warn('Failed to read event planner draft', err);
+            return null;
+        }
+    }
+
+    function saveEventPlannerDraft() {
+        if (isRestoringEventPlannerDraft) return;
+
+        const form = getEventForm();
+        if (!form) return;
+
+        const activityLocation = form.querySelector('select[name="activity_location_id"]');
+        const selectedMode = form.querySelector('input[name="mode"]:checked');
+        const draft = {
+            activityLocationId: activityLocation ? activityLocation.value : '',
+            participantIds: getCheckedInputs('.participant-checkbox').map(input => input.value),
+            driverIds: getCheckedInputs('.driver-checkbox').map(input => input.value),
+            mode: selectedMode ? selectedMode.value : 'dropoff',
+            vanAssignments: getVanAssignments(),
+        };
+
+        try {
+            window.localStorage.setItem(EVENT_PLANNER_DRAFT_KEY, JSON.stringify(draft));
+        } catch (err) {
+            console.warn('Failed to save event planner draft', err);
+        }
+    }
+
+    function clearEventPlannerDraft() {
+        try {
+            window.localStorage.removeItem(EVENT_PLANNER_DRAFT_KEY);
+        } catch (err) {
+            console.warn('Failed to clear event planner draft', err);
+        }
+    }
+
+    function applyCheckedValues(selector, selectedValues) {
+        const values = new Set((selectedValues || []).map(String));
+        document.querySelectorAll(selector).forEach(input => {
+            const checked = values.has(String(input.value));
+            input.checked = checked;
+            const row = input.closest('.select-row');
+            if (row) row.classList.toggle('is-selected', checked);
+        });
+    }
+
+    function restoreEventPlannerDraft() {
+        const draft = getEventPlannerDraft();
+        const form = getEventForm();
+        if (!draft || !form) return;
+
+        isRestoringEventPlannerDraft = true;
+        try {
+            const activityLocation = form.querySelector('select[name="activity_location_id"]');
+            if (activityLocation && typeof draft.activityLocationId === 'string') {
+                activityLocation.value = draft.activityLocationId;
+            }
+
+            const mode = typeof draft.mode === 'string' && EVENT_PLANNER_MODES.has(draft.mode)
+                ? draft.mode
+                : null;
+            if (mode) {
+                const modeInput = form.querySelector(`input[name="mode"][value="${mode}"]`);
+                if (modeInput) modeInput.checked = true;
+            }
+
+            applyCheckedValues('.participant-checkbox', draft.participantIds);
+            applyCheckedValues('.driver-checkbox', draft.driverIds);
+
+            renderVanAssignmentsPanel();
+
+            if (draft.vanAssignments && typeof draft.vanAssignments === 'object') {
+                Object.entries(draft.vanAssignments).forEach(([driverId, vehicleId]) => {
+                    const select = document.getElementById(`van-assignment-${driverId}`);
+                    if (select) {
+                        select.value = String(vehicleId);
+                    }
+                });
+                handleVanAssignmentChange();
+            } else {
+                updateEventStats();
+            }
+        } finally {
+            isRestoringEventPlannerDraft = false;
+        }
     }
 
     function escapeHtml(value) {
@@ -326,6 +429,7 @@
         updateVanSelectionOptions();
         updateVanCapacitySummary();
         updateEventStats();
+        saveEventPlannerDraft();
     }
 
     function renderVanAssignmentsPanel() {
@@ -358,6 +462,8 @@
             const driverId = checkbox.value;
             const personalCapacity = parseInt(checkbox.dataset.capacity, 10) || 0;
             const selectedVehicleId = existingAssignments[driverId] || '';
+            const selectedVehicle = orgVehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId));
+            const effectiveCapacity = selectedVehicle ? selectedVehicle.capacity : personalCapacity;
             const options = orgVehicles.map((vehicle) => {
                 const selected = String(vehicle.id) === String(selectedVehicleId) ? ' selected' : '';
                 return `<option value="${vehicle.id}" data-capacity="${vehicle.capacity}"${selected}>${escapeHtml(vehicle.name)} (${vehicle.capacity} available seats)</option>`;
@@ -372,7 +478,7 @@
                         </div>
                         <div class="van-assignment-stats">
                             <span class="badge badge-muted">Personal: ${personalCapacity} seats</span>
-                            <span class="badge badge-info van-effective-capacity-value">${personalCapacity} seats</span>
+                            <span class="badge badge-info van-effective-capacity-value">${effectiveCapacity} seats</span>
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
@@ -466,6 +572,7 @@
             if (row) row.classList.add('is-selected');
         });
         updateEventStats();
+        saveEventPlannerDraft();
     }
 
     function selectAllDrivers() {
@@ -476,14 +583,26 @@
         });
         renderVanAssignmentsPanel();
         updateEventStats();
+        saveEventPlannerDraft();
     }
 
     function clearSelections() {
+        const form = getEventForm();
         document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
             cb.checked = false;
             const row = cb.closest('.select-row');
             if (row) row.classList.remove('is-selected');
         });
+        if (form) {
+            const activityLocation = form.querySelector('select[name="activity_location_id"]');
+            if (activityLocation) {
+                activityLocation.value = '';
+                activityLocation.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            const defaultMode = form.querySelector('input[name="mode"][value="dropoff"]');
+            if (defaultMode) defaultMode.checked = true;
+        }
         document.getElementById('results-section').innerHTML = `
     <div class="results-loading htmx-indicator calculate-indicator">
         <div class="loading-overlay">
@@ -494,6 +613,7 @@
 `;
         renderVanAssignmentsPanel();
         updateEventStats();
+        clearEventPlannerDraft();
     }
 
     function validateBeforeCalculate() {
@@ -530,14 +650,29 @@
                 renderVanAssignmentsPanel();
             }
             updateEventStats();
+            saveEventPlannerDraft();
+            return;
+        }
+
+        if (e.target.name === 'activity_location_id' || e.target.name === 'mode') {
+            saveEventPlannerDraft();
         }
     });
 
+    restoreEventPlannerDraft();
     document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
         const row = cb.closest('.select-row');
         if (row) row.classList.toggle('is-selected', cb.checked);
     });
-    renderVanAssignmentsPanel();
     updateEventStats();
+
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        const target = event.detail && event.detail.target;
+        if (!target || target.id !== 'save-result') return;
+
+        if (target.querySelector('.alert-success')) {
+            clearEventPlannerDraft();
+        }
+    });
 </script>
 {{end}}
