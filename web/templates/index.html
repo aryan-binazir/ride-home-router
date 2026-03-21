@@ -129,7 +129,7 @@
             <div class="panel-header">
                 <div>
                     <h3 class="panel-title">Drivers</h3>
-                    <p class="panel-subtitle">Who's available to drive? After you select drivers, you can assign vans below if extra seats are needed.</p>
+                    <p class="panel-subtitle">Who's available to drive? If a selected driver should use a van, assign it directly on their card.</p>
                 </div>
                 <div class="panel-actions">
                     <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select all</button>
@@ -163,7 +163,22 @@
                         <span class="select-row-title">{{.Name}}</span>
                         <span class="select-row-subtitle">{{.Address}}</span>
                         <span class="select-row-meta">
-                            <span class="badge badge-muted">{{.VehicleCapacity}} available seats</span>
+                            <span class="badge badge-muted van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
+                            <span class="badge badge-info van-effective-capacity-value" hidden>{{.VehicleCapacity}} seats active</span>
+                        </span>
+                        <span class="van-assignment-inline hidden">
+                            <span class="van-assignment-inline-header">
+                                <span class="van-assignment-inline-title">Vehicle for this event</span>
+                                <span class="van-assignment-inline-help text-muted">Optional. Leave on personal vehicle unless this driver should use a saved van.</span>
+                            </span>
+                            <select id="van-assignment-{{.ID}}"
+                                    name="org_vehicle_{{.ID}}"
+                                    class="form-select van-assignment-select"
+                                    data-driver-id="{{.ID}}"
+                                    onchange="handleVanAssignmentChange(); event.stopPropagation();"
+                                    onclick="event.stopPropagation()">
+                                <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
+                            </select>
                         </span>
                     </span>
                 </label>
@@ -177,16 +192,6 @@
             {{end}}
         </section>
     </div>
-
-    <section class="panel hidden" id="van-assignments-panel" style="margin-top: 1.5rem;">
-        <div class="panel-header">
-            <div>
-                <h3 class="panel-title">Van Assignments</h3>
-                <p class="panel-subtitle">Use this only if a selected driver should drive a van instead of their personal vehicle for this event.</p>
-            </div>
-        </div>
-        <div id="van-assignments-content"></div>
-    </section>
 
     <div class="action-bar">
         <div class="action-bar-left">
@@ -375,7 +380,7 @@
     function getVanAssignments() {
         const assignments = {};
         document.querySelectorAll('.van-assignment-select').forEach(select => {
-            if (select.value) {
+            if (!select.disabled && select.value) {
                 assignments[select.dataset.driverId] = select.value;
             }
         });
@@ -387,7 +392,7 @@
         const assignedVehicles = new Map();
 
         selects.forEach(select => {
-            if (select.value) {
+            if (!select.disabled && select.value) {
                 assignedVehicles.set(select.value, select.dataset.driverId);
             }
         });
@@ -406,23 +411,18 @@
     }
 
     function updateVanCapacitySummary() {
-        let totalCapacity = 0;
-        document.querySelectorAll('.van-assignment-row').forEach(row => {
-            const select = row.querySelector('.van-assignment-select');
+        document.querySelectorAll('.driver-checkbox').forEach((checkbox) => {
+            const row = checkbox.closest('.select-row');
+            const select = document.getElementById(`van-assignment-${checkbox.value}`);
             const selectedOption = select ? select.options[select.selectedIndex] : null;
             const capacity = selectedOption ? (parseInt(selectedOption.dataset.capacity, 10) || 0) : 0;
-            totalCapacity += capacity;
 
-            const valueEl = row.querySelector('.van-effective-capacity-value');
+            const valueEl = row ? row.querySelector('.van-effective-capacity-value') : null;
             if (valueEl) {
-                valueEl.textContent = `${capacity} seats`;
+                valueEl.textContent = `${capacity} seats active`;
+                valueEl.hidden = !checkbox.checked;
             }
         });
-
-        const totalEl = document.getElementById('van-total-capacity');
-        if (totalEl) {
-            totalEl.textContent = `${totalCapacity} available seats`;
-        }
     }
 
     function handleVanAssignmentChange() {
@@ -433,82 +433,36 @@
     }
 
     function renderVanAssignmentsPanel() {
-        const panel = document.getElementById('van-assignments-panel');
-        const content = document.getElementById('van-assignments-content');
-        if (!panel || !content) return;
-
-        const selectedDrivers = getCheckedInputs('.driver-checkbox');
-        if (selectedDrivers.length === 0) {
-            panel.classList.add('hidden');
-            content.innerHTML = '';
-            return;
-        }
-
-        panel.classList.remove('hidden');
-
         const orgVehicles = getOrgVehicles();
-        if (orgVehicles.length === 0) {
-            content.innerHTML = `
-                <div class="empty-state compact-empty-state">
-                    <h3>No vans saved yet</h3>
-                    <p>Add a van on the <a href="/vans">Vans</a> page first. Then return here, select drivers, and assign the van to the driver who will use it.</p>
-                </div>
-            `;
-            return;
-        }
-
         const existingAssignments = getVanAssignments();
-        const rows = selectedDrivers.map((checkbox) => {
+        document.querySelectorAll('.driver-checkbox').forEach((checkbox) => {
             const driverId = checkbox.value;
+            const row = checkbox.closest('.select-row');
+            const inlineContainer = row ? row.querySelector('.van-assignment-inline') : null;
+            const select = document.getElementById(`van-assignment-${driverId}`);
             const personalCapacity = parseInt(checkbox.dataset.capacity, 10) || 0;
             const selectedVehicleId = existingAssignments[driverId] || '';
-            const selectedVehicle = orgVehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId));
-            const effectiveCapacity = selectedVehicle ? selectedVehicle.capacity : personalCapacity;
+            if (!row || !inlineContainer || !select) return;
+
+            row.classList.toggle('has-van-assignment', checkbox.checked);
+            inlineContainer.classList.toggle('hidden', !checkbox.checked);
+
+            if (orgVehicles.length === 0) {
+                select.value = '';
+                select.disabled = true;
+                select.innerHTML = `<option value="" data-capacity="${personalCapacity}" selected>No vans saved yet</option>`;
+                return;
+            }
+
             const options = orgVehicles.map((vehicle) => {
                 const selected = String(vehicle.id) === String(selectedVehicleId) ? ' selected' : '';
                 return `<option value="${vehicle.id}" data-capacity="${vehicle.capacity}"${selected}>${escapeHtml(vehicle.name)} (${vehicle.capacity} available seats)</option>`;
             }).join('');
 
-            return `
-                <div class="list-card van-assignment-row" data-driver-id="${driverId}">
-                    <div class="van-assignment-row-main">
-                        <div>
-                            <div class="van-assignment-driver">${escapeHtml(checkbox.dataset.driverName)}</div>
-                            <div class="van-assignment-address">${escapeHtml(checkbox.dataset.driverAddress)}</div>
-                        </div>
-                        <div class="van-assignment-stats">
-                            <span class="badge badge-muted">Personal: ${personalCapacity} seats</span>
-                            <span class="badge badge-info van-effective-capacity-value">${effectiveCapacity} seats</span>
-                        </div>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label" for="van-assignment-${driverId}">Vehicle for ${escapeHtml(checkbox.dataset.driverName)}</label>
-                        <select id="van-assignment-${driverId}"
-                                name="org_vehicle_${driverId}"
-                                class="form-select van-assignment-select"
-                                data-driver-id="${driverId}"
-                                onchange="handleVanAssignmentChange()">
-                            <option value="" data-capacity="${personalCapacity}">Personal vehicle</option>
-                            ${options}
-                        </select>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        content.innerHTML = `
-            <div class="van-assignment-instructions">
-                <strong>How to use this:</strong> select a van for the driver who will use it. Leave "Personal vehicle" selected for everyone else.
-            </div>
-            <div class="van-assignment-summary">
-                <div>
-                    <strong>Total available seats</strong>
-                    <span class="text-muted">across the selected drivers after van assignments are applied</span>
-                </div>
-                <div id="van-total-capacity" class="van-assignment-summary-value"></div>
-            </div>
-            <div class="van-assignment-list">${rows}</div>
-        `;
+            select.disabled = !checkbox.checked;
+            select.innerHTML = `<option value="" data-capacity="${personalCapacity}">Personal vehicle</option>${options}`;
+            select.value = checkbox.checked ? selectedVehicleId : '';
+        });
 
         handleVanAssignmentChange();
     }

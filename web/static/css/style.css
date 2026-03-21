@@ -1065,6 +1065,10 @@ tbody tr:last-child td {
     box-shadow: 0 0 0 3px var(--color-primary-light), var(--shadow-md);
 }
 
+.select-row.has-van-assignment .select-row-content {
+    gap: var(--spacing-sm);
+}
+
 .select-control {
     margin-top: 0.125rem;
     flex-shrink: 0;
@@ -1101,63 +1105,21 @@ tbody tr:last-child td {
     flex-wrap: wrap;
 }
 
-.van-assignment-summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-md);
-    padding: 0.875rem 1rem;
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--border-radius);
-    background: var(--color-bg-alt);
-}
-
-.van-assignment-instructions {
-    margin-bottom: var(--spacing-md);
-    padding: 0.875rem 1rem;
-    border-left: 4px solid var(--color-primary);
-    border-radius: var(--border-radius);
-    background: var(--color-primary-light);
-}
-
-.van-assignment-summary-value {
-    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
-    font-size: 1.125rem;
-    font-weight: 700;
-}
-
-.van-assignment-list {
+.van-assignment-inline {
     display: grid;
-    gap: var(--spacing-md);
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    margin-top: 0.25rem;
+    border-top: 1px solid rgb(var(--color-primary-rgb) / 0.16);
 }
 
-.van-assignment-row {
+.van-assignment-inline-header {
     display: grid;
-    gap: var(--spacing-md);
+    gap: 0.2rem;
 }
 
-.van-assignment-row-main {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--spacing-md);
-    flex-wrap: wrap;
-}
-
-.van-assignment-driver {
-    font-weight: 700;
-}
-
-.van-assignment-address {
-    color: var(--color-text-muted);
-    font-size: 0.875rem;
-}
-
-.van-assignment-stats {
-    display: flex;
-    gap: var(--spacing-sm);
-    flex-wrap: wrap;
+.van-assignment-inline-title {
+    font-weight: 600;
 }
 
 .onboarding-card {
@@ -1837,15 +1799,6 @@ tbody tr:last-child td {
 
     .summary-grid {
         grid-template-columns: 1fr;
-    }
-
-    .van-assignment-summary {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .van-assignment-row-main {
-        flex-direction: column;
     }
 
     .route-header {

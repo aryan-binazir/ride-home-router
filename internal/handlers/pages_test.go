@@ -101,11 +101,14 @@ func TestHandleIndexPage_RendersVanAssignmentsPanelWhenVansExist(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "Van Assignments") {
-		t.Fatalf("expected Event Planning page to render van assignments panel, body=%q", body)
+	if !strings.Contains(body, "Vehicle for this event") {
+		t.Fatalf("expected Event Planning page to render inline van assignment controls, body=%q", body)
 	}
 	if !strings.Contains(body, `id="event-org-vehicles"`) {
 		t.Fatalf("expected Event Planning page to include vans JSON payload, body=%q", body)
+	}
+	if !strings.Contains(body, "Overflow Van") {
+		t.Fatalf("expected Event Planning page to include saved van data, body=%q", body)
 	}
 }
 
