@@ -291,14 +291,29 @@ function parseCoordinate(value) {
 }
 
 function getLocationValue(location) {
+    const address = (location?.address || '').trim();
+    if (address) {
+        return address;
+    }
+
     const lat = parseCoordinate(location?.lat);
     const lng = parseCoordinate(location?.lng);
     if (lat !== null && lng !== null) {
         return `${lat},${lng}`;
     }
 
+    return null;
+}
+
+function getLocationDedupKey(location) {
+    const lat = parseCoordinate(location?.lat);
+    const lng = parseCoordinate(location?.lng);
+    if (lat !== null && lng !== null) {
+        return `${lat.toFixed(5)},${lng.toFixed(5)}`;
+    }
+
     const address = (location?.address || '').trim();
-    return address || null;
+    return address ? address.toLowerCase() : null;
 }
 
 /**
@@ -308,17 +323,16 @@ function dedupeStopsByLocation(stops) {
     const seen = new Set();
 
     return stops.filter(stop => {
-        const locationValue = getLocationValue(stop);
-        if (!locationValue) {
+        const dedupKey = getLocationDedupKey(stop);
+        if (!dedupKey) {
             return true;
         }
 
-        const normalizedValue = locationValue.trim().toLowerCase();
-        if (seen.has(normalizedValue)) {
+        if (seen.has(dedupKey)) {
             return false;
         }
 
-        seen.add(normalizedValue);
+        seen.add(dedupKey);
         return true;
     });
 }
