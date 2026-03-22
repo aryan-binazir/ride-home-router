@@ -305,6 +305,17 @@ function getLocationValue(location) {
     return null;
 }
 
+function getLocationDedupKey(location) {
+    const lat = parseCoordinate(location?.lat);
+    const lng = parseCoordinate(location?.lng);
+    if (lat !== null && lng !== null) {
+        return `${lat},${lng}`;
+    }
+
+    const address = (location?.address || '').trim();
+    return address ? address.toLowerCase() : null;
+}
+
 /**
  * Returns stops with duplicate map locations removed while preserving order
  */
@@ -312,17 +323,16 @@ function dedupeStopsByLocation(stops) {
     const seen = new Set();
 
     return stops.filter(stop => {
-        const locationValue = getLocationValue(stop);
-        if (!locationValue) {
+        const dedupKey = getLocationDedupKey(stop);
+        if (!dedupKey) {
             return true;
         }
 
-        const normalizedValue = locationValue.trim().toLowerCase();
-        if (seen.has(normalizedValue)) {
+        if (seen.has(dedupKey)) {
             return false;
         }
 
-        seen.add(normalizedValue);
+        seen.add(dedupKey);
         return true;
     });
 }
