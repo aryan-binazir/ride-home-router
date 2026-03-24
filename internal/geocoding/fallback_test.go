@@ -35,7 +35,11 @@ func TestFallbackGeocoder_GeocodeFallsBackOnNoResults(t *testing.T) {
 	g := &fallbackGeocoder{
 		primary: stubGeocoder{
 			geocodeFunc: func(context.Context, string) (*GeocodingResult, error) {
-				return nil, &ErrGeocodingFailed{Address: "823 Redfield Dr, Kinston, NC 28504", Reason: "no results found"}
+				return nil, &ErrGeocodingFailed{
+					Address: "823 Redfield Dr, Kinston, NC 28504",
+					Reason:  "no results found",
+					Cause:   ErrNoGeocodingResults,
+				}
 			},
 			searchFunc: func(context.Context, string, int) ([]GeocodingResult, error) { return nil, nil },
 		},
@@ -55,7 +59,11 @@ func TestFallbackGeocoder_GeocodeFallsBackOnNoResults(t *testing.T) {
 }
 
 func TestFallbackGeocoder_GeocodeKeepsPrimaryErrorWhenFallbackFails(t *testing.T) {
-	primaryErr := &ErrGeocodingFailed{Address: "823 Redfield Dr, Kinston, NC 28504", Reason: "no results found"}
+	primaryErr := &ErrGeocodingFailed{
+		Address: "823 Redfield Dr, Kinston, NC 28504",
+		Reason:  "no results found",
+		Cause:   ErrNoGeocodingResults,
+	}
 
 	g := &fallbackGeocoder{
 		primary: stubGeocoder{

@@ -3,12 +3,15 @@ package geocoding
 import (
 	"context"
 	"log"
+	"time"
 )
 
 type fallbackGeocoder struct {
 	primary  Geocoder
 	fallback Geocoder
 }
+
+const censusSearchFallbackTimeout = 4 * time.Second
 
 func (g *fallbackGeocoder) Geocode(ctx context.Context, address string) (*GeocodingResult, error) {
 	result, err := g.primary.Geocode(ctx, address)
@@ -40,7 +43,10 @@ func (g *fallbackGeocoder) Search(ctx context.Context, query string, limit int) 
 	}
 
 	log.Printf("[GEOCODING] Falling back to Census search: query=%s", query)
-	fallbackResults, fallbackErr := g.fallback.Search(ctx, query, limit)
+	fallbackCtx, cancel := context.WithTimeout(ctx, censusSearchFallbackTimeout)
+	defer cancel()
+
+	fallbackResults, fallbackErr := g.fallback.Search(fallbackCtx, query, limit)
 	if fallbackErr != nil {
 		log.Printf("[GEOCODING] Census search fallback failed: query=%s err=%v", query, fallbackErr)
 		return results, nil

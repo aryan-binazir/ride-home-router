@@ -3,6 +3,7 @@ package geocoding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -29,14 +30,21 @@ type Geocoder interface {
 	Search(ctx context.Context, query string, limit int) ([]GeocodingResult, error)
 }
 
+var ErrNoGeocodingResults = errors.New("geocoding: no results found")
+
 // ErrGeocodingFailed is returned when an address cannot be geocoded
 type ErrGeocodingFailed struct {
 	Address string
 	Reason  string
+	Cause   error
 }
 
 func (e *ErrGeocodingFailed) Error() string {
 	return fmt.Sprintf("geocoding failed for address: %s - %s", e.Address, e.Reason)
+}
+
+func (e *ErrGeocodingFailed) Unwrap() error {
+	return e.Cause
 }
 
 type nominatimGeocoder struct {
@@ -145,7 +153,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 
 	if len(results) == 0 {
 		log.Printf("[ERROR] No geocoding results found: address=%s", address)
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "no results found"}
+		return nil, &ErrGeocodingFailed{Address: address, Reason: "no results found", Cause: ErrNoGeocodingResults}
 	}
 
 	result := results[0]
@@ -440,8 +448,7 @@ func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geoco
 }
 
 func isNoResultsError(err error) bool {
-	geocodingErr, ok := err.(*ErrGeocodingFailed)
-	return ok && geocodingErr.Reason == "no results found"
+	return errors.Is(err, ErrNoGeocodingResults)
 }
 
 func looksLikeUSAddressQuery(query string) bool {

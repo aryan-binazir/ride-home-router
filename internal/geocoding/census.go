@@ -59,7 +59,7 @@ func (g *censusGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		return nil, err
 	}
 	if len(results) == 0 {
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "no results found"}
+		return nil, &ErrGeocodingFailed{Address: address, Reason: "no results found", Cause: ErrNoGeocodingResults}
 	}
 
 	result := results[0]
