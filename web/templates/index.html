@@ -602,9 +602,11 @@
         const hasVisibleResults = target.children.length > 0 && !target.querySelector('.calculate-indicator');
         if (!hasVisibleResults) return;
 
+        const anchor = document.getElementById('calculate-btn');
+        const scrollTarget = anchor || target;
         const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         window.requestAnimationFrame(() => {
-            target.scrollIntoView({
+            scrollTarget.scrollIntoView({
                 behavior: prefersReducedMotion ? 'auto' : 'smooth',
                 block: 'start',
             });
