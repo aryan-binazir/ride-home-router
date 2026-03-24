@@ -20,17 +20,24 @@
 <!-- Error Container -->
 <div id="error-container"></div>
 
-<!-- Search Toolbar -->
-<div class="panel-toolbar mb-3">
-    <input type="search"
-           class="form-input form-input-search"
-           placeholder="Search drivers…"
-           aria-label="Search drivers"
-           oninput="filterTable(this, 'drivers-tbody')">
-</div>
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3 class="panel-title">Driver Pool</h3>
+            <p class="panel-subtitle">Maintain personal vehicle capacity and home addresses for routing.</p>
+        </div>
+    </div>
 
-<!-- Drivers List -->
-<div id="drivers-list" class="table-container">
-    {{template "driver_list" .}}
-</div>
+    <div class="panel-toolbar">
+        <input type="search"
+               class="form-input form-input-search"
+               placeholder="Search drivers…"
+               aria-label="Search drivers"
+               oninput="filterTable(this, 'drivers-tbody')">
+    </div>
+
+    <div id="drivers-list" class="table-container mb-0">
+        {{template "driver_list" .}}
+    </div>
+</section>
 {{end}}

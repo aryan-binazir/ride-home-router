@@ -6,7 +6,16 @@
     </div>
 </div>
 
-<div id="events-list">
-    {{template "event_list" .}}
-</div>
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3 class="panel-title">Saved Runs</h3>
+            <p class="panel-subtitle">Open an event to inspect route details, totals, and notes.</p>
+        </div>
+    </div>
+
+    <div id="events-list" class="panel-body">
+        {{template "event_list" .}}
+    </div>
+</section>
 {{end}}

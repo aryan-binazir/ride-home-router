@@ -7,7 +7,7 @@
 </div>
 
 <form id="event-form">
-    <section class="panel" style="margin-bottom: 1.5rem;">
+    <section class="panel mb-3">
         <div class="panel-header">
             <div>
                 <h3 class="panel-title">Activity Location</h3>
@@ -19,7 +19,7 @@
         </div>
 
         {{if .ActivityLocations}}
-        <div class="form-group" style="margin-bottom: 0;">
+        <div class="form-group mb-0">
             <label class="form-label" for="activity-location-native">Location</label>
             <div class="ui-select" id="event-activity-location-select">
                 <select id="activity-location-native" name="activity_location_id" class="form-select ui-select-native" required>
@@ -201,7 +201,7 @@
             <div class="action-bar-stats text-muted" id="selection-stats"></div>
         </div>
         <div class="action-bar-right">
-            <div class="form-group" style="margin-bottom: 0; margin-right: 1rem;">
+            <div class="form-group mb-0">
                 <label class="form-label">Route Mode</label>
                 <div class="d-flex gap-2">
                     <label class="checkbox-label">

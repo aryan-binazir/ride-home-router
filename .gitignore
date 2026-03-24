@@ -51,3 +51,6 @@ go.work.sum
 
 # Wails-generated frontend bindings/runtime
 /frontend/wailsjs/
+
+# scratch files
+_scratch/
