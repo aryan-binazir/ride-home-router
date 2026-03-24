@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,6 +96,15 @@ func NewNominatimGeocoder() Geocoder {
 }
 
 func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*GeocodingResult, error) {
+	if coords, ok := parseCoordinates(address); ok {
+		log.Printf("[GEOCODING] Parsed direct coordinates: address=%s lat=%.6f lng=%.6f", address, coords.Lat, coords.Lng)
+		return &GeocodingResult{
+			Coords:           coords,
+			DisplayName:      strings.TrimSpace(address),
+			FormattedAddress: strings.TrimSpace(address),
+		}, nil
+	}
+
 	select {
 	case <-g.rateLimiter.C:
 	case <-ctx.Done():
@@ -158,6 +169,43 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 		DisplayName:      result.DisplayName,
 		FormattedAddress: formatAddressLabel(result),
 	}, nil
+}
+
+var coordinatePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)@\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)`),
+	regexp.MustCompile(`(?i)(?:^|[?&]q=)\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)`),
+	regexp.MustCompile(`^\s*\(?\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?\s*$`),
+}
+
+func parseCoordinates(input string) (models.Coordinates, bool) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return models.Coordinates{}, false
+	}
+
+	for _, pattern := range coordinatePatterns {
+		matches := pattern.FindStringSubmatch(trimmed)
+		if len(matches) != 3 {
+			continue
+		}
+
+		lat, err := strconv.ParseFloat(matches[1], 64)
+		if err != nil {
+			continue
+		}
+		lng, err := strconv.ParseFloat(matches[2], 64)
+		if err != nil {
+			continue
+		}
+
+		if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+			continue
+		}
+
+		return models.Coordinates{Lat: lat, Lng: lng}, true
+	}
+
+	return models.Coordinates{}, false
 }
 
 func (g *nominatimGeocoder) GeocodeWithRetry(ctx context.Context, address string, maxRetries int) (*GeocodingResult, error) {
