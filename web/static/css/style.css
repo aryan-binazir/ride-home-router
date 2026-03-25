@@ -1759,7 +1759,8 @@ tbody tr:last-child td {
     display: inline-flex;
 }
 
-.htmx-request .calc-btn-text {
+.htmx-request .calc-btn-text,
+.calc-btn-text:has(~ .calc-btn-loading.htmx-request) {
     display: none;
 }
 
