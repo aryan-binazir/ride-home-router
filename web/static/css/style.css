@@ -456,6 +456,34 @@ p {
     padding: 0 1.25rem 0.85rem;
 }
 
+.panel-toolbar-stack {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.planner-toolbar-row,
+.filter-chip-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.management-bulk-toolbar,
+.management-bulk-controls,
+.management-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.management-bulk-toolbar {
+    justify-content: space-between;
+    width: 100%;
+}
+
 .panel-body {
     padding: 0 1.25rem 1.25rem;
 }
@@ -589,6 +617,83 @@ p {
 
 .btn-warning:hover:not(:disabled) {
     box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+}
+
+/* Dropdown button ------------------------------------------------------- */
+
+.btn-dropdown {
+    position: relative;
+    display: inline-flex;
+}
+
+.btn-dropdown > .btn::after {
+    content: '';
+    display: inline-block;
+    width: 0;
+    height: 0;
+    margin-left: 0.45em;
+    vertical-align: 0.12em;
+    border-left: 0.3em solid transparent;
+    border-right: 0.3em solid transparent;
+    border-top: 0.3em solid currentColor;
+    transition: transform var(--transition);
+}
+
+.btn-dropdown.is-open > .btn::after {
+    transform: rotate(180deg);
+}
+
+.btn-dropdown-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 180px;
+    background: var(--elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    z-index: 100;
+    padding: 4px 0;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity var(--transition), transform var(--transition), visibility var(--transition);
+}
+
+.btn-dropdown.is-open .btn-dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.btn-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 1rem;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    transition: background-color var(--transition), color var(--transition);
+}
+
+.btn-dropdown-item:hover,
+.btn-dropdown-item:focus-visible {
+    background: var(--primary-dim);
+    color: var(--primary);
+    outline: none;
+}
+
+.btn-dropdown-empty {
+    display: block;
+    padding: 0.5rem 1rem;
+    color: var(--text-subtle);
+    font-size: 0.8125rem;
+    font-style: italic;
 }
 
 .form-group {
@@ -736,6 +841,57 @@ p {
     color: var(--text);
     font-size: 0.85rem;
     cursor: pointer;
+}
+
+.checkbox-label-block {
+    display: flex;
+}
+
+.checkbox-group-list {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--elevated);
+    max-height: 14rem;
+    overflow: auto;
+}
+
+.filter-chip-list {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.95rem;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--elevated);
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color var(--transition), background-color var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+.filter-chip:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+.filter-chip.is-active {
+    background: var(--primary-faint);
+    color: var(--primary);
+    border-color: var(--primary);
+    box-shadow: var(--glow);
 }
 
 .ui-select {
@@ -898,6 +1054,7 @@ td {
 
 tbody tr {
     transition: background-color var(--transition);
+    cursor: pointer;
 }
 
 tbody tr:hover {
@@ -1602,7 +1759,8 @@ tbody tr:last-child td {
     display: inline-flex;
 }
 
-.htmx-request .calc-btn-text {
+.htmx-request .calc-btn-text,
+.calc-btn-text:has(~ .calc-btn-loading.htmx-request) {
     display: none;
 }
 

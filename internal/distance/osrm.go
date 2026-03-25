@@ -354,7 +354,7 @@ func (c *osrmCalculator) fetchTableIntoMatrix(
 
 			dist := response.Distances[si][di]
 			dur := response.Durations[si][di]
-			if dist <= 0 {
+			if dist < 0 {
 				continue
 			}
 

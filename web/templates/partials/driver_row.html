@@ -1,26 +1,33 @@
 {{define "driver_row"}}
-<tr id="driver-{{.ID}}" data-search="{{.Name}} {{.Address}}">
-    <td>{{.Name}}</td>
-    <td>{{.Address}}</td>
-    <td>{{.VehicleCapacity}}</td>
+<tr id="driver-{{.D.ID}}" data-search="{{.D.Name}} {{.D.Address}}" data-groups="{{.GroupIDs}}">
+    <td>
+        <input type="checkbox"
+               name="driver_ids"
+               value="{{.D.ID}}"
+               class="form-checkbox bulk-table-checkbox"
+               data-bulk-row>
+    </td>
+    <td>{{.D.Name}}</td>
+    <td>{{.D.Address}}</td>
+    <td>{{.D.VehicleCapacity}}</td>
     <td class="text-muted">
-        {{if and .Lat .Lng}}
-        {{printf "%.4f, %.4f" .Lat .Lng}}
+        {{if and .D.Lat .D.Lng}}
+        {{printf "%.4f, %.4f" .D.Lat .D.Lng}}
         {{end}}
     </td>
     <td>
         <div class="table-actions">
             <button class="btn btn-sm btn-outline"
-                    hx-get="/api/v1/drivers/{{.ID}}/edit"
+                    hx-get="/api/v1/drivers/{{.D.ID}}/edit"
                     hx-target="#driver-form-container"
                     hx-swap="innerHTML">
                 Edit
             </button>
             <button class="btn btn-sm btn-danger"
-                    hx-delete="/api/v1/drivers/{{.ID}}"
-                    hx-target="#driver-{{.ID}}"
+                    hx-delete="/api/v1/drivers/{{.D.ID}}"
+                    hx-target="#driver-{{.D.ID}}"
                     hx-swap="outerHTML swap:1s"
-                    hx-confirm="Are you sure you want to delete {{.Name}}?">
+                    hx-confirm="Are you sure you want to delete {{.D.Name}}?">
                 Delete
             </button>
         </div>

@@ -1,0 +1,45 @@
+{{define "group_list"}}
+{{if .Groups}}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Participants</th>
+            <th>Drivers</th>
+            <th style="width: 150px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody id="groups-tbody">
+        {{range .Groups}}
+        <tr id="group-{{.ID}}" data-search="{{.Name}}">
+            <td>{{.Name}}</td>
+            <td>{{.ParticipantCount}}</td>
+            <td>{{.DriverCount}}</td>
+            <td>
+                <div class="table-actions">
+                    <button class="btn btn-sm btn-outline"
+                            hx-get="/api/v1/groups/{{.ID}}/edit"
+                            hx-target="#group-form-container"
+                            hx-swap="innerHTML">
+                        Edit
+                    </button>
+                    <button class="btn btn-sm btn-danger"
+                            hx-delete="/api/v1/groups/{{.ID}}"
+                            hx-target="#groups-list"
+                            hx-swap="innerHTML"
+                            hx-confirm="Are you sure you want to delete {{.Name}}?">
+                        Delete
+                    </button>
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <h3>No groups yet</h3>
+    <p>Create a group to make repeat event selection faster on the planner.</p>
+</div>
+{{end}}
+{{end}}

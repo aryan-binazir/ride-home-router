@@ -6,17 +6,95 @@
  * @param {HTMLInputElement} input - The search input element
  * @param {string} tbodyId - The ID of the tbody to filter
  */
-function filterTable(input, tbodyId) {
+function getActiveTableGroupFilters(tbodyId) {
+  return Array.from(document.querySelectorAll(`.group-filter-chip[data-tbody-id="${tbodyId}"].is-active`))
+    .map(btn => btn.dataset.groupId);
+}
+
+function applyTableFilters(tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
 
-  const query = (input.value || '').trim().toLowerCase();
+  const searchInput = tbody.closest('form')?.querySelector('input[type="search"]');
+  const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const activeGroups = new Set(getActiveTableGroupFilters(tbodyId));
   const rows = tbody.querySelectorAll('tr[data-search]');
 
   rows.forEach(row => {
     const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
-    row.classList.toggle('hidden', query.length > 0 && !haystack.includes(query));
+    const matchesSearch = query.length === 0 || haystack.includes(query);
+    const rowGroups = (row.dataset.groups || '').trim();
+    const rowGroupIDs = rowGroups ? rowGroups.split(',').filter(Boolean) : [];
+    const matchesGroups = activeGroups.size === 0 || rowGroupIDs.some(id => activeGroups.has(id));
+    row.classList.toggle('hidden', !(matchesSearch && matchesGroups));
   });
+}
+
+function filterTable(input, tbodyId) {
+  applyTableFilters(tbodyId);
+}
+
+function toggleTableGroupFilter(button) {
+  const isActive = !button.classList.contains('is-active');
+  button.classList.toggle('is-active', isActive);
+  button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  applyTableFilters(button.dataset.tbodyId);
+}
+
+function clearTableGroupFilters(tbodyId) {
+  document.querySelectorAll(`.group-filter-chip[data-tbody-id="${tbodyId}"]`).forEach(btn => {
+    btn.classList.remove('is-active');
+    btn.setAttribute('aria-pressed', 'false');
+  });
+  applyTableFilters(tbodyId);
+}
+
+function updateBulkSelectionCount(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  const count = tbody.querySelectorAll('input[data-bulk-row]:checked').length;
+  const countEl = document.getElementById(tbodyId.replace('-tbody', '-bulk-selected-count'));
+  if (countEl) {
+    countEl.textContent = String(count);
+  }
+}
+
+function selectVisibleTableRows(tbodyId, shouldSelect) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  tbody.querySelectorAll('tr[data-search]').forEach((row) => {
+    if (row.classList.contains('hidden')) return;
+
+    const checkbox = row.querySelector('input[data-bulk-row]');
+    if (checkbox) checkbox.checked = !!shouldSelect;
+  });
+
+  updateBulkSelectionCount(tbodyId);
+}
+
+function toggleBulkDropdown(btn) {
+  var wrapper = btn.closest('.btn-dropdown');
+  if (!wrapper) return;
+
+  // Close any other open dropdowns first
+  document.querySelectorAll('.btn-dropdown.is-open').forEach(function (d) {
+    if (d !== wrapper) d.classList.remove('is-open');
+  });
+
+  wrapper.classList.toggle('is-open');
+}
+
+function clearTableSelection(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  tbody.querySelectorAll('input[data-bulk-row]').forEach((checkbox) => {
+    checkbox.checked = false;
+  });
+
+  updateBulkSelectionCount(tbodyId);
 }
 
 /**
@@ -156,6 +234,55 @@ function toggleEventDetail(eventItem, eventId) {
       confirmResolve = resolve;
     });
   }
+
+  // Close all open dropdowns whenever an htmx request starts
+  document.body.addEventListener('htmx:beforeRequest', () => {
+    document.querySelectorAll('.btn-dropdown.is-open').forEach(d => d.classList.remove('is-open'));
+  });
+
+  document.addEventListener('change', (event) => {
+    const checkbox = event.target;
+    if (!(checkbox instanceof HTMLInputElement) || !checkbox.matches('input[data-bulk-row]')) return;
+
+    const tbody = checkbox.closest('tbody');
+    if (tbody && tbody.id) {
+      updateBulkSelectionCount(tbody.id);
+    }
+  });
+
+  // Make entire table row clickable to toggle bulk-selection checkbox
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    // Skip if clicking on interactive elements (buttons, links, inputs)
+    if (target.closest('button, a, input, .table-actions')) return;
+
+    const row = target.closest('tr[data-search]');
+    if (!row) return;
+
+    const checkbox = row.querySelector('input[data-bulk-row]');
+    if (!checkbox) return;
+
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  document.body.addEventListener('htmx:afterSwap', (event) => {
+    const target = event.detail && event.detail.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    if (target.id === 'participants-list') {
+      const searchInput = document.getElementById('participants-management-search');
+      if (searchInput) filterTable(searchInput, 'participants-tbody');
+      updateBulkSelectionCount('participants-tbody');
+      return;
+    }
+
+    if (target.id === 'drivers-list') {
+      const searchInput = document.getElementById('drivers-management-search');
+      if (searchInput) filterTable(searchInput, 'drivers-tbody');
+      updateBulkSelectionCount('drivers-tbody');
+    }
+  });
 
   function shouldEnhanceSelects() {
     const platform = (navigator.platform || "").toLowerCase();
@@ -370,6 +497,11 @@ function toggleEventDetail(eventItem, eventId) {
     document.querySelectorAll(".ui-select.is-open").forEach((container) => {
       if (container !== clickedSelect) closeSelect(container);
     });
+
+    // Close open btn-dropdowns when clicking outside
+    if (!e.target.closest(".btn-dropdown")) {
+      document.querySelectorAll(".btn-dropdown.is-open").forEach((d) => d.classList.remove("is-open"));
+    }
   });
 
   function initAddressAutocomplete() {
@@ -419,12 +551,16 @@ function toggleEventDetail(eventItem, eventId) {
     initAll(document);
     initSettingsValidation();
     initAddressAutocomplete();
+    updateBulkSelectionCount('participants-tbody');
+    updateBulkSelectionCount('drivers-tbody');
   });
 
   document.addEventListener("htmx:load", (e) => {
     initAll(e.target);
     initSettingsValidation();
     initAddressAutocomplete();
+    updateBulkSelectionCount('participants-tbody');
+    updateBulkSelectionCount('drivers-tbody');
   });
 
   document.addEventListener("htmx:confirm", (e) => {

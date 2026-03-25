@@ -171,7 +171,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 				orgVehicles, _ := h.DB.OrganizationVehicles().List(r.Context())
 
 				// Trigger a warning toast
-				w.Header().Set("HX-Trigger", `{"showToast":{"message":"Not enough capacity - need `+strconv.Itoa(rerr.TotalParticipants-rerr.TotalCapacity)+` more seats","type":"warning"}}`)
+				h.setHTMXToast(w, fmt.Sprintf("Not enough capacity - need %d more seats", rerr.TotalParticipants-rerr.TotalCapacity), "warning")
 
 				h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
 					rerr,
@@ -206,7 +206,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
+		h.setHTMXToast(w, fmt.Sprintf("Routes calculated! %d drivers assigned.", result.Summary.TotalDriversUsed), "success")
 		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))
 		return
 	}
@@ -368,6 +368,6 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	// Create a session for route editing
 	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, mode, driverOrgVehicle)
 
-	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
+	h.setHTMXToast(w, fmt.Sprintf("Routes calculated! %d drivers assigned.", result.Summary.TotalDriversUsed), "success")
 	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))
 }

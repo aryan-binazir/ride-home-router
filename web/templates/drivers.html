@@ -28,16 +28,110 @@
         </div>
     </div>
 
-    <div class="panel-toolbar">
-        <input type="search"
-               class="form-input form-input-search"
-               placeholder="Search drivers…"
-               aria-label="Search drivers"
-               oninput="filterTable(this, 'drivers-tbody')">
-    </div>
+    <form id="driver-bulk-form">
+        <div class="panel-toolbar panel-toolbar-stack">
+            {{if .Groups}}
+            <div class="filter-chip-toolbar">
+                <div class="filter-chip-list" id="drivers-management-group-filters">
+                    {{range .Groups}}
+                    <button type="button"
+                            class="filter-chip group-filter-chip"
+                            data-tbody-id="drivers-tbody"
+                            data-group-id="{{.ID}}"
+                            aria-pressed="false"
+                            onclick="toggleTableGroupFilter(this)">
+                        {{.Name}}
+                    </button>
+                    {{end}}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline" onclick="clearTableGroupFilters('drivers-tbody')">Clear filters</button>
+            </div>
+            {{end}}
+            <div class="planner-toolbar-row">
+                <input type="search"
+                       id="drivers-management-search"
+                       class="form-input form-input-search"
+                       placeholder="Search drivers…"
+                       aria-label="Search drivers"
+                       oninput="filterTable(this, 'drivers-tbody')">
+                <span class="panel-count text-muted">
+                    <span id="drivers-bulk-selected-count">0</span> selected
+                </span>
+            </div>
 
-    <div id="drivers-list" class="table-container mb-0">
-        {{template "driver_list" .}}
-    </div>
+            <div class="management-bulk-toolbar">
+                <div class="management-bulk-controls">
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            onclick="selectVisibleTableRows('drivers-tbody', true)">
+                        Select visible
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            onclick="clearTableSelection('drivers-tbody')">
+                        Clear selection
+                    </button>
+                </div>
+                <div class="management-bulk-actions">
+                    <div class="btn-dropdown">
+                        <button type="button"
+                                class="btn btn-sm btn-outline"
+                                onclick="toggleBulkDropdown(this)"
+                                {{if not .Groups}}disabled{{end}}>
+                            Add to group
+                        </button>
+                        <div class="btn-dropdown-menu">
+                            {{if .Groups}}
+                            {{range .Groups}}
+                            <button type="button"
+                                    class="btn-dropdown-item"
+                                    onclick="this.closest('.btn-dropdown').classList.remove('is-open')"
+                                    hx-post="/api/v1/drivers/groups/add"
+                                    hx-vals='{"group_id": "{{.ID}}"}'
+                                    hx-include="#driver-bulk-form input[name='driver_ids']:checked"
+                                    hx-target="#drivers-list"
+                                    hx-swap="innerHTML">
+                                {{.Name}}
+                            </button>
+                            {{end}}
+                            {{else}}
+                            <span class="btn-dropdown-empty">No groups yet</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    <div class="btn-dropdown">
+                        <button type="button"
+                                class="btn btn-sm btn-outline"
+                                onclick="toggleBulkDropdown(this)"
+                                {{if not .Groups}}disabled{{end}}>
+                            Remove from group
+                        </button>
+                        <div class="btn-dropdown-menu">
+                            {{if .Groups}}
+                            {{range .Groups}}
+                            <button type="button"
+                                    class="btn-dropdown-item"
+                                    onclick="this.closest('.btn-dropdown').classList.remove('is-open')"
+                                    hx-post="/api/v1/drivers/groups/remove"
+                                    hx-vals='{"group_id": "{{.ID}}"}'
+                                    hx-include="#driver-bulk-form input[name='driver_ids']:checked"
+                                    hx-target="#drivers-list"
+                                    hx-swap="innerHTML">
+                                {{.Name}}
+                            </button>
+                            {{end}}
+                            {{else}}
+                            <span class="btn-dropdown-empty">No groups yet</span>
+                            {{end}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="drivers-list" class="table-container mb-0">
+            {{template "driver_list" .}}
+        </div>
+    </form>
 </section>
 {{end}}

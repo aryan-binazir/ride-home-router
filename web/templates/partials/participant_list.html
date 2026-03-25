@@ -3,6 +3,7 @@
 <table>
     <thead>
         <tr>
+            <th style="width: 42px;"></th>
             <th>Name</th>
             <th>Address</th>
             <th>Coordinates</th>
@@ -11,7 +12,7 @@
     </thead>
     <tbody id="participants-tbody">
         {{range .Participants}}
-        {{template "participant_row" .}}
+        {{template "participant_row" dict "P" . "GroupIDs" (groupIDsFor $.ParticipantGroupIDs .ID)}}
         {{end}}
     </tbody>
 </table>

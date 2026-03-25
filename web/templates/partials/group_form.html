@@ -1,0 +1,40 @@
+{{define "group_form"}}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">{{if .Group.ID}}Edit{{else}}Add New{{end}} Group</h3>
+        <button class="btn btn-sm btn-outline"
+                onclick="document.getElementById('group-form-container').innerHTML = ''">
+            Cancel
+        </button>
+    </div>
+
+    <form {{if .Group.ID}}
+            hx-put="/api/v1/groups/{{.Group.ID}}"
+          {{else}}
+            hx-post="/api/v1/groups"
+          {{end}}
+          hx-target="#groups-list"
+          hx-swap="innerHTML"
+          hx-indicator="#group-form-loading"
+          hx-on::after-request="if(event.detail.successful && event.detail.elt === this) document.getElementById('group-form-container').innerHTML = ''">
+
+        <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text"
+                   name="name"
+                   class="form-input"
+                   value="{{.Group.Name}}"
+                   placeholder="Group name"
+                   required>
+            <div class="form-help">Examples: Youth Conference, Summer Camp, Kinston Riders</div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">
+                {{if .Group.ID}}Update{{else}}Add{{end}} Group
+            </button>
+            <span class="loading htmx-indicator" id="group-form-loading"></span>
+        </div>
+    </form>
+</div>
+{{end}}

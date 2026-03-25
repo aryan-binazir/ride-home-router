@@ -24,7 +24,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 3)
+	assertSchemaVersion(t, store.db, 4)
 
 	for _, tableName := range []string{
 		"events_legacy",
@@ -125,7 +125,7 @@ func TestStoreFreshSchemaCreatesV3EventTables(t *testing.T) {
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 3)
+	assertSchemaVersion(t, store.db, 4)
 
 	for _, tableName := range []string{"events", "event_routes", "event_route_stops", "event_summaries"} {
 		assertTableExists(t, store.db, tableName)

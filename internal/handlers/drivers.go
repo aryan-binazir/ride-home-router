@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -36,9 +35,12 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "driver_list", map[string]interface{}{
-			"Drivers": drivers,
-		})
+		data, err := h.driverListData(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", data)
 		return
 	}
 
@@ -78,11 +80,13 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 // HandleCreateDriver handles POST /api/v1/drivers
 func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name            string `json:"name"`
-		Address         string `json:"address"`
-		VehicleCapacity int    `json:"vehicle_capacity"`
+		Name            string  `json:"name"`
+		Address         string  `json:"address"`
+		VehicleCapacity int     `json:"vehicle_capacity"`
+		GroupIDs        []int64 `json:"group_ids"`
 	}
 
+	var groupIDs []int64
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			h.renderError(w, r, err)
@@ -99,11 +103,18 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			}
 			req.VehicleCapacity = capacity
 		}
+		parsedGroupIDs, parseErr := parseGroupIDs(r)
+		if parseErr != nil {
+			h.renderError(w, r, parseErr)
+			return
+		}
+		groupIDs = parsedGroupIDs
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, "Invalid request body")
 			return
 		}
+		groupIDs = req.GroupIDs
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -155,6 +166,16 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.DB.Groups().SetGroupsForDriver(r.Context(), driver.ID, groupIDs); err != nil {
+		log.Printf("[ERROR] Failed to set driver groups: id=%d err=%v", driver.ID, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
 	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, driver.Name)
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
@@ -163,10 +184,13 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"driverCreated": true, "showToast": {"message": "Driver '%s' added!", "type": "success"}}`, html.EscapeString(driver.Name)))
-		h.renderTemplate(w, "driver_list", map[string]interface{}{
-			"Drivers": drivers,
-		})
+		h.setHTMXEventToast(w, "driverCreated", true, fmt.Sprintf("Driver '%s' added!", driver.Name), "success")
+		data, err := h.driverListData(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", data)
 		return
 	}
 
@@ -210,11 +234,13 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name            string `json:"name"`
-		Address         string `json:"address"`
-		VehicleCapacity int    `json:"vehicle_capacity"`
+		Name            string  `json:"name"`
+		Address         string  `json:"address"`
+		VehicleCapacity int     `json:"vehicle_capacity"`
+		GroupIDs        []int64 `json:"group_ids"`
 	}
 
+	var groupIDs []int64
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			h.renderError(w, r, err)
@@ -231,11 +257,18 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			}
 			req.VehicleCapacity = capacity
 		}
+		parsedGroupIDs, parseErr := parseGroupIDs(r)
+		if parseErr != nil {
+			h.renderError(w, r, parseErr)
+			return
+		}
+		groupIDs = parsedGroupIDs
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, "Invalid request body")
 			return
 		}
+		groupIDs = req.GroupIDs
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -291,6 +324,16 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.DB.Groups().SetGroupsForDriver(r.Context(), driver.ID, groupIDs); err != nil {
+		log.Printf("[ERROR] Failed to update driver groups: id=%d err=%v", driver.ID, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
 	if driver == nil {
 		log.Printf("[HTTP] Driver not found after update: id=%d", id)
 		if h.isHTMX(r) {
@@ -309,10 +352,13 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"driverUpdated": true, "showToast": {"message": "Driver '%s' updated!", "type": "success"}}`, html.EscapeString(driver.Name)))
-		h.renderTemplate(w, "driver_list", map[string]interface{}{
-			"Drivers": drivers,
-		})
+		h.setHTMXEventToast(w, "driverUpdated", true, fmt.Sprintf("Driver '%s' updated!", driver.Name), "success")
+		data, err := h.driverListData(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", data)
 		return
 	}
 
@@ -356,7 +402,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Deleted driver: id=%d", id)
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Driver deleted", "type": "success"}}`)
+		h.setHTMXToast(w, "Driver deleted", "success")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -370,6 +416,11 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	idStr = strings.TrimSuffix(idStr, "/edit")
 
 	var driver *models.Driver
+	var (
+		groups           []models.Group
+		selectedGroupIDs map[int64]bool
+		err              error
+	)
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -386,11 +437,25 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, fmt.Errorf("Driver not found"))
 			return
 		}
+
+		groups, selectedGroupIDs, err = h.loadGroupsForDriver(r, driver.ID)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
 	} else {
 		driver = &models.Driver{}
+		groups, err = h.DB.Groups().List(r.Context())
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		selectedGroupIDs = map[int64]bool{}
 	}
 
-	h.renderTemplate(w, "driver_form", map[string]interface{}{
-		"Driver": driver,
+	h.renderTemplate(w, "driver_form", map[string]any{
+		"Driver":           driver,
+		"Groups":           groups,
+		"SelectedGroupIDs": selectedGroupIDs,
 	})
 }

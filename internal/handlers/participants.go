@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -36,9 +35,12 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 
 	log.Printf("[HTTP] Listed participants: count=%d", len(participants))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "participant_list", map[string]interface{}{
-			"Participants": participants,
-		})
+		data, err := h.participantListData(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", data)
 		return
 	}
 
@@ -78,10 +80,12 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 // HandleCreateParticipant handles POST /api/v1/participants
 func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name    string `json:"name"`
-		Address string `json:"address"`
+		Name     string  `json:"name"`
+		Address  string  `json:"address"`
+		GroupIDs []int64 `json:"group_ids"`
 	}
 
+	var groupIDs []int64
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[ERROR] Failed to parse form: err=%v", err)
@@ -90,12 +94,19 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		parsedGroupIDs, parseErr := parseGroupIDs(r)
+		if parseErr != nil {
+			h.renderError(w, r, parseErr)
+			return
+		}
+		groupIDs = parsedGroupIDs
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
 			h.handleValidationError(w, "Invalid request body")
 			return
 		}
+		groupIDs = req.GroupIDs
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -138,6 +149,16 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if err := h.DB.Groups().SetGroupsForParticipant(r.Context(), participant.ID, groupIDs); err != nil {
+		log.Printf("[ERROR] Failed to set participant groups: id=%d err=%v", participant.ID, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
 	log.Printf("[HTTP] Created participant: id=%d name=%s", participant.ID, participant.Name)
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
@@ -146,10 +167,13 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"participantCreated": true, "showToast": {"message": "Participant '%s' added!", "type": "success"}}`, html.EscapeString(participant.Name)))
-		h.renderTemplate(w, "participant_list", map[string]interface{}{
-			"Participants": participants,
-		})
+		h.setHTMXEventToast(w, "participantCreated", true, fmt.Sprintf("Participant '%s' added!", participant.Name), "success")
+		data, err := h.participantListData(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", data)
 		return
 	}
 
@@ -196,10 +220,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Name    string `json:"name"`
-		Address string `json:"address"`
+		Name     string  `json:"name"`
+		Address  string  `json:"address"`
+		GroupIDs []int64 `json:"group_ids"`
 	}
 
+	var groupIDs []int64
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			h.renderError(w, r, err)
@@ -207,11 +233,18 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		parsedGroupIDs, parseErr := parseGroupIDs(r)
+		if parseErr != nil {
+			h.renderError(w, r, parseErr)
+			return
+		}
+		groupIDs = parsedGroupIDs
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, "Invalid request body")
 			return
 		}
+		groupIDs = req.GroupIDs
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -257,6 +290,16 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if err := h.DB.Groups().SetGroupsForParticipant(r.Context(), participant.ID, groupIDs); err != nil {
+		log.Printf("[ERROR] Failed to update participant groups: id=%d err=%v", participant.ID, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
 	if participant == nil {
 		log.Printf("[HTTP] Participant not found after update: id=%d", id)
 		if h.isHTMX(r) {
@@ -275,10 +318,13 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"participantUpdated": true, "showToast": {"message": "Participant '%s' updated!", "type": "success"}}`, html.EscapeString(participant.Name)))
-		h.renderTemplate(w, "participant_list", map[string]interface{}{
-			"Participants": participants,
-		})
+		h.setHTMXEventToast(w, "participantUpdated", true, fmt.Sprintf("Participant '%s' updated!", participant.Name), "success")
+		data, err := h.participantListData(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", data)
 		return
 	}
 
@@ -322,7 +368,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Deleted participant: id=%d", id)
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Participant deleted", "type": "success"}}`)
+		h.setHTMXToast(w, "Participant deleted", "success")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -336,6 +382,11 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 	idStr = strings.TrimSuffix(idStr, "/edit")
 
 	var participant *models.Participant
+	var (
+		groups           []models.Group
+		selectedGroupIDs map[int64]bool
+		err              error
+	)
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -352,11 +403,25 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 			h.renderError(w, r, fmt.Errorf("Participant not found"))
 			return
 		}
+
+		groups, selectedGroupIDs, err = h.loadGroupsForParticipant(r, participant.ID)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
 	} else {
 		participant = &models.Participant{}
+		groups, err = h.DB.Groups().List(r.Context())
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		selectedGroupIDs = map[int64]bool{}
 	}
 
-	h.renderTemplate(w, "participant_form", map[string]interface{}{
-		"Participant": participant,
+	h.renderTemplate(w, "participant_form", map[string]any{
+		"Participant":      participant,
+		"Groups":           groups,
+		"SelectedGroupIDs": selectedGroupIDs,
 	})
 }

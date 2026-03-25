@@ -34,6 +34,26 @@
             <div class="form-help">Address will be geocoded automatically</div>
         </div>
 
+        <div class="form-group">
+            <label class="form-label">Groups</label>
+            {{if .Groups}}
+            <div class="checkbox-group-list">
+                {{range .Groups}}
+                <label class="checkbox-label checkbox-label-block">
+                    <input type="checkbox"
+                           name="group_ids"
+                           value="{{.ID}}"
+                           class="form-checkbox"
+                           {{if index $.SelectedGroupIDs .ID}}checked{{end}}>
+                    <span>{{.Name}}</span>
+                </label>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="form-help">No groups yet. Create them on the Groups page.</div>
+            {{end}}
+        </div>
+
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
                 {{if .Participant.ID}}Update{{else}}Add{{end}} Participant
