@@ -1,32 +1,32 @@
 {{define "participant_row"}}
-<tr id="participant-{{.ID}}" data-search="{{.Name}} {{.Address}}">
+<tr id="participant-{{.P.ID}}" data-search="{{.P.Name}} {{.P.Address}}" data-groups="{{.GroupIDs}}">
     <td>
         <input type="checkbox"
                name="participant_ids"
-               value="{{.ID}}"
+               value="{{.P.ID}}"
                class="form-checkbox bulk-table-checkbox"
                data-bulk-row>
     </td>
-    <td>{{.Name}}</td>
-    <td>{{.Address}}</td>
+    <td>{{.P.Name}}</td>
+    <td>{{.P.Address}}</td>
     <td class="text-muted">
-        {{if and .Lat .Lng}}
-        {{printf "%.4f, %.4f" .Lat .Lng}}
+        {{if and .P.Lat .P.Lng}}
+        {{printf "%.4f, %.4f" .P.Lat .P.Lng}}
         {{end}}
     </td>
     <td>
         <div class="table-actions">
             <button class="btn btn-sm btn-outline"
-                    hx-get="/api/v1/participants/{{.ID}}/edit"
+                    hx-get="/api/v1/participants/{{.P.ID}}/edit"
                     hx-target="#participant-form-container"
                     hx-swap="innerHTML">
                 Edit
             </button>
             <button class="btn btn-sm btn-danger"
-                    hx-delete="/api/v1/participants/{{.ID}}"
-                    hx-target="#participant-{{.ID}}"
+                    hx-delete="/api/v1/participants/{{.P.ID}}"
+                    hx-target="#participant-{{.P.ID}}"
                     hx-swap="outerHTML swap:1s"
-                    hx-confirm="Are you sure you want to delete {{.Name}}?">
+                    hx-confirm="Are you sure you want to delete {{.P.Name}}?">
                 Delete
             </button>
         </div>

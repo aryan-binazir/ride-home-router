@@ -392,9 +392,12 @@ func (h *Handler) handleBulkParticipantGroupMembership(w http.ResponseWriter, r 
 		verb = "removed from"
 	}
 	h.setHTMXToast(w, fmt.Sprintf("%d participant%s %s '%s'.", len(participantIDs), pluralSuffix(len(participantIDs)), verb, group.Name), "success")
-	h.renderTemplate(w, "participant_list", map[string]any{
-		"Participants": participants,
-	})
+	data, err := h.participantListData(r, participants)
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
+	h.renderTemplate(w, "participant_list", data)
 }
 
 func (h *Handler) handleBulkDriverGroupMembership(w http.ResponseWriter, r *http.Request, action string) {
@@ -452,9 +455,12 @@ func (h *Handler) handleBulkDriverGroupMembership(w http.ResponseWriter, r *http
 		verb = "removed from"
 	}
 	h.setHTMXToast(w, fmt.Sprintf("%d driver%s %s '%s'.", len(driverIDs), pluralSuffix(len(driverIDs)), verb, group.Name), "success")
-	h.renderTemplate(w, "driver_list", map[string]any{
-		"Drivers": drivers,
-	})
+	data, err := h.driverListData(r, drivers)
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
+	h.renderTemplate(w, "driver_list", data)
 }
 
 func pluralSuffix(count int) string {
@@ -517,6 +523,28 @@ func parseResourceID(w http.ResponseWriter, r *http.Request, prefix string) (int
 	}
 
 	return id, true
+}
+
+func (h *Handler) participantListData(r *http.Request, participants []models.Participant) (map[string]any, error) {
+	groupIDs, err := h.DB.Groups().ListGroupIDsForParticipants(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"Participants":        participants,
+		"ParticipantGroupIDs": groupIDs,
+	}, nil
+}
+
+func (h *Handler) driverListData(r *http.Request, drivers []models.Driver) (map[string]any, error) {
+	groupIDs, err := h.DB.Groups().ListGroupIDsForDrivers(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"Drivers":        drivers,
+		"DriverGroupIDs": groupIDs,
+	}, nil
 }
 
 func isUniqueConstraintError(err error) bool {

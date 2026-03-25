@@ -79,11 +79,18 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	participantGroupIDs, err := h.DB.Groups().ListGroupIDsForParticipants(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
 	data := map[string]any{
-		"Title":        "Participants",
-		"ActivePage":   "participants",
-		"Participants": participants,
-		"Groups":       groups,
+		"Title":               "Participants",
+		"ActivePage":          "participants",
+		"Participants":        participants,
+		"Groups":              groups,
+		"ParticipantGroupIDs": participantGroupIDs,
 	}
 
 	h.renderTemplate(w, "participants.html", data)
@@ -103,11 +110,18 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	driverGroupIDs, err := h.DB.Groups().ListGroupIDsForDrivers(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
 	data := map[string]any{
-		"Title":      "Drivers",
-		"ActivePage": "drivers",
-		"Drivers":    drivers,
-		"Groups":     groups,
+		"Title":          "Drivers",
+		"ActivePage":     "drivers",
+		"Drivers":        drivers,
+		"Groups":         groups,
+		"DriverGroupIDs": driverGroupIDs,
 	}
 
 	h.renderTemplate(w, "drivers.html", data)

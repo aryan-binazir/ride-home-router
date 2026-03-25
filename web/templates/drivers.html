@@ -30,6 +30,23 @@
 
     <form id="driver-bulk-form">
         <div class="panel-toolbar panel-toolbar-stack">
+            {{if .Groups}}
+            <div class="filter-chip-toolbar">
+                <div class="filter-chip-list" id="drivers-management-group-filters">
+                    {{range .Groups}}
+                    <button type="button"
+                            class="filter-chip group-filter-chip"
+                            data-tbody-id="drivers-tbody"
+                            data-group-id="{{.ID}}"
+                            aria-pressed="false"
+                            onclick="toggleTableGroupFilter(this)">
+                        {{.Name}}
+                    </button>
+                    {{end}}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline" onclick="clearTableGroupFilters('drivers-tbody')">Clear filters</button>
+            </div>
+            {{end}}
             <div class="planner-toolbar-row">
                 <input type="search"
                        id="drivers-management-search"

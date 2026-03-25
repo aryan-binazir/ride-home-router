@@ -6,17 +6,47 @@
  * @param {HTMLInputElement} input - The search input element
  * @param {string} tbodyId - The ID of the tbody to filter
  */
-function filterTable(input, tbodyId) {
+function getActiveTableGroupFilters(tbodyId) {
+  return Array.from(document.querySelectorAll(`.group-filter-chip[data-tbody-id="${tbodyId}"].is-active`))
+    .map(btn => btn.dataset.groupId);
+}
+
+function applyTableFilters(tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
 
-  const query = (input.value || '').trim().toLowerCase();
+  const searchInput = tbody.closest('form')?.querySelector('input[type="search"]');
+  const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const activeGroups = new Set(getActiveTableGroupFilters(tbodyId));
   const rows = tbody.querySelectorAll('tr[data-search]');
 
   rows.forEach(row => {
     const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
-    row.classList.toggle('hidden', query.length > 0 && !haystack.includes(query));
+    const matchesSearch = query.length === 0 || haystack.includes(query);
+    const rowGroups = (row.dataset.groups || '').trim();
+    const rowGroupIDs = rowGroups ? rowGroups.split(',').filter(Boolean) : [];
+    const matchesGroups = activeGroups.size === 0 || rowGroupIDs.some(id => activeGroups.has(id));
+    row.classList.toggle('hidden', !(matchesSearch && matchesGroups));
   });
+}
+
+function filterTable(input, tbodyId) {
+  applyTableFilters(tbodyId);
+}
+
+function toggleTableGroupFilter(button) {
+  const isActive = !button.classList.contains('is-active');
+  button.classList.toggle('is-active', isActive);
+  button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  applyTableFilters(button.dataset.tbodyId);
+}
+
+function clearTableGroupFilters(tbodyId) {
+  document.querySelectorAll(`.group-filter-chip[data-tbody-id="${tbodyId}"]`).forEach(btn => {
+    btn.classList.remove('is-active');
+    btn.setAttribute('aria-pressed', 'false');
+  });
+  applyTableFilters(tbodyId);
 }
 
 function updateBulkSelectionCount(tbodyId) {

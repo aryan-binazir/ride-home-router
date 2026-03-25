@@ -35,9 +35,12 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "driver_list", map[string]any{
-			"Drivers": drivers,
-		})
+		data, err := h.driverListData(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", data)
 		return
 	}
 
@@ -182,9 +185,12 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.setHTMXEventToast(w, "driverCreated", true, fmt.Sprintf("Driver '%s' added!", driver.Name), "success")
-		h.renderTemplate(w, "driver_list", map[string]any{
-			"Drivers": drivers,
-		})
+		data, err := h.driverListData(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", data)
 		return
 	}
 
@@ -347,9 +353,12 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.setHTMXEventToast(w, "driverUpdated", true, fmt.Sprintf("Driver '%s' updated!", driver.Name), "success")
-		h.renderTemplate(w, "driver_list", map[string]any{
-			"Drivers": drivers,
-		})
+		data, err := h.driverListData(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", data)
 		return
 	}
 

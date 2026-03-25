@@ -13,7 +13,7 @@
     </thead>
     <tbody id="drivers-tbody">
         {{range .Drivers}}
-        {{template "driver_row" .}}
+        {{template "driver_row" dict "D" . "GroupIDs" (groupIDsFor $.DriverGroupIDs .ID)}}
         {{end}}
     </tbody>
 </table>

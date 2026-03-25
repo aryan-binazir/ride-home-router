@@ -212,7 +212,6 @@
                         <span class="select-row-subtitle">{{.Address}}</span>
                         <span class="select-row-meta">
                             <span class="badge badge-muted van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
-                            <span class="badge badge-info van-effective-capacity-value" hidden>{{.VehicleCapacity}} seats active</span>
                         </span>
                         <span class="van-assignment-inline hidden">
                             <span class="van-assignment-inline-header">
@@ -525,24 +524,8 @@
         });
     }
 
-    function updateVanCapacitySummary() {
-        document.querySelectorAll('.driver-checkbox').forEach((checkbox) => {
-            const row = checkbox.closest('.select-row');
-            const select = document.getElementById(`van-assignment-${checkbox.value}`);
-            const selectedOption = select ? select.options[select.selectedIndex] : null;
-            const capacity = selectedOption ? (parseInt(selectedOption.dataset.capacity, 10) || 0) : 0;
-
-            const valueEl = row ? row.querySelector('.van-effective-capacity-value') : null;
-            if (valueEl) {
-                valueEl.textContent = `${capacity} seats active`;
-                valueEl.hidden = !checkbox.checked;
-            }
-        });
-    }
-
     function handleVanAssignmentChange() {
         updateVanSelectionOptions();
-        updateVanCapacitySummary();
         updateEventStats();
         saveEventPlannerDraft();
     }

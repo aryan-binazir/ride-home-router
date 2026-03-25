@@ -35,9 +35,12 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 
 	log.Printf("[HTTP] Listed participants: count=%d", len(participants))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "participant_list", map[string]any{
-			"Participants": participants,
-		})
+		data, err := h.participantListData(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", data)
 		return
 	}
 
@@ -165,9 +168,12 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.setHTMXEventToast(w, "participantCreated", true, fmt.Sprintf("Participant '%s' added!", participant.Name), "success")
-		h.renderTemplate(w, "participant_list", map[string]any{
-			"Participants": participants,
-		})
+		data, err := h.participantListData(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", data)
 		return
 	}
 
@@ -313,9 +319,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.setHTMXEventToast(w, "participantUpdated", true, fmt.Sprintf("Participant '%s' updated!", participant.Name), "success")
-		h.renderTemplate(w, "participant_list", map[string]any{
-			"Participants": participants,
-		})
+		data, err := h.participantListData(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", data)
 		return
 	}
 
