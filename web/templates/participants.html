@@ -44,12 +44,6 @@
 
             <div class="management-bulk-toolbar">
                 <div class="management-bulk-controls">
-                    <select name="group_id" class="form-select form-input-inline" {{if not .Groups}}disabled{{end}}>
-                        <option value="">Choose group…</option>
-                        {{range .Groups}}
-                        <option value="{{.ID}}">{{.Name}}</option>
-                        {{end}}
-                    </select>
                     <button type="button"
                             class="btn btn-sm btn-outline"
                             onclick="selectVisibleTableRows('participants-tbody', true)">
@@ -62,24 +56,56 @@
                     </button>
                 </div>
                 <div class="management-bulk-actions">
-                    <button type="button"
-                            class="btn btn-sm btn-outline"
-                            {{if not .Groups}}disabled{{end}}
-                            hx-post="/api/v1/participants/groups/add"
-                            hx-include="#participant-bulk-form select[name='group_id'], #participant-bulk-form input[name='participant_ids']:checked"
-                            hx-target="#participants-list"
-                            hx-swap="innerHTML">
-                        Add to group
-                    </button>
-                    <button type="button"
-                            class="btn btn-sm btn-outline"
-                            {{if not .Groups}}disabled{{end}}
-                            hx-post="/api/v1/participants/groups/remove"
-                            hx-include="#participant-bulk-form select[name='group_id'], #participant-bulk-form input[name='participant_ids']:checked"
-                            hx-target="#participants-list"
-                            hx-swap="innerHTML">
-                        Remove from group
-                    </button>
+                    <div class="btn-dropdown">
+                        <button type="button"
+                                class="btn btn-sm btn-outline"
+                                onclick="toggleBulkDropdown(this)"
+                                {{if not .Groups}}disabled{{end}}>
+                            Add to group
+                        </button>
+                        <div class="btn-dropdown-menu">
+                            {{if .Groups}}
+                            {{range .Groups}}
+                            <button type="button"
+                                    class="btn-dropdown-item"
+                                    hx-post="/api/v1/participants/groups/add"
+                                    hx-vals='{"group_id": "{{.ID}}"}'
+                                    hx-include="#participant-bulk-form input[name='participant_ids']:checked"
+                                    hx-target="#participants-list"
+                                    hx-swap="innerHTML">
+                                {{.Name}}
+                            </button>
+                            {{end}}
+                            {{else}}
+                            <span class="btn-dropdown-empty">No groups yet</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    <div class="btn-dropdown">
+                        <button type="button"
+                                class="btn btn-sm btn-outline"
+                                onclick="toggleBulkDropdown(this)"
+                                {{if not .Groups}}disabled{{end}}>
+                            Remove from group
+                        </button>
+                        <div class="btn-dropdown-menu">
+                            {{if .Groups}}
+                            {{range .Groups}}
+                            <button type="button"
+                                    class="btn-dropdown-item"
+                                    hx-post="/api/v1/participants/groups/remove"
+                                    hx-vals='{"group_id": "{{.ID}}"}'
+                                    hx-include="#participant-bulk-form input[name='participant_ids']:checked"
+                                    hx-target="#participants-list"
+                                    hx-swap="innerHTML">
+                                {{.Name}}
+                            </button>
+                            {{end}}
+                            {{else}}
+                            <span class="btn-dropdown-empty">No groups yet</span>
+                            {{end}}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

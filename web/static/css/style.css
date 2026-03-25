@@ -619,6 +619,83 @@ p {
     box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
 }
 
+/* Dropdown button ------------------------------------------------------- */
+
+.btn-dropdown {
+    position: relative;
+    display: inline-flex;
+}
+
+.btn-dropdown > .btn::after {
+    content: '';
+    display: inline-block;
+    width: 0;
+    height: 0;
+    margin-left: 0.45em;
+    vertical-align: 0.12em;
+    border-left: 0.3em solid transparent;
+    border-right: 0.3em solid transparent;
+    border-top: 0.3em solid currentColor;
+    transition: transform var(--transition);
+}
+
+.btn-dropdown.is-open > .btn::after {
+    transform: rotate(180deg);
+}
+
+.btn-dropdown-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 180px;
+    background: var(--elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    z-index: 100;
+    padding: 4px 0;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity var(--transition), transform var(--transition), visibility var(--transition);
+}
+
+.btn-dropdown.is-open .btn-dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.btn-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 1rem;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    transition: background-color var(--transition), color var(--transition);
+}
+
+.btn-dropdown-item:hover,
+.btn-dropdown-item:focus-visible {
+    background: var(--primary-dim);
+    color: var(--primary);
+    outline: none;
+}
+
+.btn-dropdown-empty {
+    display: block;
+    padding: 0.5rem 1rem;
+    color: var(--text-subtle);
+    font-size: 0.8125rem;
+    font-style: italic;
+}
+
 .form-group {
     margin-bottom: 1rem;
 }
@@ -977,6 +1054,7 @@ td {
 
 tbody tr {
     transition: background-color var(--transition);
+    cursor: pointer;
 }
 
 tbody tr:hover {

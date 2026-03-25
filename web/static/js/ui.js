@@ -44,6 +44,18 @@ function selectVisibleTableRows(tbodyId, shouldSelect) {
   updateBulkSelectionCount(tbodyId);
 }
 
+function toggleBulkDropdown(btn) {
+  var wrapper = btn.closest('.btn-dropdown');
+  if (!wrapper) return;
+
+  // Close any other open dropdowns first
+  document.querySelectorAll('.btn-dropdown.is-open').forEach(function (d) {
+    if (d !== wrapper) d.classList.remove('is-open');
+  });
+
+  wrapper.classList.toggle('is-open');
+}
+
 function clearTableSelection(tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
@@ -193,6 +205,12 @@ function toggleEventDetail(eventItem, eventId) {
     });
   }
 
+  // Close dropdown menus when any child fires an HTMX request
+  document.body.addEventListener('htmx:beforeRequest', (event) => {
+    const dropdown = event.detail.elt && event.detail.elt.closest('.btn-dropdown');
+    if (dropdown) dropdown.classList.remove('is-open');
+  });
+
   document.addEventListener('change', (event) => {
     const checkbox = event.target;
     if (!(checkbox instanceof HTMLInputElement) || !checkbox.matches('input[data-bulk-row]')) return;
@@ -201,6 +219,22 @@ function toggleEventDetail(eventItem, eventId) {
     if (tbody && tbody.id) {
       updateBulkSelectionCount(tbody.id);
     }
+  });
+
+  // Make entire table row clickable to toggle bulk-selection checkbox
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    // Skip if clicking on interactive elements (buttons, links, inputs)
+    if (target.closest('button, a, input, .table-actions')) return;
+
+    const row = target.closest('tr[data-search]');
+    if (!row) return;
+
+    const checkbox = row.querySelector('input[data-bulk-row]');
+    if (!checkbox) return;
+
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
   });
 
   document.body.addEventListener('htmx:afterSwap', (event) => {
@@ -434,6 +468,11 @@ function toggleEventDetail(eventItem, eventId) {
     document.querySelectorAll(".ui-select.is-open").forEach((container) => {
       if (container !== clickedSelect) closeSelect(container);
     });
+
+    // Close open btn-dropdowns when clicking outside
+    if (!e.target.closest(".btn-dropdown")) {
+      document.querySelectorAll(".btn-dropdown.is-open").forEach((d) => d.classList.remove("is-open"));
+    }
   });
 
   function initAddressAutocomplete() {
