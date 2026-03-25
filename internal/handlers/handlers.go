@@ -110,19 +110,36 @@ func (h *Handler) handleHTMXErrorNoSwap(w http.ResponseWriter, r *http.Request, 
 	h.writeError(w, status, code, message, nil)
 }
 
+func (h *Handler) setHTMXTrigger(w http.ResponseWriter, payload any) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal HX-Trigger payload: %v", err)
+		return
+	}
+
+	w.Header().Set("HX-Trigger", string(encoded))
+}
+
 func (h *Handler) setHTMXToast(w http.ResponseWriter, message, toastType string) {
-	payload, err := json.Marshal(map[string]map[string]string{
+	h.setHTMXTrigger(w, map[string]map[string]string{
 		"showToast": {
 			"message": message,
 			"type":    toastType,
 		},
 	})
-	if err != nil {
-		log.Printf("[ERROR] Failed to marshal HX-Trigger toast payload: %v", err)
-		return
-	}
+}
 
-	w.Header().Set("HX-Trigger", string(payload))
+func (h *Handler) setHTMXEventToast(w http.ResponseWriter, eventName string, eventValue any, message, toastType string) {
+	payload := map[string]any{
+		"showToast": map[string]string{
+			"message": message,
+			"type":    toastType,
+		},
+	}
+	if eventName != "" {
+		payload[eventName] = eventValue
+	}
+	h.setHTMXTrigger(w, payload)
 }
 
 // handleGeocodingError handles 422 errors for geocoding failures

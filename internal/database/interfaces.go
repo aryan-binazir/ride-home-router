@@ -17,6 +17,7 @@ type DataStore interface {
 	OrganizationVehicles() OrganizationVehicleRepository
 	Events() EventRepository
 	DistanceCache() DistanceCacheRepository
+	Groups() GroupRepository
 }
 
 // ParticipantRepository handles participant persistence
@@ -37,6 +38,25 @@ type DriverRepository interface {
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error
+}
+
+// GroupRepository handles group persistence and membership.
+type GroupRepository interface {
+	List(ctx context.Context) ([]models.Group, error)
+	GetByID(ctx context.Context, id int64) (*models.Group, error)
+	Create(ctx context.Context, g *models.Group) (*models.Group, error)
+	Update(ctx context.Context, g *models.Group) (*models.Group, error)
+	Delete(ctx context.Context, id int64) error
+	ListGroupsForParticipant(ctx context.Context, participantID int64) ([]models.Group, error)
+	ListGroupsForDriver(ctx context.Context, driverID int64) ([]models.Group, error)
+	AddGroupToParticipants(ctx context.Context, groupID int64, participantIDs []int64) error
+	RemoveGroupFromParticipants(ctx context.Context, groupID int64, participantIDs []int64) error
+	AddGroupToDrivers(ctx context.Context, groupID int64, driverIDs []int64) error
+	RemoveGroupFromDrivers(ctx context.Context, groupID int64, driverIDs []int64) error
+	SetGroupsForParticipant(ctx context.Context, participantID int64, groupIDs []int64) error
+	SetGroupsForDriver(ctx context.Context, driverID int64, groupIDs []int64) error
+	ListGroupIDsForParticipants(ctx context.Context) (map[int64][]int64, error)
+	ListGroupIDsForDrivers(ctx context.Context) (map[int64][]int64, error)
 }
 
 // SettingsRepository handles settings persistence

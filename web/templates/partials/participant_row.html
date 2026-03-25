@@ -1,5 +1,12 @@
 {{define "participant_row"}}
 <tr id="participant-{{.ID}}" data-search="{{.Name}} {{.Address}}">
+    <td>
+        <input type="checkbox"
+               name="participant_ids"
+               value="{{.ID}}"
+               class="form-checkbox bulk-table-checkbox"
+               data-bulk-row>
+    </td>
     <td>{{.Name}}</td>
     <td>{{.Address}}</td>
     <td class="text-muted">

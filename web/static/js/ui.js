@@ -19,6 +19,42 @@ function filterTable(input, tbodyId) {
   });
 }
 
+function updateBulkSelectionCount(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  const count = tbody.querySelectorAll('input[data-bulk-row]:checked').length;
+  const countEl = document.getElementById(tbodyId.replace('-tbody', '-bulk-selected-count'));
+  if (countEl) {
+    countEl.textContent = String(count);
+  }
+}
+
+function selectVisibleTableRows(tbodyId, shouldSelect) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  tbody.querySelectorAll('tr[data-search]').forEach((row) => {
+    if (row.classList.contains('hidden')) return;
+
+    const checkbox = row.querySelector('input[data-bulk-row]');
+    if (checkbox) checkbox.checked = !!shouldSelect;
+  });
+
+  updateBulkSelectionCount(tbodyId);
+}
+
+function clearTableSelection(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  tbody.querySelectorAll('input[data-bulk-row]').forEach((checkbox) => {
+    checkbox.checked = false;
+  });
+
+  updateBulkSelectionCount(tbodyId);
+}
+
 /**
  * Toggle event detail expansion in history view.
  * @param {HTMLElement} eventItem - The event item element
@@ -156,6 +192,34 @@ function toggleEventDetail(eventItem, eventId) {
       confirmResolve = resolve;
     });
   }
+
+  document.addEventListener('change', (event) => {
+    const checkbox = event.target;
+    if (!(checkbox instanceof HTMLInputElement) || !checkbox.matches('input[data-bulk-row]')) return;
+
+    const tbody = checkbox.closest('tbody');
+    if (tbody && tbody.id) {
+      updateBulkSelectionCount(tbody.id);
+    }
+  });
+
+  document.body.addEventListener('htmx:afterSwap', (event) => {
+    const target = event.detail && event.detail.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    if (target.id === 'participants-list') {
+      const searchInput = document.getElementById('participants-management-search');
+      if (searchInput) filterTable(searchInput, 'participants-tbody');
+      updateBulkSelectionCount('participants-tbody');
+      return;
+    }
+
+    if (target.id === 'drivers-list') {
+      const searchInput = document.getElementById('drivers-management-search');
+      if (searchInput) filterTable(searchInput, 'drivers-tbody');
+      updateBulkSelectionCount('drivers-tbody');
+    }
+  });
 
   function shouldEnhanceSelects() {
     const platform = (navigator.platform || "").toLowerCase();
@@ -419,12 +483,16 @@ function toggleEventDetail(eventItem, eventId) {
     initAll(document);
     initSettingsValidation();
     initAddressAutocomplete();
+    updateBulkSelectionCount('participants-tbody');
+    updateBulkSelectionCount('drivers-tbody');
   });
 
   document.addEventListener("htmx:load", (e) => {
     initAll(e.target);
     initSettingsValidation();
     initAddressAutocomplete();
+    updateBulkSelectionCount('participants-tbody');
+    updateBulkSelectionCount('drivers-tbody');
   });
 
   document.addEventListener("htmx:confirm", (e) => {

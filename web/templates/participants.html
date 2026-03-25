@@ -28,16 +28,65 @@
         </div>
     </div>
 
-    <div class="panel-toolbar">
-        <input type="search"
-               class="form-input form-input-search"
-               placeholder="Search participants…"
-               aria-label="Search participants"
-               oninput="filterTable(this, 'participants-tbody')">
-    </div>
+    <form id="participant-bulk-form">
+        <div class="panel-toolbar panel-toolbar-stack">
+            <div class="planner-toolbar-row">
+                <input type="search"
+                       id="participants-management-search"
+                       class="form-input form-input-search"
+                       placeholder="Search participants…"
+                       aria-label="Search participants"
+                       oninput="filterTable(this, 'participants-tbody')">
+                <span class="panel-count text-muted">
+                    <span id="participants-bulk-selected-count">0</span> selected
+                </span>
+            </div>
 
-    <div id="participants-list" class="table-container mb-0">
-        {{template "participant_list" .}}
-    </div>
+            <div class="management-bulk-toolbar">
+                <div class="management-bulk-controls">
+                    <select name="group_id" class="form-select form-input-inline" {{if not .Groups}}disabled{{end}}>
+                        <option value="">Choose group…</option>
+                        {{range .Groups}}
+                        <option value="{{.ID}}">{{.Name}}</option>
+                        {{end}}
+                    </select>
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            onclick="selectVisibleTableRows('participants-tbody', true)">
+                        Select visible
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            onclick="clearTableSelection('participants-tbody')">
+                        Clear selection
+                    </button>
+                </div>
+                <div class="management-bulk-actions">
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            {{if not .Groups}}disabled{{end}}
+                            hx-post="/api/v1/participants/groups/add"
+                            hx-include="#participant-bulk-form select[name='group_id'], #participant-bulk-form input[name='participant_ids']:checked"
+                            hx-target="#participants-list"
+                            hx-swap="innerHTML">
+                        Add to group
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            {{if not .Groups}}disabled{{end}}
+                            hx-post="/api/v1/participants/groups/remove"
+                            hx-include="#participant-bulk-form select[name='group_id'], #participant-bulk-form input[name='participant_ids']:checked"
+                            hx-target="#participants-list"
+                            hx-swap="innerHTML">
+                        Remove from group
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="participants-list" class="table-container mb-0">
+            {{template "participant_list" .}}
+        </div>
+    </form>
 </section>
 {{end}}

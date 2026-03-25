@@ -172,7 +172,7 @@ func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
 
 	// Load page templates as strings (don't parse into base)
 	pages := make(map[string]string)
-	pageFiles := []string{"index.html", "participants.html", "drivers.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
+	pageFiles := []string{"index.html", "participants.html", "drivers.html", "groups.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
 	for _, name := range pageFiles {
 		content, err := fs.ReadFile(templatesFS, "templates/"+name)
 		if err != nil {
@@ -244,6 +244,22 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleParticipantForm(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/participants/groups/add", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleAddParticipantsToGroup(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/participants/groups/remove", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleRemoveParticipantsFromGroup(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/participants/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/participants/" {
 			http.Error(w, "Not found", http.StatusNotFound)
@@ -287,6 +303,22 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleDriverForm(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/drivers/groups/add", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleAddDriversToGroup(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/drivers/groups/remove", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleRemoveDriversFromGroup(w, r)
+	})
+
 	mux.HandleFunc("/api/v1/drivers/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/drivers/" {
 			http.Error(w, "Not found", http.StatusNotFound)
@@ -306,6 +338,48 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			handler.HandleUpdateDriver(w, r)
 		case http.MethodDelete:
 			handler.HandleDeleteDriver(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/v1/groups", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleListGroups(w, r)
+		case http.MethodPost:
+			handler.HandleCreateGroup(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/v1/groups/new", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleGroupForm(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/groups/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/groups/" {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
+			handler.HandleGroupForm(w, r)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetGroup(w, r)
+		case http.MethodPut:
+			handler.HandleUpdateGroup(w, r)
+		case http.MethodDelete:
+			handler.HandleDeleteGroup(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -494,6 +568,14 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 			return
 		}
 		handler.HandleActivityLocationsPage(w, r)
+	})
+
+	mux.HandleFunc("/groups", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler.HandleGroupsPage(w, r)
 	})
 
 	mux.HandleFunc("/vans", func(w http.ResponseWriter, r *http.Request) {

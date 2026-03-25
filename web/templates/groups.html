@@ -1,0 +1,41 @@
+{{define "content"}}
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Groups</h2>
+        <p class="page-subtitle">Create reusable collections you can assign to participants and drivers, then filter by them on the planner.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-primary"
+                hx-get="/api/v1/groups/new"
+                hx-target="#group-form-container"
+                hx-swap="innerHTML">
+            Add Group
+        </button>
+    </div>
+</div>
+
+<div id="group-form-container" class="mb-4"></div>
+
+<div id="error-container"></div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3 class="panel-title">Saved Groups</h3>
+            <p class="panel-subtitle">Use groups for repeat event cohorts like camps, conferences, or regional rosters.</p>
+        </div>
+    </div>
+
+    <div class="panel-toolbar">
+        <input type="search"
+               class="form-input form-input-search"
+               placeholder="Search groups…"
+               aria-label="Search groups"
+               oninput="filterTable(this, 'groups-tbody')">
+    </div>
+
+    <div id="groups-list" class="table-container mb-0">
+        {{template "group_list" .}}
+    </div>
+</section>
+{{end}}

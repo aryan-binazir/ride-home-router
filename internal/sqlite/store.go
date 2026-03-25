@@ -16,7 +16,7 @@ import (
 
 const (
 	DefaultDBFileName = "data.db"
-	schemaVersion     = 3
+	schemaVersion     = 4
 )
 
 // Store is a SQLite-based data store implementing database.DataStore
@@ -32,6 +32,7 @@ type Store struct {
 	organizationVehicleRepo database.OrganizationVehicleRepository
 	eventRepo               database.EventRepository
 	distanceCacheRepo       database.DistanceCacheRepository
+	groupRepo               database.GroupRepository
 }
 
 // New creates a new SQLite store at the specified path
@@ -84,6 +85,7 @@ func New(dbPath string) (*Store, error) {
 	store.organizationVehicleRepo = &organizationVehicleRepository{store: store}
 	store.eventRepo = &eventRepository{store: store}
 	store.distanceCacheRepo = &distanceCacheRepository{store: store}
+	store.groupRepo = &groupRepository{store: store}
 
 	return store, nil
 }
@@ -116,7 +118,7 @@ func (s *Store) createSchema() error {
 	CREATE TABLE IF NOT EXISTS schema_version (
 		version INTEGER PRIMARY KEY
 	);
-	INSERT INTO schema_version (version) VALUES (3);
+	INSERT INTO schema_version (version) VALUES (4);
 
 	-- Activity locations
 	CREATE TABLE IF NOT EXISTS activity_locations (
@@ -157,6 +159,30 @@ func (s *Store) createSchema() error {
 		capacity INTEGER NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Groups
+	CREATE TABLE IF NOT EXISTS groups (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS participant_groups (
+		group_id INTEGER NOT NULL,
+		participant_id INTEGER NOT NULL,
+		PRIMARY KEY (group_id, participant_id),
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+		FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS driver_groups (
+		group_id INTEGER NOT NULL,
+		driver_id INTEGER NOT NULL,
+		PRIMARY KEY (group_id, driver_id),
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+		FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 	);
 
 	-- Settings (single row table)
@@ -240,6 +266,9 @@ func (s *Store) createSchema() error {
 	-- Indexes for common queries
 	CREATE INDEX IF NOT EXISTS idx_participants_name ON participants(name);
 	CREATE INDEX IF NOT EXISTS idx_drivers_name ON drivers(name);
+	CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
+	CREATE INDEX IF NOT EXISTS idx_participant_groups_participant ON participant_groups(participant_id);
+	CREATE INDEX IF NOT EXISTS idx_driver_groups_driver ON driver_groups(driver_id);
 	CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date DESC);
 	CREATE INDEX IF NOT EXISTS idx_event_routes_event ON event_routes(event_id);
 	CREATE INDEX IF NOT EXISTS idx_event_route_stops_route ON event_route_stops(event_route_id);
@@ -358,6 +387,39 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 		if err := backfillLegacyEventHistory(tx); err != nil {
 			return err
+		}
+	}
+
+	if fromVersion < 4 {
+		if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS groups (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+
+			CREATE TABLE IF NOT EXISTS participant_groups (
+				group_id INTEGER NOT NULL,
+				participant_id INTEGER NOT NULL,
+				PRIMARY KEY (group_id, participant_id),
+				FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+				FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+			);
+
+			CREATE TABLE IF NOT EXISTS driver_groups (
+				group_id INTEGER NOT NULL,
+				driver_id INTEGER NOT NULL,
+				PRIMARY KEY (group_id, driver_id),
+				FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+				FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
+			CREATE INDEX IF NOT EXISTS idx_participant_groups_participant ON participant_groups(participant_id);
+			CREATE INDEX IF NOT EXISTS idx_driver_groups_driver ON driver_groups(driver_id);
+		`); err != nil {
+			return fmt.Errorf("failed to create v4 group tables: %w", err)
 		}
 	}
 
@@ -769,3 +831,4 @@ func (s *Store) OrganizationVehicles() database.OrganizationVehicleRepository {
 }
 func (s *Store) Events() database.EventRepository                { return s.eventRepo }
 func (s *Store) DistanceCache() database.DistanceCacheRepository { return s.distanceCacheRepo }
+func (s *Store) Groups() database.GroupRepository                { return s.groupRepo }

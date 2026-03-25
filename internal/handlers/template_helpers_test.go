@@ -41,7 +41,7 @@ func loadEmbeddedTemplates(t *testing.T) *TemplateSet {
 	}
 
 	pages := make(map[string]string)
-	pageFiles := []string{"index.html", "participants.html", "drivers.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
+	pageFiles := []string{"index.html", "participants.html", "drivers.html", "groups.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
 	for _, name := range pageFiles {
 		content, err := fs.ReadFile(web.Templates, "templates/"+name)
 		if err != nil {

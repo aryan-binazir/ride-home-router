@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -75,6 +76,16 @@ func FuncMap() template.FuncMap {
 				return ""
 			}
 			return strings.ToUpper(string(first[0]) + string(last[0]))
+		},
+		"joinInt64s": func(values []int64, sep string) string {
+			if len(values) == 0 {
+				return ""
+			}
+			parts := make([]string, 0, len(values))
+			for _, value := range values {
+				parts = append(parts, strconv.FormatInt(value, 10))
+			}
+			return strings.Join(parts, sep)
 		},
 	}
 }

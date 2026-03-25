@@ -32,13 +32,34 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":             "Event Planning",
-		"ActivePage":        "home",
-		"Participants":      participants,
-		"Drivers":           drivers,
-		"ActivityLocations": activityLocations,
-		"OrgVehicles":       orgVehicles,
+	groups, err := h.DB.Groups().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	participantGroupIDs, err := h.DB.Groups().ListGroupIDsForParticipants(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	driverGroupIDs, err := h.DB.Groups().ListGroupIDsForDrivers(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	data := map[string]any{
+		"Title":               "Event Planning",
+		"ActivePage":          "home",
+		"Participants":        participants,
+		"Drivers":             drivers,
+		"ActivityLocations":   activityLocations,
+		"OrgVehicles":         orgVehicles,
+		"Groups":              groups,
+		"ParticipantGroupIDs": participantGroupIDs,
+		"DriverGroupIDs":      driverGroupIDs,
 	}
 
 	h.renderTemplate(w, "index.html", data)
@@ -52,10 +73,17 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	data := map[string]interface{}{
+	groups, err := h.DB.Groups().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	data := map[string]any{
 		"Title":        "Participants",
 		"ActivePage":   "participants",
 		"Participants": participants,
+		"Groups":       groups,
 	}
 
 	h.renderTemplate(w, "participants.html", data)
@@ -69,10 +97,17 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
+	groups, err := h.DB.Groups().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	data := map[string]any{
 		"Title":      "Drivers",
 		"ActivePage": "drivers",
 		"Drivers":    drivers,
+		"Groups":     groups,
 	}
 
 	h.renderTemplate(w, "drivers.html", data)
@@ -86,7 +121,7 @@ func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":             "Activity Locations",
 		"ActivePage":        "activity_locations",
 		"ActivityLocations": activityLocations,
@@ -103,7 +138,7 @@ func (h *Handler) HandleVansPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":       "Vans",
 		"ActivePage":  "vans",
 		"OrgVehicles": orgVehicles,
@@ -128,11 +163,11 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	defaultDBPath, _ := database.GetDefaultDBPath()
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":      "Settings",
 		"ActivePage": "settings",
 		"Settings":   settings,
-		"DatabaseConfig": map[string]interface{}{
+		"DatabaseConfig": map[string]any{
 			"DatabasePath": dbConfig.DatabasePath,
 			"DefaultPath":  defaultDBPath,
 			"IsDefault":    dbConfig.DatabasePath == defaultDBPath,
@@ -150,7 +185,7 @@ func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":          "Event History",
 		"ActivePage":     "history",
 		"Events":         view.Events,

@@ -50,6 +50,16 @@ func (d *Driver) GetCoords() Coordinates {
 	return Coordinates{Lat: d.Lat, Lng: d.Lng}
 }
 
+// Group represents a reusable collection of participants and/or drivers.
+type Group struct {
+	ID               int64     `json:"id"`
+	Name             string    `json:"name"`
+	ParticipantCount int       `json:"participant_count"`
+	DriverCount      int       `json:"driver_count"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
 // ActivityLocation represents a location where activities take place
 type ActivityLocation struct {
 	ID      int64   `json:"id"`
