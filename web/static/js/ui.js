@@ -235,10 +235,9 @@ function toggleEventDetail(eventItem, eventId) {
     });
   }
 
-  // Close dropdown menus when any child fires an HTMX request
-  document.body.addEventListener('htmx:beforeRequest', (event) => {
-    const dropdown = event.detail.elt && event.detail.elt.closest('.btn-dropdown');
-    if (dropdown) dropdown.classList.remove('is-open');
+  // Close all open dropdowns whenever an htmx request starts
+  document.body.addEventListener('htmx:beforeRequest', () => {
+    document.querySelectorAll('.btn-dropdown.is-open').forEach(d => d.classList.remove('is-open'));
   });
 
   document.addEventListener('change', (event) => {

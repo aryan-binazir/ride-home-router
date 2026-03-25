@@ -85,6 +85,7 @@
                             {{range .Groups}}
                             <button type="button"
                                     class="btn-dropdown-item"
+                                    onclick="this.closest('.btn-dropdown').classList.remove('is-open')"
                                     hx-post="/api/v1/drivers/groups/add"
                                     hx-vals='{"group_id": "{{.ID}}"}'
                                     hx-include="#driver-bulk-form input[name='driver_ids']:checked"
@@ -110,6 +111,7 @@
                             {{range .Groups}}
                             <button type="button"
                                     class="btn-dropdown-item"
+                                    onclick="this.closest('.btn-dropdown').classList.remove('is-open')"
                                     hx-post="/api/v1/drivers/groups/remove"
                                     hx-vals='{"group_id": "{{.ID}}"}'
                                     hx-include="#driver-bulk-form input[name='driver_ids']:checked"
