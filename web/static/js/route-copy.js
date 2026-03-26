@@ -394,9 +394,12 @@ function dedupeStopsByLocation(stops) {
 }
 
 /**
- * Generates Google Maps directions URL for a route
+ * Generates Google Maps directions URL for a route.
+ * Use navigation mode for copied links so mobile devices can launch turn-by-turn
+ * from the driver's current location instead of getting stuck in preview.
  */
-function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff') {
+function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff', options = {}) {
+    const navigation = options.navigation === true;
     if (!stops || stops.length === 0) {
         return '';
     }
@@ -425,9 +428,14 @@ function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropof
     const params = new URLSearchParams({
         api: '1',
         travelmode: 'driving',
-        origin,
         destination
     });
+
+    if (navigation) {
+        params.set('dir_action', 'navigate');
+    } else {
+        params.set('origin', origin);
+    }
 
     if (waypoints.length > 0) {
         params.set('waypoints', waypoints.join('|'));
@@ -461,7 +469,7 @@ function formatRouteText(activityLocationName, activityLocation, driverName, dri
     });
 
     if (includeMapsLink) {
-        const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
+        const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode, { navigation: true });
         text += `\nMaps: ${mapsUrl}\n`;
     }
 
@@ -578,7 +586,7 @@ async function copyAllRoutes() {
             allText += `${index + 1}. ${prefix}${stop.name} - ${stop.address}\n`;
         });
 
-        const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
+        const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode, { navigation: true });
         allText += `Maps: ${mapsUrl}\n`;
     });
 

@@ -369,6 +369,7 @@
             }
         } finally {
             updateRouteTimeCopy();
+            ensureDefaultRouteTime();
             isRestoringEventPlannerDraft = false;
         }
     }
@@ -393,6 +394,31 @@
         if (label) label.textContent = 'Depart activity location at';
         if (help) help.textContent = 'Used to calculate the expected arrival time at each stop in copied driver and parent lists.';
         if (input) input.setAttribute('aria-label', 'Depart activity location at');
+    }
+
+    function getDefaultRouteTimeValue() {
+        const now = new Date();
+        const rounded = Math.ceil(now.getMinutes() / 15) * 15;
+        now.setSeconds(0, 0);
+        if (rounded === 60) {
+            now.setHours(now.getHours() + 1, 0, 0, 0);
+        } else {
+            now.setMinutes(rounded, 0, 0);
+        }
+
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        return `${hours}:${minutes}`;
+    }
+
+    function ensureDefaultRouteTime() {
+        const form = getEventForm();
+        if (!form) return;
+
+        const input = form.querySelector('input[name="route_time"]');
+        if (!input || input.value) return;
+
+        input.value = getDefaultRouteTimeValue();
     }
 
     function escapeHtml(value) {
@@ -582,7 +608,7 @@
             if (defaultMode) defaultMode.checked = true;
 
             const routeTime = form.querySelector('input[name="route_time"]');
-            if (routeTime) routeTime.value = '';
+            if (routeTime) routeTime.value = getDefaultRouteTimeValue();
         }
         document.getElementById('results-section').innerHTML = `
     <div class="results-loading htmx-indicator calculate-indicator">
@@ -681,6 +707,7 @@
     });
     updateEventStats();
     updateRouteTimeCopy();
+    ensureDefaultRouteTime();
 
     document.body.addEventListener('htmx:afterSwap', function(event) {
         const target = event.detail && event.detail.target;
