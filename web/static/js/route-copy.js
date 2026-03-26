@@ -532,6 +532,8 @@ async function copyRoute(button, audience = 'driver') {
 
         // Show feedback
         const originalText = button.textContent;
+        const originalWidth = button.style.width;
+        button.style.width = `${button.offsetWidth}px`;
         button.textContent = 'Copied!';
         button.classList.add('btn-success');
         button.classList.remove('btn-outline');
@@ -540,6 +542,7 @@ async function copyRoute(button, audience = 'driver') {
             button.textContent = originalText;
             button.classList.remove('btn-success');
             button.classList.add('btn-outline');
+            button.style.width = originalWidth;
         }, 2000);
     } catch (err) {
         console.error('Failed to copy route:', err);
@@ -596,6 +599,8 @@ async function copyAllRoutes() {
         // Show feedback
         const button = document.getElementById('copy-all-btn');
         const originalText = button.textContent;
+        const originalWidth = button.style.width;
+        button.style.width = `${button.offsetWidth}px`;
         button.textContent = 'Copied!';
         button.classList.add('btn-success');
         button.classList.remove('btn-secondary');
@@ -604,6 +609,7 @@ async function copyAllRoutes() {
             button.textContent = originalText;
             button.classList.remove('btn-success');
             button.classList.add('btn-secondary');
+            button.style.width = originalWidth;
         }, 2000);
     } catch (err) {
         console.error('Failed to copy all routes:', err);

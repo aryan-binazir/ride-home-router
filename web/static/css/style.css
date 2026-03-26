@@ -1598,11 +1598,11 @@ tbody tr:last-child td {
     gap: 0.45rem;
 }
 
-#calculate-btn.htmx-request .calc-btn-loading {
+#calculate-btn.is-loading .calc-btn-loading {
     display: inline-flex;
 }
 
-#calculate-btn.htmx-request .calc-btn-text {
+#calculate-btn.is-loading .calc-btn-text {
     display: none;
 }
 

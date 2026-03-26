@@ -675,6 +675,13 @@
         });
     }
 
+    function setCalculateButtonLoading(isLoading) {
+        const button = document.getElementById('calculate-btn');
+        if (!button) return;
+
+        button.classList.toggle('is-loading', isLoading);
+    }
+
     document.addEventListener('change', function(e) {
         if (e.target.classList.contains('driver-checkbox') || e.target.classList.contains('participant-checkbox')) {
             const row = e.target.closest('.select-row');
@@ -708,6 +715,34 @@
     updateEventStats();
     updateRouteTimeCopy();
     ensureDefaultRouteTime();
+
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(true);
+        }
+    });
+
+    document.body.addEventListener('htmx:afterRequest', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(false);
+        }
+    });
+
+    document.body.addEventListener('htmx:sendError', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(false);
+        }
+    });
+
+    document.body.addEventListener('htmx:responseError', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(false);
+        }
+    });
 
     document.body.addEventListener('htmx:afterSwap', function(event) {
         const target = event.detail && event.detail.target;
