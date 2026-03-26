@@ -29,6 +29,7 @@ type RouteSession struct {
 	DriverOrgVehicles map[int64]*models.OrganizationVehicle
 	ActivityLocation  *models.ActivityLocation
 	UseMiles          bool
+	RouteTime         string
 	Mode              string // "pickup" or "dropoff"
 	LastAccessedAt    time.Time
 	mu                sync.Mutex // Protects session data during modifications
@@ -63,7 +64,7 @@ func newRouteSessionStore(ttl, cleanupInterval time.Duration) *RouteSessionStore
 	return store
 }
 
-func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, mode string, driverOrgVehicles map[int64]*models.OrganizationVehicle) *RouteSession {
+func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, routeTime, mode string, driverOrgVehicles map[int64]*models.OrganizationVehicle) *RouteSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -81,6 +82,7 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []mo
 		DriverOrgVehicles: copyOrgVehicleAssignments(driverOrgVehicles),
 		ActivityLocation:  activityLocation,
 		UseMiles:          useMiles,
+		RouteTime:         routeTime,
 		Mode:              mode,
 		LastAccessedAt:    time.Now(),
 	}
@@ -261,12 +263,13 @@ func buildRoutingPayload(routes []models.CalculatedRoute, summary models.Routing
 	}
 }
 
-func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode string) map[string]interface{} {
+func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, routeTime, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode string) map[string]interface{} {
 	return map[string]interface{}{
 		"Routes":           routes,
 		"Summary":          summary,
 		"UseMiles":         useMiles,
 		"ActivityLocation": activityLocation,
+		"RouteTime":        routeTime,
 		"SessionID":        sessionID,
 		"IsEditing":        isEditing,
 		"UnusedDrivers":    unusedDrivers,
@@ -379,7 +382,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 
 	// Return updated routes
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.RouteTime, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 
@@ -466,7 +469,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[EDIT] Swapped drivers between routes %d and %d", req.RouteIndex1, req.RouteIndex2)
 
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.RouteTime, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 
@@ -503,7 +506,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[EDIT] Reset routes for session %s", sessionID)
 
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.RouteTime, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 
@@ -629,7 +632,7 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[EDIT] Added unused driver %d (%s) to routes", req.DriverID, driverToAdd.Name)
 
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.ID, true, getUnusedDrivers(session), session.Mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.RouteTime, session.ID, true, getUnusedDrivers(session), session.Mode))
 		return
 	}
 

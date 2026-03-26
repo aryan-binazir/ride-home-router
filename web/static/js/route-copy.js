@@ -290,6 +290,66 @@ function parseCoordinate(value) {
     return Number.isFinite(num) ? num : null;
 }
 
+const DROPOFF_ETA_SLACK_SECS = 2 * 60;
+
+function parseDurationSeconds(value) {
+    const num = Number.parseFloat(value);
+    return Number.isFinite(num) ? num : null;
+}
+
+function parseRouteTime(value) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const match = value.trim().match(/^(\d{2}):(\d{2})$/);
+    if (!match) {
+        return null;
+    }
+
+    const hours = Number.parseInt(match[1], 10);
+    const minutes = Number.parseInt(match[2], 10);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+        return null;
+    }
+
+    const baseTime = new Date();
+    baseTime.setHours(hours, minutes, 0, 0);
+    return baseTime;
+}
+
+function formatClockTime(value) {
+    if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+        return '';
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(value);
+}
+
+function getStopEta(baseTime, cumulativeDurationSecs, routeDurationSecs, mode) {
+    if (!(baseTime instanceof Date) || Number.isNaN(baseTime.getTime())) {
+        return '';
+    }
+    if (cumulativeDurationSecs === null) {
+        return '';
+    }
+
+    let offsetSecs = cumulativeDurationSecs;
+    if (mode === 'pickup') {
+        if (routeDurationSecs === null) {
+            return '';
+        }
+        offsetSecs = cumulativeDurationSecs - routeDurationSecs;
+    } else {
+        offsetSecs += DROPOFF_ETA_SLACK_SECS;
+    }
+
+    return formatClockTime(new Date(baseTime.getTime() + (offsetSecs * 1000)));
+}
+
 function getLocationValue(location) {
     const lat = parseCoordinate(location?.lat);
     const lng = parseCoordinate(location?.lng);
@@ -379,18 +439,31 @@ function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropof
 /**
  * Formats a single route for copying
  */
-function formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode = 'dropoff') {
+function formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode = 'dropoff', options = {}) {
+    const includeParticipantAddresses = options.includeParticipantAddresses !== false;
+    const includeDriverAddress = options.includeDriverAddress !== false;
+    const includeMapsLink = options.includeMapsLink !== false;
     const activityLocationAddress = activityLocation?.address || '';
     const driverAddress = driverLocation?.address || '';
     let text = `Activity Location: ${activityLocationName}\n${activityLocationAddress}\n\n`;
-    text += `Driver: ${driverName}\n${driverAddress}\n`;
+    text += `Driver: ${driverName}\n`;
+    if (includeDriverAddress) {
+        text += `${driverAddress}\n`;
+    }
 
     stops.forEach((stop, index) => {
-        text += `${index + 1}. ${stop.name} - ${stop.address}\n`;
+        const prefix = stop.time ? `${stop.time} - ` : '';
+        text += `${index + 1}. ${prefix}${stop.name}`;
+        if (includeParticipantAddresses && stop.address) {
+            text += ` - ${stop.address}`;
+        }
+        text += '\n';
     });
 
-    const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
-    text += `\nMaps: ${mapsUrl}\n`;
+    if (includeMapsLink) {
+        const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
+        text += `\nMaps: ${mapsUrl}\n`;
+    }
 
     return text;
 }
@@ -398,20 +471,29 @@ function formatRouteText(activityLocationName, activityLocation, driverName, dri
 /**
  * Extracts stop data from a route card
  */
-function getStopsFromRouteCard(routeCard) {
+function getStopsFromRouteCard(routeCard, routeTime, mode = 'dropoff') {
     const stopItems = routeCard.querySelectorAll('.stop-item');
+    const routeDurationSecs = parseDurationSeconds(routeCard.dataset.routeDurationSecs);
+    const baseTime = parseRouteTime(routeTime);
     return Array.from(stopItems).map(item => ({
         name: item.dataset.participantName,
         address: item.dataset.participantAddress,
         lat: item.dataset.participantLat,
-        lng: item.dataset.participantLng
+        lng: item.dataset.participantLng,
+        cumulativeDurationSecs: parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
+        time: getStopEta(
+            baseTime,
+            parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
+            routeDurationSecs,
+            mode
+        ),
     }));
 }
 
 /**
  * Copies a single route to clipboard
  */
-async function copyRoute(button) {
+async function copyRoute(button, audience = 'driver') {
     const routeCard = button.closest('.route-card');
     const container = routeCard.closest('.routes-container');
     const activityLocationName = container.dataset.activityLocationName;
@@ -421,15 +503,21 @@ async function copyRoute(button) {
         lng: container.dataset.activityLocationLng
     };
     const mode = container.dataset.routeMode || 'dropoff';
+    const routeTime = container.dataset.routeTime || '';
     const driverName = routeCard.dataset.driverName;
     const driverLocation = {
         address: routeCard.dataset.driverAddress,
         lat: routeCard.dataset.driverLat,
         lng: routeCard.dataset.driverLng
     };
-    const stops = getStopsFromRouteCard(routeCard);
+    const stops = getStopsFromRouteCard(routeCard, routeTime, mode);
 
-    const text = formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode);
+    const isParentCopy = audience === 'parent';
+    const text = formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode, {
+        includeParticipantAddresses: !isParentCopy,
+        includeDriverAddress: !isParentCopy,
+        includeMapsLink: !isParentCopy,
+    });
 
     try {
         await navigator.clipboard.writeText(text);
@@ -468,6 +556,7 @@ async function copyAllRoutes() {
         lng: container.dataset.activityLocationLng
     };
     const mode = container.dataset.routeMode || 'dropoff';
+    const routeTime = container.dataset.routeTime || '';
     let allText = `Activity Location: ${activityLocationName}\n${activityLocation.address}\n\n`;
 
     routeCards.forEach((routeCard, cardIndex) => {
@@ -477,7 +566,7 @@ async function copyAllRoutes() {
             lat: routeCard.dataset.driverLat,
             lng: routeCard.dataset.driverLng
         };
-        const stops = getStopsFromRouteCard(routeCard);
+        const stops = getStopsFromRouteCard(routeCard, routeTime, mode);
 
         if (cardIndex > 0) {
             allText += '\n';
@@ -485,7 +574,8 @@ async function copyAllRoutes() {
 
         allText += `Driver: ${driverName}\n${driverLocation.address}\n`;
         stops.forEach((stop, index) => {
-            allText += `${index + 1}. ${stop.name} - ${stop.address}\n`;
+            const prefix = stop.time ? `${stop.time} - ` : '';
+            allText += `${index + 1}. ${prefix}${stop.name} - ${stop.address}\n`;
         });
 
         const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);

@@ -104,6 +104,12 @@ func TestHandleIndexPage_RendersVanAssignmentsPanelWhenVansExist(t *testing.T) {
 	if !strings.Contains(body, "Vehicle for this event") {
 		t.Fatalf("expected Event Planning page to render inline van assignment controls, body=%q", body)
 	}
+	if !strings.Contains(body, `name="route_time"`) {
+		t.Fatalf("expected Event Planning page to render the route time input, body=%q", body)
+	}
+	if !strings.Contains(body, "Depart activity location at") {
+		t.Fatalf("expected Event Planning page to render the route time label, body=%q", body)
+	}
 	if !strings.Contains(body, `id="event-org-vehicles"`) {
 		t.Fatalf("expected Event Planning page to include vans JSON payload, body=%q", body)
 	}

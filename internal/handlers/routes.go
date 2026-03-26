@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"ride-home-router/internal/routing"
 )
@@ -17,6 +18,18 @@ type CalculateRoutesRequest struct {
 	ParticipantIDs     []int64 `json:"participant_ids"`
 	DriverIDs          []int64 `json:"driver_ids"`
 	ActivityLocationID int64   `json:"activity_location_id"`
+	RouteTime          string  `json:"route_time"`
+}
+
+func parseRouteTime(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("Please choose a route time.")
+	}
+	if _, err := time.Parse("15:04", trimmed); err != nil {
+		return "", fmt.Errorf("Please choose a valid route time.")
+	}
+	return trimmed, nil
 }
 
 // HandleCalculateRoutes handles POST /api/v1/routes/calculate
@@ -57,6 +70,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			}
 			req.ActivityLocationID = id
 		}
+		req.RouteTime = r.FormValue("route_time")
 
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
 	} else {
@@ -77,6 +91,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	if len(req.DriverIDs) == 0 {
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing drivers")
 		h.handleValidationErrorHTMX(w, r, "Please select at least one driver.")
+		return
+	}
+
+	routeTime, err := parseRouteTime(req.RouteTime)
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
 	}
 
@@ -182,6 +202,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 					activityLocation,
 					mode,
 					settings.UseMiles,
+					routeTime,
 					orgVehicleAssignments,
 					driverOrgVehicle,
 				))
@@ -202,12 +223,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
 
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, mode, driverOrgVehicle)
+	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, routeTime, mode, driverOrgVehicle)
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
-		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
 		return
 	}
 
@@ -253,6 +274,11 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 			return
 		}
 		activityLocationID = parsedID
+	}
+	routeTime, err := parseRouteTime(r.FormValue("route_time"))
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
+		return
 	}
 
 	// Parse mode (default to "dropoff" if not provided)
@@ -348,6 +374,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 				activityLocation,
 				mode,
 				settings.UseMiles,
+				routeTime,
 				orgVehicleAssignments,
 				driverOrgVehicle,
 			))
@@ -366,8 +393,8 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, mode, driverOrgVehicle)
+	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, routeTime, mode, driverOrgVehicle)
 
 	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Routes calculated! %d drivers assigned.", "type": "success"}}`, result.Summary.TotalDriversUsed))
-	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, session.ID, false, getUnusedDrivers(session), mode))
+	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
 }

@@ -5,6 +5,7 @@
      data-activity-location-address="{{.ActivityLocation.Address}}"
      data-activity-location-lat="{{printf "%.6f" .ActivityLocation.Lat}}"
      data-activity-location-lng="{{printf "%.6f" .ActivityLocation.Lng}}"
+     data-route-time="{{.RouteTime}}"
      data-session-id="{{.SessionID}}"
      data-route-count="{{len .Routes}}"
      data-route-mode="{{.Mode}}">
@@ -36,6 +37,7 @@
          data-driver-address="{{.Driver.Address}}"
          data-driver-lat="{{printf "%.6f" .Driver.Lat}}"
          data-driver-lng="{{printf "%.6f" .Driver.Lng}}"
+         data-route-duration-secs="{{printf "%.0f" .RouteDurationSecs}}"
          data-route-index="{{$routeIndex}}"
          data-driver-id="{{.Driver.ID}}">
         <div class="route-header">
@@ -99,6 +101,9 @@
                     <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
                         Copy
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this, 'parent')">
+                        Copy for Parents
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline" onclick="previewRoute(this)">
                         Preview
                     </button>
@@ -110,6 +115,7 @@
                  data-participant-address="{{.Participant.Address}}"
                  data-participant-lat="{{printf "%.6f" .Participant.Lat}}"
                  data-participant-lng="{{printf "%.6f" .Participant.Lng}}"
+                 data-stop-cumulative-duration-secs="{{printf "%.0f" .CumulativeDurationSecs}}"
                  data-participant-id="{{.Participant.ID}}">
                 <div class="stop-number">{{add .Order 1}}</div>
                 <div class="stop-details">
