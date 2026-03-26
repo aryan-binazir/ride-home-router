@@ -164,7 +164,6 @@
                         <span class="select-row-subtitle">{{.Address}}</span>
                         <span class="select-row-meta">
                             <span class="badge badge-muted van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
-                            <span class="badge badge-info van-effective-capacity-value" hidden>{{.VehicleCapacity}} seats active</span>
                         </span>
                         <span class="van-assignment-inline hidden">
                             <span class="van-assignment-inline-header">
@@ -201,6 +200,17 @@
             <div class="action-bar-stats text-muted" id="selection-stats"></div>
         </div>
         <div class="action-bar-right">
+            <div class="form-group mb-0">
+                <label class="form-label" for="route-time" id="route-time-label">Depart activity location at</label>
+                <input type="time"
+                       id="route-time"
+                       name="route_time"
+                       class="form-input"
+                       required>
+                <div class="form-help" id="route-time-help">
+                    Used to calculate the expected arrival time at each stop in copied driver and parent lists.
+                </div>
+            </div>
             <div class="form-group mb-0">
                 <label class="form-label">Route Mode</label>
                 <div class="d-flex gap-2">
@@ -281,11 +291,13 @@
 
         const activityLocation = form.querySelector('select[name="activity_location_id"]');
         const selectedMode = form.querySelector('input[name="mode"]:checked');
+        const routeTime = form.querySelector('input[name="route_time"]');
         const draft = {
             activityLocationId: activityLocation ? activityLocation.value : '',
             participantIds: getCheckedInputs('.participant-checkbox').map(input => input.value),
             driverIds: getCheckedInputs('.driver-checkbox').map(input => input.value),
             mode: selectedMode ? selectedMode.value : 'dropoff',
+            routeTime: routeTime ? routeTime.value : '',
             vanAssignments: getVanAssignments(),
         };
 
@@ -334,6 +346,11 @@
                 if (modeInput) modeInput.checked = true;
             }
 
+            const routeTime = form.querySelector('input[name="route_time"]');
+            if (routeTime && typeof draft.routeTime === 'string') {
+                routeTime.value = draft.routeTime;
+            }
+
             applyCheckedValues('.participant-checkbox', draft.participantIds);
             applyCheckedValues('.driver-checkbox', draft.driverIds);
 
@@ -351,8 +368,57 @@
                 updateEventStats();
             }
         } finally {
+            updateRouteTimeCopy();
+            ensureDefaultRouteTime();
             isRestoringEventPlannerDraft = false;
         }
+    }
+
+    function updateRouteTimeCopy() {
+        const form = getEventForm();
+        if (!form) return;
+
+        const selectedMode = form.querySelector('input[name="mode"]:checked');
+        const mode = selectedMode ? selectedMode.value : 'dropoff';
+        const label = document.getElementById('route-time-label');
+        const help = document.getElementById('route-time-help');
+        const input = form.querySelector('input[name="route_time"]');
+
+        if (mode === 'pickup') {
+            if (label) label.textContent = 'Arrive at activity location by';
+            if (help) help.textContent = 'Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.';
+            if (input) input.setAttribute('aria-label', 'Arrive at activity location by');
+            return;
+        }
+
+        if (label) label.textContent = 'Depart activity location at';
+        if (help) help.textContent = 'Used to calculate the expected arrival time at each stop in copied driver and parent lists.';
+        if (input) input.setAttribute('aria-label', 'Depart activity location at');
+    }
+
+    function getDefaultRouteTimeValue() {
+        const now = new Date();
+        const rounded = Math.ceil(now.getMinutes() / 15) * 15;
+        now.setSeconds(0, 0);
+        if (rounded === 60) {
+            now.setHours(now.getHours() + 1, 0, 0, 0);
+        } else {
+            now.setMinutes(rounded, 0, 0);
+        }
+
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        return `${hours}:${minutes}`;
+    }
+
+    function ensureDefaultRouteTime() {
+        const form = getEventForm();
+        if (!form) return;
+
+        const input = form.querySelector('input[name="route_time"]');
+        if (!input || input.value) return;
+
+        input.value = getDefaultRouteTimeValue();
     }
 
     function escapeHtml(value) {
@@ -410,24 +476,8 @@
         });
     }
 
-    function updateVanCapacitySummary() {
-        document.querySelectorAll('.driver-checkbox').forEach((checkbox) => {
-            const row = checkbox.closest('.select-row');
-            const select = document.getElementById(`van-assignment-${checkbox.value}`);
-            const selectedOption = select ? select.options[select.selectedIndex] : null;
-            const capacity = selectedOption ? (parseInt(selectedOption.dataset.capacity, 10) || 0) : 0;
-
-            const valueEl = row ? row.querySelector('.van-effective-capacity-value') : null;
-            if (valueEl) {
-                valueEl.textContent = `${capacity} seats active`;
-                valueEl.hidden = !checkbox.checked;
-            }
-        });
-    }
-
     function handleVanAssignmentChange() {
         updateVanSelectionOptions();
-        updateVanCapacitySummary();
         updateEventStats();
         saveEventPlannerDraft();
     }
@@ -556,6 +606,9 @@
 
             const defaultMode = form.querySelector('input[name="mode"][value="dropoff"]');
             if (defaultMode) defaultMode.checked = true;
+
+            const routeTime = form.querySelector('input[name="route_time"]');
+            if (routeTime) routeTime.value = getDefaultRouteTimeValue();
         }
         document.getElementById('results-section').innerHTML = `
     <div class="results-loading htmx-indicator calculate-indicator">
@@ -574,9 +627,18 @@
         const participants = getCheckedInputs('.participant-checkbox');
         const drivers = getCheckedInputs('.driver-checkbox');
         const activityLocation = document.querySelector('select[name="activity_location_id"]');
+        const routeTime = document.querySelector('input[name="route_time"]');
 
         if (activityLocation && !activityLocation.value) {
             showToast('Please choose an activity location for this event.', 'warning');
+            return false;
+        }
+        if (routeTime && !routeTime.value) {
+            const selectedMode = document.querySelector('input[name="mode"]:checked');
+            const message = selectedMode && selectedMode.value === 'pickup'
+                ? 'Please choose the required arrival time at the activity location.'
+                : 'Please choose the departure time from the activity location.';
+            showToast(message, 'warning');
             return false;
         }
 
@@ -613,6 +675,13 @@
         });
     }
 
+    function setCalculateButtonLoading(isLoading) {
+        const button = document.getElementById('calculate-btn');
+        if (!button) return;
+
+        button.classList.toggle('is-loading', isLoading);
+    }
+
     document.addEventListener('change', function(e) {
         if (e.target.classList.contains('driver-checkbox') || e.target.classList.contains('participant-checkbox')) {
             const row = e.target.closest('.select-row');
@@ -626,6 +695,14 @@
         }
 
         if (e.target.name === 'activity_location_id' || e.target.name === 'mode') {
+            if (e.target.name === 'mode') {
+                updateRouteTimeCopy();
+            }
+            saveEventPlannerDraft();
+            return;
+        }
+
+        if (e.target.name === 'route_time') {
             saveEventPlannerDraft();
         }
     });
@@ -636,6 +713,36 @@
         if (row) row.classList.toggle('is-selected', cb.checked);
     });
     updateEventStats();
+    updateRouteTimeCopy();
+    ensureDefaultRouteTime();
+
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(true);
+        }
+    });
+
+    document.body.addEventListener('htmx:afterRequest', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(false);
+        }
+    });
+
+    document.body.addEventListener('htmx:sendError', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(false);
+        }
+    });
+
+    document.body.addEventListener('htmx:responseError', function(event) {
+        const elt = event.detail && event.detail.elt;
+        if (elt && elt.id === 'calculate-btn') {
+            setCalculateButtonLoading(false);
+        }
+    });
 
     document.body.addEventListener('htmx:afterSwap', function(event) {
         const target = event.detail && event.detail.target;

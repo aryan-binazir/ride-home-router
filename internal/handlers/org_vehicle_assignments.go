@@ -135,7 +135,7 @@ func applyAssignedOrgVehicleMetadata(routes []models.CalculatedRoute, driverVehi
 	}
 }
 
-func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []models.Driver, orgVehicles []models.OrganizationVehicle, participantIDs []int64, driverIDs []int64, activityLocation *models.ActivityLocation, mode string, useMiles bool, assignments map[int64]int64, driverVehicles map[int64]*models.OrganizationVehicle) map[string]interface{} {
+func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []models.Driver, orgVehicles []models.OrganizationVehicle, participantIDs []int64, driverIDs []int64, activityLocation *models.ActivityLocation, mode string, useMiles bool, routeTime string, assignments map[int64]int64, driverVehicles map[int64]*models.OrganizationVehicle) map[string]interface{} {
 	effectiveCapacityByDriver := make(map[int64]int, len(drivers))
 	for _, driver := range drivers {
 		effectiveCapacityByDriver[driver.ID] = driver.VehicleCapacity
@@ -160,6 +160,7 @@ func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []mod
 		"ActivityLocation":          activityLocation,
 		"Mode":                      mode,
 		"UseMiles":                  useMiles,
+		"RouteTime":                 routeTime,
 		"SelectedOrgVehicles":       assignments,
 		"EffectiveCapacityByDriver": effectiveCapacityByDriver,
 	}
