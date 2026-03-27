@@ -259,8 +259,22 @@
 
 <script>
     const EVENT_PLANNER_DRAFT_KEY = 'ride-home-router:event-planner-draft:v1';
+    const ACTIVE_SESSION_KEY = 'ride-home-router:active-session-id';
     const EVENT_PLANNER_MODES = new Set(['dropoff', 'pickup']);
     let isRestoringEventPlannerDraft = false;
+    let restoreController = null;
+
+    function saveActiveSessionId(id) {
+        try { window.localStorage.setItem(ACTIVE_SESSION_KEY, id || ''); } catch (e) {}
+    }
+
+    function getActiveSessionId() {
+        try { return window.localStorage.getItem(ACTIVE_SESSION_KEY) || ''; } catch (e) { return ''; }
+    }
+
+    function clearActiveSessionId() {
+        try { window.localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) {}
+    }
 
     function getCheckedInputs(selector) {
         return Array.from(document.querySelectorAll(selector)).filter(input => input.checked);
@@ -285,6 +299,9 @@
 
     function saveEventPlannerDraft() {
         if (isRestoringEventPlannerDraft) return;
+
+        if (restoreController) restoreController.abort();
+        clearActiveSessionId();
 
         const form = getEventForm();
         if (!form) return;
@@ -621,6 +638,7 @@
         renderVanAssignmentsPanel();
         updateEventStats();
         clearEventPlannerDraft();
+        clearActiveSessionId();
     }
 
     function validateBeforeCalculate() {
@@ -707,6 +725,46 @@
         }
     });
 
+    function restoreRouteSession(sessionId) {
+        var resultsSection = document.getElementById('results-section');
+        if (!resultsSection) return;
+
+        if (restoreController) restoreController.abort();
+        restoreController = new AbortController();
+
+        // Fetch rendered route results from the server session.
+        // The response is trusted server-rendered HTML (same origin, same
+        // template used by the initial HTMX calculate flow), so injecting
+        // it via innerHTML is safe — identical to how HTMX itself swaps
+        // content and how the existing edit functions in route-copy.js work.
+        fetch('/api/v1/routes/session?session_id=' + encodeURIComponent(sessionId), {
+            headers: { 'HX-Request': 'true' },
+            signal: restoreController.signal
+        })
+        .then(function(response) {
+            if (response.status === 204 || !response.ok) {
+                clearActiveSessionId();
+                return null;
+            }
+            return response.text();
+        })
+        .then(function(html) {
+            if (html) {
+                resultsSection.innerHTML = html;
+                htmx.process(resultsSection);
+            }
+        })
+        .catch(function(err) {
+            if (err.name !== 'AbortError') {
+                console.warn('Failed to restore route session', err);
+                clearActiveSessionId();
+            }
+        })
+        .finally(function() {
+            restoreController = null;
+        });
+    }
+
     restoreEventPlannerDraft();
     document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
         const row = cb.closest('.select-row');
@@ -716,9 +774,15 @@
     updateRouteTimeCopy();
     ensureDefaultRouteTime();
 
+    var activeSessionId = getActiveSessionId();
+    if (activeSessionId) {
+        restoreRouteSession(activeSessionId);
+    }
+
     document.body.addEventListener('htmx:beforeRequest', function(event) {
         const elt = event.detail && event.detail.elt;
         if (elt && elt.id === 'calculate-btn') {
+            if (restoreController) restoreController.abort();
             setCalculateButtonLoading(true);
         }
     });
@@ -750,6 +814,8 @@
 
         if (target.id === 'results-section') {
             scrollResultsIntoView(target);
+            var sid = getSessionId();
+            if (sid) saveActiveSessionId(sid);
             return;
         }
 
@@ -757,6 +823,7 @@
 
         if (target.querySelector('.alert-success')) {
             clearEventPlannerDraft();
+            clearActiveSessionId();
         }
     });
 </script>

@@ -645,3 +645,74 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		Mode:      session.Mode,
 	})
 }
+
+// HandleGetRouteSession handles GET /api/v1/routes/session
+// Returns the current route results for an existing session, allowing
+// the client to restore previously calculated routes after page navigation.
+func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	session := h.RouteSession.Get(sessionID)
+	if session == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	summary := h.calculateSummary(session.CurrentRoutes)
+	isEditing := !routesEqual(session.OriginalRoutes, session.CurrentRoutes)
+
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session.CurrentRoutes, summary, session.ActivityLocation, session.UseMiles, session.RouteTime, session.ID, isEditing, getUnusedDrivers(session), session.Mode))
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
+		Routes:    session.CurrentRoutes,
+		Summary:   summary,
+		SessionID: session.ID,
+		Mode:      session.Mode,
+	})
+}
+
+// routesEqual checks structural equality between two route sets.
+// Compares route count, driver IDs, and participant IDs in order.
+func routesEqual(a, b []models.CalculatedRoute) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if len(a[i].Stops) != len(b[i].Stops) {
+			return false
+		}
+		var aDriverID, bDriverID int64
+		if a[i].Driver != nil {
+			aDriverID = a[i].Driver.ID
+		}
+		if b[i].Driver != nil {
+			bDriverID = b[i].Driver.ID
+		}
+		if aDriverID != bDriverID {
+			return false
+		}
+		for j := range a[i].Stops {
+			var aID, bID int64
+			if a[i].Stops[j].Participant != nil {
+				aID = a[i].Stops[j].Participant.ID
+			}
+			if b[i].Stops[j].Participant != nil {
+				bID = b[i].Stops[j].Participant.ID
+			}
+			if aID != bID {
+				return false
+			}
+		}
+	}
+	return true
+}

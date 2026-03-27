@@ -858,6 +858,118 @@ func TestCountUsedOrgVehicles_IgnoresUnusedOrDuplicateRoutes(t *testing.T) {
 	}
 }
 
+func TestHandleGetRouteSession_ValidSession(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	routes := []models.CalculatedRoute{
+		{
+			Driver: &models.Driver{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+			Stops: []models.RouteStop{
+				{Order: 0, Participant: &models.Participant{ID: 1, Name: "Alice"}},
+			},
+			TotalDistanceMeters: 1000,
+			Mode:                "dropoff",
+		},
+	}
+	drivers := []models.Driver{{ID: 1, Name: "Driver1", VehicleCapacity: 4}}
+	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 1.0, Lng: 2.0}
+
+	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "18:30", "dropoff", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, session.ID) {
+		t.Error("response should contain the session ID")
+	}
+	if !strings.Contains(body, "Driver1") {
+		t.Error("response should contain driver name")
+	}
+}
+
+func TestHandleGetRouteSession_MissingSession(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id=nonexistent", nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for missing session, got %d", w.Code)
+	}
+}
+
+func TestHandleGetRouteSession_EmptyParam(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session", nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for empty session_id, got %d", w.Code)
+	}
+}
+
+func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	routes := []models.CalculatedRoute{
+		{
+			Driver: &models.Driver{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+			Stops: []models.RouteStop{
+				{Order: 0, Participant: &models.Participant{ID: 1, Name: "Alice"}},
+				{Order: 1, Participant: &models.Participant{ID: 2, Name: "Bob"}},
+			},
+			Mode: "dropoff",
+		},
+		{
+			Driver: &models.Driver{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+			Stops:  []models.RouteStop{},
+			Mode:   "dropoff",
+		},
+	}
+	drivers := []models.Driver{
+		{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+		{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+	}
+	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 1.0, Lng: 2.0}
+
+	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "18:30", "dropoff", nil)
+
+	// Modify current routes to simulate editing (move a participant)
+	handler.RouteSession.Update(session.ID, func(s *RouteSession) {
+		moved := s.CurrentRoutes[0].Stops[1]
+		s.CurrentRoutes[0].Stops = s.CurrentRoutes[0].Stops[:1]
+		s.CurrentRoutes[1].Stops = append(s.CurrentRoutes[1].Stops, moved)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Reset to Original") {
+		t.Error("edited session should show Reset to Original button")
+	}
+}
+
 func newTestRouteHandler(t *testing.T) (*Handler, *sqlite.Store) {
 	t.Helper()
 
