@@ -387,7 +387,7 @@ func ensureEventRouteColumn(tx *sql.Tx, name, definition string) error {
 }
 
 func tableExists(queryer interface {
-	QueryRow(query string, args ...interface{}) *sql.Row
+	QueryRow(query string, args ...any) *sql.Row
 }, tableName string) (bool, error) {
 	var exists int
 	err := queryer.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)`, tableName).Scan(&exists)
@@ -398,7 +398,7 @@ func tableExists(queryer interface {
 }
 
 func columnExists(queryer interface {
-	Query(query string, args ...interface{}) (*sql.Rows, error)
+	Query(query string, args ...any) (*sql.Rows, error)
 }, tableName, columnName string) (bool, error) {
 	rows, err := queryer.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {

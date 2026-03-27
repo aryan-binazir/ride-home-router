@@ -9,6 +9,25 @@ on:
     types: [created]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.3
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +47,7 @@ jobs:
         run: go tool cover -func=coverage.out
 
   build-macos-arm64:
-    needs: test
+    needs: [lint, test]
     runs-on: macos-14
     steps:
       - name: Checkout code
@@ -85,7 +104,7 @@ jobs:
           path: Ride-Home-Router-macOS-arm64.dmg
 
   build-windows:
-    needs: test
+    needs: [lint, test]
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -110,7 +129,7 @@ jobs:
           path: build/bin/*.exe
 
   build-linux:
-    needs: test
+    needs: [lint, test]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

@@ -135,7 +135,7 @@ func applyAssignedOrgVehicleMetadata(routes []models.CalculatedRoute, driverVehi
 	}
 }
 
-func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []models.Driver, orgVehicles []models.OrganizationVehicle, participantIDs []int64, driverIDs []int64, activityLocation *models.ActivityLocation, mode string, useMiles bool, routeTime string, assignments map[int64]int64, driverVehicles map[int64]*models.OrganizationVehicle) map[string]interface{} {
+func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []models.Driver, orgVehicles []models.OrganizationVehicle, participantIDs []int64, driverIDs []int64, activityLocation *models.ActivityLocation, mode string, useMiles bool, routeTime string, assignments map[int64]int64, driverVehicles map[int64]*models.OrganizationVehicle) CapacityShortageView {
 	effectiveCapacityByDriver := make(map[int64]int, len(drivers))
 	for _, driver := range drivers {
 		effectiveCapacityByDriver[driver.ID] = driver.VehicleCapacity
@@ -145,24 +145,24 @@ func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []mod
 	}
 
 	shortage := rerr.TotalParticipants - rerr.TotalCapacity
-	return map[string]interface{}{
-		"Error": map[string]interface{}{
-			"Message":           rerr.Reason,
-			"UnassignedCount":   rerr.UnassignedCount,
-			"TotalCapacity":     rerr.TotalCapacity,
-			"TotalParticipants": rerr.TotalParticipants,
-			"Shortage":          shortage,
+	return CapacityShortageView{
+		Error: CapacityShortageErrorView{
+			Message:           rerr.Reason,
+			UnassignedCount:   rerr.UnassignedCount,
+			TotalCapacity:     rerr.TotalCapacity,
+			TotalParticipants: rerr.TotalParticipants,
+			Shortage:          shortage,
 		},
-		"Drivers":                   drivers,
-		"OrgVehicles":               orgVehicles,
-		"ParticipantIDs":            participantIDs,
-		"DriverIDs":                 driverIDs,
-		"ActivityLocation":          activityLocation,
-		"Mode":                      mode,
-		"UseMiles":                  useMiles,
-		"RouteTime":                 routeTime,
-		"SelectedOrgVehicles":       assignments,
-		"EffectiveCapacityByDriver": effectiveCapacityByDriver,
+		Drivers:                   drivers,
+		OrgVehicles:               orgVehicles,
+		ParticipantIDs:            participantIDs,
+		DriverIDs:                 driverIDs,
+		ActivityLocation:          activityLocation,
+		Mode:                      mode,
+		UseMiles:                  useMiles,
+		RouteTime:                 routeTime,
+		SelectedOrgVehicles:       assignments,
+		EffectiveCapacityByDriver: effectiveCapacityByDriver,
 	}
 }
 

@@ -38,7 +38,7 @@ help:
 	@echo "Other:"
 	@echo "  make clean       Remove build artifacts"
 	@echo "  make test        Run tests"
-	@echo "  make lint        Run go vet"
+	@echo "  make lint        Run golangci-lint"
 	@echo ""
 
 build: $(BIN_DIR)
@@ -76,8 +76,8 @@ test:
 	@echo "✓ Tests complete"
 
 lint:
-	@echo "Running go vet..."
-	@$(GO) vet ./...
+	@echo "Running golangci-lint..."
+	@golangci-lint run
 	@echo "✓ Lint complete"
 
 $(BIN_DIR):

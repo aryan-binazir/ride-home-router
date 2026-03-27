@@ -263,18 +263,19 @@ func buildRoutingPayload(routes []models.CalculatedRoute, summary models.Routing
 	}
 }
 
-func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, routeTime, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode string) map[string]interface{} {
-	return map[string]interface{}{
-		"Routes":           routes,
-		"Summary":          summary,
-		"UseMiles":         useMiles,
-		"ActivityLocation": activityLocation,
-		"RouteTime":        routeTime,
-		"SessionID":        sessionID,
-		"IsEditing":        isEditing,
-		"UnusedDrivers":    unusedDrivers,
-		"Mode":             mode,
-		"RoutingPayload":   buildRoutingPayload(routes, summary, mode),
+func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, routeTime, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode string) RouteResultsView {
+	return RouteResultsView{
+		Routes:           routes,
+		Summary:          summary,
+		Warnings:         []string{},
+		UseMiles:         useMiles,
+		ActivityLocation: activityLocation,
+		RouteTime:        routeTime,
+		SessionID:        sessionID,
+		IsEditing:        isEditing,
+		UnusedDrivers:    unusedDrivers,
+		Mode:             mode,
+		RoutingPayload:   buildRoutingPayload(routes, summary, mode),
 	}
 }
 
@@ -296,13 +297,13 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationErrorHTMX(w, r, "Invalid request body")
+		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
 	if session == nil {
-		h.handleNotFoundHTMX(w, r, "Session not found")
+		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 		return
 	}
 
@@ -314,7 +315,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 
 	if req.FromRouteIndex < 0 || req.FromRouteIndex >= len(session.CurrentRoutes) ||
 		req.ToRouteIndex < 0 || req.ToRouteIndex >= len(session.CurrentRoutes) {
-		h.handleValidationErrorHTMX(w, r, "Invalid route index")
+		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
 		return
 	}
 
@@ -327,7 +328,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		effectiveCapacity = toRoute.Driver.VehicleCapacity
 	}
 	if len(toRoute.Stops) >= effectiveCapacity {
-		h.handleValidationErrorHTMX(w, r, "Target vehicle is at capacity")
+		h.handleValidationErrorHTMX(w, r, messageTargetVehicleAtCapacity)
 		return
 	}
 
@@ -386,10 +387,10 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"routes":     session.CurrentRoutes,
-		"summary":    summary,
-		"session_id": session.ID,
+	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
+		Routes:    session.CurrentRoutes,
+		Summary:   summary,
+		SessionID: session.ID,
 	})
 }
 
@@ -402,13 +403,13 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationErrorHTMX(w, r, "Invalid request body")
+		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
 	if session == nil {
-		h.handleNotFoundHTMX(w, r, "Session not found")
+		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 		return
 	}
 
@@ -420,7 +421,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 
 	if req.RouteIndex1 < 0 || req.RouteIndex1 >= len(session.CurrentRoutes) ||
 		req.RouteIndex2 < 0 || req.RouteIndex2 >= len(session.CurrentRoutes) {
-		h.handleValidationErrorHTMX(w, r, "Invalid route index")
+		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
 		return
 	}
 
@@ -473,10 +474,10 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"routes":     session.CurrentRoutes,
-		"summary":    summary,
-		"session_id": session.ID,
+	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
+		Routes:    session.CurrentRoutes,
+		Summary:   summary,
+		SessionID: session.ID,
 	})
 }
 
@@ -490,7 +491,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 
 	session := h.RouteSession.Get(sessionID)
 	if session == nil {
-		h.handleNotFoundHTMX(w, r, "Session not found")
+		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 		return
 	}
 
@@ -510,10 +511,10 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"routes":     session.CurrentRoutes,
-		"summary":    summary,
-		"session_id": session.ID,
+	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
+		Routes:    session.CurrentRoutes,
+		Summary:   summary,
+		SessionID: session.ID,
 	})
 }
 
@@ -569,13 +570,13 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleValidationErrorHTMX(w, r, "Invalid request body")
+		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
 	if session == nil {
-		h.handleNotFoundHTMX(w, r, "Session not found")
+		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 		return
 	}
 
@@ -636,9 +637,9 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"routes":     session.CurrentRoutes,
-		"summary":    summary,
-		"session_id": session.ID,
+	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
+		Routes:    session.CurrentRoutes,
+		Summary:   summary,
+		SessionID: session.ID,
 	})
 }

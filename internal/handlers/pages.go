@@ -32,16 +32,16 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":             "Event Planning",
-		"ActivePage":        "home",
-		"Participants":      participants,
-		"Drivers":           drivers,
-		"ActivityLocations": activityLocations,
-		"OrgVehicles":       orgVehicles,
-	}
-
-	h.renderTemplate(w, "index.html", data)
+	h.renderTemplate(w, "index.html", IndexPageView{
+		BasePageView: BasePageView{
+			Title:      "Event Planning",
+			ActivePage: ActivePageHome,
+		},
+		Participants:      participants,
+		Drivers:           drivers,
+		ActivityLocations: activityLocations,
+		OrgVehicles:       orgVehicles,
+	})
 }
 
 // HandleParticipantsPage handles GET /participants
@@ -52,13 +52,13 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":        "Participants",
-		"ActivePage":   "participants",
-		"Participants": participants,
-	}
-
-	h.renderTemplate(w, "participants.html", data)
+	h.renderTemplate(w, "participants.html", ParticipantsPageView{
+		BasePageView: BasePageView{
+			Title:      "Participants",
+			ActivePage: ActivePageParticipants,
+		},
+		Participants: participants,
+	})
 }
 
 // HandleDriversPage handles GET /drivers
@@ -69,13 +69,13 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":      "Drivers",
-		"ActivePage": "drivers",
-		"Drivers":    drivers,
-	}
-
-	h.renderTemplate(w, "drivers.html", data)
+	h.renderTemplate(w, "drivers.html", DriversPageView{
+		BasePageView: BasePageView{
+			Title:      "Drivers",
+			ActivePage: ActivePageDrivers,
+		},
+		Drivers: drivers,
+	})
 }
 
 // HandleActivityLocationsPage handles GET /activity-locations
@@ -86,13 +86,13 @@ func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":             "Activity Locations",
-		"ActivePage":        "activity_locations",
-		"ActivityLocations": activityLocations,
-	}
-
-	h.renderTemplate(w, "activity_locations.html", data)
+	h.renderTemplate(w, "activity_locations.html", ActivityLocationsPageView{
+		BasePageView: BasePageView{
+			Title:      "Activity Locations",
+			ActivePage: ActivePageActivityLocations,
+		},
+		ActivityLocations: activityLocations,
+	})
 }
 
 // HandleVansPage handles GET /vans
@@ -103,13 +103,13 @@ func (h *Handler) HandleVansPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":       "Vans",
-		"ActivePage":  "vans",
-		"OrgVehicles": orgVehicles,
-	}
-
-	h.renderTemplate(w, "vans.html", data)
+	h.renderTemplate(w, "vans.html", VansPageView{
+		BasePageView: BasePageView{
+			Title:      "Vans",
+			ActivePage: ActivePageVans,
+		},
+		OrgVehicles: orgVehicles,
+	})
 }
 
 // HandleSettingsPage handles GET /settings
@@ -128,18 +128,18 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	defaultDBPath, _ := database.GetDefaultDBPath()
 
-	data := map[string]interface{}{
-		"Title":      "Settings",
-		"ActivePage": "settings",
-		"Settings":   settings,
-		"DatabaseConfig": map[string]interface{}{
-			"DatabasePath": dbConfig.DatabasePath,
-			"DefaultPath":  defaultDBPath,
-			"IsDefault":    dbConfig.DatabasePath == defaultDBPath,
+	h.renderTemplate(w, "settings.html", SettingsPageView{
+		BasePageView: BasePageView{
+			Title:      "Settings",
+			ActivePage: ActivePageSettings,
 		},
-	}
-
-	h.renderTemplate(w, "settings.html", data)
+		Settings: settings,
+		DatabaseConfig: DatabaseConfigView{
+			DatabasePath: dbConfig.DatabasePath,
+			DefaultPath:  defaultDBPath,
+			IsDefault:    dbConfig.DatabasePath == defaultDBPath,
+		},
+	})
 }
 
 // HandleHistoryPage handles GET /history
@@ -150,18 +150,18 @@ func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
-		"Title":          "Event History",
-		"ActivePage":     "history",
-		"Events":         view.Events,
-		"Total":          view.Total,
-		"UseMiles":       view.UseMiles,
-		"Limit":          view.Limit,
-		"Offset":         view.Offset,
-		"DisplayedCount": view.DisplayedCount,
-		"NextOffset":     view.NextOffset,
-		"PageSize":       view.PageSize,
-	}
-
-	h.renderTemplate(w, "history.html", data)
+	h.renderTemplate(w, "history.html", HistoryPageView{
+		BasePageView: BasePageView{
+			Title:      "Event History",
+			ActivePage: ActivePageHistory,
+		},
+		Events:         view.Events,
+		Total:          view.Total,
+		UseMiles:       view.UseMiles,
+		Limit:          view.Limit,
+		Offset:         view.Offset,
+		DisplayedCount: view.DisplayedCount,
+		NextOffset:     view.NextOffset,
+		PageSize:       view.PageSize,
+	})
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 )
 
@@ -43,13 +44,13 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		Address string `json:"address"`
 	}
 
-	contentType := r.Header.Get("Content-Type")
+	contentType := r.Header.Get(httpx.HeaderContentType)
 
 	// Handle form data (from htmx)
-	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
+	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: form_parse_error err=%v", err)
-			h.handleValidationError(w, "Invalid form data")
+			h.handleValidationError(w, messageInvalidFormData)
 			return
 		}
 		req.Name = r.FormValue("name")
@@ -58,20 +59,20 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		// Handle JSON
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: invalid_json err=%v", err)
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
 
 	if req.Name == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing name")
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Name is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
 		return
 	}
 
 	if req.Address == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing address")
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Address is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageAddressRequired)
 		return
 	}
 
@@ -81,7 +82,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
 		log.Printf("[ERROR] Failed to geocode address: address=%s err=%v", req.Address, err)
-		h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", fmt.Sprintf("Failed to geocode address: %s", err.Error()))
+		h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageFailedToGeocodeAddress(err))
 		return
 	}
 
@@ -95,7 +96,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	createdLocation, err := h.DB.ActivityLocations().Create(r.Context(), location)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create activity location: err=%v", err)
-		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", fmt.Sprintf("Failed to save location: %s", err.Error()))
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageFailedToSaveLocation(err))
 		return
 	}
 
@@ -104,7 +105,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 
 	if h.isHTMX(r) {
 		// Return the new location row HTML and trigger a success toast
-		h.setHTMXToast(w, fmt.Sprintf("Location '%s' added!", createdLocation.Name), "success")
+		h.setHTMXToast(w, messageEntityAdded("Location", createdLocation.Name), toastTypeSuccess)
 		h.renderTemplate(w, "activity_location_row", createdLocation)
 		return
 	}
@@ -159,9 +160,7 @@ func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.renderTemplate(w, "activity_location_form", map[string]interface{}{
-		"ActivityLocation": location,
-	})
+	h.renderTemplate(w, "activity_location_form", ActivityLocationFormView{ActivityLocation: location})
 }
 
 // HandleUpdateActivityLocation handles PUT /api/v1/activity-locations/{id}
@@ -189,11 +188,11 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		Address string `json:"address"`
 	}
 
-	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
+	contentType := r.Header.Get(httpx.HeaderContentType)
+	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: form_parse_error err=%v", id, err)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid form data")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageInvalidFormData)
 			return
 		}
 		req.Name = r.FormValue("name")
@@ -201,18 +200,18 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: invalid_json err=%v", id, err)
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
 
 	if req.Name == "" {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Name is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
 		return
 	}
 
 	if req.Address == "" {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Address is required")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageAddressRequired)
 		return
 	}
 
@@ -228,7 +227,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 		if err != nil {
 			log.Printf("[ERROR] Failed to geocode updated activity location: id=%d address=%s err=%v", id, req.Address, err)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", fmt.Sprintf("Failed to geocode address: %s", err.Error()))
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageFailedToGeocodeAddress(err))
 			return
 		}
 		location.Lat = geocodeResult.Coords.Lat
@@ -249,7 +248,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	log.Printf("[HTTP] Updated activity location: id=%d name=%s", updatedLocation.ID, updatedLocation.Name)
 
 	if h.isHTMX(r) {
-		h.setHTMXToast(w, fmt.Sprintf("Location '%s' updated!", updatedLocation.Name), "success")
+		h.setHTMXToast(w, messageEntityUpdated("Location", updatedLocation.Name), toastTypeSuccess)
 		h.renderTemplate(w, "activity_location_row", updatedLocation)
 		return
 	}
@@ -272,8 +271,8 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 		log.Printf("[ERROR] Failed to delete activity location: id=%d err=%v", id, err)
 		if errors.Is(err, database.ErrNotFound) {
 			if h.isHTMX(r) {
-				h.setHTMXToast(w, "Activity location not found", "error")
-				w.Header().Set("HX-Reswap", "none")
+				h.setHTMXToast(w, "Activity location not found", toastTypeError)
+				w.Header().Set(httpx.HeaderHXReswap, httpx.ReswapNone)
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
@@ -281,8 +280,8 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if h.isHTMX(r) {
-			h.setHTMXToast(w, "Failed to delete location", "error")
-			w.Header().Set("HX-Reswap", "none")
+			h.setHTMXToast(w, "Failed to delete location", toastTypeError)
+			w.Header().Set(httpx.HeaderHXReswap, httpx.ReswapNone)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -294,8 +293,8 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 
 	if h.isHTMX(r) {
 		// Return 200 with empty body so htmx will swap (remove) the element
-		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Location deleted", "type": "success"}}`)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		h.setHTMXToast(w, messageEntityDeleted("Location"), toastTypeSuccess)
+		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)
 		return
 	}

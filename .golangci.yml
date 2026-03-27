@@ -1,0 +1,41 @@
+version: "2"
+
+run:
+  timeout: 5m
+  relative-path-mode: gomod
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - bodyclose
+    - errorlint
+    - govet
+    - ineffassign
+    - misspell
+    - modernize
+    - staticcheck
+    - sqlclosecheck
+    - unconvert
+    - unused
+  exclusions:
+    generated: strict
+    warn-unused: true
+    presets:
+      - common-false-positives
+      - std-error-handling
+  rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - errorlint
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -ST1005
+        - -SA1006
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
