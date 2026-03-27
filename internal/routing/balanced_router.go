@@ -38,10 +38,9 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	// Handle empty participants
 	if len(req.Participants) == 0 {
 		return &models.RoutingResult{
-			Routes:   []models.CalculatedRoute{},
-			Summary:  models.RoutingSummary{},
-			Warnings: []string{},
-			Mode:     string(rc.mode),
+			Routes:  []models.CalculatedRoute{},
+			Summary: models.RoutingSummary{},
+			Mode:    string(rc.mode),
 		}, nil
 	}
 
@@ -564,8 +563,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			TotalDistanceMeters:        totalDist,
 			UnassignedParticipants:     []int64{},
 		},
-		Warnings: []string{},
-		Mode:     string(rc.mode),
+		Mode: string(rc.mode),
 	}, nil
 }
 
@@ -639,5 +637,3 @@ func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int
 	return newStops
 }
 
-// Note: Helper functions (insertAt, removeAt, removeParticipant, reverse)
-// are defined in distance_minimizer.go and shared across routing implementations

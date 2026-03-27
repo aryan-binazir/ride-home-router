@@ -120,7 +120,6 @@ type CapacityShortageView struct {
 type RouteResultsView struct {
 	Routes           []models.CalculatedRoute
 	Summary          models.RoutingSummary
-	Warnings         []string
 	UseMiles         bool
 	ActivityLocation *models.ActivityLocation
 	RouteTime        string

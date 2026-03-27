@@ -179,10 +179,9 @@ type RoutingSummary struct {
 
 // RoutingResult contains the full result of a route calculation
 type RoutingResult struct {
-	Routes   []CalculatedRoute `json:"routes"`
-	Summary  RoutingSummary    `json:"summary"`
-	Warnings []string          `json:"warnings"`
-	Mode     string            `json:"mode"` // "pickup" or "dropoff"
+	Routes  []CalculatedRoute `json:"routes"`
+	Summary RoutingSummary    `json:"summary"`
+	Mode    string            `json:"mode"` // "pickup" or "dropoff"
 }
 
 // DistanceCacheEntry represents a cached distance lookup
