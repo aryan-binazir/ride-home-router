@@ -198,8 +198,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 
 			// Check if group fits in remaining capacity
 			if groupSize > remainingCapacity {
-				// Group too large - skip for now
-				// In a more sophisticated implementation, we could split the group
+				// Group too large - skip; we'll try splitting individuals below
 				continue
 			}
 

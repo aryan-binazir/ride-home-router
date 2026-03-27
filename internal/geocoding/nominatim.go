@@ -91,7 +91,7 @@ type nominatimAddress struct {
 	CountryCode   string `json:"country_code"`
 }
 
-// NewNominatimGeocoder creates a new Nominatim geocoder with rate limiting
+// NewNominatimGeocoder creates a geocoder using Nominatim as primary with Census as fallback
 func NewNominatimGeocoder() Geocoder {
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
