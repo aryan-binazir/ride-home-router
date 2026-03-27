@@ -256,10 +256,9 @@ func copyOrgVehicleAssignments(assignments map[int64]*models.OrganizationVehicle
 
 func buildRoutingPayload(routes []models.CalculatedRoute, summary models.RoutingSummary, mode string) models.RoutingResult {
 	return models.RoutingResult{
-		Routes:   routes,
-		Summary:  summary,
-		Warnings: []string{},
-		Mode:     mode,
+		Routes:  routes,
+		Summary: summary,
+		Mode:    mode,
 	}
 }
 
@@ -267,7 +266,6 @@ func buildRouteResultsView(routes []models.CalculatedRoute, summary models.Routi
 	return RouteResultsView{
 		Routes:           routes,
 		Summary:          summary,
-		Warnings:         []string{},
 		UseMiles:         useMiles,
 		ActivityLocation: activityLocation,
 		RouteTime:        routeTime,

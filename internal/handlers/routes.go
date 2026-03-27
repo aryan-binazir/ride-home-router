@@ -24,10 +24,10 @@ type CalculateRoutesRequest struct {
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", errors.New(messageChooseRouteTime())
+		return "", errors.New(messageChooseRouteTime)
 	}
 	if _, err := time.Parse("15:04", trimmed); err != nil {
-		return "", errors.New(messageChooseValidRouteTime())
+		return "", errors.New(messageChooseValidRouteTime)
 	}
 	return trimmed, nil
 }
@@ -65,7 +65,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		if idStr := r.FormValue("activity_location_id"); idStr != "" {
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
-				h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation())
+				h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
 				return
 			}
 			req.ActivityLocationID = id
@@ -84,13 +84,13 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	if len(req.ParticipantIDs) == 0 {
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing participants")
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant())
+		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
 		return
 	}
 
 	if len(req.DriverIDs) == 0 {
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing drivers")
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver())
+		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	activityLocationID := req.ActivityLocationID
 	if activityLocationID == 0 {
-		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent())
+		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent)
 		return
 	}
 
@@ -135,7 +135,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	if activityLocation == nil {
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
-		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother())
+		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
 		return
 	}
 
@@ -269,7 +269,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	if idStr := r.FormValue("activity_location_id"); idStr != "" {
 		parsedID, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation())
+			h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
 			return
 		}
 		activityLocationID = parsedID
@@ -296,12 +296,12 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		len(participantIDs), len(driverIDs), len(orgVehicleAssignments), mode)
 
 	if len(participantIDs) == 0 {
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant())
+		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
 		return
 	}
 
 	if len(driverIDs) == 0 {
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver())
+		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 		return
 	}
 
@@ -312,13 +312,13 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	}
 
 	if activityLocationID == 0 {
-		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent())
+		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent)
 		return
 	}
 
 	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil || activityLocation == nil {
-		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother())
+		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
 		return
 	}
 

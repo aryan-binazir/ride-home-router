@@ -87,7 +87,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			if location == nil {
 				log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", selectedActivityLocationID)
 				if h.isHTMX(r) {
-					h.setHTMXToast(w, messageSelectedActivityLocationNotFound(), toastTypeError)
+					h.setHTMXToast(w, messageSelectedActivityLocationNotFound, toastTypeError)
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
