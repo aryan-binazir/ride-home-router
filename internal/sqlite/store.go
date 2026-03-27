@@ -17,6 +17,8 @@ import (
 const (
 	DefaultDBFileName = "data.db"
 	schemaVersion     = 3
+	sqliteCacheSizeKB = -64000 // 64MB cache (negative = KiB)
+	sqliteBusyTimeoutMS = 5000
 )
 
 // Store is a SQLite-based data store implementing database.DataStore
@@ -54,8 +56,8 @@ func New(dbPath string) (*Store, error) {
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
-		"PRAGMA cache_size = -64000", // 64MB cache
-		"PRAGMA busy_timeout = 5000",
+		fmt.Sprintf("PRAGMA cache_size = %d", sqliteCacheSizeKB),
+		fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeoutMS),
 	}
 
 	for _, pragma := range pragmas {
@@ -387,7 +389,7 @@ func ensureEventRouteColumn(tx *sql.Tx, name, definition string) error {
 }
 
 func tableExists(queryer interface {
-	QueryRow(query string, args ...interface{}) *sql.Row
+	QueryRow(query string, args ...any) *sql.Row
 }, tableName string) (bool, error) {
 	var exists int
 	err := queryer.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)`, tableName).Scan(&exists)
@@ -398,7 +400,7 @@ func tableExists(queryer interface {
 }
 
 func columnExists(queryer interface {
-	Query(query string, args ...interface{}) (*sql.Rows, error)
+	Query(query string, args ...any) (*sql.Rows, error)
 }, tableName, columnName string) (bool, error) {
 	rows, err := queryer.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {

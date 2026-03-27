@@ -178,12 +178,15 @@ ride-home-router/
 ├── cmd/server/          # Standalone HTTP server (browser mode)
 ├── internal/
 │   ├── models/          # Data structures (Participant, Driver, Event, etc.)
-│   ├── database/        # JSON file storage, distance caching
+│   ├── database/        # Storage interfaces and repository contracts
+│   ├── sqlite/          # SQLite storage implementation
 │   ├── handlers/        # HTTP request handlers
 │   ├── routing/         # Route optimization algorithms
 │   ├── distance/        # OSRM API client
 │   ├── geocoding/       # Nominatim API client
-│   └── server/          # HTTP server setup
+│   ├── httpx/           # HTTP constants and helpers
+│   ├── templateutil/    # Shared template helper functions
+│   └── server/          # HTTP server setup and routing
 ├── web/                 # Frontend (HTML templates, CSS, JS)
 │   ├── templates/       # Go html/template files
 │   └── static/          # CSS, JavaScript (HTMX)
@@ -198,7 +201,7 @@ ride-home-router/
 - **Backend**: Go (standard library HTTP server)
 - **Frontend**: HTML templates + [HTMX](https://htmx.org/) for dynamic updates
 - **Desktop**: [Wails v2](https://wails.io/) (Go + WebView)
-- **Storage**: JSON files in `~/.ride-home-router/`
+- **Storage**: SQLite database in `~/.ride-home-router/`
 - **Routing**: OSRM public API
 - **Geocoding**: Nominatim (OpenStreetMap)
 
@@ -224,9 +227,7 @@ All data is stored in `~/.ride-home-router/`:
 
 ```
 ~/.ride-home-router/
-├── data.json              # Participants, drivers, settings, events
-└── cache/
-    └── distances.json     # Cached OSRM distance calculations
+└── data.db                # SQLite database (participants, drivers, settings, events, distance cache)
 ```
 
 ---

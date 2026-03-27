@@ -59,12 +59,6 @@ func (rc routeContext) destination(driver *models.Driver) models.Coordinates {
 	return driver.GetCoords()
 }
 
-func (rc routeContext) routeDistance(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
-	return rc.objectiveCost(ctx, driver, stops, func(result *distance.DistanceResult) float64 {
-		return result.DistanceMeters
-	})
-}
-
 func (rc routeContext) routeDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
 	return rc.objectiveCost(ctx, driver, stops, func(result *distance.DistanceResult) float64 {
 		return result.DurationSecs
@@ -313,7 +307,7 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCal
 	route.BaselineDurationSecs = metrics.BaselineDurationSecs
 	route.RouteDurationSecs = metrics.RouteDurationSecs
 	route.DetourSecs = metrics.DetourSecs
-	route.Mode = string(rc.mode)
+	route.Mode = rc.mode
 	if route.EffectiveCapacity == 0 && route.Driver != nil {
 		route.EffectiveCapacity = route.Driver.VehicleCapacity
 	}

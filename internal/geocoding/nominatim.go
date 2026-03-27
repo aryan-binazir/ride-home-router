@@ -91,14 +91,19 @@ type nominatimAddress struct {
 	CountryCode   string `json:"country_code"`
 }
 
-// NewNominatimGeocoder creates a new Nominatim geocoder with rate limiting
+const (
+	geocoderClientTimeout  = 10 * time.Second
+	nominatimRateInterval  = 1 * time.Second
+)
+
+// NewNominatimGeocoder creates a geocoder using Nominatim as primary with Census as fallback
 func NewNominatimGeocoder() Geocoder {
 	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: geocoderClientTimeout,
 	}
 
 	return &fallbackGeocoder{
-		primary:  newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(1*time.Second)),
+		primary:  newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(nominatimRateInterval)),
 		fallback: newCensusGeocoder("https://geocoding.geo.census.gov", httpClient),
 	}
 }
@@ -423,7 +428,7 @@ var addressNumberPattern = regexp.MustCompile(`\d`)
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
 	var lastErr error
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		result, err := geocode(ctx, address)
 		if err == nil {
 			log.Printf("[GEOCODING] Success after %d attempt(s): address=%s", i+1, address)

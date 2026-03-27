@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -37,10 +38,9 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	// Handle empty participants
 	if len(req.Participants) == 0 {
 		return &models.RoutingResult{
-			Routes:   []models.CalculatedRoute{},
-			Summary:  models.RoutingSummary{},
-			Warnings: []string{},
-			Mode:     string(rc.mode),
+			Routes:  []models.CalculatedRoute{},
+			Summary: models.RoutingSummary{},
+			Mode:    rc.mode,
 		}, nil
 	}
 
@@ -145,9 +145,7 @@ type balancedRoute struct {
 // Groups participants from the same household and assigns them together
 func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
 	// Sort drivers by ID for consistent ordering
-	sort.Slice(driverIDs, func(i, j int) bool {
-		return driverIDs[i] < driverIDs[j]
-	})
+	slices.Sort(driverIDs)
 
 	// Group participants by address
 	groups := groupParticipantsByAddress(unassigned)
@@ -200,8 +198,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 
 			// Check if group fits in remaining capacity
 			if groupSize > remainingCapacity {
-				// Group too large - skip for now
-				// In a more sophisticated implementation, we could split the group
+				// Group too large - skip; we'll try splitting individuals below
 				continue
 			}
 
@@ -513,9 +510,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 	for id := range routes {
 		driverIDs = append(driverIDs, id)
 	}
-	sort.Slice(driverIDs, func(i, j int) bool {
-		return driverIDs[i] < driverIDs[j]
-	})
+	slices.Sort(driverIDs)
 
 	for _, driverID := range driverIDs {
 		route := routes[driverID]
@@ -554,7 +549,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			BaselineDurationSecs:       metrics.BaselineDurationSecs,
 			RouteDurationSecs:          metrics.RouteDurationSecs,
 			DetourSecs:                 metrics.DetourSecs,
-			Mode:                       string(rc.mode),
+			Mode:                       rc.mode,
 		})
 	}
 
@@ -567,8 +562,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			TotalDistanceMeters:        totalDist,
 			UnassignedParticipants:     []int64{},
 		},
-		Warnings: []string{},
-		Mode:     string(rc.mode),
+		Mode: rc.mode,
 	}, nil
 }
 
@@ -641,6 +635,3 @@ func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int
 
 	return newStops
 }
-
-// Note: Helper functions (insertAt, removeAt, removeParticipant, reverse)
-// are defined in distance_minimizer.go and shared across routing implementations

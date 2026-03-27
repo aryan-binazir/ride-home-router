@@ -3,6 +3,8 @@ package handlers
 import (
 	"log"
 	"net/http"
+
+	"ride-home-router/internal/httpx"
 )
 
 // HandleAddressSearch handles GET /api/v1/address-search
@@ -13,11 +15,11 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	if len(query) < 4 {
 		log.Printf("[HTTP] GET /api/v1/address-search: query too short, returning empty HTML")
 		if h.isHTMX(r) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		h.writeJSON(w, http.StatusOK, []interface{}{})
+		h.writeJSON(w, http.StatusOK, []any{})
 		return
 	}
 
@@ -25,11 +27,11 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[ERROR] Failed to search addresses: query=%s err=%v", query, err)
 		if h.isHTMX(r) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		h.writeJSON(w, http.StatusOK, []interface{}{})
+		h.writeJSON(w, http.StatusOK, []any{})
 		return
 	}
 

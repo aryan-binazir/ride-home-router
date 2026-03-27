@@ -220,7 +220,7 @@ func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
 
 func TestHandleListEvents_HTMXLoadMoreRendersAppendPartial(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		createTestEvent(t, store, time.Date(2026, time.March, i+1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), "event "+strconv.Itoa(i))
 	}
 
@@ -328,6 +328,52 @@ func TestHandleDeleteEvent_HTMXRerendersEventList(t *testing.T) {
 	}
 	if !strings.Contains(body, "keep me") {
 		t.Fatalf("expected remaining event to be rendered, got %q", body)
+	}
+}
+
+func TestBuildEventSnapshots_RejectsMixedRouteModes(t *testing.T) {
+	result := &models.RoutingResult{
+		Mode: models.RouteModeDropoff,
+		Routes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 4},
+				Mode:   models.RouteModeDropoff,
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 1, Name: "Passenger One"}},
+				},
+			},
+			{
+				Driver: &models.Driver{ID: 2, Name: "Driver Two", VehicleCapacity: 4},
+				Mode:   models.RouteModePickup,
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 2, Name: "Passenger Two"}},
+				},
+			},
+		},
+	}
+
+	_, _, _, err := buildEventSnapshots(result)
+	if err == nil || err.Error() != "all routes must use the same mode" {
+		t.Fatalf("expected mixed-mode validation error, got %v", err)
+	}
+}
+
+func TestBuildEventSnapshots_RejectsInvalidMode(t *testing.T) {
+	result := &models.RoutingResult{
+		Mode: "sideways",
+		Routes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 4},
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 1, Name: "Passenger One"}},
+				},
+			},
+		},
+	}
+
+	_, _, _, err := buildEventSnapshots(result)
+	if err == nil || err.Error() != messageInvalidRouteMode {
+		t.Fatalf("expected invalid mode error %q, got %v", messageInvalidRouteMode, err)
 	}
 }
 

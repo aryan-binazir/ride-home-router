@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 )
 
@@ -137,7 +138,7 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		log.Printf("[HTTP] GET /api/v1/events/{id}: invalid_id=%s err=%v", idStr, err)
-		h.handleValidationError(w, "Invalid event ID")
+		h.handleValidationError(w, messageInvalidEventID)
 		return
 	}
 
@@ -151,7 +152,7 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 
 	if event == nil {
 		log.Printf("[HTTP] Event not found: id=%d", id)
-		h.handleNotFound(w, "Event not found")
+		h.handleNotFound(w, messageEventNotFound)
 		return
 	}
 
@@ -187,11 +188,11 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
 
-	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "application/x-www-form-urlencoded") || strings.Contains(contentType, "multipart/form-data") {
+	contentType := r.Header.Get(httpx.HeaderContentType)
+	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: form_parse_error err=%v", err)
-			h.handleValidationError(w, "Invalid form data")
+			h.handleValidationError(w, messageInvalidFormData)
 			return
 		}
 
@@ -204,7 +205,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			var routingResult models.RoutingResult
 			if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
 				log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
-				h.handleValidationError(w, "Invalid routes data")
+				h.handleValidationError(w, messageInvalidRoutesData)
 				return
 			}
 			req.Routes = &routingResult
@@ -212,26 +213,26 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
 
 	if req.EventDate == "" {
 		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
-		h.handleValidationError(w, "Event date is required")
+		h.handleValidationError(w, messageEventDateRequired)
 		return
 	}
 	if req.Routes == nil {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")
-		h.handleValidationError(w, "Routes are required")
+		h.handleValidationError(w, messageRoutesRequired)
 		return
 	}
 
 	eventDate, err := time.Parse("2006-01-02", req.EventDate)
 	if err != nil {
 		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", req.EventDate, err)
-		h.handleValidationError(w, "Invalid event date format (use YYYY-MM-DD)")
+		h.handleValidationError(w, messageInvalidEventDateFormat)
 		return
 	}
 
@@ -262,7 +263,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] Created event: id=%d date=%s routes=%d", event.ID, event.EventDate.Format("2006-01-02"), len(routes))
 
 	if h.isHTMX(r) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprintf(w, `<div class="alert alert-success">Event saved successfully! <a href="/history">View History</a></div>`)
 		return
@@ -277,7 +278,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		log.Printf("[HTTP] DELETE /api/v1/events/{id}: invalid_id=%s err=%v", idStr, err)
-		h.handleValidationError(w, "Invalid event ID")
+		h.handleValidationError(w, messageInvalidEventID)
 		return
 	}
 
@@ -285,7 +286,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Events().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Event not found for delete: id=%d", id)
-		h.handleNotFound(w, "Event not found")
+		h.handleNotFound(w, messageEventNotFound)
 		return
 	}
 	if err != nil {
@@ -362,12 +363,12 @@ func (h *Handler) buildEventListView(ctx context.Context, limit, offset int) (*E
 	}, nil
 }
 
-func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRoute, *models.EventSummary, error) {
+func buildEventSnapshots(result *models.RoutingResult) (models.RouteMode, []models.EventRoute, *models.EventSummary, error) {
 	if result == nil {
 		return "", nil, nil, fmt.Errorf("routes are required")
 	}
 
-	mode, err := normalizeRouteMode(result.Mode)
+	mode, err := normalizeRouteMode(string(result.Mode))
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -390,7 +391,7 @@ func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRo
 		if routeMode == "" {
 			routeMode = mode
 		}
-		routeMode, err = normalizeRouteMode(routeMode)
+		routeMode, err = normalizeRouteMode(string(routeMode))
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -457,17 +458,6 @@ func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRo
 		OrgVehiclesUsed:     orgVehiclesUsed,
 		Mode:                mode,
 	}, nil
-}
-
-func normalizeRouteMode(mode string) (string, error) {
-	switch mode {
-	case "", "dropoff":
-		return "dropoff", nil
-	case "pickup":
-		return "pickup", nil
-	default:
-		return "", fmt.Errorf("invalid route mode")
-	}
 }
 
 func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver {

@@ -11,6 +11,8 @@ import (
 	"ride-home-router/internal/server"
 )
 
+const shutdownTimeout = 5 * time.Second
+
 // App struct holds the Wails application state
 type App struct {
 	ctx    context.Context
@@ -55,7 +57,7 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is called when the app closes
 func (a *App) shutdown(ctx context.Context) {
 	if a.server != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
 		if err := a.server.Shutdown(shutdownCtx); err != nil {

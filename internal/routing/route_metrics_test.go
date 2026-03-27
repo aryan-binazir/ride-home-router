@@ -191,7 +191,7 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if result.Mode != string(mode) {
+		if result.Mode != mode {
 			return &ErrRoutingFailed{Reason: "result mode mismatch"}
 		}
 		if len(result.Routes) != 1 {
@@ -199,7 +199,7 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 		}
 
 		route := result.Routes[0]
-		if route.Mode != string(mode) {
+		if route.Mode != mode {
 			return &ErrRoutingFailed{Reason: "route mode mismatch"}
 		}
 
@@ -225,7 +225,7 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 40)
 
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		mode := RouteModeDropoff
 		if i%2 == 1 {
 			mode = RouteModePickup

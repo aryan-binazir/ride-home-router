@@ -18,6 +18,7 @@ import (
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templateutil"
@@ -39,6 +40,20 @@ type Config struct {
 	Addr   string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
 	DBPath string // Optional: path to SQLite database, uses config file or default if empty
 }
+
+const (
+	serverReadTimeout  = 15 * time.Second
+	serverWriteTimeout = 60 * time.Second
+	serverIdleTimeout  = 120 * time.Second
+
+	serverMessageInvalidRequestBody       = "Invalid request body"
+	serverMessageMethodNotAllowed         = "Method not allowed"
+	serverMessageNotFound                 = "Not found"
+	serverMessageOnlyHTTPHTTPSURLsAllowed = "Only HTTP/HTTPS URLs are allowed"
+	serverMessageURLRequired              = "URL is required"
+	serverMessageUnsupportedPlatform      = "Unsupported platform"
+	serverMessageFailedToOpenURL          = "Failed to open URL"
+)
 
 // New creates and initializes a new server (does not start it)
 func New(cfg Config) (*Server, error) {
@@ -85,9 +100,9 @@ func New(cfg Config) (*Server, error) {
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      loggingMiddleware(corsMiddleware(mux)),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
 	}
 
 	return &Server{
@@ -188,6 +203,69 @@ func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
 	}, nil
 }
 
+func writeMethodNotAllowed(w http.ResponseWriter) {
+	http.Error(w, serverMessageMethodNotAllowed, http.StatusMethodNotAllowed)
+}
+
+func writeNotFound(w http.ResponseWriter) {
+	http.Error(w, serverMessageNotFound, http.StatusNotFound)
+}
+
+func handleMethods(get, post, put, del http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if get != nil {
+				get(w, r)
+				return
+			}
+		case http.MethodPost:
+			if post != nil {
+				post(w, r)
+				return
+			}
+		case http.MethodPut:
+			if put != nil {
+				put(w, r)
+				return
+			}
+		case http.MethodDelete:
+			if del != nil {
+				del(w, r)
+				return
+			}
+		}
+
+		writeMethodNotAllowed(w)
+	}
+}
+
+func requireMethod(method string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != method {
+			writeMethodNotAllowed(w)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func handleResourcePath(emptyPath, editSuffix string, editHandler, get, put, del http.HandlerFunc) http.HandlerFunc {
+	methods := handleMethods(get, nil, put, del)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == emptyPath {
+			writeNotFound(w)
+			return
+		}
+		if editHandler != nil && editSuffix != "" && strings.HasSuffix(r.URL.Path, editSuffix) && r.Method == http.MethodGet {
+			editHandler(w, r)
+			return
+		}
+		methods(w, r)
+	}
+}
+
 // setupRoutes configures all HTTP routes
 func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux := http.NewServeMux()
@@ -201,267 +279,28 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 
-	mux.HandleFunc("/api/v1/open-url", handleOpenURL)
-
-	mux.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetSettings(w, r)
-		case http.MethodPut:
-			handler.HandleUpdateSettings(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/config/database", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetDatabaseConfig(w, r)
-		case http.MethodPut:
-			handler.HandleUpdateDatabaseConfig(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/participants", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleListParticipants(w, r)
-		case http.MethodPost:
-			handler.HandleCreateParticipant(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/participants/new", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleParticipantForm(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/participants/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/participants/" {
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-
-		// Check for /edit route
-		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
-			handler.HandleParticipantForm(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetParticipant(w, r)
-		case http.MethodPut:
-			handler.HandleUpdateParticipant(w, r)
-		case http.MethodDelete:
-			handler.HandleDeleteParticipant(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/drivers", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleListDrivers(w, r)
-		case http.MethodPost:
-			handler.HandleCreateDriver(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/drivers/new", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleDriverForm(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/drivers/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/drivers/" {
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-
-		// Check for /edit route
-		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
-			handler.HandleDriverForm(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetDriver(w, r)
-		case http.MethodPut:
-			handler.HandleUpdateDriver(w, r)
-		case http.MethodDelete:
-			handler.HandleDeleteDriver(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/routes/calculate", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleCalculateRoutes(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/routes/calculate-with-org-vehicles", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleCalculateRoutesWithOrgVehicles(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/routes/edit/move-participant", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleMoveParticipant(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/routes/edit/swap-drivers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleSwapDrivers(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/routes/edit/reset", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleResetRoutes(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/routes/edit/add-driver", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleAddDriver(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/address-search", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleAddressSearch(w, r)
-	})
-
-	mux.HandleFunc("/api/v1/activity-locations", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleListActivityLocations(w, r)
-		case http.MethodPost:
-			handler.HandleCreateActivityLocation(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/activity-locations/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/activity-locations/" {
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
-			handler.HandleActivityLocationForm(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetActivityLocation(w, r)
-		case http.MethodPut:
-			handler.HandleUpdateActivityLocation(w, r)
-		case http.MethodDelete:
-			handler.HandleDeleteActivityLocation(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	// Organization Vehicles routes
-	mux.HandleFunc("/api/v1/org-vehicles", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleListOrgVehicles(w, r)
-		case http.MethodPost:
-			handler.HandleCreateOrgVehicle(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/org-vehicles/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/org-vehicles/" {
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "/edit") && r.Method == http.MethodGet {
-			handler.HandleOrgVehicleForm(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetOrgVehicle(w, r)
-		case http.MethodPut:
-			handler.HandleUpdateOrgVehicle(w, r)
-		case http.MethodDelete:
-			handler.HandleDeleteOrgVehicle(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/events", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleListEvents(w, r)
-		case http.MethodPost:
-			handler.HandleCreateEvent(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/events/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/events/" {
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			handler.HandleGetEvent(w, r)
-		case http.MethodDelete:
-			handler.HandleDeleteEvent(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.HandleFunc("/api/v1/open-url", requireMethod(http.MethodPost, handleOpenURL))
+	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
+	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
+	mux.HandleFunc("/api/v1/participants", handleMethods(handler.HandleListParticipants, handler.HandleCreateParticipant, nil, nil))
+	mux.HandleFunc("/api/v1/participants/new", requireMethod(http.MethodGet, handler.HandleParticipantForm))
+	mux.HandleFunc("/api/v1/participants/", handleResourcePath("/api/v1/participants/", "/edit", handler.HandleParticipantForm, handler.HandleGetParticipant, handler.HandleUpdateParticipant, handler.HandleDeleteParticipant))
+	mux.HandleFunc("/api/v1/drivers", handleMethods(handler.HandleListDrivers, handler.HandleCreateDriver, nil, nil))
+	mux.HandleFunc("/api/v1/drivers/new", requireMethod(http.MethodGet, handler.HandleDriverForm))
+	mux.HandleFunc("/api/v1/drivers/", handleResourcePath("/api/v1/drivers/", "/edit", handler.HandleDriverForm, handler.HandleGetDriver, handler.HandleUpdateDriver, handler.HandleDeleteDriver))
+	mux.HandleFunc("/api/v1/routes/calculate", requireMethod(http.MethodPost, handler.HandleCalculateRoutes))
+	mux.HandleFunc("/api/v1/routes/calculate-with-org-vehicles", requireMethod(http.MethodPost, handler.HandleCalculateRoutesWithOrgVehicles))
+	mux.HandleFunc("/api/v1/routes/edit/move-participant", requireMethod(http.MethodPost, handler.HandleMoveParticipant))
+	mux.HandleFunc("/api/v1/routes/edit/swap-drivers", requireMethod(http.MethodPost, handler.HandleSwapDrivers))
+	mux.HandleFunc("/api/v1/routes/edit/reset", requireMethod(http.MethodPost, handler.HandleResetRoutes))
+	mux.HandleFunc("/api/v1/routes/edit/add-driver", requireMethod(http.MethodPost, handler.HandleAddDriver))
+	mux.HandleFunc("/api/v1/address-search", requireMethod(http.MethodGet, handler.HandleAddressSearch))
+	mux.HandleFunc("/api/v1/activity-locations", handleMethods(handler.HandleListActivityLocations, handler.HandleCreateActivityLocation, nil, nil))
+	mux.HandleFunc("/api/v1/activity-locations/", handleResourcePath("/api/v1/activity-locations/", "/edit", handler.HandleActivityLocationForm, handler.HandleGetActivityLocation, handler.HandleUpdateActivityLocation, handler.HandleDeleteActivityLocation))
+	mux.HandleFunc("/api/v1/org-vehicles", handleMethods(handler.HandleListOrgVehicles, handler.HandleCreateOrgVehicle, nil, nil))
+	mux.HandleFunc("/api/v1/org-vehicles/", handleResourcePath("/api/v1/org-vehicles/", "/edit", handler.HandleOrgVehicleForm, handler.HandleGetOrgVehicle, handler.HandleUpdateOrgVehicle, handler.HandleDeleteOrgVehicle))
+	mux.HandleFunc("/api/v1/events", handleMethods(handler.HandleListEvents, handler.HandleCreateEvent, nil, nil))
+	mux.HandleFunc("/api/v1/events/", handleResourcePath("/api/v1/events/", "", nil, handler.HandleGetEvent, nil, handler.HandleDeleteEvent))
 
 	// Page routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -472,80 +311,34 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 		handler.HandleIndexPage(w, r)
 	})
 
-	mux.HandleFunc("/participants", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleParticipantsPage(w, r)
-	})
-
-	mux.HandleFunc("/drivers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleDriversPage(w, r)
-	})
-
-	mux.HandleFunc("/activity-locations", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleActivityLocationsPage(w, r)
-	})
-
-	mux.HandleFunc("/vans", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleVansPage(w, r)
-	})
-
-	mux.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleSettingsPage(w, r)
-	})
-
-	mux.HandleFunc("/history", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		handler.HandleHistoryPage(w, r)
-	})
+	mux.HandleFunc("/participants", requireMethod(http.MethodGet, handler.HandleParticipantsPage))
+	mux.HandleFunc("/drivers", requireMethod(http.MethodGet, handler.HandleDriversPage))
+	mux.HandleFunc("/activity-locations", requireMethod(http.MethodGet, handler.HandleActivityLocationsPage))
+	mux.HandleFunc("/vans", requireMethod(http.MethodGet, handler.HandleVansPage))
+	mux.HandleFunc("/settings", requireMethod(http.MethodGet, handler.HandleSettingsPage))
+	mux.HandleFunc("/history", requireMethod(http.MethodGet, handler.HandleHistoryPage))
 
 	return mux
 }
 
 // handleOpenURL opens a URL in the system's default browser
 func handleOpenURL(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
 		return
 	}
 
 	if req.URL == "" {
-		http.Error(w, "URL is required", http.StatusBadRequest)
+		http.Error(w, serverMessageURLRequired, http.StatusBadRequest)
 		return
 	}
 
 	// Only allow http/https URLs for security
 	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
-		http.Error(w, "Only HTTP/HTTPS URLs are allowed", http.StatusBadRequest)
+		http.Error(w, serverMessageOnlyHTTPHTTPSURLsAllowed, http.StatusBadRequest)
 		return
 	}
 
@@ -558,13 +351,13 @@ func handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", req.URL)
 	default:
-		http.Error(w, "Unsupported platform", http.StatusInternalServerError)
+		http.Error(w, serverMessageUnsupportedPlatform, http.StatusInternalServerError)
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("Failed to open URL: %v", err)
-		http.Error(w, "Failed to open URL", http.StatusInternalServerError)
+		http.Error(w, serverMessageFailedToOpenURL, http.StatusInternalServerError)
 		return
 	}
 
@@ -608,7 +401,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, HX-Request, HX-Target, HX-Current-URL")
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
+				httpx.HeaderContentType,
+				httpx.HeaderHXRequest,
+				httpx.HeaderHXTarget,
+				httpx.HeaderHXCurrentURL,
+			}, ", "))
 		}
 
 		if r.Method == http.MethodOptions {

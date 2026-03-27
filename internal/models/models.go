@@ -1,7 +1,9 @@
 package models
 
 import (
+	"errors"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -9,6 +11,28 @@ import (
 type Coordinates struct {
 	Lat float64 `json:"lat"`
 	Lng float64 `json:"lng"`
+}
+
+// RouteMode defines the direction of route calculation and rendering.
+type RouteMode string
+
+const (
+	RouteModeDropoff RouteMode = "dropoff"
+	RouteModePickup  RouteMode = "pickup"
+)
+
+var ErrInvalidRouteMode = errors.New("invalid route mode")
+
+// ParseRouteMode normalizes a route mode value, defaulting blank input to dropoff.
+func ParseRouteMode(value string) (RouteMode, error) {
+	switch strings.TrimSpace(value) {
+	case "", string(RouteModeDropoff):
+		return RouteModeDropoff, nil
+	case string(RouteModePickup):
+		return RouteModePickup, nil
+	default:
+		return "", ErrInvalidRouteMode
+	}
 }
 
 // RoundCoordinate rounds a coordinate to 5 decimal places (approximately 1 meter precision).
@@ -87,7 +111,7 @@ type Event struct {
 	ID        int64     `json:"id"`
 	EventDate time.Time `json:"event_date"`
 	Notes     string    `json:"notes"`
-	Mode      string    `json:"mode"` // "pickup" or "dropoff"
+	Mode      RouteMode `json:"mode"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -108,7 +132,7 @@ type EventRoute struct {
 	BaselineDurationSecs       float64          `json:"baseline_duration_secs"`
 	RouteDurationSecs          float64          `json:"route_duration_secs"`
 	DetourSecs                 float64          `json:"detour_secs"`
-	Mode                       string           `json:"mode"`
+	Mode                       RouteMode        `json:"mode"`
 	SnapshotVersion            int              `json:"-"`
 	MetricsComplete            bool             `json:"-"`
 	Stops                      []EventRouteStop `json:"stops,omitempty"`
@@ -130,12 +154,12 @@ type EventRouteStop struct {
 
 // EventSummary contains aggregate stats for an event
 type EventSummary struct {
-	EventID             int64   `json:"event_id"`
-	TotalParticipants   int     `json:"total_participants"`
-	TotalDrivers        int     `json:"total_drivers"`
-	TotalDistanceMeters float64 `json:"total_distance_meters"`
-	OrgVehiclesUsed     int     `json:"org_vehicles_used,omitempty"`
-	Mode                string  `json:"mode"` // "pickup" or "dropoff"
+	EventID             int64     `json:"event_id"`
+	TotalParticipants   int       `json:"total_participants"`
+	TotalDrivers        int       `json:"total_drivers"`
+	TotalDistanceMeters float64   `json:"total_distance_meters"`
+	OrgVehiclesUsed     int       `json:"org_vehicles_used,omitempty"`
+	Mode                RouteMode `json:"mode"`
 }
 
 // RouteStop represents a single stop in a calculated route
@@ -161,7 +185,7 @@ type CalculatedRoute struct {
 	BaselineDurationSecs       float64     `json:"baseline_duration_secs"`
 	RouteDurationSecs          float64     `json:"route_duration_secs"`
 	DetourSecs                 float64     `json:"detour_secs"`
-	Mode                       string      `json:"mode"` // "pickup" or "dropoff"
+	Mode                       RouteMode   `json:"mode"`
 }
 
 // RoutingSummary contains aggregate stats for a routing calculation
@@ -179,10 +203,9 @@ type RoutingSummary struct {
 
 // RoutingResult contains the full result of a route calculation
 type RoutingResult struct {
-	Routes   []CalculatedRoute `json:"routes"`
-	Summary  RoutingSummary    `json:"summary"`
-	Warnings []string          `json:"warnings"`
-	Mode     string            `json:"mode"` // "pickup" or "dropoff"
+	Routes  []CalculatedRoute `json:"routes"`
+	Summary RoutingSummary    `json:"summary"`
+	Mode    RouteMode         `json:"mode"`
 }
 
 // DistanceCacheEntry represents a cached distance lookup

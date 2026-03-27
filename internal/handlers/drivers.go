@@ -2,8 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
-	"html"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -36,9 +35,7 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "driver_list", map[string]interface{}{
-			"Drivers": drivers,
-		})
+		h.renderTemplate(w, "driver_list", DriverListView{Drivers: drivers})
 		return
 	}
 
@@ -54,7 +51,7 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		log.Printf("[HTTP] GET /api/v1/drivers/{id}: invalid_id=%s err=%v", idStr, err)
-		h.handleValidationError(w, "Invalid driver ID")
+		h.handleValidationError(w, messageInvalidDriverID)
 		return
 	}
 
@@ -68,7 +65,7 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 
 	if driver == nil {
 		log.Printf("[HTTP] Driver not found: id=%d", id)
-		h.handleNotFound(w, "Driver not found")
+		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 
@@ -94,33 +91,33 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
 			if err != nil {
-				h.renderError(w, r, fmt.Errorf("Invalid vehicle capacity"))
+				h.renderError(w, r, errors.New("Invalid vehicle capacity"))
 				return
 			}
 			req.VehicleCapacity = capacity
 		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
 
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Name and address are required"))
+			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
 			return
 		}
-		h.handleValidationError(w, "Name and address are required")
+		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
 
 	if req.VehicleCapacity <= 0 {
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Vehicle capacity must be greater than 0"))
+			h.renderError(w, r, errors.New(messageVehicleCapacityMustBeGreaterThanZero))
 			return
 		}
-		h.handleValidationError(w, "Vehicle capacity must be greater than 0")
+		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
 		return
 	}
 
@@ -163,10 +160,8 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"driverCreated": true, "showToast": {"message": "Driver '%s' added!", "type": "success"}}`, html.EscapeString(driver.Name)))
-		h.renderTemplate(w, "driver_list", map[string]interface{}{
-			"Drivers": drivers,
-		})
+		h.setHTMXToastWithEvent(w, "driverCreated", messageEntityAdded("Driver", driver.Name), toastTypeSuccess)
+		h.renderTemplate(w, "driver_list", DriverListView{Drivers: drivers})
 		return
 	}
 
@@ -176,17 +171,17 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 // HandleUpdateDriver handles PUT /api/v1/drivers/{id}
 func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
-	if strings.HasSuffix(idStr, "/edit") {
-		idStr = strings.TrimSuffix(idStr, "/edit")
+	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
+		idStr = trimmedID
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%v", idStr, err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Invalid driver ID"))
+			h.renderError(w, r, errors.New(messageInvalidDriverID))
 			return
 		}
-		h.handleValidationError(w, "Invalid driver ID")
+		h.handleValidationError(w, messageInvalidDriverID)
 		return
 	}
 
@@ -202,10 +197,10 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing == nil {
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Driver not found"))
+			h.renderError(w, r, errors.New(messageDriverNotFound))
 			return
 		}
-		h.handleNotFound(w, "Driver not found")
+		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 
@@ -226,33 +221,33 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
 			if err != nil {
-				h.renderError(w, r, fmt.Errorf("Invalid vehicle capacity"))
+				h.renderError(w, r, errors.New("Invalid vehicle capacity"))
 				return
 			}
 			req.VehicleCapacity = capacity
 		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
 
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Name and address are required"))
+			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
 			return
 		}
-		h.handleValidationError(w, "Name and address are required")
+		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
 
 	if req.VehicleCapacity <= 0 {
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Vehicle capacity must be greater than 0"))
+			h.renderError(w, r, errors.New(messageVehicleCapacityMustBeGreaterThanZero))
 			return
 		}
-		h.handleValidationError(w, "Vehicle capacity must be greater than 0")
+		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
 		return
 	}
 
@@ -294,10 +289,10 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	if driver == nil {
 		log.Printf("[HTTP] Driver not found after update: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Driver not found"))
+			h.renderError(w, r, errors.New(messageDriverNotFound))
 			return
 		}
-		h.handleNotFound(w, "Driver not found")
+		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 
@@ -309,10 +304,8 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"driverUpdated": true, "showToast": {"message": "Driver '%s' updated!", "type": "success"}}`, html.EscapeString(driver.Name)))
-		h.renderTemplate(w, "driver_list", map[string]interface{}{
-			"Drivers": drivers,
-		})
+		h.setHTMXToastWithEvent(w, "driverUpdated", messageEntityUpdated("Driver", driver.Name), toastTypeSuccess)
+		h.renderTemplate(w, "driver_list", DriverListView{Drivers: drivers})
 		return
 	}
 
@@ -326,10 +319,10 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%v", idStr, err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Invalid driver ID"))
+			h.renderError(w, r, errors.New(messageInvalidDriverID))
 			return
 		}
-		h.handleValidationError(w, "Invalid driver ID")
+		h.handleValidationError(w, messageInvalidDriverID)
 		return
 	}
 
@@ -338,10 +331,10 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Driver not found for delete: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Driver not found"))
+			h.renderError(w, r, errors.New(messageDriverNotFound))
 			return
 		}
-		h.handleNotFound(w, "Driver not found")
+		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 	if err != nil {
@@ -356,7 +349,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Deleted driver: id=%d", id)
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Driver deleted", "type": "success"}}`)
+		h.setHTMXToast(w, messageEntityDeleted("Driver"), toastTypeSuccess)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -373,7 +366,7 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			h.renderError(w, r, fmt.Errorf("Invalid driver ID"))
+			h.renderError(w, r, errors.New(messageInvalidDriverID))
 			return
 		}
 
@@ -383,14 +376,12 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if driver == nil {
-			h.renderError(w, r, fmt.Errorf("Driver not found"))
+			h.renderError(w, r, errors.New(messageDriverNotFound))
 			return
 		}
 	} else {
 		driver = &models.Driver{}
 	}
 
-	h.renderTemplate(w, "driver_form", map[string]interface{}{
-		"Driver": driver,
-	})
+	h.renderTemplate(w, "driver_form", DriverFormView{Driver: driver})
 }

@@ -65,7 +65,7 @@ func TestGetDistanceMatrix_AllCached(t *testing.T) {
 	}
 
 	// Check diagonal is zero
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if matrix[i][i].DistanceMeters != 0 {
 			t.Errorf("diagonal [%d][%d] should be 0, got %f", i, i, matrix[i][i].DistanceMeters)
 		}
@@ -217,7 +217,7 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 	// Create more points than maxOSRMCoordinates (80)
 	numPoints := 85
 	points := make([]models.Coordinates, numPoints)
-	for i := 0; i < numPoints; i++ {
+	for i := range numPoints {
 		points[i] = models.Coordinates{
 			Lat: float64(i) * 0.01,
 			Lng: float64(i) * 0.01,
@@ -237,10 +237,10 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 		// Build response matrix of appropriate size
 		distances := make([][]float64, n)
 		durations := make([][]float64, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			distances[i] = make([]float64, n)
 			durations[i] = make([]float64, n)
-			for j := 0; j < n; j++ {
+			for j := range n {
 				if i != j {
 					distances[i][j] = float64((i+j)*100 + 1000)
 					durations[i][j] = float64((i + j) * 10)
@@ -303,7 +303,7 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 	}
 
 	// Verify diagonal is zero
-	for i := 0; i < numPoints; i++ {
+	for i := range numPoints {
 		if matrix[i][i].DistanceMeters != 0 {
 			t.Errorf("diagonal [%d][%d] should be 0, got %f", i, i, matrix[i][i].DistanceMeters)
 		}
@@ -315,7 +315,7 @@ func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
 
 	numPoints := 81
 	points := make([]models.Coordinates, numPoints)
-	for i := 0; i < numPoints; i++ {
+	for i := range numPoints {
 		points[i] = models.Coordinates{
 			Lat: float64(i) * 0.01,
 			Lng: float64(i) * 0.01,
@@ -331,8 +331,8 @@ func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
 
 	missingSource := 5
 	missingDestination := 80
-	for i := 0; i < numPoints; i++ {
-		for j := 0; j < numPoints; j++ {
+	for i := range numPoints {
+		for j := range numPoints {
 			if i == j || (i == missingSource && j == missingDestination) {
 				continue
 			}

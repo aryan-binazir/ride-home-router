@@ -2,8 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
-	"html"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -36,9 +35,7 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 
 	log.Printf("[HTTP] Listed participants: count=%d", len(participants))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "participant_list", map[string]interface{}{
-			"Participants": participants,
-		})
+		h.renderTemplate(w, "participant_list", ParticipantListView{Participants: participants})
 		return
 	}
 
@@ -93,7 +90,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
@@ -101,10 +98,10 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	if req.Name == "" || req.Address == "" {
 		log.Printf("[HTTP] POST /api/v1/participants: missing_fields name=%s address=%s", req.Name, req.Address)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Name and address are required"))
+			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
 			return
 		}
-		h.handleValidationError(w, "Name and address are required")
+		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
 
@@ -146,10 +143,8 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"participantCreated": true, "showToast": {"message": "Participant '%s' added!", "type": "success"}}`, html.EscapeString(participant.Name)))
-		h.renderTemplate(w, "participant_list", map[string]interface{}{
-			"Participants": participants,
-		})
+		h.setHTMXToastWithEvent(w, "participantCreated", messageEntityAdded("Participant", participant.Name), toastTypeSuccess)
+		h.renderTemplate(w, "participant_list", ParticipantListView{Participants: participants})
 		return
 	}
 
@@ -159,17 +154,17 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 // HandleUpdateParticipant handles PUT /api/v1/participants/{id}
 func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
-	if strings.HasSuffix(idStr, "/edit") {
-		idStr = strings.TrimSuffix(idStr, "/edit")
+	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
+		idStr = trimmedID
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_id=%s err=%v", idStr, err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Invalid participant ID"))
+			h.renderError(w, r, errors.New(messageInvalidParticipantID))
 			return
 		}
-		h.handleValidationError(w, "Invalid participant ID")
+		h.handleValidationError(w, messageInvalidParticipantID)
 		return
 	}
 
@@ -188,10 +183,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	if existing == nil {
 		log.Printf("[HTTP] Participant not found for update: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Participant not found"))
+			h.renderError(w, r, errors.New(messageParticipantNotFound))
 			return
 		}
-		h.handleNotFound(w, "Participant not found")
+		h.handleNotFound(w, messageParticipantNotFound)
 		return
 	}
 
@@ -209,17 +204,17 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		req.Address = r.FormValue("address")
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
 
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Name and address are required"))
+			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
 			return
 		}
-		h.handleValidationError(w, "Name and address are required")
+		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
 
@@ -260,10 +255,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	if participant == nil {
 		log.Printf("[HTTP] Participant not found after update: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Participant not found"))
+			h.renderError(w, r, errors.New(messageParticipantNotFound))
 			return
 		}
-		h.handleNotFound(w, "Participant not found")
+		h.handleNotFound(w, messageParticipantNotFound)
 		return
 	}
 
@@ -275,10 +270,8 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"participantUpdated": true, "showToast": {"message": "Participant '%s' updated!", "type": "success"}}`, html.EscapeString(participant.Name)))
-		h.renderTemplate(w, "participant_list", map[string]interface{}{
-			"Participants": participants,
-		})
+		h.setHTMXToastWithEvent(w, "participantUpdated", messageEntityUpdated("Participant", participant.Name), toastTypeSuccess)
+		h.renderTemplate(w, "participant_list", ParticipantListView{Participants: participants})
 		return
 	}
 
@@ -292,10 +285,10 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		log.Printf("[HTTP] DELETE /api/v1/participants/{id}: invalid_id=%s err=%v", idStr, err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Invalid participant ID"))
+			h.renderError(w, r, errors.New(messageInvalidParticipantID))
 			return
 		}
-		h.handleValidationError(w, "Invalid participant ID")
+		h.handleValidationError(w, messageInvalidParticipantID)
 		return
 	}
 
@@ -304,10 +297,10 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Participant not found for delete: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, fmt.Errorf("Participant not found"))
+			h.renderError(w, r, errors.New(messageParticipantNotFound))
 			return
 		}
-		h.handleNotFound(w, "Participant not found")
+		h.handleNotFound(w, messageParticipantNotFound)
 		return
 	}
 	if err != nil {
@@ -322,7 +315,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Deleted participant: id=%d", id)
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Participant deleted", "type": "success"}}`)
+		h.setHTMXToast(w, messageEntityDeleted("Participant"), toastTypeSuccess)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -339,7 +332,7 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			h.renderError(w, r, fmt.Errorf("Invalid participant ID"))
+			h.renderError(w, r, errors.New(messageInvalidParticipantID))
 			return
 		}
 
@@ -349,14 +342,12 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if participant == nil {
-			h.renderError(w, r, fmt.Errorf("Participant not found"))
+			h.renderError(w, r, errors.New(messageParticipantNotFound))
 			return
 		}
 	} else {
 		participant = &models.Participant{}
 	}
 
-	h.renderTemplate(w, "participant_form", map[string]interface{}{
-		"Participant": participant,
-	})
+	h.renderTemplate(w, "participant_form", ParticipantFormView{Participant: participant})
 }

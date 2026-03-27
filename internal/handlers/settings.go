@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"os"
@@ -37,7 +35,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[ERROR] Failed to parse form: err=%v", err)
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			h.setHTMXToast(w, err.Error(), toastTypeError)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -50,7 +48,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/settings: invalid_body err=%v", err)
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
@@ -59,7 +57,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[ERROR] Failed to get existing settings: err=%v", err)
 		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			h.setHTMXToast(w, err.Error(), toastTypeError)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -78,7 +76,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Printf("[ERROR] Failed to get activity location: err=%v", err)
 				if h.isHTMX(r) {
-					w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+					h.setHTMXToast(w, err.Error(), toastTypeError)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -89,7 +87,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			if location == nil {
 				log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", selectedActivityLocationID)
 				if h.isHTMX(r) {
-					w.Header().Set("HX-Trigger", `{"showToast": {"message": "Selected activity location not found", "type": "error"}}`)
+					h.setHTMXToast(w, messageSelectedActivityLocationNotFound, toastTypeError)
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
@@ -107,7 +105,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
 		log.Printf("[ERROR] Failed to update settings: err=%v", err)
 		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			h.setHTMXToast(w, err.Error(), toastTypeError)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -117,11 +115,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Updated settings: selected_location_id=%d", settings.SelectedActivityLocationID)
 	if h.isHTMX(r) {
-		message := "Preferences saved!"
+		message := messagePreferencesSaved
 		if location != nil {
-			message = fmt.Sprintf("Settings saved! Using: %s", html.EscapeString(location.Name))
+			message = messageSettingsSavedUsing(location.Name)
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "success"}}`, message))
+		h.setHTMXToast(w, message, toastTypeSuccess)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -164,7 +162,7 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[ERROR] Failed to parse form: err=%v", err)
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			h.setHTMXToast(w, err.Error(), toastTypeError)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -172,7 +170,7 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/config/database: invalid_body err=%v", err)
-			h.handleValidationError(w, "Invalid request body")
+			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
 	}
@@ -202,11 +200,11 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 	// Validate the path is absolute
 	if !filepath.IsAbs(req.DatabasePath) {
 		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", `{"showToast": {"message": "Database path must be absolute", "type": "error"}}`)
+			h.setHTMXToast(w, messageDatabasePathMustBeAbsolute, toastTypeError)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		h.handleValidationError(w, "Database path must be absolute")
+		h.handleValidationError(w, messageDatabasePathMustBeAbsolute)
 		return
 	}
 
@@ -215,11 +213,11 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Printf("[ERROR] Failed to create database directory: err=%v", err)
 		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to create directory: %s", "type": "error"}}`, html.EscapeString(err.Error())))
+			h.setHTMXToast(w, messageFailedToCreateDirectory(err), toastTypeError)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		h.handleValidationError(w, fmt.Sprintf("Failed to create directory: %v", err))
+		h.handleValidationError(w, messageFailedToCreateDirectory(err))
 		return
 	}
 
@@ -231,7 +229,7 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 	if err := database.SaveConfig(config); err != nil {
 		log.Printf("[ERROR] Failed to save config: err=%v", err)
 		if h.isHTMX(r) {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "%s", "type": "error"}}`, html.EscapeString(err.Error())))
+			h.setHTMXToast(w, err.Error(), toastTypeError)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -242,13 +240,13 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 	log.Printf("[HTTP] Updated database config: path=%s", req.DatabasePath)
 
 	if h.isHTMX(r) {
-		w.Header().Set("HX-Trigger", `{"showToast": {"message": "Database path updated. Restart the application to apply changes.", "type": "success"}}`)
+		h.setHTMXToast(w, messageDatabasePathUpdatedRestart, toastTypeSuccess)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"database_path": req.DatabasePath,
-		"message":       "Database path updated. Restart the application to apply changes.",
+	h.writeJSON(w, http.StatusOK, DatabasePathUpdateResponse{
+		DatabasePath: req.DatabasePath,
+		Message:      messageDatabasePathUpdatedRestart,
 	})
 }

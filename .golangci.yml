@@ -1,0 +1,25 @@
+version: "2"
+
+run:
+  timeout: 5m
+  relative-path-mode: gomod
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - misspell
+    - modernize
+    - unconvert
+    - unused
+  exclusions:
+    generated: strict
+    warn-unused: true
+    presets:
+      - common-false-positives
+      - std-error-handling
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

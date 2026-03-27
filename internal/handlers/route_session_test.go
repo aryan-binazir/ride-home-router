@@ -130,27 +130,23 @@ func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	numGoroutines := 100
 
 	// Concurrent reads
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 			s := store.Get(sessionID)
 			if s == nil {
 				t.Error("expected session to exist")
 			}
-		}()
+		})
 	}
 
 	// Concurrent updates
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 			store.Update(sessionID, func(s *RouteSession) {
 				// Just access the session
 				_ = len(s.CurrentRoutes)
 			})
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -196,6 +192,9 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 	}
 	if session.RouteTime != "18:30" {
 		t.Errorf("RouteTime = %q, want %q", session.RouteTime, "18:30")
+	}
+	if session.Mode != models.RouteModeDropoff {
+		t.Errorf("Mode = %q, want %q", session.Mode, models.RouteModeDropoff)
 	}
 	if len(session.OriginalRoutes) != 1 {
 		t.Errorf("expected 1 original route, got %d", len(session.OriginalRoutes))

@@ -14,6 +14,11 @@ import (
 	"ride-home-router/internal/server"
 )
 
+const (
+	browserLaunchDelay  = 500 * time.Millisecond
+	serverShutdownTimeout = 30 * time.Second
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -37,7 +42,7 @@ func run() error {
 
 	// Open browser after a short delay to ensure server is ready
 	go func() {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(browserLaunchDelay)
 		url := fmt.Sprintf("http://%s", actualAddr)
 		if err := openBrowser(url); err != nil {
 			log.Printf("Could not open browser: %v", err)
@@ -52,7 +57,7 @@ func run() error {
 	sig := <-shutdown
 	log.Printf("Received signal %v, starting graceful shutdown", sig)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
