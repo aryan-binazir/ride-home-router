@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"math"
+	"slices"
 	"testing"
 
 	"ride-home-router/internal/distance"
@@ -48,6 +49,181 @@ func (calc routeEditDistanceCalculator) GetDistancesFromPoint(ctx context.Contex
 
 func (routeEditDistanceCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
 	return nil
+}
+
+func TestRoutesEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b []models.CalculatedRoute
+		want bool
+	}{
+		{
+			name: "both empty",
+			a:    []models.CalculatedRoute{},
+			b:    []models.CalculatedRoute{},
+			want: true,
+		},
+		{
+			name: "both nil",
+			a:    nil,
+			b:    nil,
+			want: true,
+		},
+		{
+			name: "different lengths",
+			a:    []models.CalculatedRoute{{}},
+			b:    []models.CalculatedRoute{{}, {}},
+			want: false,
+		},
+		{
+			name: "same structure",
+			a: []models.CalculatedRoute{
+				{
+					Driver: &models.Driver{ID: 1},
+					Stops: []models.RouteStop{
+						{Participant: &models.Participant{ID: 10}},
+						{Participant: &models.Participant{ID: 20}},
+					},
+				},
+			},
+			b: []models.CalculatedRoute{
+				{
+					Driver: &models.Driver{ID: 1},
+					Stops: []models.RouteStop{
+						{Participant: &models.Participant{ID: 10}},
+						{Participant: &models.Participant{ID: 20}},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "different driver IDs",
+			a: []models.CalculatedRoute{
+				{Driver: &models.Driver{ID: 1}, Stops: []models.RouteStop{}},
+			},
+			b: []models.CalculatedRoute{
+				{Driver: &models.Driver{ID: 2}, Stops: []models.RouteStop{}},
+			},
+			want: false,
+		},
+		{
+			name: "different participant order",
+			a: []models.CalculatedRoute{
+				{
+					Driver: &models.Driver{ID: 1},
+					Stops: []models.RouteStop{
+						{Participant: &models.Participant{ID: 10}},
+						{Participant: &models.Participant{ID: 20}},
+					},
+				},
+			},
+			b: []models.CalculatedRoute{
+				{
+					Driver: &models.Driver{ID: 1},
+					Stops: []models.RouteStop{
+						{Participant: &models.Participant{ID: 20}},
+						{Participant: &models.Participant{ID: 10}},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "different stop counts",
+			a: []models.CalculatedRoute{
+				{
+					Driver: &models.Driver{ID: 1},
+					Stops:  []models.RouteStop{{Participant: &models.Participant{ID: 10}}},
+				},
+			},
+			b: []models.CalculatedRoute{
+				{
+					Driver: &models.Driver{ID: 1},
+					Stops:  []models.RouteStop{},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "nil drivers both sides",
+			a: []models.CalculatedRoute{
+				{Driver: nil, Stops: []models.RouteStop{}},
+			},
+			b: []models.CalculatedRoute{
+				{Driver: nil, Stops: []models.RouteStop{}},
+			},
+			want: true,
+		},
+		{
+			name: "nil vs non-nil driver",
+			a: []models.CalculatedRoute{
+				{Driver: nil, Stops: []models.RouteStop{}},
+			},
+			b: []models.CalculatedRoute{
+				{Driver: &models.Driver{ID: 1}, Stops: []models.RouteStop{}},
+			},
+			want: false,
+		},
+		{
+			name: "ignores metric differences",
+			a: []models.CalculatedRoute{
+				{
+					Driver:              &models.Driver{ID: 1},
+					Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10}}},
+					TotalDistanceMeters: 1000,
+				},
+			},
+			b: []models.CalculatedRoute{
+				{
+					Driver:              &models.Driver{ID: 1},
+					Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10}}},
+					TotalDistanceMeters: 9999,
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := routesEqual(tt.a, tt.b); got != tt.want {
+				t.Errorf("routesEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetUnusedDrivers_ExcludesDriversAlreadyRenderedAsRoutes(t *testing.T) {
+	session := &RouteSession{
+		SelectedDrivers: []models.Driver{
+			{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+			{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+			{ID: 3, Name: "Driver3", VehicleCapacity: 4},
+		},
+		CurrentRoutes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 10, Name: "Alice"}},
+				},
+			},
+			{
+				Driver: &models.Driver{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+				Stops:  []models.RouteStop{},
+			},
+		},
+	}
+
+	unused := getUnusedDrivers(session)
+	gotIDs := make([]int64, 0, len(unused))
+	for _, driver := range unused {
+		gotIDs = append(gotIDs, driver.ID)
+	}
+
+	if !slices.Equal(gotIDs, []int64{3}) {
+		t.Fatalf("getUnusedDrivers() IDs = %v, want [3]", gotIDs)
+	}
 }
 
 func TestRecalculateRoutePickupUsesModeAwareMetrics(t *testing.T) {
