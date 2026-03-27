@@ -203,7 +203,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 			}
 
 			// Try all insertion positions for this group
-			for pos := 0; pos <= len(route.stops); pos++ {
+			for _, pos := range householdBoundaryPositions(route.stops) {
 				cost, err := rc.groupInsertionDeltaDuration(ctx, route.driver, route.stops, group, pos)
 				if err != nil {
 					return nil, err
@@ -226,8 +226,9 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 					continue
 				}
 
-				// Try just the first member of the group
-				for pos := 0; pos <= len(route.stops); pos++ {
+				// Try just the first member of the group, but still only at
+				// household boundaries so existing same-address riders stay adjacent.
+				for _, pos := range householdBoundaryPositions(route.stops) {
 					cost, err := rc.insertionDeltaDuration(ctx, route.driver, route.stops, group.members[0], pos)
 					if err != nil {
 						return nil, err
@@ -313,6 +314,7 @@ func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, rc routeContext,
 			}
 			route.stops = optimized
 		}
+		route.stops = coalesceHouseholdStops(route.stops)
 		if err := r.updateRouteDuration(ctx, rc, route); err != nil {
 			return err
 		}
@@ -366,6 +368,11 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 			break
 		}
 
+		boundaryPositionsByDriver := make(map[int64][]int, len(driverIDs))
+		for _, id := range driverIDs {
+			boundaryPositionsByDriver[id] = householdBoundaryPositions(routes[id].stops)
+		}
+
 		// Try to reduce routes starting from longest
 		foundMove := false
 		for _, rd := range routesByDuration {
@@ -380,13 +387,21 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 			var bestMove struct {
 				destID          int64
 				srcPos, destPos int
-				participant     *models.Participant
+				group           *participantGroup
 				newMaxDuration  float64
 			}
 			bestMove.newMaxDuration = currentMaxDuration
 
-			for srcPos := 0; srcPos < len(srcRoute.stops); srcPos++ {
-				p := srcRoute.stops[srcPos]
+			// Min-max treats an adjacent household block as an atomic unit so the
+			// balancing pass does not split riders who have already been grouped.
+			srcBlocks := routeHouseholdBlocks(srcRoute.stops)
+			srcPos := 0
+			for _, group := range srcBlocks {
+				groupSize := len(group.members)
+				if len(srcRoute.stops)-groupSize < minStopsPerDriver {
+					srcPos += groupSize
+					continue
+				}
 
 				for _, destID := range driverIDs {
 					if destID == rd.id {
@@ -394,14 +409,16 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 					}
 
 					destRoute := routes[destID]
-					if len(destRoute.stops) >= destRoute.driver.VehicleCapacity {
+					if len(destRoute.stops)+groupSize > destRoute.driver.VehicleCapacity {
 						continue
 					}
 
-					for destPos := 0; destPos <= len(destRoute.stops); destPos++ {
+					for _, destPos := range boundaryPositionsByDriver[destID] {
 						// Simulate the move
-						newSrcStops := removeAt(srcRoute.stops, srcPos)
-						newDestStops := insertAt(destRoute.stops, p, destPos)
+						newSrcStops := removeRange(srcRoute.stops, srcPos, srcPos+groupSize)
+						newDestStops := insertGroupAt(destRoute.stops, group, destPos)
+						newSrcStops = coalesceHouseholdStops(newSrcStops)
+						newDestStops = coalesceHouseholdStops(newDestStops)
 
 						oldSrcStops := srcRoute.stops
 						oldDestStops := destRoute.stops
@@ -430,19 +447,21 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 							bestMove.destID = destID
 							bestMove.srcPos = srcPos
 							bestMove.destPos = destPos
-							bestMove.participant = p
+							bestMove.group = group
 							bestMove.newMaxDuration = newMaxDuration
 						}
 					}
 				}
+
+				srcPos += groupSize
 			}
 
 			// Execute best move if found
-			if bestMove.participant != nil {
+			if bestMove.group != nil {
 				destRoute := routes[bestMove.destID]
 
-				srcRoute.stops = removeAt(srcRoute.stops, bestMove.srcPos)
-				destRoute.stops = insertAt(destRoute.stops, bestMove.participant, bestMove.destPos)
+				srcRoute.stops = removeRange(srcRoute.stops, bestMove.srcPos, bestMove.srcPos+len(bestMove.group.members))
+				destRoute.stops = insertGroupAt(destRoute.stops, bestMove.group, bestMove.destPos)
 
 				// Re-optimize affected routes with 2-opt
 				if optimized, err := r.twoOpt(ctx, rc, srcRoute, srcRoute.stops); err == nil {
@@ -451,6 +470,8 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 				if optimized, err := r.twoOpt(ctx, rc, destRoute, destRoute.stops); err == nil {
 					destRoute.stops = optimized
 				}
+				srcRoute.stops = coalesceHouseholdStops(srcRoute.stops)
+				destRoute.stops = coalesceHouseholdStops(destRoute.stops)
 
 				if err := r.updateRouteDuration(ctx, rc, srcRoute); err != nil {
 					return iteration
@@ -459,9 +480,19 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 					return iteration
 				}
 
-				log.Printf("[BALANCED] Moved %s from %s to %s (max: %.0fs -> %.0fs)",
-					bestMove.participant.Name, srcRoute.driver.Name, destRoute.driver.Name,
-					currentMaxDuration, bestMove.newMaxDuration)
+				memberNames := make([]string, len(bestMove.group.members))
+				for i, member := range bestMove.group.members {
+					memberNames[i] = member.Name
+				}
+				if len(memberNames) == 1 {
+					log.Printf("[BALANCED] Moved %s from %s to %s (max: %.0fs -> %.0fs)",
+						memberNames[0], srcRoute.driver.Name, destRoute.driver.Name,
+						currentMaxDuration, bestMove.newMaxDuration)
+				} else {
+					log.Printf("[BALANCED] Moved household group [%v] from %s to %s (max: %.0fs -> %.0fs)",
+						memberNames, srcRoute.driver.Name, destRoute.driver.Name,
+						currentMaxDuration, bestMove.newMaxDuration)
+				}
 
 				foundMove = true
 				break // Restart from longest route
@@ -514,6 +545,9 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 
 	for _, driverID := range driverIDs {
 		route := routes[driverID]
+		// Defensive: keep same-household riders adjacent in the final payload even
+		// if a future optimizer path forgets to normalize before build.
+		route.stops = coalesceHouseholdStops(route.stops)
 		if len(route.stops) == 0 {
 			continue
 		}
@@ -581,22 +615,14 @@ func groupParticipantsByAddress(participants []*models.Participant) []*participa
 	addressMap := make(map[string]*participantGroup)
 
 	for _, p := range participants {
-		// Round coordinates to 5 decimal places for consistent grouping
-		roundedLat := models.RoundCoordinate(p.Lat)
-		roundedLng := models.RoundCoordinate(p.Lng)
-		key := coordinateKey(roundedLat, roundedLng)
+		key := householdKey(p)
 
 		if group, exists := addressMap[key]; exists {
 			// Add to existing group
 			group.members = append(group.members, p)
 		} else {
 			// Create new group
-			addressMap[key] = &participantGroup{
-				members: []*models.Participant{p},
-				address: p.Address,
-				lat:     roundedLat,
-				lng:     roundedLng,
-			}
+			addressMap[key] = newParticipantGroup(p)
 		}
 	}
 
@@ -617,6 +643,85 @@ func groupParticipantsByAddress(participants []*models.Participant) []*participa
 // coordinateKey creates a unique key for a coordinate pair
 func coordinateKey(lat, lng float64) string {
 	return fmt.Sprintf("%.5f,%.5f", lat, lng)
+}
+
+func householdKey(participant *models.Participant) string {
+	if participant == nil {
+		return ""
+	}
+	return coordinateKey(models.RoundCoordinate(participant.Lat), models.RoundCoordinate(participant.Lng))
+}
+
+func newParticipantGroup(participant *models.Participant) *participantGroup {
+	return &participantGroup{
+		members: []*models.Participant{participant},
+		address: participant.Address,
+		lat:     models.RoundCoordinate(participant.Lat),
+		lng:     models.RoundCoordinate(participant.Lng),
+	}
+}
+
+func routeHouseholdBlocks(stops []*models.Participant) []*participantGroup {
+	if len(stops) == 0 {
+		return nil
+	}
+
+	blocks := make([]*participantGroup, 0, len(stops))
+	for _, stop := range stops {
+		if len(blocks) == 0 || householdKey(blocks[len(blocks)-1].members[0]) != householdKey(stop) {
+			blocks = append(blocks, newParticipantGroup(stop))
+			continue
+		}
+		blocks[len(blocks)-1].members = append(blocks[len(blocks)-1].members, stop)
+	}
+
+	return blocks
+}
+
+func householdBoundaryPositions(stops []*models.Participant) []int {
+	if len(stops) == 0 {
+		return []int{0}
+	}
+
+	positions := make([]int, 0, len(stops)+1)
+	positions = append(positions, 0)
+	pos := 0
+	for _, block := range routeHouseholdBlocks(stops) {
+		pos += len(block.members)
+		positions = append(positions, pos)
+	}
+
+	return positions
+}
+
+func coalesceHouseholdStops(stops []*models.Participant) []*models.Participant {
+	if len(stops) < 2 {
+		return stops
+	}
+
+	orderedKeys := make([]string, 0, len(stops))
+	grouped := make(map[string]*participantGroup, len(stops))
+	for _, stop := range stops {
+		key := householdKey(stop)
+		if group, exists := grouped[key]; exists {
+			group.members = append(group.members, stop)
+			continue
+		}
+
+		orderedKeys = append(orderedKeys, key)
+		grouped[key] = newParticipantGroup(stop)
+	}
+
+	result := make([]*models.Participant, 0, len(stops))
+	for _, key := range orderedKeys {
+		result = append(result, grouped[key].members...)
+	}
+
+	if slices.Equal(result, stops) {
+		return stops
+	}
+
+	return result
 }
 
 // insertGroupAt inserts all members of a group consecutively at the specified position
