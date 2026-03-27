@@ -46,7 +46,10 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int) ([]models
 		if notes.Valid {
 			event.Notes = notes.String
 		}
-		event.Mode = models.RouteMode(mode)
+		event.Mode, err = models.ParseRouteMode(mode)
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid route mode for event %d: %w", event.ID, err)
+		}
 		events = append(events, event)
 	}
 
@@ -93,7 +96,10 @@ func (r *eventRepository) GetSummariesByEventIDs(ctx context.Context, eventIDs [
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan event summary: %w", err)
 		}
-		summary.Mode = models.RouteMode(mode)
+		summary.Mode, err = models.ParseRouteMode(mode)
+		if err != nil {
+			return nil, fmt.Errorf("invalid route mode for event summary %d: %w", summary.EventID, err)
+		}
 		summaryCopy := summary
 		summaries[summary.EventID] = &summaryCopy
 	}
@@ -126,7 +132,10 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 	if notes.Valid {
 		event.Notes = notes.String
 	}
-	event.Mode = models.RouteMode(mode)
+	event.Mode, err = models.ParseRouteMode(mode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid route mode for event %d: %w", event.ID, err)
+	}
 
 	routeRows, err := r.store.db.QueryContext(ctx, `
 		SELECT id, event_id, route_order, driver_id, driver_name, driver_address,
@@ -167,7 +176,10 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		if orgVehicleName.Valid {
 			route.OrgVehicleName = orgVehicleName.String
 		}
-		route.Mode = models.RouteMode(mode)
+		route.Mode, err = models.ParseRouteMode(mode)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("invalid route mode for event route in event %d: %w", id, err)
+		}
 		route.MetricsComplete = metricsComplete == 1
 		route.Stops = []models.EventRouteStop{}
 		routeIndexByID[route.ID] = len(routes)
@@ -237,7 +249,10 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get event summary: %w", err)
 	}
-	summary.Mode = models.RouteMode(summaryMode)
+	summary.Mode, err = models.ParseRouteMode(summaryMode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid route mode for event summary %d: %w", id, err)
+	}
 
 	return &event, routes, &summary, nil
 }
