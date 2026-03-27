@@ -313,7 +313,7 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCal
 	route.BaselineDurationSecs = metrics.BaselineDurationSecs
 	route.RouteDurationSecs = metrics.RouteDurationSecs
 	route.DetourSecs = metrics.DetourSecs
-	route.Mode = string(rc.mode)
+	route.Mode = rc.mode
 	if route.EffectiveCapacity == 0 && route.Driver != nil {
 		route.EffectiveCapacity = route.Driver.VehicleCapacity
 	}

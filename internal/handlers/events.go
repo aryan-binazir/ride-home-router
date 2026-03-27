@@ -363,12 +363,12 @@ func (h *Handler) buildEventListView(ctx context.Context, limit, offset int) (*E
 	}, nil
 }
 
-func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRoute, *models.EventSummary, error) {
+func buildEventSnapshots(result *models.RoutingResult) (models.RouteMode, []models.EventRoute, *models.EventSummary, error) {
 	if result == nil {
 		return "", nil, nil, fmt.Errorf("routes are required")
 	}
 
-	mode, err := normalizeRouteMode(result.Mode)
+	mode, err := normalizeRouteMode(string(result.Mode))
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -391,7 +391,7 @@ func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRo
 		if routeMode == "" {
 			routeMode = mode
 		}
-		routeMode, err = normalizeRouteMode(routeMode)
+		routeMode, err = normalizeRouteMode(string(routeMode))
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -458,17 +458,6 @@ func buildEventSnapshots(result *models.RoutingResult) (string, []models.EventRo
 		OrgVehiclesUsed:     orgVehiclesUsed,
 		Mode:                mode,
 	}, nil
-}
-
-func normalizeRouteMode(mode string) (string, error) {
-	switch mode {
-	case "", "dropoff":
-		return "dropoff", nil
-	case "pickup":
-		return "pickup", nil
-	default:
-		return "", fmt.Errorf("invalid route mode")
-	}
 }
 
 func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver {

@@ -193,6 +193,9 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 	if session.RouteTime != "18:30" {
 		t.Errorf("RouteTime = %q, want %q", session.RouteTime, "18:30")
 	}
+	if session.Mode != models.RouteModeDropoff {
+		t.Errorf("Mode = %q, want %q", session.Mode, models.RouteModeDropoff)
+	}
 	if len(session.OriginalRoutes) != 1 {
 		t.Errorf("expected 1 original route, got %d", len(session.OriginalRoutes))
 	}

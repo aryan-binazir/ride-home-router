@@ -331,6 +331,52 @@ func TestHandleDeleteEvent_HTMXRerendersEventList(t *testing.T) {
 	}
 }
 
+func TestBuildEventSnapshots_RejectsMixedRouteModes(t *testing.T) {
+	result := &models.RoutingResult{
+		Mode: models.RouteModeDropoff,
+		Routes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 4},
+				Mode:   models.RouteModeDropoff,
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 1, Name: "Passenger One"}},
+				},
+			},
+			{
+				Driver: &models.Driver{ID: 2, Name: "Driver Two", VehicleCapacity: 4},
+				Mode:   models.RouteModePickup,
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 2, Name: "Passenger Two"}},
+				},
+			},
+		},
+	}
+
+	_, _, _, err := buildEventSnapshots(result)
+	if err == nil || err.Error() != "all routes must use the same mode" {
+		t.Fatalf("expected mixed-mode validation error, got %v", err)
+	}
+}
+
+func TestBuildEventSnapshots_RejectsInvalidMode(t *testing.T) {
+	result := &models.RoutingResult{
+		Mode: "sideways",
+		Routes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 4},
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 1, Name: "Passenger One"}},
+				},
+			},
+		},
+	}
+
+	_, _, _, err := buildEventSnapshots(result)
+	if err == nil || err.Error() != messageInvalidRouteMode {
+		t.Fatalf("expected invalid mode error %q, got %v", messageInvalidRouteMode, err)
+	}
+}
+
 func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlite.Store) {
 	t.Helper()
 

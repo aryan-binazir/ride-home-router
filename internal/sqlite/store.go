@@ -17,6 +17,8 @@ import (
 const (
 	DefaultDBFileName = "data.db"
 	schemaVersion     = 3
+	sqliteCacheSizeKB = -64000 // 64MB cache (negative = KiB)
+	sqliteBusyTimeoutMS = 5000
 )
 
 // Store is a SQLite-based data store implementing database.DataStore
@@ -54,8 +56,8 @@ func New(dbPath string) (*Store, error) {
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
-		"PRAGMA cache_size = -64000", // 64MB cache
-		"PRAGMA busy_timeout = 5000",
+		fmt.Sprintf("PRAGMA cache_size = %d", sqliteCacheSizeKB),
+		fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeoutMS),
 	}
 
 	for _, pragma := range pragmas {

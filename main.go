@@ -15,15 +15,22 @@ import (
 //go:embed frontend/*
 var assets embed.FS
 
+const (
+	defaultWindowWidth  = 1280
+	defaultWindowHeight = 800
+	minWindowWidth      = 800
+	minWindowHeight     = 600
+)
+
 func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
 		Title:     "Ride Home Router",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  800,
-		MinHeight: 600,
+		Width:     defaultWindowWidth,
+		Height:    defaultWindowHeight,
+		MinWidth:  minWindowWidth,
+		MinHeight: minWindowHeight,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

@@ -42,6 +42,10 @@ type Config struct {
 }
 
 const (
+	serverReadTimeout  = 15 * time.Second
+	serverWriteTimeout = 60 * time.Second
+	serverIdleTimeout  = 120 * time.Second
+
 	serverMessageInvalidRequestBody       = "Invalid request body"
 	serverMessageMethodNotAllowed         = "Method not allowed"
 	serverMessageNotFound                 = "Not found"
@@ -96,9 +100,9 @@ func New(cfg Config) (*Server, error) {
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      loggingMiddleware(corsMiddleware(mux)),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
 	}
 
 	return &Server{

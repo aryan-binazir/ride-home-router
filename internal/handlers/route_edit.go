@@ -30,7 +30,7 @@ type RouteSession struct {
 	ActivityLocation  *models.ActivityLocation
 	UseMiles          bool
 	RouteTime         string
-	Mode              string // "pickup" or "dropoff"
+	Mode              models.RouteMode
 	LastAccessedAt    time.Time
 	mu                sync.Mutex // Protects session data during modifications
 }
@@ -64,7 +64,7 @@ func newRouteSessionStore(ttl, cleanupInterval time.Duration) *RouteSessionStore
 	return store
 }
 
-func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, routeTime, mode string, driverOrgVehicles map[int64]*models.OrganizationVehicle) *RouteSession {
+func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []models.Driver, activityLocation *models.ActivityLocation, useMiles bool, routeTime string, mode models.RouteMode, driverOrgVehicles map[int64]*models.OrganizationVehicle) *RouteSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -254,7 +254,7 @@ func copyOrgVehicleAssignments(assignments map[int64]*models.OrganizationVehicle
 	return result
 }
 
-func buildRoutingPayload(routes []models.CalculatedRoute, summary models.RoutingSummary, mode string) models.RoutingResult {
+func buildRoutingPayload(routes []models.CalculatedRoute, summary models.RoutingSummary, mode models.RouteMode) models.RoutingResult {
 	return models.RoutingResult{
 		Routes:  routes,
 		Summary: summary,
@@ -262,7 +262,7 @@ func buildRoutingPayload(routes []models.CalculatedRoute, summary models.Routing
 	}
 }
 
-func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, routeTime, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode string) RouteResultsView {
+func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, routeTime, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode models.RouteMode) RouteResultsView {
 	return RouteResultsView{
 		Routes:           routes,
 		Summary:          summary,
@@ -272,16 +272,16 @@ func buildRouteResultsView(routes []models.CalculatedRoute, summary models.Routi
 		SessionID:        sessionID,
 		IsEditing:        isEditing,
 		UnusedDrivers:    unusedDrivers,
-		Mode:             mode,
+		Mode:             string(mode),
 		RoutingPayload:   buildRoutingPayload(routes, summary, mode),
 	}
 }
 
-func (h *Handler) recalculateRoute(ctx context.Context, activityLocation *models.ActivityLocation, mode string, route *models.CalculatedRoute) error {
+func (h *Handler) recalculateRoute(ctx context.Context, activityLocation *models.ActivityLocation, mode models.RouteMode, route *models.CalculatedRoute) error {
 	if activityLocation == nil {
 		return fmt.Errorf("activity location is required")
 	}
-	return routing.PopulateRouteMetrics(ctx, h.DistanceCalc, activityLocation.GetCoords(), routing.RouteMode(mode), route)
+	return routing.PopulateRouteMetrics(ctx, h.DistanceCalc, activityLocation.GetCoords(), mode, route)
 }
 
 // HandleMoveParticipant handles POST /api/v1/routes/edit/move-participant

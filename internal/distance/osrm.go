@@ -68,7 +68,7 @@ func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculato
 	return &osrmCalculator{
 		baseURL: "https://router.project-osrm.org",
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: osrmClientTimeout,
 		},
 		cache: cache,
 	}
@@ -113,8 +113,12 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 	return &results[0], nil
 }
 
-// maxOSRMCoordinates is the maximum number of coordinates OSRM public API accepts
-const maxOSRMCoordinates = 80
+const (
+	// maxOSRMCoordinates is the maximum number of coordinates OSRM public API accepts
+	maxOSRMCoordinates   = 80
+	osrmClientTimeout    = 30 * time.Second
+	osrmBatchRateDelay   = 100 * time.Millisecond
+)
 
 func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error) {
 	n := len(points)
@@ -239,7 +243,7 @@ func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points 
 
 			// Rate limit between batch requests
 			if bi < len(batches)-1 || bj < len(batches)-1 {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(osrmBatchRateDelay)
 			}
 		}
 	}

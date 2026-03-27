@@ -23,6 +23,7 @@ const (
 	messageInvalidParticipantID                          = "Invalid participant ID"
 	messageInvalidRequestBody                            = "Invalid request body"
 	messageInvalidRouteIndex                             = "Invalid route index"
+	messageInvalidRouteMode                              = "Please choose a valid route mode."
 	messageInvalidRoutesData                             = "Invalid routes data"
 	messageNameAndAddressRequired                        = "Name and address are required"
 	messageNameRequired                                  = "Name is required"

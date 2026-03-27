@@ -40,7 +40,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		return &models.RoutingResult{
 			Routes:  []models.CalculatedRoute{},
 			Summary: models.RoutingSummary{},
-			Mode:    string(rc.mode),
+			Mode:    rc.mode,
 		}, nil
 	}
 
@@ -549,7 +549,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			BaselineDurationSecs:       metrics.BaselineDurationSecs,
 			RouteDurationSecs:          metrics.RouteDurationSecs,
 			DetourSecs:                 metrics.DetourSecs,
-			Mode:                       string(rc.mode),
+			Mode:                       rc.mode,
 		})
 	}
 
@@ -562,7 +562,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			TotalDistanceMeters:        totalDist,
 			UnassignedParticipants:     []int64{},
 		},
-		Mode: string(rc.mode),
+		Mode: rc.mode,
 	}, nil
 }
 
@@ -635,4 +635,3 @@ func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int
 
 	return newStops
 }
-

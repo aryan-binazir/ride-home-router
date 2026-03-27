@@ -324,11 +324,20 @@ func TestEventRepositoryPersistsFullRouteSummaryDistance(t *testing.T) {
 	if gotSummary.TotalDistanceMeters != fullRouteDistance {
 		t.Fatalf("GetByID() summary total distance = %.0f, want %.0f", gotSummary.TotalDistanceMeters, fullRouteDistance)
 	}
+	if gotEvent.Mode != models.RouteModePickup {
+		t.Fatalf("GetByID() event mode = %q, want %q", gotEvent.Mode, models.RouteModePickup)
+	}
+	if gotSummary.Mode != models.RouteModePickup {
+		t.Fatalf("GetByID() summary mode = %q, want %q", gotSummary.Mode, models.RouteModePickup)
+	}
 	if gotRoutes[0].TotalDistanceMeters != fullRouteDistance {
 		t.Fatalf("GetByID() route total distance = %.0f, want %.0f", gotRoutes[0].TotalDistanceMeters, fullRouteDistance)
 	}
 	if gotRoutes[0].TotalDropoffDistanceMeters != dropoffDistance {
 		t.Fatalf("GetByID() route dropoff distance = %.0f, want %.0f", gotRoutes[0].TotalDropoffDistanceMeters, dropoffDistance)
+	}
+	if gotRoutes[0].Mode != models.RouteModePickup {
+		t.Fatalf("GetByID() route mode = %q, want %q", gotRoutes[0].Mode, models.RouteModePickup)
 	}
 	if gotRoutes[0].SnapshotVersion != 2 {
 		t.Fatalf("GetByID() route SnapshotVersion = %d, want 2", gotRoutes[0].SnapshotVersion)

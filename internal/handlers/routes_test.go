@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -133,6 +134,145 @@ func TestHandleCalculateRoutes_UsesRequestedActivityLocation(t *testing.T) {
 	}
 	if router.lastRequest.InstituteCoords != requestedLocation.GetCoords() {
 		t.Fatalf("expected requested location coords %+v, got %+v", requestedLocation.GetCoords(), router.lastRequest.InstituteCoords)
+	}
+	if router.lastRequest.Mode != models.RouteModeDropoff {
+		t.Fatalf("expected default mode %q, got %q", models.RouteModeDropoff, router.lastRequest.Mode)
+	}
+}
+
+func TestHandleCalculateRoutes_JSONPickupPropagatesTypedMode(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Rd",
+		Lat:     40.10,
+		Lng:     -73.90,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "2 Driver Rd",
+		Lat:             40.20,
+		Lng:             -73.80,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+
+	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
+		Name:    "Gym",
+		Address: "4 Event Ave",
+		Lat:     42.00,
+		Lng:     -75.00,
+	})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+
+	router := &captureRouter{
+		result: &models.RoutingResult{
+			Routes: []models.CalculatedRoute{},
+			Summary: models.RoutingSummary{
+				TotalDriversUsed: 1,
+			},
+		},
+	}
+	handler.Router = router
+
+	body := `{"participant_ids":[` + int64ToString(participant.ID) + `],"driver_ids":[` + int64ToString(driver.ID) + `],"activity_location_id":` + int64ToString(location.ID) + `,"route_time":"18:30","mode":"pickup"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%q", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	if router.lastRequest == nil {
+		t.Fatal("expected router to receive a request")
+	}
+	if router.lastRequest.Mode != models.RouteModePickup {
+		t.Fatalf("expected pickup mode, got %q", router.lastRequest.Mode)
+	}
+
+	var resp RouteCalculationResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	session := handler.RouteSession.Get(resp.SessionID)
+	if session == nil {
+		t.Fatal("expected route session to be created")
+	}
+	if session.Mode != models.RouteModePickup {
+		t.Fatalf("expected session mode %q, got %q", models.RouteModePickup, session.Mode)
+	}
+}
+
+func TestHandleCalculateRoutes_InvalidModeReturnsValidationError(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+	router := &captureRouter{}
+	handler.Router = router
+
+	form := url.Values{}
+	form.Add("participant_ids", "1")
+	form.Add("driver_ids", "1")
+	form.Set("activity_location_id", "1")
+	form.Set("route_time", "18:30")
+	form.Set("mode", "sideways")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+	expected := `{"showToast":{"message":"Please choose a valid route mode.","type":"error"}}`
+	if got := rr.Header().Get("HX-Trigger"); got != expected {
+		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
+	}
+	if router.lastRequest != nil {
+		t.Fatalf("expected router to not receive a request, got %#v", router.lastRequest)
+	}
+}
+
+func TestHandleCalculateRoutesWithOrgVehicles_InvalidModeReturnsValidationError(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+	router := &captureRouter{}
+	handler.Router = router
+
+	form := url.Values{}
+	form.Add("participant_ids", "1")
+	form.Add("driver_ids", "1")
+	form.Set("activity_location_id", "1")
+	form.Set("route_time", "18:30")
+	form.Set("mode", "sideways")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+	expected := `{"showToast":{"message":"Please choose a valid route mode.","type":"error"}}`
+	if got := rr.Header().Get("HX-Trigger"); got != expected {
+		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
+	}
+	if router.lastRequest != nil {
+		t.Fatalf("expected router to not receive a request, got %#v", router.lastRequest)
 	}
 }
 

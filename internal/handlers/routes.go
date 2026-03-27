@@ -19,6 +19,7 @@ type CalculateRoutesRequest struct {
 	DriverIDs          []int64 `json:"driver_ids"`
 	ActivityLocationID int64   `json:"activity_location_id"`
 	RouteTime          string  `json:"route_time"`
+	Mode               string  `json:"mode"`
 }
 
 func parseRouteTime(value string) (string, error) {
@@ -71,6 +72,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			req.ActivityLocationID = id
 		}
 		req.RouteTime = r.FormValue("route_time")
+		req.Mode = r.FormValue("mode")
 
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
 	} else {
@@ -100,10 +102,10 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Parse mode (default to "dropoff" if not provided)
-	mode := r.FormValue("mode")
-	if mode == "" {
-		mode = "dropoff"
+	mode, err := normalizeRouteMode(req.Mode)
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
+		return
 	}
 
 	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, req.DriverIDs)
@@ -178,7 +180,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		InstituteCoords: activityLocation.GetCoords(),
 		Participants:    participants,
 		Drivers:         modifiedDrivers,
-		Mode:            routing.RouteMode(mode),
+		Mode:            mode,
 	}
 
 	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
@@ -199,7 +201,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 					req.ParticipantIDs,
 					req.DriverIDs,
 					activityLocation,
-					mode,
+					string(mode),
 					settings.UseMiles,
 					routeTime,
 					orgVehicleAssignments,
@@ -280,10 +282,10 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	// Parse mode (default to "dropoff" if not provided)
-	mode := r.FormValue("mode")
-	if mode == "" {
-		mode = "dropoff"
+	mode, err := normalizeRouteMode(r.FormValue("mode"))
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
+		return
 	}
 
 	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
@@ -355,7 +357,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		InstituteCoords: activityLocation.GetCoords(),
 		Participants:    participants,
 		Drivers:         modifiedDrivers,
-		Mode:            routing.RouteMode(mode),
+		Mode:            mode,
 	}
 
 	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
@@ -371,7 +373,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 				participantIDs,
 				driverIDs,
 				activityLocation,
-				mode,
+				string(mode),
 				settings.UseMiles,
 				routeTime,
 				orgVehicleAssignments,

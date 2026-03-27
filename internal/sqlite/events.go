@@ -39,12 +39,14 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int) ([]models
 	for rows.Next() {
 		var event models.Event
 		var notes sql.NullString
-		if err := rows.Scan(&event.ID, &event.EventDate, &notes, &event.Mode, &event.CreatedAt); err != nil {
+		var mode string
+		if err := rows.Scan(&event.ID, &event.EventDate, &notes, &mode, &event.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan event: %w", err)
 		}
 		if notes.Valid {
 			event.Notes = notes.String
 		}
+		event.Mode = models.RouteMode(mode)
 		events = append(events, event)
 	}
 
@@ -84,12 +86,14 @@ func (r *eventRepository) GetSummariesByEventIDs(ctx context.Context, eventIDs [
 
 	for rows.Next() {
 		var summary models.EventSummary
+		var mode string
 		if err := rows.Scan(
 			&summary.EventID, &summary.TotalParticipants, &summary.TotalDrivers,
-			&summary.TotalDistanceMeters, &summary.OrgVehiclesUsed, &summary.Mode,
+			&summary.TotalDistanceMeters, &summary.OrgVehiclesUsed, &mode,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan event summary: %w", err)
 		}
+		summary.Mode = models.RouteMode(mode)
 		summaryCopy := summary
 		summaries[summary.EventID] = &summaryCopy
 	}
@@ -107,11 +111,12 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 
 	var event models.Event
 	var notes sql.NullString
+	var mode string
 	err := r.store.db.QueryRowContext(ctx, `
 		SELECT id, event_date, notes, mode, created_at
 		FROM events
 		WHERE id = ?
-	`, id).Scan(&event.ID, &event.EventDate, &notes, &event.Mode, &event.CreatedAt)
+	`, id).Scan(&event.ID, &event.EventDate, &notes, &mode, &event.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil, nil, nil
 	}
@@ -121,6 +126,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 	if notes.Valid {
 		event.Notes = notes.String
 	}
+	event.Mode = models.RouteMode(mode)
 
 	routeRows, err := r.store.db.QueryContext(ctx, `
 		SELECT id, event_id, route_order, driver_id, driver_name, driver_address,
@@ -144,13 +150,14 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		var route models.EventRoute
 		var orgVehicleID sql.NullInt64
 		var orgVehicleName sql.NullString
+		var mode string
 		var metricsComplete int
 		if err := routeRows.Scan(
 			&route.ID, &route.EventID, &route.RouteOrder, &route.DriverID, &route.DriverName, &route.DriverAddress,
 			&route.EffectiveCapacity, &orgVehicleID, &orgVehicleName,
 			&route.TotalDropoffDistanceMeters, &route.DistanceToDriverHomeMeters,
 			&route.TotalDistanceMeters, &route.BaselineDurationSecs, &route.RouteDurationSecs,
-			&route.DetourSecs, &route.Mode, &route.SnapshotVersion, &metricsComplete,
+			&route.DetourSecs, &mode, &route.SnapshotVersion, &metricsComplete,
 		); err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to scan event route: %w", err)
 		}
@@ -160,6 +167,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		if orgVehicleName.Valid {
 			route.OrgVehicleName = orgVehicleName.String
 		}
+		route.Mode = models.RouteMode(mode)
 		route.MetricsComplete = metricsComplete == 1
 		route.Stops = []models.EventRouteStop{}
 		routeIndexByID[route.ID] = len(routes)
@@ -213,6 +221,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 	}
 
 	var summary models.EventSummary
+	var summaryMode string
 	err = r.store.db.QueryRowContext(ctx, `
 		SELECT event_id, total_participants, total_drivers, total_distance_meters,
 		       org_vehicles_used, mode
@@ -220,7 +229,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		WHERE event_id = ?
 	`, id).Scan(
 		&summary.EventID, &summary.TotalParticipants, &summary.TotalDrivers,
-		&summary.TotalDistanceMeters, &summary.OrgVehiclesUsed, &summary.Mode,
+		&summary.TotalDistanceMeters, &summary.OrgVehiclesUsed, &summaryMode,
 	)
 	if err == sql.ErrNoRows {
 		return &event, routes, nil, nil
@@ -228,6 +237,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get event summary: %w", err)
 	}
+	summary.Mode = models.RouteMode(summaryMode)
 
 	return &event, routes, &summary, nil
 }
@@ -246,7 +256,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO events (event_date, notes, mode, created_at)
 		VALUES (?, ?, ?, ?)
-	`, event.EventDate, event.Notes, event.Mode, event.CreatedAt)
+	`, event.EventDate, event.Notes, string(event.Mode), event.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create event: %w", err)
 	}
@@ -295,7 +305,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 			route.EffectiveCapacity, orgVehicleID, orgVehicleName,
 			route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters,
 			route.TotalDistanceMeters, route.BaselineDurationSecs, route.RouteDurationSecs,
-			route.DetourSecs, route.Mode, snapshotVersion, boolToSQLiteInt(metricsComplete),
+			route.DetourSecs, string(route.Mode), snapshotVersion, boolToSQLiteInt(metricsComplete),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create event route: %w", err)
@@ -325,7 +335,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 				org_vehicles_used, mode
 			) VALUES (?, ?, ?, ?, ?, ?)
 		`, summary.EventID, summary.TotalParticipants, summary.TotalDrivers,
-			summary.TotalDistanceMeters, summary.OrgVehiclesUsed, summary.Mode,
+			summary.TotalDistanceMeters, summary.OrgVehiclesUsed, string(summary.Mode),
 		); err != nil {
 			return nil, fmt.Errorf("failed to create event summary: %w", err)
 		}

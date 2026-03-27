@@ -91,14 +91,19 @@ type nominatimAddress struct {
 	CountryCode   string `json:"country_code"`
 }
 
+const (
+	geocoderClientTimeout  = 10 * time.Second
+	nominatimRateInterval  = 1 * time.Second
+)
+
 // NewNominatimGeocoder creates a geocoder using Nominatim as primary with Census as fallback
 func NewNominatimGeocoder() Geocoder {
 	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: geocoderClientTimeout,
 	}
 
 	return &fallbackGeocoder{
-		primary:  newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(1*time.Second)),
+		primary:  newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(nominatimRateInterval)),
 		fallback: newCensusGeocoder("https://geocoding.geo.census.gov", httpClient),
 	}
 }

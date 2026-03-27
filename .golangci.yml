@@ -13,13 +13,13 @@ linters:
     - modernize
     - unconvert
     - unused
-
-issues:
   exclusions:
     generated: strict
     warn-unused: true
     presets:
       - common-false-positives
       - std-error-handling
+
+issues:
   max-issues-per-linter: 0
   max-same-issues: 0
