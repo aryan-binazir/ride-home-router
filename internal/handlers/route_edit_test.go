@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"math"
+	"slices"
 	"testing"
 
 	"ride-home-router/internal/distance"
@@ -190,6 +191,38 @@ func TestRoutesEqual(t *testing.T) {
 				t.Errorf("routesEqual() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetUnusedDrivers_ExcludesDriversAlreadyRenderedAsRoutes(t *testing.T) {
+	session := &RouteSession{
+		SelectedDrivers: []models.Driver{
+			{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+			{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+			{ID: 3, Name: "Driver3", VehicleCapacity: 4},
+		},
+		CurrentRoutes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 10, Name: "Alice"}},
+				},
+			},
+			{
+				Driver: &models.Driver{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+				Stops:  []models.RouteStop{},
+			},
+		},
+	}
+
+	unused := getUnusedDrivers(session)
+	gotIDs := make([]int64, 0, len(unused))
+	for _, driver := range unused {
+		gotIDs = append(gotIDs, driver.ID)
+	}
+
+	if !slices.Equal(gotIDs, []int64{3}) {
+		t.Fatalf("getUnusedDrivers() IDs = %v, want [3]", gotIDs)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
@@ -892,6 +893,9 @@ func TestHandleGetRouteSession_ValidSession(t *testing.T) {
 	if !strings.Contains(body, "Driver1") {
 		t.Error("response should contain driver name")
 	}
+	if strings.Contains(body, "Reset to Original") {
+		t.Error("unedited session should not show Reset to Original button")
+	}
 }
 
 func TestHandleGetRouteSession_MissingSession(t *testing.T) {
@@ -919,6 +923,72 @@ func TestHandleGetRouteSession_EmptyParam(t *testing.T) {
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204 for empty session_id, got %d", w.Code)
+	}
+}
+
+func TestHandleGetRouteSession_JSONResponse(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	routes := []models.CalculatedRoute{
+		{
+			Driver: &models.Driver{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+			Stops: []models.RouteStop{
+				{Order: 0, Participant: &models.Participant{ID: 1, Name: "Alice"}},
+			},
+			TotalDropoffDistanceMeters: 1200,
+			DistanceToDriverHomeMeters: 800,
+			TotalDistanceMeters:        2000,
+			DetourSecs:                 300,
+			Mode:                       "pickup",
+		},
+		{
+			Driver: &models.Driver{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+			Stops:  []models.RouteStop{},
+			Mode:   "pickup",
+		},
+	}
+	drivers := []models.Driver{
+		{ID: 1, Name: "Driver1", VehicleCapacity: 4},
+		{ID: 2, Name: "Driver2", VehicleCapacity: 4},
+	}
+	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 1.0, Lng: 2.0}
+
+	session := handler.RouteSession.Create(routes, drivers, activityLoc, true, "08:15", "pickup", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+
+	var resp RouteCalculationResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.SessionID != session.ID {
+		t.Fatalf("SessionID = %q, want %q", resp.SessionID, session.ID)
+	}
+	if resp.Mode != models.RouteModePickup {
+		t.Fatalf("Mode = %q, want %q", resp.Mode, models.RouteModePickup)
+	}
+	if resp.Summary.TotalParticipants != 1 {
+		t.Fatalf("TotalParticipants = %d, want 1", resp.Summary.TotalParticipants)
+	}
+	if resp.Summary.TotalDriversUsed != 1 {
+		t.Fatalf("TotalDriversUsed = %d, want 1", resp.Summary.TotalDriversUsed)
+	}
+	if resp.Summary.TotalDistanceMeters != 2000 {
+		t.Fatalf("TotalDistanceMeters = %f, want 2000", resp.Summary.TotalDistanceMeters)
+	}
+	if len(resp.Routes) != 2 {
+		t.Fatalf("len(Routes) = %d, want 2", len(resp.Routes))
 	}
 }
 
@@ -967,6 +1037,74 @@ func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Reset to Original") {
 		t.Error("edited session should show Reset to Original button")
+	}
+}
+
+func TestHandleGetRouteSession_ExpiredSessionReturnsNoContent(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	session := handler.RouteSession.Create(nil, nil, &models.ActivityLocation{ID: 1, Name: "HQ"}, false, "18:30", "dropoff", nil)
+	session.LastAccessedAt = time.Now().Add(-3 * time.Hour)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for expired session, got %d", w.Code)
+	}
+	if got := handler.RouteSession.Get(session.ID); got != nil {
+		t.Fatal("expected expired session to be removed from store")
+	}
+}
+
+func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	routes := []models.CalculatedRoute{
+		{
+			Driver:                     &models.Driver{ID: 1, Name: "Driver1", Address: "1 Main St", VehicleCapacity: 4, Lat: 10.0, Lng: 10.0},
+			EffectiveCapacity:          4,
+			Stops:                      []models.RouteStop{{Order: 0, Participant: &models.Participant{ID: 1, Name: "Alice", Address: "2 Oak Ave", Lat: 11.0, Lng: 11.0}, DistanceFromPrevMeters: 1500}},
+			TotalDropoffDistanceMeters: 1500,
+			DistanceToDriverHomeMeters: 700,
+			TotalDistanceMeters:        2200,
+			RouteDurationSecs:          900,
+			Mode:                       "pickup",
+		},
+	}
+	drivers := []models.Driver{
+		{ID: 1, Name: "Driver1", Address: "1 Main St", VehicleCapacity: 4},
+		{ID: 2, Name: "Driver2", Address: "3 Pine Rd", VehicleCapacity: 5},
+	}
+	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Address: "4 Event Way", Lat: 1.0, Lng: 2.0}
+
+	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "08:15", "pickup", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	for _, fragment := range []string{
+		`data-route-mode="pickup"`,
+		"Pickup Distance:",
+		"To Activity:",
+		"from Driver1's home",
+		"Unused Drivers (1)",
+		"Driver2",
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("expected pickup route results to contain %q, body=%q", fragment, body)
+		}
 	}
 }
 
