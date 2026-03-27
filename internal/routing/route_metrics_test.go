@@ -225,7 +225,7 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 40)
 
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		mode := RouteModeDropoff
 		if i%2 == 1 {
 			mode = RouteModePickup

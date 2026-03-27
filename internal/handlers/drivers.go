@@ -171,8 +171,8 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 // HandleUpdateDriver handles PUT /api/v1/drivers/{id}
 func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
-	if strings.HasSuffix(idStr, "/edit") {
-		idStr = strings.TrimSuffix(idStr, "/edit")
+	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
+		idStr = trimmedID
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {

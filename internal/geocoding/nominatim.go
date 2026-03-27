@@ -423,7 +423,7 @@ var addressNumberPattern = regexp.MustCompile(`\d`)
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
 	var lastErr error
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		result, err := geocode(ctx, address)
 		if err == nil {
 			log.Printf("[GEOCODING] Success after %d attempt(s): address=%s", i+1, address)

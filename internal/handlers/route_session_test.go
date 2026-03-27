@@ -130,27 +130,23 @@ func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	numGoroutines := 100
 
 	// Concurrent reads
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 			s := store.Get(sessionID)
 			if s == nil {
 				t.Error("expected session to exist")
 			}
-		}()
+		})
 	}
 
 	// Concurrent updates
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 			store.Update(sessionID, func(s *RouteSession) {
 				// Just access the session
 				_ = len(s.CurrentRoutes)
 			})
-		}(i)
+		})
 	}
 
 	wg.Wait()

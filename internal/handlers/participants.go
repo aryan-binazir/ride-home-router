@@ -154,8 +154,8 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 // HandleUpdateParticipant handles PUT /api/v1/participants/{id}
 func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
-	if strings.HasSuffix(idStr, "/edit") {
-		idStr = strings.TrimSuffix(idStr, "/edit")
+	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
+		idStr = trimmedID
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {

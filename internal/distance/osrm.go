@@ -188,13 +188,10 @@ func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points 
 	// Create batches of point indices
 	var batches [][]int
 	for i := 0; i < n; i += maxOSRMCoordinates {
-		end := i + maxOSRMCoordinates
-		if end > n {
-			end = n
-		}
+		end := min(i+maxOSRMCoordinates, n)
 		batch := make([]int, end-i)
-		for j := i; j < end; j++ {
-			batch[j-i] = j
+		for j := range batch {
+			batch[j] = i + j
 		}
 		batches = append(batches, batch)
 	}
@@ -288,8 +285,8 @@ func (c *osrmCalculator) hydrateMatrixFromCache(ctx context.Context, points []mo
 	sourceSeen := make([]bool, n)
 	destinationSeen := make([]bool, n)
 
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
+	for i := range n {
+		for j := range n {
 			if i == j {
 				matrix[i][j] = DistanceResult{DistanceMeters: 0, DurationSecs: 0}
 				continue

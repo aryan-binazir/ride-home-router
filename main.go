@@ -51,8 +51,8 @@ func main() {
 			DisableWindowIcon:    false,
 		},
 		Linux: &linux.Options{
-			ProgramName:         "Ride Home Router",
-			WebviewGpuPolicy:    linux.WebviewGpuPolicyAlways,
+			ProgramName:      "Ride Home Router",
+			WebviewGpuPolicy: linux.WebviewGpuPolicyAlways,
 		},
 	})
 

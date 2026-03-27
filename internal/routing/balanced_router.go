@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -145,9 +146,7 @@ type balancedRoute struct {
 // Groups participants from the same household and assigns them together
 func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
 	// Sort drivers by ID for consistent ordering
-	sort.Slice(driverIDs, func(i, j int) bool {
-		return driverIDs[i] < driverIDs[j]
-	})
+	slices.Sort(driverIDs)
 
 	// Group participants by address
 	groups := groupParticipantsByAddress(unassigned)
@@ -513,9 +512,7 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 	for id := range routes {
 		driverIDs = append(driverIDs, id)
 	}
-	sort.Slice(driverIDs, func(i, j int) bool {
-		return driverIDs[i] < driverIDs[j]
-	})
+	slices.Sort(driverIDs)
 
 	for _, driverID := range driverIDs {
 		route := routes[driverID]

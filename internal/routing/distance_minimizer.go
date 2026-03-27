@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 	"math"
-	"sort"
+	"slices"
 	"time"
 
 	"ride-home-router/internal/distance"
@@ -307,9 +307,7 @@ func (r *distanceMinimizer) buildResult(ctx context.Context, rc routeContext, ro
 	for id := range routes {
 		driverIDs = append(driverIDs, id)
 	}
-	sort.Slice(driverIDs, func(i, j int) bool {
-		return driverIDs[i] < driverIDs[j]
-	})
+	slices.Sort(driverIDs)
 
 	for _, driverID := range driverIDs {
 		route := routes[driverID]

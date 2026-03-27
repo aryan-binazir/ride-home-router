@@ -220,7 +220,7 @@ func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
 
 func TestHandleListEvents_HTMXLoadMoreRendersAppendPartial(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		createTestEvent(t, store, time.Date(2026, time.March, i+1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), "event "+strconv.Itoa(i))
 	}
 
