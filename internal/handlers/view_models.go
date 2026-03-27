@@ -140,6 +140,7 @@ type RouteCalculationResponse struct {
 	Routes    []models.CalculatedRoute `json:"routes"`
 	Summary   models.RoutingSummary    `json:"summary"`
 	SessionID string                   `json:"session_id"`
+	Mode      models.RouteMode         `json:"mode"`
 }
 
 type DatabasePathUpdateResponse struct {

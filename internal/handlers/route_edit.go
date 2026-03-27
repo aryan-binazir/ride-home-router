@@ -389,6 +389,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		Routes:    session.CurrentRoutes,
 		Summary:   summary,
 		SessionID: session.ID,
+		Mode:      session.Mode,
 	})
 }
 
@@ -476,6 +477,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 		Routes:    session.CurrentRoutes,
 		Summary:   summary,
 		SessionID: session.ID,
+		Mode:      session.Mode,
 	})
 }
 
@@ -513,6 +515,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		Routes:    session.CurrentRoutes,
 		Summary:   summary,
 		SessionID: session.ID,
+		Mode:      session.Mode,
 	})
 }
 
@@ -639,5 +642,6 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		Routes:    session.CurrentRoutes,
 		Summary:   summary,
 		SessionID: session.ID,
+		Mode:      session.Mode,
 	})
 }

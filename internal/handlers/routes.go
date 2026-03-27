@@ -237,6 +237,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		Routes:    result.Routes,
 		Summary:   result.Summary,
 		SessionID: session.ID,
+		Mode:      mode,
 	})
 }
 
