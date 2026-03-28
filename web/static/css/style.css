@@ -1278,6 +1278,14 @@ tbody tr:last-child td {
     color: var(--text-subtle);
 }
 
+.stop-eta {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--primary);
+    white-space: nowrap;
+    margin-left: 0.25rem;
+}
+
 .stop-distance {
     font-family: var(--font-display);
     font-size: 0.8rem;
