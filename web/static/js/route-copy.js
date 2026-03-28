@@ -683,7 +683,7 @@ function populateStopEtas() {
 
 document.addEventListener('DOMContentLoaded', populateStopEtas);
 
-document.body.addEventListener('htmx:afterSwap', function(event) {
+document.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail && event.detail.target && event.detail.target.id === 'results-section') {
         populateStopEtas();
     }
