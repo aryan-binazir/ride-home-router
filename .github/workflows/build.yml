@@ -69,11 +69,14 @@ jobs:
         run: npm install
 
       - name: Install Playwright browser
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
         run: npx playwright install --with-deps chromium
 
       - name: Run browser E2E tests
         env:
           HOME: ${{ runner.temp }}/e2e-home
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
         run: npm run test:e2e
 
       - name: Upload Playwright artifacts (failure only)
