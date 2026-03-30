@@ -123,6 +123,7 @@
                     <p>{{.Participant.Address}}</p>
                 </div>
                 <div class="stop-distance">
+                    <span class="stop-eta"></span>
                     {{if eq .Order 0}}
                         {{if eq $route.Mode "pickup"}}
                             {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$route.Driver.Name}}'s home

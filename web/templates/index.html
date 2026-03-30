@@ -752,6 +752,7 @@
             if (html) {
                 resultsSection.innerHTML = html;
                 htmx.process(resultsSection);
+                populateStopEtas();
             }
         })
         .catch(function(err) {
@@ -816,6 +817,7 @@
             scrollResultsIntoView(target);
             var sid = getSessionId();
             if (sid) saveActiveSessionId(sid);
+            populateStopEtas();
             return;
         }
 
