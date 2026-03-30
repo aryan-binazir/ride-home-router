@@ -157,6 +157,7 @@ async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
                 showRouteError(html);
             } else {
                 routeResults.innerHTML = html;
+                populateStopEtas();
             }
         }
     } catch (err) {
@@ -204,6 +205,7 @@ async function swapDrivers(routeIndex1) {
                 showRouteError(html);
             } else {
                 routeResults.innerHTML = html;
+                populateStopEtas();
             }
         }
     } catch (err) {
@@ -237,6 +239,7 @@ async function resetRoutes() {
                 showRouteError(html);
             } else {
                 routeResults.innerHTML = html;
+                populateStopEtas();
             }
         }
     } catch (err) {
@@ -275,6 +278,7 @@ async function addUnusedDriver(driverId) {
                 showRouteError(html);
             } else {
                 routeResults.innerHTML = html;
+                populateStopEtas();
             }
         }
     } catch (err) {
@@ -650,3 +654,37 @@ function previewRoute(button) {
         showToast('Could not build a valid Google Maps route for this trip.', 'warning');
     }
 }
+
+function populateStopEtas() {
+    const container = document.querySelector('.routes-container');
+    if (!container) return;
+
+    const baseTime = parseRouteTime(container.dataset.routeTime);
+    if (!baseTime) {
+        document.querySelectorAll('.stop-eta').forEach(el => el.textContent = '');
+        return;
+    }
+
+    const mode = container.dataset.routeMode || 'dropoff';
+
+    container.querySelectorAll('.route-card').forEach(routeCard => {
+        const routeDurationSecs = parseDurationSeconds(routeCard.dataset.routeDurationSecs);
+
+        routeCard.querySelectorAll('.stop-item').forEach(item => {
+            const cumulativeSecs = parseDurationSeconds(item.dataset.stopCumulativeDurationSecs);
+            const eta = getStopEta(baseTime, cumulativeSecs, routeDurationSecs, mode);
+            const etaSpan = item.querySelector('.stop-eta');
+            if (etaSpan) {
+                etaSpan.textContent = eta ? eta : '';
+            }
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', populateStopEtas);
+
+document.addEventListener('htmx:afterSwap', function(event) {
+    if (event.detail && event.detail.target && event.detail.target.id === 'results-section') {
+        populateStopEtas();
+    }
+});
