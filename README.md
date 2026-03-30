@@ -20,6 +20,7 @@ A desktop app that optimizes driver assignments for getting people home after ev
 - [Installation](#installation)
 - [Usage](#usage)
 - [Technical Details](#technical-details)
+- [End-to-End Testing](#end-to-end-testing)
 - [Rate Limiting](#rate-limiting)
 - [Disclaimer](#disclaimer)
 - [Contributing](#contributing)
@@ -220,6 +221,30 @@ go run cmd/server/main.go
 # Run tests
 go test ./...
 ```
+
+## End-to-End Testing
+
+Browser E2E tests use Playwright against the standalone HTTP server (`cmd/server/main.go`), not the Wails desktop shell.
+
+```bash
+# Install JavaScript dependencies once
+npm install
+
+# Install Playwright browser binaries
+npx playwright install --with-deps chromium
+
+# Run E2E tests
+npm run test:e2e
+```
+
+### Deterministic API stubs for E2E
+
+Set `RHR_E2E_STUB_APIS=1` to replace external geocoding/routing requests with deterministic in-process stubs:
+
+- Geocoding and address search return realistic fixture-style coordinates for common test addresses.
+- Distance calculations return deterministic values derived from coordinates.
+
+This removes flaky network behavior from CI while keeping all app/database/rendering behavior real.
 
 ### Data Storage
 

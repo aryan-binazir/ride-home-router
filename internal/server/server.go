@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templateutil"
+	"ride-home-router/internal/testsupport"
 	"ride-home-router/web"
 )
 
@@ -83,6 +85,11 @@ func New(cfg Config) (*Server, error) {
 
 	geocoder := geocoding.NewNominatimGeocoder()
 	distanceCalc := distance.NewOSRMCalculator(db.DistanceCache())
+	if os.Getenv("RHR_E2E_STUB_APIS") == "1" {
+		log.Printf("Running with deterministic E2E geocoding and distance stubs")
+		geocoder = testsupport.NewE2EGeocoder()
+		distanceCalc = testsupport.NewE2EDistanceCalculator()
+	}
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := handlers.NewRouteSessionStore()
 

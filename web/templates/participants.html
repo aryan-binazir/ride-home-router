@@ -8,14 +8,15 @@
         <button class="btn btn-primary"
                 hx-get="/api/v1/participants/new"
                 hx-target="#participant-form-container"
-                hx-swap="innerHTML">
+                hx-swap="innerHTML"
+                data-testid="add-participant-open-btn">
             Add Participant
         </button>
     </div>
 </div>
 
 <!-- Form Container (for add/edit forms) -->
-<div id="participant-form-container" class="mb-4"></div>
+<div id="participant-form-container" class="mb-4" data-testid="participant-form-container"></div>
 
 <!-- Error Container -->
 <div id="error-container"></div>
@@ -36,7 +37,7 @@
                oninput="filterTable(this, 'participants-tbody')">
     </div>
 
-    <div id="participants-list" class="table-container mb-0">
+    <div id="participants-list" class="table-container mb-0" data-testid="participants-list">
         {{template "participant_list" .}}
     </div>
 </section>

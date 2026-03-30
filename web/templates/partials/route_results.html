@@ -1,6 +1,7 @@
 {{define "route_results"}}
 {{if .Routes}}
 <div class="routes-container"
+     data-testid="calculated-routes"
      data-activity-location-name="{{.ActivityLocation.Name}}"
      data-activity-location-address="{{.ActivityLocation.Address}}"
      data-activity-location-lat="{{printf "%.6f" .ActivityLocation.Lat}}"

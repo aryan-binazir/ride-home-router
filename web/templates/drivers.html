@@ -8,14 +8,15 @@
         <button class="btn btn-primary"
                 hx-get="/api/v1/drivers/new"
                 hx-target="#driver-form-container"
-                hx-swap="innerHTML">
+                hx-swap="innerHTML"
+                data-testid="add-driver-open-btn">
             Add Driver
         </button>
     </div>
 </div>
 
 <!-- Form Container (for add/edit forms) -->
-<div id="driver-form-container" class="mb-4"></div>
+<div id="driver-form-container" class="mb-4" data-testid="driver-form-container"></div>
 
 <!-- Error Container -->
 <div id="error-container"></div>
@@ -36,7 +37,7 @@
                oninput="filterTable(this, 'drivers-tbody')">
     </div>
 
-    <div id="drivers-list" class="table-container mb-0">
+    <div id="drivers-list" class="table-container mb-0" data-testid="drivers-list">
         {{template "driver_list" .}}
     </div>
 </section>

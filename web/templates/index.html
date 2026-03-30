@@ -6,7 +6,7 @@
     </div>
 </div>
 
-<form id="event-form">
+<form id="event-form" data-testid="event-form">
     <section class="panel mb-3">
         <div class="panel-header">
             <div>
@@ -235,7 +235,8 @@
                     hx-disabled-elt="this"
                     hx-indicator=".calculate-indicator"
                     onclick="return validateBeforeCalculate()"
-                    id="calculate-btn">
+                    id="calculate-btn"
+                    data-testid="calculate-routes-btn">
                 <span class="calc-btn-text">Calculate routes</span>
                 <span class="calc-btn-loading htmx-indicator calculate-indicator">
                     <span class="loading"></span>
@@ -248,7 +249,7 @@
 
 <script type="application/json" id="event-org-vehicles">{{toJSONRaw .OrgVehicles}}</script>
 
-<div id="results-section">
+<div id="results-section" data-testid="results-section">
     <div class="results-loading htmx-indicator calculate-indicator">
         <div class="loading-overlay">
             <span class="loading loading-lg"></span>
