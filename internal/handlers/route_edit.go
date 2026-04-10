@@ -263,8 +263,11 @@ func buildRoutingPayload(routes []models.CalculatedRoute, summary models.Routing
 }
 
 func buildRouteResultsView(routes []models.CalculatedRoute, summary models.RoutingSummary, activityLocation *models.ActivityLocation, useMiles bool, routeTime, sessionID string, isEditing bool, unusedDrivers []models.Driver, mode models.RouteMode) RouteResultsView {
+	overCapacity, isOutOfBalance := calculateOverCapacity(routes)
 	return RouteResultsView{
 		Routes:           routes,
+		OverCapacity:     overCapacity,
+		IsOutOfBalance:   isOutOfBalance,
 		Summary:          summary,
 		UseMiles:         useMiles,
 		ActivityLocation: activityLocation,
@@ -275,6 +278,29 @@ func buildRouteResultsView(routes []models.CalculatedRoute, summary models.Routi
 		Mode:             string(mode),
 		RoutingPayload:   buildRoutingPayload(routes, summary, mode),
 	}
+}
+
+func routeCapacity(route models.CalculatedRoute) int {
+	if route.EffectiveCapacity > 0 {
+		return route.EffectiveCapacity
+	}
+	if route.Driver == nil {
+		return 0
+	}
+	return route.Driver.VehicleCapacity
+}
+
+func calculateOverCapacity(routes []models.CalculatedRoute) ([]bool, bool) {
+	overCapacity := make([]bool, len(routes))
+	isOutOfBalance := false
+	for i, route := range routes {
+		capacity := routeCapacity(route)
+		overCapacity[i] = len(route.Stops) > capacity
+		if overCapacity[i] {
+			isOutOfBalance = true
+		}
+	}
+	return overCapacity, isOutOfBalance
 }
 
 func (h *Handler) recalculateRoute(ctx context.Context, activityLocation *models.ActivityLocation, mode models.RouteMode, route *models.CalculatedRoute) error {
@@ -320,16 +346,6 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	fromRoute := &session.CurrentRoutes[req.FromRouteIndex]
 	toRoute := &session.CurrentRoutes[req.ToRouteIndex]
 
-	// Check capacity (use effective capacity which may be org vehicle capacity)
-	effectiveCapacity := toRoute.EffectiveCapacity
-	if effectiveCapacity == 0 {
-		effectiveCapacity = toRoute.Driver.VehicleCapacity
-	}
-	if len(toRoute.Stops) >= effectiveCapacity {
-		h.handleValidationErrorHTMX(w, r, messageTargetVehicleAtCapacity)
-		return
-	}
-
 	// Find and remove participant from source route
 	var participant *models.Participant
 	var stopIdx int = -1
@@ -361,16 +377,20 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 			append([]models.RouteStop{newStop}, toRoute.Stops[req.InsertAtPosition:]...)...)
 	}
 
-	// Recalculate distances for both routes
-	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, fromRoute); err != nil {
-		session.CurrentRoutes = backupRoutes
-		h.handleInternalError(w, err)
-		return
-	}
-	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, toRoute); err != nil {
-		session.CurrentRoutes = backupRoutes
-		h.handleInternalError(w, err)
-		return
+	_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
+
+	// Recalculate only while balanced; when out of balance, keep previous route metrics visible.
+	if !isOutOfBalance {
+		if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, fromRoute); err != nil {
+			session.CurrentRoutes = backupRoutes
+			h.handleInternalError(w, err)
+			return
+		}
+		if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, toRoute); err != nil {
+			session.CurrentRoutes = backupRoutes
+			h.handleInternalError(w, err)
+			return
+		}
 	}
 
 	// Recalculate summary

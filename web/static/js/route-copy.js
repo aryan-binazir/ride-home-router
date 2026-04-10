@@ -124,6 +124,9 @@ function getSessionId() {
 /**
  * Moves a participant from one route to another
  */
+let pendingMoveParticipantTimeout = null;
+let pendingMoveParticipantRequest = null;
+
 async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
     if (toRouteIndex === '' || toRouteIndex === null) return;
 
@@ -133,37 +136,53 @@ async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
         return;
     }
 
-    try {
-        const response = await fetch('/api/v1/routes/edit/move-participant', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'HX-Request': 'true'
-            },
-            body: JSON.stringify({
-                session_id: sessionId,
-                participant_id: parseInt(participantId),
-                from_route_index: parseInt(fromRouteIndex),
-                to_route_index: parseInt(toRouteIndex),
-                insert_at_position: -1
-            })
-        });
+    pendingMoveParticipantRequest = {
+        session_id: sessionId,
+        participant_id: parseInt(participantId),
+        from_route_index: parseInt(fromRouteIndex),
+        to_route_index: parseInt(toRouteIndex),
+        insert_at_position: -1
+    };
 
-        const html = await response.text();
-        const routeResults = document.getElementById('results-section');
-        if (routeResults) {
-            if (!response.ok) {
-                // Show error inline above routes
-                showRouteError(html);
-            } else {
-                routeResults.innerHTML = html;
-                populateStopEtas();
-            }
-        }
-    } catch (err) {
-        console.error('Failed to move participant:', err);
-        showRouteError('Failed to move participant: ' + err.message);
+    if (pendingMoveParticipantTimeout) {
+        clearTimeout(pendingMoveParticipantTimeout);
     }
+
+    pendingMoveParticipantTimeout = setTimeout(async function() {
+        const payload = pendingMoveParticipantRequest;
+        pendingMoveParticipantRequest = null;
+        pendingMoveParticipantTimeout = null;
+
+        if (!payload) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/v1/routes/edit/move-participant', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'HX-Request': 'true'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const html = await response.text();
+            const routeResults = document.getElementById('results-section');
+            if (routeResults) {
+                if (!response.ok) {
+                    // Show error inline above routes
+                    showRouteError(html);
+                } else {
+                    routeResults.innerHTML = html;
+                    populateStopEtas();
+                }
+            }
+        } catch (err) {
+            console.error('Failed to move participant:', err);
+            showRouteError('Failed to move participant: ' + err.message);
+        }
+    }, 500);
 }
 
 /**

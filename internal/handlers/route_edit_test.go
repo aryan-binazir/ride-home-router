@@ -260,3 +260,30 @@ func TestRecalculateRoutePickupUsesModeAwareMetrics(t *testing.T) {
 		t.Fatalf("second stop distance = %.0f, want 5000", route.Stops[1].DistanceFromPrevMeters)
 	}
 }
+
+func TestCalculateOverCapacity(t *testing.T) {
+	routes := []models.CalculatedRoute{
+		{
+			Driver: &models.Driver{ID: 1, VehicleCapacity: 2},
+			Stops: []models.RouteStop{
+				{Participant: &models.Participant{ID: 1}},
+				{Participant: &models.Participant{ID: 2}},
+			},
+		},
+		{
+			Driver:              &models.Driver{ID: 2, VehicleCapacity: 3},
+			EffectiveCapacity:   3,
+			Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 3}}, {Participant: &models.Participant{ID: 4}}, {Participant: &models.Participant{ID: 5}}, {Participant: &models.Participant{ID: 6}}},
+			TotalDistanceMeters: 1234,
+		},
+	}
+
+	overCapacity, outOfBalance := calculateOverCapacity(routes)
+
+	if !slices.Equal(overCapacity, []bool{false, true}) {
+		t.Fatalf("overCapacity = %v, want [false true]", overCapacity)
+	}
+	if !outOfBalance {
+		t.Fatal("outOfBalance = false, want true")
+	}
+}
