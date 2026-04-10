@@ -125,39 +125,26 @@ function getSessionId() {
  * Moves a participant from one route to another
  */
 let pendingMoveParticipantTimeout = null;
-let pendingMoveParticipantRequest = null;
+let pendingMoveParticipantQueue = [];
+let isMoveParticipantFlushInProgress = false;
 
-async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
-    if (toRouteIndex === '' || toRouteIndex === null) return;
-
-    const sessionId = getSessionId();
-    if (!sessionId) {
-        showToast('Session not found', 'error');
-        return;
-    }
-
-    pendingMoveParticipantRequest = {
-        session_id: sessionId,
-        participant_id: parseInt(participantId),
-        from_route_index: parseInt(fromRouteIndex),
-        to_route_index: parseInt(toRouteIndex),
-        insert_at_position: -1
-    };
-
+function scheduleMoveParticipantFlush() {
     if (pendingMoveParticipantTimeout) {
         clearTimeout(pendingMoveParticipantTimeout);
     }
+    pendingMoveParticipantTimeout = setTimeout(flushQueuedParticipantMoves, 500);
+}
 
-    pendingMoveParticipantTimeout = setTimeout(async function() {
-        const payload = pendingMoveParticipantRequest;
-        pendingMoveParticipantRequest = null;
-        pendingMoveParticipantTimeout = null;
+async function flushQueuedParticipantMoves() {
+    pendingMoveParticipantTimeout = null;
+    if (isMoveParticipantFlushInProgress) {
+        return;
+    }
 
-        if (!payload) {
-            return;
-        }
-
-        try {
+    isMoveParticipantFlushInProgress = true;
+    try {
+        while (pendingMoveParticipantQueue.length > 0) {
+            const payload = pendingMoveParticipantQueue.shift();
             const response = await fetch('/api/v1/routes/edit/move-participant', {
                 method: 'POST',
                 headers: {
@@ -173,16 +160,40 @@ async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
                 if (!response.ok) {
                     // Show error inline above routes
                     showRouteError(html);
-                } else {
-                    routeResults.innerHTML = html;
-                    populateStopEtas();
+                    break;
                 }
+                routeResults.innerHTML = html;
+                populateStopEtas();
             }
-        } catch (err) {
-            console.error('Failed to move participant:', err);
-            showRouteError('Failed to move participant: ' + err.message);
         }
-    }, 500);
+    } catch (err) {
+        console.error('Failed to move participant:', err);
+        showRouteError('Failed to move participant: ' + err.message);
+    } finally {
+        isMoveParticipantFlushInProgress = false;
+        if (pendingMoveParticipantQueue.length > 0 && !pendingMoveParticipantTimeout) {
+            scheduleMoveParticipantFlush();
+        }
+    }
+}
+
+async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
+    if (toRouteIndex === '' || toRouteIndex === null) return;
+
+    const sessionId = getSessionId();
+    if (!sessionId) {
+        showToast('Session not found', 'error');
+        return;
+    }
+
+    pendingMoveParticipantQueue.push({
+        session_id: sessionId,
+        participant_id: parseInt(participantId),
+        from_route_index: parseInt(fromRouteIndex),
+        to_route_index: parseInt(toRouteIndex),
+        insert_at_position: -1
+    });
+    scheduleMoveParticipantFlush();
 }
 
 /**
