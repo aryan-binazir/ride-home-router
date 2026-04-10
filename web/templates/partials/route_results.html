@@ -20,18 +20,23 @@
                 Reset to Original
             </button>
             {{end}}
-            <button type="button" class="btn btn-secondary" onclick="copyAllRoutes()" id="copy-all-btn">
+            <button type="button" class="btn btn-secondary" onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>
                 Copy All Routes
             </button>
         </div>
     </div>
+    {{if .IsOutOfBalance}}
+    <div class="alert alert-danger mb-3" role="alert">
+        <strong>Vehicles are over capacity; must redistribute.</strong>
+    </div>
+    {{end}}
 
     {{$useMiles := .UseMiles}}
     {{$activityLocation := .ActivityLocation}}
     {{$sessionID := .SessionID}}
     {{$routeCount := len .Routes}}
     {{range $routeIndex, $route := .Routes}}
-    <div class="route-card {{if .OrgVehicleID}}org-vehicle{{end}}"
+    <div class="route-card {{if .OrgVehicleID}}org-vehicle{{end}} {{if index $.OverCapacity $routeIndex}}route-card-over-capacity{{end}}"
          data-activity-location-address="{{$activityLocation.Address}}"
          data-driver-name="{{.Driver.Name}}"
          data-driver-address="{{.Driver.Address}}"
@@ -98,10 +103,10 @@
             <div class="d-flex justify-between align-center mb-2">
                 <h4>Route:</h4>
                 <div class="d-flex gap-1">
-                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>
                         Copy
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this, 'parent')">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>
                         Copy for Parents
                     </button>
                     <button type="button" class="btn btn-sm btn-outline" onclick="previewRoute(this)">
