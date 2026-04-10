@@ -25,6 +25,7 @@ type RouteSession struct {
 	ID                string
 	OriginalRoutes    []models.CalculatedRoute
 	CurrentRoutes     []models.CalculatedRoute
+	DirtyRouteIndexes map[int]struct{}
 	SelectedDrivers   []models.Driver
 	DriverOrgVehicles map[int64]*models.OrganizationVehicle
 	ActivityLocation  *models.ActivityLocation
@@ -78,6 +79,7 @@ func (s *RouteSessionStore) Create(routes []models.CalculatedRoute, drivers []mo
 		ID:                id,
 		OriginalRoutes:    originalRoutes,
 		CurrentRoutes:     currentRoutes,
+		DirtyRouteIndexes: make(map[int]struct{}),
 		SelectedDrivers:   drivers,
 		DriverOrgVehicles: copyOrgVehicleAssignments(driverOrgVehicles),
 		ActivityLocation:  activityLocation,
@@ -303,6 +305,30 @@ func calculateOverCapacity(routes []models.CalculatedRoute) ([]bool, bool) {
 	return overCapacity, isOutOfBalance
 }
 
+func markRouteDirty(session *RouteSession, routeIndex int) {
+	if session.DirtyRouteIndexes == nil {
+		session.DirtyRouteIndexes = make(map[int]struct{})
+	}
+	if routeIndex < 0 || routeIndex >= len(session.CurrentRoutes) {
+		return
+	}
+	session.DirtyRouteIndexes[routeIndex] = struct{}{}
+}
+
+func (h *Handler) recalculateDirtyRoutes(ctx context.Context, session *RouteSession, backupRoutes []models.CalculatedRoute) error {
+	for routeIndex := range session.DirtyRouteIndexes {
+		if routeIndex < 0 || routeIndex >= len(session.CurrentRoutes) {
+			continue
+		}
+		if err := h.recalculateRoute(ctx, session.ActivityLocation, session.Mode, &session.CurrentRoutes[routeIndex]); err != nil {
+			session.CurrentRoutes = backupRoutes
+			return err
+		}
+	}
+	session.DirtyRouteIndexes = make(map[int]struct{})
+	return nil
+}
+
 func (h *Handler) recalculateRoute(ctx context.Context, activityLocation *models.ActivityLocation, mode models.RouteMode, route *models.CalculatedRoute) error {
 	if activityLocation == nil {
 		return fmt.Errorf("activity location is required")
@@ -377,17 +403,15 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 			append([]models.RouteStop{newStop}, toRoute.Stops[req.InsertAtPosition:]...)...)
 	}
 
+	markRouteDirty(session, req.FromRouteIndex)
+	markRouteDirty(session, req.ToRouteIndex)
+
 	_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
 
 	// Recalculate only while balanced; when out of balance, keep previous route metrics visible.
+	// Recalculate all dirty routes so moves made while imbalanced are fully reflected after balance is restored.
 	if !isOutOfBalance {
-		if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, fromRoute); err != nil {
-			session.CurrentRoutes = backupRoutes
-			h.handleInternalError(w, err)
-			return
-		}
-		if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, toRoute); err != nil {
-			session.CurrentRoutes = backupRoutes
+		if err := h.recalculateDirtyRoutes(r.Context(), session, backupRoutes); err != nil {
 			h.handleInternalError(w, err)
 			return
 		}
@@ -521,6 +545,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// Reset to original routes
 	session.CurrentRoutes = deepCopyRoutes(session.OriginalRoutes)
+	session.DirtyRouteIndexes = make(map[int]struct{})
 
 	summary := h.calculateSummary(session.CurrentRoutes)
 

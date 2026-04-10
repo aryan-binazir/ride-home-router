@@ -287,3 +287,44 @@ func TestCalculateOverCapacity(t *testing.T) {
 		t.Fatal("outOfBalance = false, want true")
 	}
 }
+
+func TestRecalculateDirtyRoutes(t *testing.T) {
+	handler := &Handler{DistanceCalc: routeEditDistanceCalculator{}}
+	session := &RouteSession{
+		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0},
+		Mode:             "pickup",
+		CurrentRoutes: []models.CalculatedRoute{
+			{
+				Driver: &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 4},
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 1, Name: "P1", Lat: 9, Lng: 0}},
+				},
+			},
+			{
+				Driver: &models.Driver{ID: 2, Name: "Driver 2", Lat: 8, Lng: 0, VehicleCapacity: 4},
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 2, Name: "P2", Lat: 7, Lng: 0}},
+				},
+			},
+		},
+		DirtyRouteIndexes: map[int]struct{}{
+			0: {},
+			1: {},
+		},
+	}
+
+	backup := deepCopyRoutes(session.CurrentRoutes)
+	if err := handler.recalculateDirtyRoutes(context.Background(), session, backup); err != nil {
+		t.Fatalf("recalculateDirtyRoutes() error = %v", err)
+	}
+
+	if session.CurrentRoutes[0].TotalDistanceMeters == 0 {
+		t.Fatal("route 0 total distance was not recalculated")
+	}
+	if session.CurrentRoutes[1].TotalDistanceMeters == 0 {
+		t.Fatal("route 1 total distance was not recalculated")
+	}
+	if len(session.DirtyRouteIndexes) != 0 {
+		t.Fatalf("dirty routes not cleared after recalculation: %v", session.DirtyRouteIndexes)
+	}
+}
