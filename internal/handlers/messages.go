@@ -31,6 +31,7 @@ const (
 	messageParticipantNotFound                           = "Participant not found"
 	messagePreferencesSaved                              = "Preferences saved!"
 	messageRoutesRequired                                = "Routes are required"
+	messageRoutesMustBeBalancedBeforeSaving             = "Routes must be balanced before saving"
 	messageSessionNotFound                               = "Session not found"
 	messageSelectedActivityLocationNotFound              = "Selected activity location not found"
 	messageSelectedActivityLocationNotFoundChooseAnother = "Selected activity location not found. Choose another location."

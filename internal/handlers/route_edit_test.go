@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -326,5 +330,72 @@ func TestRecalculateDirtyRoutes(t *testing.T) {
 	}
 	if len(session.DirtyRouteIndexes) != 0 {
 		t.Fatalf("dirty routes not cleared after recalculation: %v", session.DirtyRouteIndexes)
+	}
+}
+
+func TestHandleMoveParticipant_RecalculatesAllDirtyRoutesWhenBalancedAgain(t *testing.T) {
+	handler := &Handler{
+		DistanceCalc: routeEditDistanceCalculator{},
+		RouteSession: NewRouteSessionStore(),
+	}
+	t.Cleanup(handler.RouteSession.Close)
+
+	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
+	routes := []models.CalculatedRoute{
+		{
+			Driver:              &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 2},
+			EffectiveCapacity:   2,
+			Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9.5, Lng: 0}}, {Participant: &models.Participant{ID: 102, Name: "P102", Lat: 9.0, Lng: 0}}},
+			TotalDistanceMeters: 111, // stale sentinel value
+		},
+		{
+			Driver:              &models.Driver{ID: 2, Name: "Driver 2", Lat: 8, Lng: 0, VehicleCapacity: 1},
+			EffectiveCapacity:   1,
+			Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 201, Name: "P201", Lat: 7.5, Lng: 0}}},
+			TotalDistanceMeters: 222, // stale sentinel value
+		},
+	}
+	session := handler.RouteSession.Create(routes, []models.Driver{}, activityLocation, false, "18:30", "pickup", nil)
+
+	move := func(participantID int64, fromRoute, toRoute int) {
+		body, err := json.Marshal(map[string]any{
+			"session_id":         session.ID,
+			"participant_id":     participantID,
+			"from_route_index":   fromRoute,
+			"to_route_index":     toRoute,
+			"insert_at_position": -1,
+		})
+		if err != nil {
+			t.Fatalf("marshal move request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.HandleMoveParticipant(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("move participant status=%d body=%q", rr.Code, rr.Body.String())
+		}
+	}
+
+	// Make routes imbalanced: route 2 goes from 1/1 to 2/1.
+	move(101, 0, 1)
+	// Restore balance: route 2 back to 1/1; this should recalculate all dirty routes.
+	move(101, 1, 0)
+
+	updatedSession := handler.RouteSession.Get(session.ID)
+	if updatedSession == nil {
+		t.Fatal("expected session to exist")
+	}
+	updatedSession.mu.Lock()
+	defer updatedSession.mu.Unlock()
+
+	if len(updatedSession.DirtyRouteIndexes) != 0 {
+		t.Fatalf("expected dirty routes to be cleared, got %v", updatedSession.DirtyRouteIndexes)
+	}
+	if updatedSession.CurrentRoutes[0].TotalDistanceMeters == 111 {
+		t.Fatal("route 0 metrics were not recalculated after returning to balanced")
+	}
+	if updatedSession.CurrentRoutes[1].TotalDistanceMeters == 222 {
+		t.Fatal("route 1 metrics were not recalculated after returning to balanced")
 	}
 }
