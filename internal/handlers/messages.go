@@ -33,6 +33,7 @@ const (
 	messageRoutingProviderConfigUnchanged                = "Google Maps API key unchanged."
 	messageRoutingProviderConfigUpdated                  = "Google Maps API key saved. Distance cache cleared."
 	messageRoutesRequired                                = "Routes are required"
+	messageRoutesMustBeBalancedBeforeSaving             = "Routes must be balanced before saving"
 	messageSessionNotFound                               = "Session not found"
 	messageSelectedActivityLocationNotFound              = "Selected activity location not found"
 	messageSelectedActivityLocationNotFoundChooseAnother = "Selected activity location not found. Choose another location."
