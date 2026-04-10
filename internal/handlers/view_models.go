@@ -119,6 +119,8 @@ type CapacityShortageView struct {
 
 type RouteResultsView struct {
 	Routes           []models.CalculatedRoute
+	OverCapacity     []bool
+	IsOutOfBalance   bool
 	Summary          models.RoutingSummary
 	UseMiles         bool
 	ActivityLocation *models.ActivityLocation

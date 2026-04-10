@@ -228,6 +228,19 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageRoutesRequired)
 		return
 	}
+	if req.SessionID != "" {
+		session := h.RouteSession.Get(req.SessionID)
+		if session != nil {
+			session.mu.Lock()
+			_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
+			session.mu.Unlock()
+			if isOutOfBalance {
+				log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
+				h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
+				return
+			}
+		}
+	}
 
 	eventDate, err := time.Parse("2006-01-02", req.EventDate)
 	if err != nil {

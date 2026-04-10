@@ -1134,6 +1134,11 @@ tbody tr:last-child td {
     border-left-color: var(--accent);
 }
 
+.route-card-over-capacity {
+    border-left-color: var(--danger);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
 .route-header {
     display: flex;
     justify-content: space-between;
@@ -1460,6 +1465,12 @@ tbody tr:last-child td {
     background: color-mix(in srgb, var(--success-dim) 85%, var(--surface));
     border-color: color-mix(in srgb, var(--success) 30%, var(--border));
     color: color-mix(in srgb, var(--success) 85%, var(--text));
+}
+
+.alert-danger {
+    background: color-mix(in srgb, var(--danger-dim) 85%, var(--surface));
+    border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+    color: color-mix(in srgb, var(--danger) 88%, var(--text));
 }
 
 .error-message {
