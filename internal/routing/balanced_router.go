@@ -227,6 +227,9 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 				// Group too large - skip; we'll try splitting individuals below
 				continue
 			}
+			if !assignmentPreservesCapacityFeasibility(routes, currentDriverID, groups, groupIdx, groupSize, splittableHouseholds) {
+				continue
+			}
 
 			// Try all insertion positions for this group
 			for _, pos := range householdBoundaryPositions(route.stops) {
@@ -252,6 +255,9 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 					continue
 				}
 				if _, ok := splittableHouseholds[participantGroupKey(group)]; !ok {
+					continue
+				}
+				if !assignmentPreservesCapacityFeasibility(routes, currentDriverID, groups, groupIdx, 1, splittableHouseholds) {
 					continue
 				}
 
@@ -568,7 +574,7 @@ func shouldRunMinMaxOptimize(durations []float64) bool {
 			nonZero = append(nonZero, duration)
 		}
 	}
-	if len(nonZero) < 2 {
+	if len(nonZero) == 0 {
 		return false
 	}
 
@@ -576,6 +582,9 @@ func shouldRunMinMaxOptimize(durations []float64) bool {
 	maxDuration := nonZero[len(nonZero)-1]
 	if maxDuration > minMaxAbsoluteThresholdSecs {
 		return true
+	}
+	if len(nonZero) < 2 {
+		return false
 	}
 
 	median := nonZero[len(nonZero)/2]
@@ -816,6 +825,81 @@ func maxRouteVehicleCapacity(routes map[int64]*balancedRoute) int {
 		}
 	}
 	return maxCapacity
+}
+
+func assignmentPreservesCapacityFeasibility(routes map[int64]*balancedRoute, currentDriverID int64, groups []*participantGroup, assignedGroupIndex, assignedCount int, splittableHouseholds map[string]struct{}) bool {
+	capacities := make([]int, 0, len(routes))
+	totalCapacity := 0
+	for driverID, route := range routes {
+		capacity := route.driver.VehicleCapacity - len(route.stops)
+		if driverID == currentDriverID {
+			capacity -= assignedCount
+		}
+		if capacity < 0 {
+			return false
+		}
+		capacities = append(capacities, capacity)
+		totalCapacity += capacity
+	}
+
+	remainingParticipants := 0
+	atomicSizes := make([]int, 0, len(groups))
+	for groupIdx, group := range groups {
+		size := len(group.members)
+		if groupIdx == assignedGroupIndex {
+			size -= assignedCount
+		}
+		if size <= 0 {
+			continue
+		}
+
+		remainingParticipants += size
+		if _, splittable := splittableHouseholds[participantGroupKey(group)]; !splittable {
+			atomicSizes = append(atomicSizes, size)
+		}
+	}
+	if remainingParticipants > totalCapacity {
+		return false
+	}
+
+	return canPackAtomicGroupSizes(atomicSizes, capacities)
+}
+
+func canPackAtomicGroupSizes(groupSizes []int, capacities []int) bool {
+	if len(groupSizes) == 0 {
+		return true
+	}
+
+	groupSizes = slices.Clone(groupSizes)
+	capacities = slices.Clone(capacities)
+	sort.Sort(sort.Reverse(sort.IntSlice(groupSizes)))
+	sort.Sort(sort.Reverse(sort.IntSlice(capacities)))
+
+	var pack func(int) bool
+	pack = func(groupIndex int) bool {
+		if groupIndex == len(groupSizes) {
+			return true
+		}
+
+		size := groupSizes[groupIndex]
+		lastTriedCapacity := -1
+		for i, capacity := range capacities {
+			if capacity < size || capacity == lastTriedCapacity {
+				continue
+			}
+
+			capacities[i] -= size
+			if pack(groupIndex + 1) {
+				return true
+			}
+			capacities[i] += size
+			lastTriedCapacity = capacity
+		}
+
+		return false
+	}
+
+	return pack(0)
 }
 
 // insertGroupAt inserts all members of a group consecutively at the specified position

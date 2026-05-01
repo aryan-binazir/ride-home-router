@@ -269,6 +269,42 @@ func TestBalancedRouter_LargeHouseholdStaysTogetherWhenAnyVehicleFits(t *testing
 	}
 }
 
+func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T) {
+	distances := stableDistanceCalculator{}
+	router := &BalancedRouter{distanceCalc: distances}
+	institute := models.Coordinates{Lat: 0, Lng: 0}
+	household := models.Coordinates{Lat: 10, Lng: 0}
+	solo := models.Coordinates{Lat: 0.1, Lng: 0}
+
+	largeDriver := &models.Driver{ID: 1, Name: "LargeCar", Lat: 0, Lng: 0, VehicleCapacity: 4}
+	smallDriver := &models.Driver{ID: 2, Name: "SmallCar", Lat: 0, Lng: 0, VehicleCapacity: 2}
+	routes := map[int64]*balancedRoute{
+		largeDriver.ID: {driver: largeDriver, stops: []*models.Participant{}},
+		smallDriver.ID: {driver: smallDriver, stops: []*models.Participant{}},
+	}
+	participants := []*models.Participant{
+		{ID: 1, Name: "Household 1", Lat: household.Lat, Lng: household.Lng},
+		{ID: 2, Name: "Household 2", Lat: household.Lat, Lng: household.Lng},
+		{ID: 3, Name: "Household 3", Lat: household.Lat, Lng: household.Lng},
+		{ID: 4, Name: "Household 4", Lat: household.Lat, Lng: household.Lng},
+		{ID: 5, Name: "Solo", Lat: solo.Lat, Lng: solo.Lng},
+	}
+
+	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, institute, RouteModeDropoff), routes, []int64{largeDriver.ID, smallDriver.ID}, participants)
+	if err != nil {
+		t.Fatalf("roundRobinInsertion() error = %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("roundRobinInsertion() left %d unassigned participants", len(remaining))
+	}
+	if got := len(routes[largeDriver.ID].stops); got != 4 {
+		t.Fatalf("large driver stop count = %d, want reserved 4-person household", got)
+	}
+	if got := len(routes[smallDriver.ID].stops); got != 1 {
+		t.Fatalf("small driver stop count = %d, want solo rider", got)
+	}
+}
+
 func TestBalancedRouter_OversizedHouseholdMaySplitOnlyWhenNoVehicleFits(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	router := NewBalancedRouter(mock)
@@ -622,6 +658,9 @@ func TestShouldRunMinMaxOptimizeUsesGuardrailThresholds(t *testing.T) {
 	}
 	if !shouldRunMinMaxOptimize([]float64{100, 3700}) {
 		t.Fatal("should run min-max above absolute threshold")
+	}
+	if !shouldRunMinMaxOptimize([]float64{3700, 0}) {
+		t.Fatal("should run min-max above absolute threshold with a single non-empty route")
 	}
 }
 
