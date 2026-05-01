@@ -220,11 +220,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Name     string  `json:"name"`
-		Address  string  `json:"address"`
-		LabelIDs []int64 `json:"label_ids"`
+		Name     string   `json:"name"`
+		Address  string   `json:"address"`
+		LabelIDs *[]int64 `json:"label_ids"`
 	}
 	var labelIDs []int64
+	shouldSetLabels := false
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
@@ -239,12 +240,16 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		labelIDs = parsedLabelIDs
+		shouldSetLabels = true
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
-		labelIDs = req.LabelIDs
+		if req.LabelIDs != nil {
+			labelIDs = *req.LabelIDs
+			shouldSetLabels = true
+		}
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -301,14 +306,16 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Printf("[HTTP] Updated participant: id=%d name=%s", participant.ID, participant.Name)
-	if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
-		log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+	if shouldSetLabels {
+		if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
+			log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, err)
+				return
+			}
+			h.handleInternalError(w, err)
 			return
 		}
-		h.handleInternalError(w, err)
-		return
 	}
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")

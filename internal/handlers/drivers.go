@@ -233,12 +233,13 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name            string  `json:"name"`
-		Address         string  `json:"address"`
-		VehicleCapacity int     `json:"vehicle_capacity"`
-		LabelIDs        []int64 `json:"label_ids"`
+		Name            string   `json:"name"`
+		Address         string   `json:"address"`
+		VehicleCapacity int      `json:"vehicle_capacity"`
+		LabelIDs        *[]int64 `json:"label_ids"`
 	}
 	var labelIDs []int64
+	shouldSetLabels := false
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
@@ -262,12 +263,16 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		labelIDs = parsedLabelIDs
+		shouldSetLabels = true
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
-		labelIDs = req.LabelIDs
+		if req.LabelIDs != nil {
+			labelIDs = *req.LabelIDs
+			shouldSetLabels = true
+		}
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -334,14 +339,16 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, driver.Name)
-	if err := h.DB.Labels().SetLabelsForDriver(r.Context(), driver.ID, labelIDs); err != nil {
-		log.Printf("[ERROR] Failed to set driver labels: id=%d err=%v", driver.ID, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+	if shouldSetLabels {
+		if err := h.DB.Labels().SetLabelsForDriver(r.Context(), driver.ID, labelIDs); err != nil {
+			log.Printf("[ERROR] Failed to set driver labels: id=%d err=%v", driver.ID, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, err)
+				return
+			}
+			h.handleInternalError(w, err)
 			return
 		}
-		h.handleInternalError(w, err)
-		return
 	}
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
