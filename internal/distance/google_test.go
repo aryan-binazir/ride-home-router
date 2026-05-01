@@ -136,6 +136,39 @@ func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
 	}
 }
 
+func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
+	store, err := sqlite.New(filepath.Join(t.TempDir(), "cached-missing-key-test.db"))
+	if err != nil {
+		t.Fatalf("open sqlite store: %v", err)
+	}
+	defer store.Close()
+
+	origin := models.Coordinates{Lat: 35, Lng: -79}
+	dest := models.Coordinates{Lat: 36, Lng: -79}
+	if err := store.DistanceCache().Set(context.Background(), &models.DistanceCacheEntry{
+		Origin:         origin,
+		Destination:    dest,
+		DistanceMeters: 1000,
+		DurationSecs:   300,
+	}); err != nil {
+		t.Fatalf("seed distance cache: %v", err)
+	}
+
+	calc := NewGoogleCalculator(store.DistanceCache(), func() (string, error) {
+		return "", nil
+	})
+
+	if _, err := calc.GetDistance(context.Background(), origin, dest); !errors.Is(err, ErrProviderNotConfigured) {
+		t.Fatalf("GetDistance() error = %v, want ErrProviderNotConfigured", err)
+	}
+	if _, err := calc.GetDistancesFromPoint(context.Background(), origin, []models.Coordinates{dest}); !errors.Is(err, ErrProviderNotConfigured) {
+		t.Fatalf("GetDistancesFromPoint() error = %v, want ErrProviderNotConfigured", err)
+	}
+	if _, err := calc.GetDistanceMatrix(context.Background(), []models.Coordinates{origin, dest}); !errors.Is(err, ErrProviderNotConfigured) {
+		t.Fatalf("GetDistanceMatrix() error = %v, want ErrProviderNotConfigured", err)
+	}
+}
+
 func intToString(v int) string {
 	return strconv.Itoa(v)
 }

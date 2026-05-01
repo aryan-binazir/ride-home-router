@@ -94,6 +94,9 @@ func TestHandleSettingsPage_ShowsGoogleKeyStatusWithoutRenderingKey(t *testing.T
 	if !strings.Contains(body, "Configured") {
 		t.Fatalf("expected configured status, body=%q", body)
 	}
+	if !strings.Contains(body, "hx-on::after-request") {
+		t.Fatalf("expected routing provider form to update configured status after save, body=%q", body)
+	}
 }
 
 func TestHandleUpdateRoutingProviderConfig_SavesKeyAndClearsDistanceCache(t *testing.T) {
@@ -159,6 +162,9 @@ func TestHandleUpdateRoutingProviderConfig_EmptyKeyDoesNotOverwriteExistingKey(t
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	if strings.Contains(rr.Header().Get("HX-Trigger"), messageRoutingProviderConfigUpdated) {
+		t.Fatalf("empty key update reported saved/cleared: HX-Trigger=%q", rr.Header().Get("HX-Trigger"))
 	}
 	config, err := database.LoadConfig()
 	if err != nil {

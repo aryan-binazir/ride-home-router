@@ -40,14 +40,15 @@
     </form>
 </div>
 
-<div class="card">
+<div class="card" id="routing-provider-card">
     <h3>Routing Provider</h3>
     <p class="text-muted">Google Routes is used for route distance and duration calculations.</p>
 
     <form id="routing-provider-form"
           hx-put="/api/v1/config/routing-provider"
           hx-swap="none"
-          hx-indicator="#routing-provider-loading">
+          hx-indicator="#routing-provider-loading"
+          hx-on::after-request="if(event.detail.successful && document.getElementById('google-maps-api-key-input').value.trim() !== '') { document.getElementById('google-maps-key-status').textContent = 'Configured'; document.getElementById('google-maps-api-key-input').value = ''; document.getElementById('google-maps-api-key-input').placeholder = 'Key configured'; }">
         <div class="form-group">
             <label class="form-label">Google Maps API Key</label>
             <input type="password"

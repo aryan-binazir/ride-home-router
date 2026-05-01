@@ -66,14 +66,20 @@ func (h *Handler) HandleUpdateRoutingProviderConfig(w http.ResponseWriter, r *ht
 	}
 
 	trimmedKey := strings.TrimSpace(req.GoogleMapsAPIKey)
-	if trimmedKey != "" {
-		config.GoogleMapsAPIKey = trimmedKey
-		if err := h.DB.DistanceCache().Clear(r.Context()); err != nil {
-			h.handleInternalError(w, err)
+	if trimmedKey == "" {
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, messageRoutingProviderConfigUnchanged, toastTypeWarning)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		h.writeJSON(w, http.StatusOK, RoutingProviderConfigResponse{
+			GoogleMapsAPIKeyConfigured: config.GoogleMapsAPIKey != "",
+			Message:                    messageRoutingProviderConfigUnchanged,
+		})
+		return
 	}
 
+	config.GoogleMapsAPIKey = trimmedKey
 	if err := database.SaveConfig(config); err != nil {
 		if h.isHTMX(r) {
 			h.setHTMXToast(w, err.Error(), toastTypeError)
@@ -84,7 +90,17 @@ func (h *Handler) HandleUpdateRoutingProviderConfig(w http.ResponseWriter, r *ht
 		return
 	}
 
-	log.Printf("[HTTP] Updated routing provider config: google_maps_api_key_configured=%t cache_cleared=%t", config.GoogleMapsAPIKey != "", trimmedKey != "")
+	if err := h.DB.DistanceCache().Clear(r.Context()); err != nil {
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, err.Error(), toastTypeError)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Updated routing provider config: google_maps_api_key_configured=%t cache_cleared=true", config.GoogleMapsAPIKey != "")
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutingProviderConfigUpdated, toastTypeSuccess)

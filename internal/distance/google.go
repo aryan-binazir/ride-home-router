@@ -1,6 +1,7 @@
 package distance
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -48,6 +49,9 @@ func (c *googleCalculator) GetDistance(ctx context.Context, origin, dest models.
 	if sameRoundedPoint(origin, dest) {
 		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
 	}
+	if _, err := c.currentAPIKey(); err != nil {
+		return nil, err
+	}
 
 	cached, err := c.cache.Get(ctx, origin, dest)
 	if err != nil {
@@ -74,6 +78,11 @@ func (c *googleCalculator) GetDistanceMatrix(ctx context.Context, points []model
 	n := len(points)
 	if n == 0 {
 		return [][]DistanceResult{}, nil
+	}
+	if matrixNeedsProvider(points) {
+		if _, err := c.currentAPIKey(); err != nil {
+			return nil, err
+		}
 	}
 
 	matrix := make([][]DistanceResult, n)
@@ -141,6 +150,11 @@ func (c *googleCalculator) GetDistanceMatrix(ctx context.Context, points []model
 func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]DistanceResult, error) {
 	if len(destinations) == 0 {
 		return []DistanceResult{}, nil
+	}
+	if destinationsNeedProvider(origin, destinations) {
+		if _, err := c.currentAPIKey(); err != nil {
+			return nil, err
+		}
 	}
 
 	results := make([]DistanceResult, len(destinations))
@@ -248,15 +262,15 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 	}
 	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		responseBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+		}
 		return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("Google route matrix HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))}
 	}
 
-	elements, err := parseGoogleMatrixElements(responseBody)
+	elements, err := parseGoogleMatrixElements(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -308,6 +322,26 @@ func (c *googleCalculator) currentAPIKey() (string, error) {
 func sameRoundedPoint(a, b models.Coordinates) bool {
 	return models.RoundCoordinate(a.Lat) == models.RoundCoordinate(b.Lat) &&
 		models.RoundCoordinate(a.Lng) == models.RoundCoordinate(b.Lng)
+}
+
+func matrixNeedsProvider(points []models.Coordinates) bool {
+	for i, origin := range points {
+		for j, dest := range points {
+			if i != j && !sameRoundedPoint(origin, dest) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func destinationsNeedProvider(origin models.Coordinates, destinations []models.Coordinates) bool {
+	for _, dest := range destinations {
+		if !sameRoundedPoint(origin, dest) {
+			return true
+		}
+	}
+	return false
 }
 
 type googleMatrixRequest struct {
@@ -379,21 +413,25 @@ type googleStatus struct {
 	Message string `json:"message"`
 }
 
-func parseGoogleMatrixElements(body []byte) ([]googleMatrixElement, error) {
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix response was empty"}
+func parseGoogleMatrixElements(body io.Reader) ([]googleMatrixElement, error) {
+	reader := bufio.NewReader(body)
+	first, err := peekFirstNonSpace(reader)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix response was empty"}
+		}
+		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 	}
 
-	if trimmed[0] == '[' {
+	decoder := json.NewDecoder(reader)
+	if first == '[' {
 		var elements []googleMatrixElement
-		if err := json.Unmarshal(trimmed, &elements); err != nil {
+		if err := decoder.Decode(&elements); err != nil {
 			return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 		}
 		return elements, nil
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(trimmed))
 	var elements []googleMatrixElement
 	for {
 		var element googleMatrixElement
@@ -406,6 +444,22 @@ func parseGoogleMatrixElements(body []byte) ([]googleMatrixElement, error) {
 		elements = append(elements, element)
 	}
 	return elements, nil
+}
+
+func peekFirstNonSpace(reader *bufio.Reader) (byte, error) {
+	for {
+		b, err := reader.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		if b == ' ' || b == '\n' || b == '\r' || b == '\t' {
+			continue
+		}
+		if err := reader.UnreadByte(); err != nil {
+			return 0, err
+		}
+		return b, nil
+	}
 }
 
 func parseGoogleDurationSeconds(value string) (float64, error) {
