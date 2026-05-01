@@ -236,6 +236,76 @@ func TestBalancedRouter_LargeHouseholdSplit(t *testing.T) {
 	}
 }
 
+func TestBalancedRouter_LargeHouseholdStaysTogetherWhenAnyVehicleFits(t *testing.T) {
+	mock := newMockDistanceAdapter()
+	router := NewBalancedRouter(mock)
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "Household 1", Lat: 0.01, Lng: 0.01},
+			{ID: 2, Name: "Household 2", Lat: 0.01, Lng: 0.01},
+			{ID: 3, Name: "Household 3", Lat: 0.01, Lng: 0.01},
+			{ID: 4, Name: "Household 4", Lat: 0.01, Lng: 0.01},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Small", Lat: 0.05, Lng: 0.05, VehicleCapacity: 3},
+			{ID: 2, Name: "Large", Lat: 0.06, Lng: 0.06, VehicleCapacity: 4},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if len(result.Routes) != 1 {
+		t.Fatalf("route count = %d, want 1 household route", len(result.Routes))
+	}
+	if got := len(result.Routes[0].Stops); got != 4 {
+		t.Fatalf("household route stop count = %d, want 4", got)
+	}
+	if result.Routes[0].Driver.ID != 2 {
+		t.Fatalf("household assigned to driver %d, want large-capacity driver 2", result.Routes[0].Driver.ID)
+	}
+}
+
+func TestBalancedRouter_OversizedHouseholdMaySplitOnlyWhenNoVehicleFits(t *testing.T) {
+	mock := newMockDistanceAdapter()
+	router := NewBalancedRouter(mock)
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "Household 1", Lat: 0.01, Lng: 0.01},
+			{ID: 2, Name: "Household 2", Lat: 0.01, Lng: 0.01},
+			{ID: 3, Name: "Household 3", Lat: 0.01, Lng: 0.01},
+			{ID: 4, Name: "Household 4", Lat: 0.01, Lng: 0.01},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver1", Lat: 0.05, Lng: 0.05, VehicleCapacity: 3},
+			{ID: 2, Name: "Driver2", Lat: 0.06, Lng: 0.06, VehicleCapacity: 3},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if len(result.Routes) != 2 {
+		t.Fatalf("route count = %d, want split across 2 routes", len(result.Routes))
+	}
+	totalAssigned := 0
+	for _, route := range result.Routes {
+		if len(route.Stops) > route.Driver.VehicleCapacity {
+			t.Fatalf("route for %s has %d stops over capacity %d", route.Driver.Name, len(route.Stops), route.Driver.VehicleCapacity)
+		}
+		totalAssigned += len(route.Stops)
+	}
+	if totalAssigned != 4 {
+		t.Fatalf("assigned stops = %d, want 4", totalAssigned)
+	}
+}
+
 func TestInsertGroupAt(t *testing.T) {
 	existing := []*models.Participant{
 		{ID: 1, Name: "Alice"},
@@ -457,13 +527,13 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}
-	if len(remaining) != 1 {
-		t.Fatalf("roundRobinInsertion() remaining = %d, want 1 after capacity-driven split", len(remaining))
+	if len(remaining) != 2 {
+		t.Fatalf("roundRobinInsertion() remaining = %d, want 2 because the full household fits this vehicle capacity", len(remaining))
 	}
 
 	stops := routes[driver.ID].stops
-	if len(stops) != 4 {
-		t.Fatalf("route stop count = %d, want 4", len(stops))
+	if len(stops) != 3 {
+		t.Fatalf("route stop count = %d, want unchanged 3", len(stops))
 	}
 	for i := 0; i < len(stops)-1; i++ {
 		if stops[i].Name == "Sister 1" && stops[i+1].Name == "Sister 2" {
@@ -471,7 +541,7 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 		}
 	}
 
-	t.Fatalf("single-participant fallback split existing household: got order %q, %q, %q, %q", stops[0].Name, stops[1].Name, stops[2].Name, stops[3].Name)
+	t.Fatalf("single-participant fallback split existing household: got order %q, %q, %q", stops[0].Name, stops[1].Name, stops[2].Name)
 }
 
 func TestOptimizeAllRoutes_CoalescesHouseholdsForBothModes(t *testing.T) {
@@ -505,6 +575,53 @@ func TestOptimizeAllRoutes_CoalescesHouseholdsForBothModes(t *testing.T) {
 				t.Fatalf("%s optimization left household split: got order %q, %q, %q", mode, stops[0].Name, stops[1].Name, stops[2].Name)
 			}
 		})
+	}
+}
+
+func TestOptimizeAllRoutes_ImprovesRiderScoreWithExactRecompute(t *testing.T) {
+	distances := stableDistanceCalculator{}
+	router := &BalancedRouter{distanceCalc: distances}
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 20, Lng: 0, VehicleCapacity: 2}
+	rc := newRouteContext(distances, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
+	routes := map[int64]*balancedRoute{
+		driver.ID: {
+			driver: driver,
+			stops: []*models.Participant{
+				{ID: 1, Name: "Far", Lat: 10, Lng: 0},
+				{ID: 2, Name: "Near", Lat: 1, Lng: 0},
+			},
+		},
+	}
+
+	before, err := rc.riderScore(context.Background(), driver, routes[driver.ID].stops)
+	if err != nil {
+		t.Fatalf("before score error = %v", err)
+	}
+	if err := router.optimizeAllRoutes(context.Background(), rc, routes); err != nil {
+		t.Fatalf("optimizeAllRoutes() error = %v", err)
+	}
+	after, err := rc.riderScore(context.Background(), driver, routes[driver.ID].stops)
+	if err != nil {
+		t.Fatalf("after score error = %v", err)
+	}
+
+	if after >= before {
+		t.Fatalf("rider score after optimize = %.0f, want less than before %.0f", after, before)
+	}
+	if routes[driver.ID].stops[0].Name != "Near" {
+		t.Fatalf("first stop = %q, want Near", routes[driver.ID].stops[0].Name)
+	}
+}
+
+func TestShouldRunMinMaxOptimizeUsesGuardrailThresholds(t *testing.T) {
+	if shouldRunMinMaxOptimize([]float64{600, 600, 900}) {
+		t.Fatal("should not run min-max below relative and absolute thresholds")
+	}
+	if !shouldRunMinMaxOptimize([]float64{600, 600, 1000}) {
+		t.Fatal("should run min-max above relative threshold")
+	}
+	if !shouldRunMinMaxOptimize([]float64{100, 3700}) {
+		t.Fatal("should run min-max above absolute threshold")
 	}
 }
 

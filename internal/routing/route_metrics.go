@@ -65,6 +65,34 @@ func (rc routeContext) routeDuration(ctx context.Context, driver *models.Driver,
 	})
 }
 
+func (rc routeContext) riderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
+	if driver == nil {
+		return 0, fmt.Errorf("route driver is required")
+	}
+	if len(stops) == 0 {
+		return 0, nil
+	}
+
+	total := 0.0
+	cumulative := 0.0
+	prev := rc.origin(driver)
+	for i, stop := range stops {
+		if stop == nil {
+			return 0, fmt.Errorf("route stop %d is missing participant data", i)
+		}
+
+		dist, err := rc.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
+		if err != nil {
+			return 0, err
+		}
+		cumulative += dist.DurationSecs
+		total += cumulative
+		prev = stop.GetCoords()
+	}
+
+	return total, nil
+}
+
 func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.Driver, stops []*models.Participant) (*routeMetrics, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("route driver is required")
@@ -214,7 +242,7 @@ func (rc routeContext) insertionDelta(ctx context.Context, driver *models.Driver
 	return selector(prevToParticipant) + selector(participantToNext) - selector(prevToNext), nil
 }
 
-func (rc routeContext) groupInsertionDeltaDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {
+func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {
 	if driver == nil {
 		return 0, fmt.Errorf("route driver is required")
 	}
@@ -222,59 +250,17 @@ func (rc routeContext) groupInsertionDeltaDuration(ctx context.Context, driver *
 		return 0, nil
 	}
 
-	prev := rc.origin(driver)
-	if pos > 0 {
-		prev = stops[pos-1].GetCoords()
-	}
-
-	if pos == len(stops) && !rc.objectiveIncludesTerminal() {
-		total := 0.0
-		current := prev
-		for i, member := range group.members {
-			if member == nil {
-				return 0, fmt.Errorf("group member %d is missing participant data", i)
-			}
-
-			dist, err := rc.distanceCalc.GetDistance(ctx, current, member.GetCoords())
-			if err != nil {
-				return 0, err
-			}
-			total += dist.DurationSecs
-			current = member.GetCoords()
-		}
-		return total, nil
-	}
-
-	next := rc.destination(driver)
-	if pos < len(stops) {
-		next = stops[pos].GetCoords()
-	}
-
-	total := 0.0
-	current := prev
-	for i, member := range group.members {
-		if member == nil {
-			return 0, fmt.Errorf("group member %d is missing participant data", i)
-		}
-
-		dist, err := rc.distanceCalc.GetDistance(ctx, current, member.GetCoords())
-		if err != nil {
-			return 0, err
-		}
-		total += dist.DurationSecs
-		current = member.GetCoords()
-	}
-
-	lastToNext, err := rc.distanceCalc.GetDistance(ctx, current, next)
+	before, err := rc.riderScore(ctx, driver, stops)
 	if err != nil {
 		return 0, err
 	}
-	prevToNext, err := rc.distanceCalc.GetDistance(ctx, prev, next)
+	afterStops := insertGroupAt(stops, group, pos)
+	after, err := rc.riderScore(ctx, driver, afterStops)
 	if err != nil {
 		return 0, err
 	}
 
-	return total + lastToNext.DurationSecs - prevToNext.DurationSecs, nil
+	return after - before, nil
 }
 
 func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
@@ -323,12 +309,42 @@ func (rc routeContext) twoOptDistance(ctx context.Context, driver *models.Driver
 	})
 }
 
-func (rc routeContext) twoOptDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
-	return twoOptByDelta(stops, func(candidate []*models.Participant, i, j int) (float64, error) {
-		return rc.twoOptDelta(ctx, driver, candidate, i, j, func(result *distance.DistanceResult) float64 {
-			return result.DurationSecs
-		})
-	})
+func (rc routeContext) twoOptRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
+	blocks := routeHouseholdBlocks(stops)
+	if len(blocks) < 2 {
+		return stops, nil
+	}
+
+	currentBlocks := append([]*participantGroup(nil), blocks...)
+	currentStops := flattenParticipantGroups(currentBlocks)
+	currentScore, err := rc.riderScore(ctx, driver, currentStops)
+	if err != nil {
+		return nil, err
+	}
+
+	improved := true
+	for improved {
+		improved = false
+		for i := 0; i < len(currentBlocks)-1; i++ {
+			for j := i + 2; j <= len(currentBlocks); j++ {
+				candidateBlocks := append([]*participantGroup(nil), currentBlocks...)
+				reverseGroups(candidateBlocks, i, j-1)
+				candidateStops := flattenParticipantGroups(candidateBlocks)
+				candidateScore, err := rc.riderScore(ctx, driver, candidateStops)
+				if err != nil {
+					return nil, err
+				}
+				if candidateScore < currentScore-scoreImprovementEpsilon {
+					currentBlocks = candidateBlocks
+					currentStops = candidateStops
+					currentScore = candidateScore
+					improved = true
+				}
+			}
+		}
+	}
+
+	return currentStops, nil
 }
 
 func (rc routeContext) twoOptDelta(ctx context.Context, driver *models.Driver, stops []*models.Participant, i, j int, selector func(*distance.DistanceResult) float64) (float64, error) {

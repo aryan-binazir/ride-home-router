@@ -61,6 +61,96 @@ func (c *countingDistanceCalculator) GetDistance(ctx context.Context, origin, de
 	return c.stableDistanceCalculator.GetDistance(ctx, origin, dest)
 }
 
+func TestRouteContextRiderScoreWeightsCumulativeStopTimes(t *testing.T) {
+	tests := []struct {
+		name   string
+		mode   RouteMode
+		driver *models.Driver
+		want   float64
+	}{
+		{
+			name:   "dropoff uses cumulative home arrival time",
+			mode:   RouteModeDropoff,
+			driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 3},
+			want:   5000,
+		},
+		{
+			name:   "pickup uses cumulative pickup time",
+			mode:   RouteModePickup,
+			driver: &models.Driver{ID: 1, Name: "Driver", Lat: 0, Lng: 0, VehicleCapacity: 3},
+			want:   5000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, tt.mode)
+			stops := []*models.Participant{
+				{ID: 1, Name: "Sibling A", Lat: 1, Lng: 0},
+				{ID: 2, Name: "Sibling B", Lat: 1, Lng: 0},
+				{ID: 3, Name: "Farther", Lat: 3, Lng: 0},
+			}
+
+			got, err := rc.riderScore(context.Background(), tt.driver, stops)
+			if err != nil {
+				t.Fatalf("riderScore() error = %v", err)
+			}
+
+			if got != tt.want {
+				t.Fatalf("riderScore() = %.0f, want %.0f", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGroupInsertionDeltaRiderScorePrefersEarlierDropoff(t *testing.T) {
+	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 20, Lng: 0, VehicleCapacity: 2}
+	stops := []*models.Participant{
+		{ID: 1, Name: "Far", Lat: 10, Lng: 0},
+	}
+	group := &participantGroup{
+		members: []*models.Participant{{ID: 2, Name: "Near", Lat: 1, Lng: 0}},
+	}
+
+	startDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 0)
+	if err != nil {
+		t.Fatalf("start delta error = %v", err)
+	}
+	endDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 1)
+	if err != nil {
+		t.Fatalf("end delta error = %v", err)
+	}
+
+	if startDelta >= endDelta {
+		t.Fatalf("start delta %.0f should be less than end delta %.0f", startDelta, endDelta)
+	}
+}
+
+func TestGroupInsertionDeltaRiderScorePrefersEarlierPickup(t *testing.T) {
+	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 20, Lng: 0}, RouteModePickup)
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 0, Lng: 0, VehicleCapacity: 2}
+	stops := []*models.Participant{
+		{ID: 1, Name: "Far", Lat: 10, Lng: 0},
+	}
+	group := &participantGroup{
+		members: []*models.Participant{{ID: 2, Name: "Near", Lat: 1, Lng: 0}},
+	}
+
+	startDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 0)
+	if err != nil {
+		t.Fatalf("start delta error = %v", err)
+	}
+	endDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 1)
+	if err != nil {
+		t.Fatalf("end delta error = %v", err)
+	}
+
+	if startDelta >= endDelta {
+		t.Fatalf("start delta %.0f should be less than end delta %.0f", startDelta, endDelta)
+	}
+}
+
 func TestInsertionDeltaDistance_DropoffInsertAtEndPreservesLegacyBehavior(t *testing.T) {
 	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
 	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
