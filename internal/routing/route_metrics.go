@@ -160,40 +160,6 @@ func (rc routeContext) objectiveIncludesTerminal() bool {
 	return rc.mode == RouteModePickup
 }
 
-func (rc routeContext) objectiveCost(ctx context.Context, driver *models.Driver, stops []*models.Participant, selector func(*distance.DistanceResult) float64) (float64, error) {
-	if driver == nil {
-		return 0, fmt.Errorf("route driver is required")
-	}
-	if len(stops) == 0 {
-		return 0, nil
-	}
-
-	total := 0.0
-	prev := rc.origin(driver)
-	for i, stop := range stops {
-		if stop == nil {
-			return 0, fmt.Errorf("route stop %d is missing participant data", i)
-		}
-
-		dist, err := rc.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
-		if err != nil {
-			return 0, err
-		}
-		total += selector(dist)
-		prev = stop.GetCoords()
-	}
-
-	if rc.objectiveIncludesTerminal() {
-		dist, err := rc.distanceCalc.GetDistance(ctx, prev, rc.destination(driver))
-		if err != nil {
-			return 0, err
-		}
-		total += selector(dist)
-	}
-
-	return total, nil
-}
-
 func (rc routeContext) insertionDeltaDistance(ctx context.Context, driver *models.Driver, stops []*models.Participant, participant *models.Participant, pos int) (float64, error) {
 	return rc.insertionDelta(ctx, driver, stops, participant, pos, func(result *distance.DistanceResult) float64 {
 		return result.DistanceMeters
@@ -317,44 +283,6 @@ func (rc routeContext) twoOptDistance(ctx context.Context, driver *models.Driver
 			return result.DistanceMeters
 		})
 	})
-}
-
-func (rc routeContext) twoOptRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
-	blocks := routeHouseholdBlocks(stops)
-	if len(blocks) < 2 {
-		return stops, nil
-	}
-
-	currentBlocks := append([]*participantGroup(nil), blocks...)
-	currentStops := flattenParticipantGroups(currentBlocks)
-	currentScore, err := rc.riderScore(ctx, driver, currentStops)
-	if err != nil {
-		return nil, err
-	}
-
-	improved := true
-	for improved {
-		improved = false
-		for i := 0; i < len(currentBlocks)-1; i++ {
-			for j := i + 2; j <= len(currentBlocks); j++ {
-				candidateBlocks := append([]*participantGroup(nil), currentBlocks...)
-				reverseGroups(candidateBlocks, i, j-1)
-				candidateStops := flattenParticipantGroups(candidateBlocks)
-				candidateScore, err := rc.riderScore(ctx, driver, candidateStops)
-				if err != nil {
-					return nil, err
-				}
-				if candidateScore < currentScore-scoreImprovementEpsilon {
-					currentBlocks = candidateBlocks
-					currentStops = candidateStops
-					currentScore = candidateScore
-					improved = true
-				}
-			}
-		}
-	}
-
-	return currentStops, nil
 }
 
 func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
