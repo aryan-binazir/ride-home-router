@@ -284,6 +284,13 @@ func (h *Handler) recalculateRoute(ctx context.Context, activityLocation *models
 	return routing.PopulateRouteMetrics(ctx, h.DistanceCalc, activityLocation.GetCoords(), mode, route)
 }
 
+func (h *Handler) optimizeRouteOrder(ctx context.Context, activityLocation *models.ActivityLocation, mode models.RouteMode, route *models.CalculatedRoute) error {
+	if activityLocation == nil {
+		return fmt.Errorf("activity location is required")
+	}
+	return routing.OptimizeRouteOrder(ctx, h.DistanceCalc, activityLocation.GetCoords(), mode, route)
+}
+
 // HandleMoveParticipant handles POST /api/v1/routes/edit/move-participant
 func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -361,13 +368,13 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 			append([]models.RouteStop{newStop}, toRoute.Stops[req.InsertAtPosition:]...)...)
 	}
 
-	// Recalculate distances for both routes
+	// Recalculate the source route, then optimize the destination car's route after the move.
 	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, fromRoute); err != nil {
 		session.CurrentRoutes = backupRoutes
 		h.handleInternalError(w, err)
 		return
 	}
-	if err := h.recalculateRoute(r.Context(), session.ActivityLocation, session.Mode, toRoute); err != nil {
+	if err := h.optimizeRouteOrder(r.Context(), session.ActivityLocation, session.Mode, toRoute); err != nil {
 		session.CurrentRoutes = backupRoutes
 		h.handleInternalError(w, err)
 		return

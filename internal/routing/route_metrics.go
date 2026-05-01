@@ -277,6 +277,31 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCal
 	return nil
 }
 
+// OptimizeRouteOrder reorders one calculated route by total driven time, then refreshes metrics.
+func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
+	if route == nil {
+		return fmt.Errorf("route is required")
+	}
+
+	rc := newRouteContext(distanceCalc, instituteCoords, mode)
+	participants := make([]*models.Participant, len(route.Stops))
+	for i := range route.Stops {
+		participants[i] = route.Stops[i].Participant
+	}
+
+	optimized, err := rc.twoOptRouteDuration(ctx, route.Driver, participants)
+	if err != nil {
+		return err
+	}
+
+	route.Stops = make([]models.RouteStop, len(optimized))
+	for i, participant := range optimized {
+		route.Stops[i].Participant = participant
+	}
+
+	return PopulateRouteMetrics(ctx, distanceCalc, instituteCoords, mode, route)
+}
+
 func (rc routeContext) twoOptDistance(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
 	return twoOptByDelta(stops, func(candidate []*models.Participant, i, j int) (float64, error) {
 		return rc.twoOptDelta(ctx, driver, candidate, i, j, func(result *distance.DistanceResult) float64 {

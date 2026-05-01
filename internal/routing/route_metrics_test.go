@@ -242,6 +242,30 @@ func TestPopulateRouteMetrics_PickupIncludesActivityDestination(t *testing.T) {
 	}
 }
 
+func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
+	route := &models.CalculatedRoute{
+		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0},
+		Stops: []models.RouteStop{
+			{Participant: &models.Participant{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0}},
+			{Participant: &models.Participant{ID: 2, Name: "Origin Detour", Lat: 1, Lng: 100}},
+		},
+	}
+
+	if err := OptimizeRouteOrder(context.Background(), stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff, route); err != nil {
+		t.Fatalf("OptimizeRouteOrder() error = %v", err)
+	}
+
+	if route.Stops[0].Participant.Name != "Origin Detour" {
+		t.Fatalf("first stop = %q, want Origin Detour", route.Stops[0].Participant.Name)
+	}
+	if route.Stops[0].Order != 0 || route.Stops[1].Order != 1 {
+		t.Fatalf("orders = [%d %d], want [0 1]", route.Stops[0].Order, route.Stops[1].Order)
+	}
+	if route.TotalDistanceMeters == 0 || route.RouteDurationSecs == 0 {
+		t.Fatalf("route metrics were not refreshed: total=%.0f duration=%.0f", route.TotalDistanceMeters, route.RouteDurationSecs)
+	}
+}
+
 func TestBalancedRouterCalculateRouteDuration_PickupIncludesActivityLeg(t *testing.T) {
 	calc := stableDistanceCalculator{}
 	router := &BalancedRouter{distanceCalc: calc}
