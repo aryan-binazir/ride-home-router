@@ -24,7 +24,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 3)
+	assertSchemaVersion(t, store.db, 4)
 
 	for _, tableName := range []string{
 		"events_legacy",
@@ -112,7 +112,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 	assertRowCount(t, store.db, "event_summaries_legacy", 1)
 }
 
-func TestStoreFreshSchemaCreatesV3EventTables(t *testing.T) {
+func TestStoreFreshSchemaCreatesV4Tables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fresh-schema.db")
 
 	store, err := New(dbPath)
@@ -125,9 +125,12 @@ func TestStoreFreshSchemaCreatesV3EventTables(t *testing.T) {
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 3)
+	assertSchemaVersion(t, store.db, 4)
 
 	for _, tableName := range []string{"events", "event_routes", "event_route_stops", "event_summaries"} {
+		assertTableExists(t, store.db, tableName)
+	}
+	for _, tableName := range []string{"labels", "participant_labels", "driver_labels"} {
 		assertTableExists(t, store.db, tableName)
 	}
 

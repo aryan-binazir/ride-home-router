@@ -1,0 +1,47 @@
+{{define "label_list"}}
+{{if .Labels}}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Participants</th>
+            <th>Drivers</th>
+            <th style="width: 150px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody id="labels-tbody">
+        {{range .Labels}}
+        <tr id="label-{{.ID}}" data-search="{{.Name}}">
+            <td>{{.Name}}</td>
+            <td>{{.ParticipantCount}}</td>
+            <td>{{.DriverCount}}</td>
+            <td>
+                <div class="table-actions">
+                    <button type="button"
+                            class="btn btn-sm btn-outline"
+                            hx-get="/api/v1/labels/{{.ID}}/edit"
+                            hx-target="#label-form-container"
+                            hx-swap="innerHTML">
+                        Edit
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm btn-danger"
+                            hx-delete="/api/v1/labels/{{.ID}}"
+                            hx-target="#labels-list"
+                            hx-swap="innerHTML"
+                            hx-confirm="Are you sure you want to delete {{.Name}}?">
+                        Delete
+                    </button>
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <h3>No labels yet</h3>
+    <p>Create a label to make repeat event selection faster.</p>
+</div>
+{{end}}
+{{end}}

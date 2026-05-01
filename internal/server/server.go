@@ -193,7 +193,7 @@ func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
 
 	// Load page templates as strings (don't parse into base)
 	pages := make(map[string]string)
-	pageFiles := []string{"index.html", "participants.html", "drivers.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
+	pageFiles := []string{"index.html", "participants.html", "drivers.html", "labels.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
 	for _, name := range pageFiles {
 		content, err := fs.ReadFile(templatesFS, "templates/"+name)
 		if err != nil {
@@ -290,11 +290,18 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
 	mux.HandleFunc("/api/v1/config/routing-provider", handleMethods(handler.HandleGetRoutingProviderConfig, nil, handler.HandleUpdateRoutingProviderConfig, nil))
 	mux.HandleFunc("/api/v1/participants", handleMethods(handler.HandleListParticipants, handler.HandleCreateParticipant, nil, nil))
+	mux.HandleFunc("/api/v1/participants/labels/add", requireMethod(http.MethodPost, handler.HandleAddParticipantsToLabel))
+	mux.HandleFunc("/api/v1/participants/labels/remove", requireMethod(http.MethodPost, handler.HandleRemoveParticipantsFromLabel))
 	mux.HandleFunc("/api/v1/participants/new", requireMethod(http.MethodGet, handler.HandleParticipantForm))
 	mux.HandleFunc("/api/v1/participants/", handleResourcePath("/api/v1/participants/", "/edit", handler.HandleParticipantForm, handler.HandleGetParticipant, handler.HandleUpdateParticipant, handler.HandleDeleteParticipant))
 	mux.HandleFunc("/api/v1/drivers", handleMethods(handler.HandleListDrivers, handler.HandleCreateDriver, nil, nil))
+	mux.HandleFunc("/api/v1/drivers/labels/add", requireMethod(http.MethodPost, handler.HandleAddDriversToLabel))
+	mux.HandleFunc("/api/v1/drivers/labels/remove", requireMethod(http.MethodPost, handler.HandleRemoveDriversFromLabel))
 	mux.HandleFunc("/api/v1/drivers/new", requireMethod(http.MethodGet, handler.HandleDriverForm))
 	mux.HandleFunc("/api/v1/drivers/", handleResourcePath("/api/v1/drivers/", "/edit", handler.HandleDriverForm, handler.HandleGetDriver, handler.HandleUpdateDriver, handler.HandleDeleteDriver))
+	mux.HandleFunc("/api/v1/labels", handleMethods(handler.HandleListLabels, handler.HandleCreateLabel, nil, nil))
+	mux.HandleFunc("/api/v1/labels/new", requireMethod(http.MethodGet, handler.HandleLabelForm))
+	mux.HandleFunc("/api/v1/labels/", handleResourcePath("/api/v1/labels/", "/edit", handler.HandleLabelForm, handler.HandleGetLabel, handler.HandleUpdateLabel, handler.HandleDeleteLabel))
 	mux.HandleFunc("/api/v1/routes/calculate", requireMethod(http.MethodPost, handler.HandleCalculateRoutes))
 	mux.HandleFunc("/api/v1/routes/calculate-with-org-vehicles", requireMethod(http.MethodPost, handler.HandleCalculateRoutesWithOrgVehicles))
 	mux.HandleFunc("/api/v1/routes/edit/move-participant", requireMethod(http.MethodPost, handler.HandleMoveParticipant))
@@ -321,6 +328,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 
 	mux.HandleFunc("/participants", requireMethod(http.MethodGet, handler.HandleParticipantsPage))
 	mux.HandleFunc("/drivers", requireMethod(http.MethodGet, handler.HandleDriversPage))
+	mux.HandleFunc("/labels", requireMethod(http.MethodGet, handler.HandleLabelsPage))
 	mux.HandleFunc("/activity-locations", requireMethod(http.MethodGet, handler.HandleActivityLocationsPage))
 	mux.HandleFunc("/vans", requireMethod(http.MethodGet, handler.HandleVansPage))
 	mux.HandleFunc("/settings", requireMethod(http.MethodGet, handler.HandleSettingsPage))

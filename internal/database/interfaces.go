@@ -17,6 +17,7 @@ type DataStore interface {
 	OrganizationVehicles() OrganizationVehicleRepository
 	Events() EventRepository
 	DistanceCache() DistanceCacheRepository
+	Labels() LabelRepository
 }
 
 // ParticipantRepository handles participant persistence
@@ -37,6 +38,25 @@ type DriverRepository interface {
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error
+}
+
+// LabelRepository handles label persistence and memberships.
+type LabelRepository interface {
+	List(ctx context.Context) ([]models.Label, error)
+	GetByID(ctx context.Context, id int64) (*models.Label, error)
+	Create(ctx context.Context, label *models.Label) (*models.Label, error)
+	Update(ctx context.Context, label *models.Label) (*models.Label, error)
+	Delete(ctx context.Context, id int64) error
+	ListLabelsForParticipant(ctx context.Context, participantID int64) ([]models.Label, error)
+	ListLabelsForDriver(ctx context.Context, driverID int64) ([]models.Label, error)
+	SetLabelsForParticipant(ctx context.Context, participantID int64, labelIDs []int64) error
+	SetLabelsForDriver(ctx context.Context, driverID int64, labelIDs []int64) error
+	AddLabelToParticipants(ctx context.Context, labelID int64, participantIDs []int64) error
+	RemoveLabelFromParticipants(ctx context.Context, labelID int64, participantIDs []int64) error
+	AddLabelToDrivers(ctx context.Context, labelID int64, driverIDs []int64) error
+	RemoveLabelFromDrivers(ctx context.Context, labelID int64, driverIDs []int64) error
+	ListLabelIDsForParticipants(ctx context.Context) (map[int64][]int64, error)
+	ListLabelIDsForDrivers(ctx context.Context) (map[int64][]int64, error)
 }
 
 // SettingsRepository handles settings persistence

@@ -265,6 +265,80 @@ func TestHandleIndexPage_RendersVanAssignmentsPanelWhenVansExist(t *testing.T) {
 	}
 }
 
+func TestHandleLabelsPage_RendersLabelsNavAndTable(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+
+	if _, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"}); err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/labels", nil)
+	rr := httptest.NewRecorder()
+
+	handler.HandleLabelsPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `href="/labels" class="active"`) {
+		t.Fatalf("expected Labels nav item to be active, body=%q", body)
+	}
+	if !strings.Contains(body, "Youth Conference") {
+		t.Fatalf("expected saved label to render, body=%q", body)
+	}
+}
+
+func TestHandleIndexPage_RendersLabelFiltersAndRowMetadata(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Summer Camp"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "1 Driver Way",
+		Lat:             40.2,
+		Lng:             -73.8,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() error = %v", err)
+	}
+	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForDriver() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+
+	handler.HandleIndexPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `data-label-id="`+int64ToString(label.ID)+`"`) {
+		t.Fatalf("expected label filter chip hook, body=%q", body)
+	}
+	if !strings.Contains(body, `data-labels="`+int64ToString(label.ID)+`"`) {
+		t.Fatalf("expected row label metadata, body=%q", body)
+	}
+}
+
 func newTestPageHandler(t *testing.T) (*Handler, *sqlite.Store) {
 	t.Helper()
 

@@ -34,6 +34,24 @@
             <div class="form-help">Address will be geocoded automatically</div>
         </div>
 
+        {{if .Labels}}
+        <div class="form-group">
+            <label class="form-label">Labels</label>
+            <div class="checkbox-grid">
+                {{range .Labels}}
+                <label class="checkbox-label">
+                    <input type="checkbox"
+                           name="label_ids"
+                           value="{{.ID}}"
+                           class="form-checkbox"
+                           {{if index $.SelectedLabelIDs .ID}}checked{{end}}>
+                    <span>{{.Name}}</span>
+                </label>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
                 {{if .Participant.ID}}Update{{else}}Add{{end}} Participant

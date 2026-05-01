@@ -31,6 +31,21 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		h.renderError(w, r, err)
 		return
 	}
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	participantLabels, err := h.DB.Labels().ListLabelIDsForParticipants(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	driverLabels, err := h.DB.Labels().ListLabelIDsForDrivers(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
 
 	h.renderTemplate(w, "index.html", IndexPageView{
 		BasePageView: BasePageView{
@@ -39,6 +54,9 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		},
 		Participants:      participants,
 		Drivers:           drivers,
+		Labels:            labels,
+		ParticipantLabels: participantLabels,
+		DriverLabels:      driverLabels,
 		ActivityLocations: activityLocations,
 		OrgVehicles:       orgVehicles,
 	})
@@ -51,6 +69,16 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 		h.renderError(w, r, err)
 		return
 	}
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	labelIDs, err := h.DB.Labels().ListLabelIDsForParticipants(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
 
 	h.renderTemplate(w, "participants.html", ParticipantsPageView{
 		BasePageView: BasePageView{
@@ -58,6 +86,8 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 			ActivePage: ActivePageParticipants,
 		},
 		Participants: participants,
+		Labels:       labels,
+		LabelIDs:     labelIDs,
 	})
 }
 
@@ -68,13 +98,42 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 		h.renderError(w, r, err)
 		return
 	}
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+	labelIDs, err := h.DB.Labels().ListLabelIDsForDrivers(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
 
 	h.renderTemplate(w, "drivers.html", DriversPageView{
 		BasePageView: BasePageView{
 			Title:      "Drivers",
 			ActivePage: ActivePageDrivers,
 		},
-		Drivers: drivers,
+		Drivers:  drivers,
+		Labels:   labels,
+		LabelIDs: labelIDs,
+	})
+}
+
+// HandleLabelsPage handles GET /labels
+func (h *Handler) HandleLabelsPage(w http.ResponseWriter, r *http.Request) {
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		h.renderError(w, r, err)
+		return
+	}
+
+	h.renderTemplate(w, "labels.html", LabelsPageView{
+		BasePageView: BasePageView{
+			Title:      "Labels",
+			ActivePage: ActivePageLabels,
+		},
+		Labels: labels,
 	})
 }
 
