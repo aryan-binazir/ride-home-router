@@ -528,7 +528,7 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}
 	if len(remaining) != 2 {
-		t.Fatalf("roundRobinInsertion() remaining = %d, want 2 because the full household fits this vehicle capacity", len(remaining))
+		t.Fatalf("roundRobinInsertion() remaining = %d, want 2 because the household fits the max selected vehicle capacity", len(remaining))
 	}
 
 	stops := routes[driver.ID].stops

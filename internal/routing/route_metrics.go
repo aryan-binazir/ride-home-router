@@ -243,6 +243,14 @@ func (rc routeContext) insertionDelta(ctx context.Context, driver *models.Driver
 }
 
 func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {
+	before, err := rc.riderScore(ctx, driver, stops)
+	if err != nil {
+		return 0, err
+	}
+	return rc.groupInsertionDeltaRiderScoreFrom(ctx, driver, stops, group, pos, before)
+}
+
+func (rc routeContext) groupInsertionDeltaRiderScoreFrom(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int, before float64) (float64, error) {
 	if driver == nil {
 		return 0, fmt.Errorf("route driver is required")
 	}
@@ -250,10 +258,6 @@ func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver
 		return 0, nil
 	}
 
-	before, err := rc.riderScore(ctx, driver, stops)
-	if err != nil {
-		return 0, err
-	}
 	afterStops := insertGroupAt(stops, group, pos)
 	after, err := rc.riderScore(ctx, driver, afterStops)
 	if err != nil {

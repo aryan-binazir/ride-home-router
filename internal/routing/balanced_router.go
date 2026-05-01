@@ -115,6 +115,8 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	if err != nil {
 		return nil, err
 	}
+	// Rider score drives construction and local ordering. Min-max remains a
+	// duration guardrail and only runs when a route is clearly excessive.
 	if shouldRunMinMaxOptimize(durations) {
 		iterations = r.minMaxOptimize(ctx, rc, routes, driverIDs)
 	}
@@ -206,6 +208,10 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 		currentDriverID := driverIDs[driverIndex]
 		route := routes[currentDriverID]
 		remainingCapacity := route.driver.VehicleCapacity - len(route.stops)
+		routeScore, err := rc.riderScore(ctx, route.driver, route.stops)
+		if err != nil {
+			return nil, err
+		}
 
 		// Find best group and position for this driver (minimize insertion cost)
 		bestCost := math.Inf(1)
@@ -224,7 +230,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 
 			// Try all insertion positions for this group
 			for _, pos := range householdBoundaryPositions(route.stops) {
-				cost, err := rc.groupInsertionDeltaRiderScore(ctx, route.driver, route.stops, group, pos)
+				cost, err := rc.groupInsertionDeltaRiderScoreFrom(ctx, route.driver, route.stops, group, pos, routeScore)
 				if err != nil {
 					return nil, err
 				}
@@ -258,7 +264,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 						lat:     group.lat,
 						lng:     group.lng,
 					}
-					cost, err := rc.groupInsertionDeltaRiderScore(ctx, route.driver, route.stops, singleGroup, pos)
+					cost, err := rc.groupInsertionDeltaRiderScoreFrom(ctx, route.driver, route.stops, singleGroup, pos, routeScore)
 					if err != nil {
 						return nil, err
 					}
@@ -275,6 +281,9 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 
 		if bestGroup == nil {
 			driverIndex = (driverIndex + 1) % len(driverIDs)
+			if driverIndex == startIndex {
+				break
+			}
 			continue
 		}
 
@@ -347,6 +356,7 @@ func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, rc routeContext,
 }
 
 // twoOpt applies 2-opt-style block reversals to reduce the rider score.
+// Routes with fewer than two household blocks are returned unchanged.
 func (r *BalancedRouter) twoOpt(ctx context.Context, rc routeContext, route *balancedRoute, stops []*models.Participant) ([]*models.Participant, error) {
 	return rc.twoOptRiderScore(ctx, route.driver, stops)
 }
@@ -801,9 +811,6 @@ func coalesceHouseholdStops(stops []*models.Participant) []*models.Participant {
 func maxRouteVehicleCapacity(routes map[int64]*balancedRoute) int {
 	maxCapacity := 0
 	for _, route := range routes {
-		if route == nil || route.driver == nil {
-			continue
-		}
 		if route.driver.VehicleCapacity > maxCapacity {
 			maxCapacity = route.driver.VehicleCapacity
 		}
