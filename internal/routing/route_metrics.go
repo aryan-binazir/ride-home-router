@@ -60,9 +60,7 @@ func (rc routeContext) destination(driver *models.Driver) models.Coordinates {
 }
 
 func (rc routeContext) routeDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
-	return rc.objectiveCost(ctx, driver, stops, func(result *distance.DistanceResult) float64 {
-		return result.DurationSecs
-	})
+	return rc.totalDriveDuration(ctx, driver, stops)
 }
 
 func (rc routeContext) riderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
@@ -91,6 +89,14 @@ func (rc routeContext) riderScore(ctx context.Context, driver *models.Driver, st
 	}
 
 	return total, nil
+}
+
+func (rc routeContext) totalDriveDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
+	metrics, err := rc.evaluateParticipants(ctx, driver, stops)
+	if err != nil {
+		return 0, err
+	}
+	return metrics.RouteDurationSecs, nil
 }
 
 func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.Driver, stops []*models.Participant) (*routeMetrics, error) {
@@ -335,6 +341,44 @@ func (rc routeContext) twoOptRiderScore(ctx context.Context, driver *models.Driv
 				reverseGroups(candidateBlocks, i, j-1)
 				candidateStops := flattenParticipantGroups(candidateBlocks)
 				candidateScore, err := rc.riderScore(ctx, driver, candidateStops)
+				if err != nil {
+					return nil, err
+				}
+				if candidateScore < currentScore-scoreImprovementEpsilon {
+					currentBlocks = candidateBlocks
+					currentStops = candidateStops
+					currentScore = candidateScore
+					improved = true
+				}
+			}
+		}
+	}
+
+	return currentStops, nil
+}
+
+func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
+	blocks := routeHouseholdBlocks(stops)
+	if len(blocks) < 2 {
+		return stops, nil
+	}
+
+	currentBlocks := append([]*participantGroup(nil), blocks...)
+	currentStops := flattenParticipantGroups(currentBlocks)
+	currentScore, err := rc.totalDriveDuration(ctx, driver, currentStops)
+	if err != nil {
+		return nil, err
+	}
+
+	improved := true
+	for improved {
+		improved = false
+		for i := 0; i < len(currentBlocks)-1; i++ {
+			for j := i + 2; j <= len(currentBlocks); j++ {
+				candidateBlocks := append([]*participantGroup(nil), currentBlocks...)
+				reverseGroups(candidateBlocks, i, j-1)
+				candidateStops := flattenParticipantGroups(candidateBlocks)
+				candidateScore, err := rc.totalDriveDuration(ctx, driver, candidateStops)
 				if err != nil {
 					return nil, err
 				}

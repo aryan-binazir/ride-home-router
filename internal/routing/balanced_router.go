@@ -15,7 +15,8 @@ import (
 
 // BalancedRouter implements fair distribution routing that:
 // 1. Uses all available drivers
-// 2. Prioritizes earlier rider dropoffs/pickups before guarded load balancing
+// 2. Assigns riders with rider-experience scoring
+// 3. Finishes by minimizing driven time inside each fixed route
 type BalancedRouter struct {
 	distanceCalc distance.DistanceCalculator
 }
@@ -101,26 +102,26 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 	log.Printf("[TIMING] Phase 1 (round-robin): %v", time.Since(phase1Start))
 
-	// Phase 2: 2-opt on each route
+	// Phase 2: Min-max inter-route optimization
 	phase2Start := time.Now()
-	if err := r.optimizeAllRoutes(ctx, rc, routes); err != nil {
-		return nil, err
-	}
-	log.Printf("[TIMING] Phase 2 (2-opt): %v", time.Since(phase2Start))
-
-	// Phase 3: Min-max inter-route optimization
-	phase3Start := time.Now()
 	iterations := 0
 	durations, err := r.calculateRouteDurations(ctx, rc, routes, driverIDs)
 	if err != nil {
 		return nil, err
 	}
-	// Rider score drives construction and local ordering. Min-max remains a
-	// duration guardrail and only runs when a route is clearly excessive.
+	// Rider score drives construction. Min-max remains a duration guardrail and
+	// only runs before final in-car ordering when a route is clearly excessive.
 	if shouldRunMinMaxOptimize(durations) {
 		iterations = r.minMaxOptimize(ctx, rc, routes, driverIDs)
 	}
-	log.Printf("[TIMING] Phase 3 (min-max): %v (iterations=%d)", time.Since(phase3Start), iterations)
+	log.Printf("[TIMING] Phase 2 (min-max): %v (iterations=%d)", time.Since(phase2Start), iterations)
+
+	// Phase 3: Final 2-opt on each fixed route
+	phase3Start := time.Now()
+	if err := r.optimizeAllRoutes(ctx, rc, routes); err != nil {
+		return nil, err
+	}
+	log.Printf("[TIMING] Phase 3 (2-opt): %v", time.Since(phase3Start))
 
 	// Check for unassigned participants
 	if len(unassigned) > 0 {
@@ -343,7 +344,7 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 	return unassignedResult, nil
 }
 
-// optimizeAllRoutes runs local route optimization and updates durations.
+// optimizeAllRoutes runs final local route optimization and updates durations.
 func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute) error {
 	for _, route := range routes {
 		if len(route.stops) >= 2 {
@@ -361,10 +362,10 @@ func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, rc routeContext,
 	return nil
 }
 
-// twoOpt applies 2-opt-style block reversals to reduce the rider score.
+// twoOpt applies 2-opt-style block reversals to reduce total driven time.
 // Routes with fewer than two household blocks are returned unchanged.
 func (r *BalancedRouter) twoOpt(ctx context.Context, rc routeContext, route *balancedRoute, stops []*models.Participant) ([]*models.Participant, error) {
-	return rc.twoOptRiderScore(ctx, route.driver, stops)
+	return rc.twoOptRouteDuration(ctx, route.driver, stops)
 }
 
 // minMaxOptimize moves participants between routes to minimize the maximum route duration

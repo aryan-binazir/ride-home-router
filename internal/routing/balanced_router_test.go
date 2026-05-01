@@ -614,38 +614,38 @@ func TestOptimizeAllRoutes_CoalescesHouseholdsForBothModes(t *testing.T) {
 	}
 }
 
-func TestOptimizeAllRoutes_ImprovesRiderScoreWithExactRecompute(t *testing.T) {
+func TestOptimizeAllRoutes_FinalOrderingMinimizesTotalDriveTime(t *testing.T) {
 	distances := stableDistanceCalculator{}
 	router := &BalancedRouter{distanceCalc: distances}
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 20, Lng: 0, VehicleCapacity: 2}
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2}
 	rc := newRouteContext(distances, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
 	routes := map[int64]*balancedRoute{
 		driver.ID: {
 			driver: driver,
 			stops: []*models.Participant{
-				{ID: 1, Name: "Far", Lat: 10, Lng: 0},
-				{ID: 2, Name: "Near", Lat: 1, Lng: 0},
+				{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0},
+				{ID: 2, Name: "Origin Detour", Lat: 1, Lng: 100},
 			},
 		},
 	}
 
-	before, err := rc.riderScore(context.Background(), driver, routes[driver.ID].stops)
+	before, err := rc.totalDriveDuration(context.Background(), driver, routes[driver.ID].stops)
 	if err != nil {
-		t.Fatalf("before score error = %v", err)
+		t.Fatalf("before duration error = %v", err)
 	}
 	if err := router.optimizeAllRoutes(context.Background(), rc, routes); err != nil {
 		t.Fatalf("optimizeAllRoutes() error = %v", err)
 	}
-	after, err := rc.riderScore(context.Background(), driver, routes[driver.ID].stops)
+	after, err := rc.totalDriveDuration(context.Background(), driver, routes[driver.ID].stops)
 	if err != nil {
-		t.Fatalf("after score error = %v", err)
+		t.Fatalf("after duration error = %v", err)
 	}
 
 	if after >= before {
-		t.Fatalf("rider score after optimize = %.0f, want less than before %.0f", after, before)
+		t.Fatalf("duration after optimize = %.0f, want less than before %.0f", after, before)
 	}
-	if routes[driver.ID].stops[0].Name != "Near" {
-		t.Fatalf("first stop = %q, want Near", routes[driver.ID].stops[0].Name)
+	if routes[driver.ID].stops[0].Name != "Origin Detour" {
+		t.Fatalf("first stop = %q, want Origin Detour", routes[driver.ID].stops[0].Name)
 	}
 }
 
