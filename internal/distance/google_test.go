@@ -109,6 +109,37 @@ func TestGoogleCalculator_BatchesDestinationsUnderElementLimit(t *testing.T) {
 	}
 }
 
+func TestGoogleCalculator_GetDistanceMatrixBatchesOriginDestinationBlocks(t *testing.T) {
+	requests := 0
+	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var captured googleMatrixRequest
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		elements := len(captured.Origins) * len(captured.Destinations)
+		if elements > googleRouteMatrixMaxElements {
+			t.Fatalf("request elements = %d, exceeds %d", elements, googleRouteMatrixMaxElements)
+		}
+		for originIndex := range captured.Origins {
+			for destIndex := range captured.Destinations {
+				w.Write([]byte(`{"originIndex":` + strconv.Itoa(originIndex) + `,"destinationIndex":` + strconv.Itoa(destIndex) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
+			}
+		}
+	})
+
+	points := make([]models.Coordinates, 30)
+	for i := range points {
+		points[i] = models.Coordinates{Lat: 35 + float64(i)*0.001, Lng: -79}
+	}
+	if _, err := calc.GetDistanceMatrix(context.Background(), points); err != nil {
+		t.Fatalf("GetDistanceMatrix() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2 matrix block requests", requests)
+	}
+}
+
 func TestGoogleCalculator_ReturnsElementFailure(t *testing.T) {
 	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"status":{"code":5,"message":"route not found"},"condition":"ROUTE_NOT_FOUND"}` + "\n"))

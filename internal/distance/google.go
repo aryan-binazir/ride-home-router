@@ -90,58 +90,58 @@ func (c *googleCalculator) GetDistanceMatrix(ctx context.Context, points []model
 		matrix[i] = make([]DistanceResult, n)
 	}
 
-	for originIndex, origin := range points {
-		var missingDestinations []models.Coordinates
-		var missingIndexes []int
-		for destIndex, dest := range points {
-			if originIndex == destIndex || sameRoundedPoint(origin, dest) {
+	missingPairs, err := c.hydrateMatrixFromCache(ctx, points, matrix)
+	if err != nil {
+		return nil, err
+	}
+	if len(missingPairs) == 0 {
+		return matrix, nil
+	}
+
+	var cacheEntries []models.DistanceCacheEntry
+	for destStart := 0; destStart < n; {
+		destEnd := min(destStart+googleRouteMatrixMaxElements, n)
+		destCount := destEnd - destStart
+		maxOrigins := max(1, googleRouteMatrixMaxElements/destCount)
+
+		for originStart := 0; originStart < n; originStart += maxOrigins {
+			originEnd := min(originStart+maxOrigins, n)
+			sourceIndexes, destIndexes := collectGoogleMatrixBlock(originStart, originEnd, destStart, destEnd, missingPairs)
+			if len(sourceIndexes) == 0 || len(destIndexes) == 0 {
 				continue
 			}
 
-			cached, err := c.cache.Get(ctx, origin, dest)
-			if err != nil {
-				return nil, err
-			}
-			if cached != nil {
-				matrix[originIndex][destIndex] = DistanceResult{
-					DistanceMeters: cached.DistanceMeters,
-					DurationSecs:   cached.DurationSecs,
-				}
-				continue
-			}
-
-			missingDestinations = append(missingDestinations, dest)
-			missingIndexes = append(missingIndexes, destIndex)
-		}
-
-		for start := 0; start < len(missingDestinations); start += googleRouteMatrixMaxElements {
-			end := min(start+googleRouteMatrixMaxElements, len(missingDestinations))
-			chunkDestinations := missingDestinations[start:end]
-			chunkIndexes := missingIndexes[start:end]
-
-			results, err := c.fetchMatrix(ctx, []models.Coordinates{origin}, chunkDestinations)
+			results, err := c.fetchMatrix(ctx, coordinatesForIndexes(points, sourceIndexes), coordinatesForIndexes(points, destIndexes))
 			if err != nil {
 				return nil, err
 			}
 
-			cacheEntries := make([]models.DistanceCacheEntry, 0, len(chunkDestinations))
-			for localDestIndex, destIndex := range chunkIndexes {
-				result, ok := results[matrixIndex{origin: 0, destination: localDestIndex}]
-				if !ok {
-					return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix response missing element"}
+			for localSourceIndex, sourceIndex := range sourceIndexes {
+				for localDestIndex, destIndex := range destIndexes {
+					pair := matrixIndex{origin: sourceIndex, destination: destIndex}
+					if _, ok := missingPairs[pair]; !ok {
+						continue
+					}
+
+					result, ok := results[matrixIndex{origin: localSourceIndex, destination: localDestIndex}]
+					if !ok {
+						return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix response missing element"}
+					}
+					matrix[sourceIndex][destIndex] = result
+					cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
+						Origin:         points[sourceIndex],
+						Destination:    points[destIndex],
+						DistanceMeters: result.DistanceMeters,
+						DurationSecs:   result.DurationSecs,
+					})
 				}
-				matrix[originIndex][destIndex] = result
-				cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
-					Origin:         origin,
-					Destination:    points[destIndex],
-					DistanceMeters: result.DistanceMeters,
-					DurationSecs:   result.DurationSecs,
-				})
-			}
-			if err := c.cache.SetBatch(ctx, cacheEntries); err != nil {
-				return nil, err
 			}
 		}
+		destStart = destEnd
+	}
+
+	if err := c.cache.SetBatch(ctx, cacheEntries); err != nil {
+		return nil, err
 	}
 
 	return matrix, nil
@@ -220,6 +220,82 @@ func (c *googleCalculator) PrewarmCache(ctx context.Context, points []models.Coo
 type matrixIndex struct {
 	origin      int
 	destination int
+}
+
+func (c *googleCalculator) hydrateMatrixFromCache(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) (map[matrixIndex]struct{}, error) {
+	var cachePairs []struct{ Origin, Dest models.Coordinates }
+	var indexes []matrixIndex
+	for originIndex, origin := range points {
+		for destIndex, dest := range points {
+			if originIndex == destIndex || sameRoundedPoint(origin, dest) {
+				continue
+			}
+			cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: origin, Dest: dest})
+			indexes = append(indexes, matrixIndex{origin: originIndex, destination: destIndex})
+		}
+	}
+
+	cached, err := c.cache.GetBatch(ctx, cachePairs)
+	if err != nil {
+		return nil, err
+	}
+
+	missing := make(map[matrixIndex]struct{})
+	for i, pair := range cachePairs {
+		index := indexes[i]
+		entry := cached[googleCacheKey(pair.Origin, pair.Dest)]
+		if entry == nil {
+			missing[index] = struct{}{}
+			continue
+		}
+		matrix[index.origin][index.destination] = DistanceResult{
+			DistanceMeters: entry.DistanceMeters,
+			DurationSecs:   entry.DurationSecs,
+		}
+	}
+	return missing, nil
+}
+
+func collectGoogleMatrixBlock(originStart, originEnd, destStart, destEnd int, missingPairs map[matrixIndex]struct{}) ([]int, []int) {
+	sourceSeen := make(map[int]struct{}, originEnd-originStart)
+	destSeen := make(map[int]struct{}, destEnd-destStart)
+	var sourceIndexes []int
+	var destIndexes []int
+
+	for originIndex := originStart; originIndex < originEnd; originIndex++ {
+		for destIndex := destStart; destIndex < destEnd; destIndex++ {
+			if _, ok := missingPairs[matrixIndex{origin: originIndex, destination: destIndex}]; !ok {
+				continue
+			}
+			if _, ok := sourceSeen[originIndex]; !ok {
+				sourceSeen[originIndex] = struct{}{}
+				sourceIndexes = append(sourceIndexes, originIndex)
+			}
+			if _, ok := destSeen[destIndex]; !ok {
+				destSeen[destIndex] = struct{}{}
+				destIndexes = append(destIndexes, destIndex)
+			}
+		}
+	}
+
+	return sourceIndexes, destIndexes
+}
+
+func coordinatesForIndexes(points []models.Coordinates, indexes []int) []models.Coordinates {
+	coordinates := make([]models.Coordinates, len(indexes))
+	for i, index := range indexes {
+		coordinates[i] = points[index]
+	}
+	return coordinates
+}
+
+func googleCacheKey(origin, dest models.Coordinates) string {
+	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
+		models.RoundCoordinate(origin.Lat),
+		models.RoundCoordinate(origin.Lng),
+		models.RoundCoordinate(dest.Lat),
+		models.RoundCoordinate(dest.Lng),
+	)
 }
 
 func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destinations []models.Coordinates) (map[matrixIndex]DistanceResult, error) {
