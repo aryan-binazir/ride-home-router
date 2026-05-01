@@ -222,3 +222,82 @@ func TestHandleParticipantForm_RendersSelectedLabels(t *testing.T) {
 		t.Fatalf("expected selected label checkbox, body=%q", body)
 	}
 }
+
+func TestHandleUpdateParticipant_JSONOmittedLabelIDsPreservesLabels(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() error = %v", err)
+	}
+
+	body := `{"name":"Participant One Updated","address":"1 Rider Way"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateParticipant(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	labels, err := store.Labels().ListLabelsForParticipant(context.Background(), participant.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForParticipant() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("participant labels = %#v, want existing label preserved", labels)
+	}
+}
+
+func TestHandleUpdateDriver_JSONOmittedLabelIDsPreservesLabels(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "1 Driver Way",
+		Lat:             40.1,
+		Lng:             -73.9,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForDriver() error = %v", err)
+	}
+
+	body := `{"name":"Driver One Updated","address":"1 Driver Way","vehicle_capacity":4}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	labels, err := store.Labels().ListLabelsForDriver(context.Background(), driver.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForDriver() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("driver labels = %#v, want existing label preserved", labels)
+	}
+}
