@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -63,6 +64,44 @@ func TestHandleUpdateLabel_HTMXRejectsDuplicateName(t *testing.T) {
 	}
 	if !strings.Contains(rr.Header().Get("HX-Trigger"), messageDuplicateLabelName) {
 		t.Fatalf("expected duplicate label toast, HX-Trigger=%q", rr.Header().Get("HX-Trigger"))
+	}
+}
+
+func TestHandleUpdateLabel_JSONReturnsMembershipCounts(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Old"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/labels/"+int64ToString(label.ID), strings.NewReader(`{"name":"New"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateLabel(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var response models.Label
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Name != "New" || response.ParticipantCount != 1 {
+		t.Fatalf("response = %#v, want renamed label with participant count", response)
 	}
 }
 
@@ -299,5 +338,59 @@ func TestHandleUpdateDriver_JSONOmittedLabelIDsPreservesLabels(t *testing.T) {
 	}
 	if len(labels) != 1 || labels[0].ID != label.ID {
 		t.Fatalf("driver labels = %#v, want existing label preserved", labels)
+	}
+}
+
+func TestHandleUpdateParticipant_JSONInvalidLabelDoesNotMutateParticipant(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+
+	body := `{"name":"Changed","address":"1 Rider Way","label_ids":[9999]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateParticipant(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	unchanged, err := store.Participants().GetByID(context.Background(), participant.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if unchanged.Name != "Participant One" {
+		t.Fatalf("participant name = %q, want unchanged", unchanged.Name)
+	}
+}
+
+func TestHandleCreateDriver_JSONInvalidLabelDoesNotCreateDriver(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	body := `{"name":"Driver One","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[9999]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	drivers, err := store.Drivers().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(drivers) != 0 {
+		t.Fatalf("drivers = %#v, want none created", drivers)
 	}
 }

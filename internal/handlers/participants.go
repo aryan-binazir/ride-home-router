@@ -118,6 +118,15 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
+	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+		log.Printf("[HTTP] POST /api/v1/participants: invalid_labels err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			return
+		}
+		h.handleValidationError(w, messageInvalidLabelSelection)
+		return
+	}
 
 	log.Printf("[HTTP] POST /api/v1/participants: name=%s address=%s", req.Name, req.Address)
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
@@ -259,6 +268,17 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
+	}
+	if shouldSetLabels {
+		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_labels id=%d err=%v", id, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+				return
+			}
+			h.handleValidationError(w, messageInvalidLabelSelection)
+			return
+		}
 	}
 
 	participant := &models.Participant{

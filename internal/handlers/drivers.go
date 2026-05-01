@@ -134,6 +134,15 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
 		return
 	}
+	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+		log.Printf("[HTTP] POST /api/v1/drivers: invalid_labels err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			return
+		}
+		h.handleValidationError(w, messageInvalidLabelSelection)
+		return
+	}
 
 	log.Printf("[HTTP] POST /api/v1/drivers: name=%s address=%s capacity=%d", req.Name, req.Address, req.VehicleCapacity)
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
@@ -291,6 +300,17 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
 		return
+	}
+	if shouldSetLabels {
+		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_labels id=%d err=%v", id, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+				return
+			}
+			h.handleValidationError(w, messageInvalidLabelSelection)
+			return
+		}
 	}
 
 	driver := &models.Driver{
