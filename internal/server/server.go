@@ -82,7 +82,13 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	geocoder := geocoding.NewNominatimGeocoder()
-	distanceCalc := distance.NewOSRMCalculator(db.DistanceCache())
+	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), func() (string, error) {
+		config, err := database.LoadConfig()
+		if err != nil {
+			return "", err
+		}
+		return config.GoogleMapsAPIKey, nil
+	})
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := handlers.NewRouteSessionStore()
 
@@ -282,6 +288,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/open-url", requireMethod(http.MethodPost, handleOpenURL))
 	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
 	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
+	mux.HandleFunc("/api/v1/config/routing-provider", handleMethods(handler.HandleGetRoutingProviderConfig, nil, handler.HandleUpdateRoutingProviderConfig, nil))
 	mux.HandleFunc("/api/v1/participants", handleMethods(handler.HandleListParticipants, handler.HandleCreateParticipant, nil, nil))
 	mux.HandleFunc("/api/v1/participants/new", requireMethod(http.MethodGet, handler.HandleParticipantForm))
 	mux.HandleFunc("/api/v1/participants/", handleResourcePath("/api/v1/participants/", "/edit", handler.HandleParticipantForm, handler.HandleGetParticipant, handler.HandleUpdateParticipant, handler.HandleDeleteParticipant))

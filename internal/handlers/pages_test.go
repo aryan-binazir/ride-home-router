@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/sqlite"
 )
@@ -61,6 +63,145 @@ func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="/vans"`) {
 		t.Fatalf("expected Settings page to link to Vans page, body=%q", body)
+	}
+}
+
+func TestHandleSettingsPage_ShowsGoogleKeyStatusWithoutRenderingKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := database.SaveConfig(&database.AppConfig{
+		DatabasePath:     filepath.Join(home, "settings.db"),
+		GoogleMapsAPIKey: "secret-google-key",
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	handler, _ := newTestPageHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	rr := httptest.NewRecorder()
+
+	handler.HandleSettingsPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if strings.Contains(body, "secret-google-key") {
+		t.Fatalf("settings page leaked API key: body=%q", body)
+	}
+	if !strings.Contains(body, "Configured") {
+		t.Fatalf("expected configured status, body=%q", body)
+	}
+}
+
+func TestHandleUpdateRoutingProviderConfig_SavesKeyAndClearsDistanceCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	handler, store := newTestPageHandler(t)
+
+	if err := store.DistanceCache().Set(context.Background(), &models.DistanceCacheEntry{
+		Origin:         models.Coordinates{Lat: 35, Lng: -79},
+		Destination:    models.Coordinates{Lat: 36, Lng: -79},
+		DistanceMeters: 1000,
+		DurationSecs:   300,
+	}); err != nil {
+		t.Fatalf("seed distance cache: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("google_maps_api_key", "new-google-key")
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/routing-provider", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateRoutingProviderConfig(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	config, err := database.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if config.GoogleMapsAPIKey != "new-google-key" {
+		t.Fatalf("GoogleMapsAPIKey = %q, want saved key", config.GoogleMapsAPIKey)
+	}
+	cached, err := store.DistanceCache().Get(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, models.Coordinates{Lat: 36, Lng: -79})
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	if cached != nil {
+		t.Fatalf("distance cache entry still present after key save")
+	}
+}
+
+func TestHandleUpdateRoutingProviderConfig_EmptyKeyDoesNotOverwriteExistingKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := database.SaveConfig(&database.AppConfig{
+		DatabasePath:     filepath.Join(home, "settings.db"),
+		GoogleMapsAPIKey: "existing-key",
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	handler, _ := newTestPageHandler(t)
+
+	form := url.Values{}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/routing-provider", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateRoutingProviderConfig(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	config, err := database.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if config.GoogleMapsAPIKey != "existing-key" {
+		t.Fatalf("GoogleMapsAPIKey = %q, want existing key preserved", config.GoogleMapsAPIKey)
+	}
+}
+
+func TestHandleUpdateDatabaseConfig_PreservesGoogleKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := database.SaveConfig(&database.AppConfig{
+		DatabasePath:     filepath.Join(home, "old.db"),
+		GoogleMapsAPIKey: "existing-key",
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	handler, _ := newTestPageHandler(t)
+
+	newDBPath := filepath.Join(home, "new.db")
+	form := url.Values{}
+	form.Set("database_path", newDBPath)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/database", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateDatabaseConfig(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	config, err := database.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if config.DatabasePath != newDBPath {
+		t.Fatalf("DatabasePath = %q, want %q", config.DatabasePath, newDBPath)
+	}
+	if config.GoogleMapsAPIKey != "existing-key" {
+		t.Fatalf("GoogleMapsAPIKey = %q, want existing key preserved", config.GoogleMapsAPIKey)
 	}
 }
 

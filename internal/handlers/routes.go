@@ -3,12 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/routing"
 )
@@ -214,7 +216,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		log.Printf("[ERROR] Route calculation failed: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleRouteCalculationError(w, r, err)
 		return
 	}
 
@@ -382,7 +384,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 			))
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleRouteCalculationError(w, r, err)
 		return
 	}
 
@@ -399,4 +401,26 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 
 	h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
 	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
+}
+
+func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Request, err error) {
+	message := err.Error()
+	status := http.StatusServiceUnavailable
+	code := "DISTANCE_PROVIDER_FAILED"
+
+	if errors.Is(err, distance.ErrProviderNotConfigured) {
+		message = "Google Maps API key is not configured. Add it in Settings."
+		status = http.StatusBadRequest
+		code = "DISTANCE_PROVIDER_NOT_CONFIGURED"
+	}
+
+	if h.isHTMX(r) {
+		h.setHTMXToast(w, message, toastTypeError)
+		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
+		w.WriteHeader(status)
+		w.Write([]byte(`<div class="alert alert-warning">` + html.EscapeString(message) + `</div>`))
+		return
+	}
+
+	h.writeError(w, status, code, message, nil)
 }

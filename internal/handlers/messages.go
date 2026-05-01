@@ -30,6 +30,7 @@ const (
 	messageOrganizationVehicleNotFound                   = "Organization vehicle not found"
 	messageParticipantNotFound                           = "Participant not found"
 	messagePreferencesSaved                              = "Preferences saved!"
+	messageRoutingProviderConfigUpdated                  = "Google Maps API key saved. Distance cache cleared."
 	messageRoutesRequired                                = "Routes are required"
 	messageSessionNotFound                               = "Session not found"
 	messageSelectedActivityLocationNotFound              = "Selected activity location not found"

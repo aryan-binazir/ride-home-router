@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
@@ -23,6 +24,78 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, settings)
+}
+
+// HandleGetRoutingProviderConfig handles GET /api/v1/config/routing-provider
+func (h *Handler) HandleGetRoutingProviderConfig(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HTTP] GET /api/v1/config/routing-provider")
+
+	config, err := database.LoadConfig()
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, RoutingProviderConfigResponse{
+		GoogleMapsAPIKeyConfigured: config.GoogleMapsAPIKey != "",
+	})
+}
+
+// HandleUpdateRoutingProviderConfig handles PUT /api/v1/config/routing-provider
+func (h *Handler) HandleUpdateRoutingProviderConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		GoogleMapsAPIKey string `json:"google_maps_api_key"`
+	}
+
+	if h.isHTMX(r) {
+		if err := r.ParseForm(); err != nil {
+			h.setHTMXToast(w, err.Error(), toastTypeError)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		req.GoogleMapsAPIKey = r.FormValue("google_maps_api_key")
+	} else if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleValidationError(w, messageInvalidRequestBody)
+		return
+	}
+
+	config, err := database.LoadConfig()
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
+
+	trimmedKey := strings.TrimSpace(req.GoogleMapsAPIKey)
+	if trimmedKey != "" {
+		config.GoogleMapsAPIKey = trimmedKey
+		if err := h.DB.DistanceCache().Clear(r.Context()); err != nil {
+			h.handleInternalError(w, err)
+			return
+		}
+	}
+
+	if err := database.SaveConfig(config); err != nil {
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, err.Error(), toastTypeError)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Updated routing provider config: google_maps_api_key_configured=%t cache_cleared=%t", config.GoogleMapsAPIKey != "", trimmedKey != "")
+
+	if h.isHTMX(r) {
+		h.setHTMXToast(w, messageRoutingProviderConfigUpdated, toastTypeSuccess)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, RoutingProviderConfigResponse{
+		GoogleMapsAPIKeyConfigured: config.GoogleMapsAPIKey != "",
+		Message:                    messageRoutingProviderConfigUpdated,
+	})
 }
 
 // HandleUpdateSettings handles PUT /api/v1/settings
@@ -221,10 +294,13 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Save config
-	config := &database.AppConfig{
-		DatabasePath: req.DatabasePath,
+	config, err := database.LoadConfig()
+	if err != nil {
+		log.Printf("[ERROR] Failed to load config before database update: err=%v", err)
+		h.handleInternalError(w, err)
+		return
 	}
+	config.DatabasePath = req.DatabasePath
 
 	if err := database.SaveConfig(config); err != nil {
 		log.Printf("[ERROR] Failed to save config: err=%v", err)

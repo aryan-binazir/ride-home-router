@@ -41,6 +41,39 @@
 </div>
 
 <div class="card">
+    <h3>Routing Provider</h3>
+    <p class="text-muted">Google Routes is used for route distance and duration calculations.</p>
+
+    <form id="routing-provider-form"
+          hx-put="/api/v1/config/routing-provider"
+          hx-swap="none"
+          hx-indicator="#routing-provider-loading">
+        <div class="form-group">
+            <label class="form-label">Google Maps API Key</label>
+            <input type="password"
+                   name="google_maps_api_key"
+                   id="google-maps-api-key-input"
+                   class="form-input"
+                   autocomplete="off"
+                   placeholder="{{if .RoutingProviderConfig.GoogleMapsAPIKeyConfigured}}Key configured{{else}}Paste API key{{end}}">
+            <div class="form-help">
+                Status:
+                <strong id="google-maps-key-status">{{if .RoutingProviderConfig.GoogleMapsAPIKeyConfigured}}Configured{{else}}Not configured{{end}}</strong>
+                <br>
+                <small>Saving a new key clears cached distances.</small>
+            </div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">
+                Save API Key
+            </button>
+            <span class="loading htmx-indicator" id="routing-provider-loading"></span>
+        </div>
+    </form>
+</div>
+
+<div class="card">
     <h3>Database Storage</h3>
     <p class="text-muted">Configure where your data is stored. You can point this to a cloud-synced folder (like Dropbox or iCloud) for automatic backups.</p>
 
