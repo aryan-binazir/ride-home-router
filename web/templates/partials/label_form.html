@@ -1,0 +1,40 @@
+{{define "label_form"}}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">{{if .Label.ID}}Edit{{else}}Add New{{end}} Label</h3>
+        <button class="btn btn-sm btn-outline"
+                onclick="document.getElementById('label-form-container').innerHTML = ''">
+            Cancel
+        </button>
+    </div>
+
+    <form {{if .Label.ID}}
+            hx-put="/api/v1/labels/{{.Label.ID}}"
+          {{else}}
+            hx-post="/api/v1/labels"
+          {{end}}
+          hx-target="#labels-list"
+          hx-swap="innerHTML"
+          hx-indicator="#label-form-loading"
+          hx-on::after-request="if(event.detail.successful && event.detail.elt === this) document.getElementById('label-form-container').innerHTML = ''">
+
+        <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text"
+                   name="name"
+                   class="form-input"
+                   value="{{.Label.Name}}"
+                   placeholder="Label name"
+                   required>
+            <div class="form-help">Examples: Youth Conference, Summer Camp, Kinston Riders</div>
+        </div>
+
+        <div class="d-flex align-center gap-2">
+            <button type="submit" class="btn btn-primary">
+                {{if .Label.ID}}Update{{else}}Add{{end}} Label
+            </button>
+            <span class="loading htmx-indicator" id="label-form-loading"></span>
+        </div>
+    </form>
+</div>
+{{end}}
