@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	DefaultDBFileName = "data.db"
-	schemaVersion     = 3
-	sqliteCacheSizeKB = -64000 // 64MB cache (negative = KiB)
+	DefaultDBFileName   = "data.db"
+	schemaVersion       = 4
+	sqliteCacheSizeKB   = -64000 // 64MB cache (negative = KiB)
 	sqliteBusyTimeoutMS = 5000
 )
 
@@ -34,6 +34,7 @@ type Store struct {
 	organizationVehicleRepo database.OrganizationVehicleRepository
 	eventRepo               database.EventRepository
 	distanceCacheRepo       database.DistanceCacheRepository
+	labelRepo               database.LabelRepository
 }
 
 // New creates a new SQLite store at the specified path
@@ -86,6 +87,7 @@ func New(dbPath string) (*Store, error) {
 	store.organizationVehicleRepo = &organizationVehicleRepository{store: store}
 	store.eventRepo = &eventRepository{store: store}
 	store.distanceCacheRepo = &distanceCacheRepository{store: store}
+	store.labelRepo = &labelRepository{store: store}
 
 	return store, nil
 }
@@ -118,7 +120,7 @@ func (s *Store) createSchema() error {
 	CREATE TABLE IF NOT EXISTS schema_version (
 		version INTEGER PRIMARY KEY
 	);
-	INSERT INTO schema_version (version) VALUES (3);
+	INSERT INTO schema_version (version) VALUES (4);
 
 	-- Activity locations
 	CREATE TABLE IF NOT EXISTS activity_locations (
@@ -159,6 +161,30 @@ func (s *Store) createSchema() error {
 		capacity INTEGER NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Labels
+	CREATE TABLE IF NOT EXISTS labels (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS participant_labels (
+		label_id INTEGER NOT NULL,
+		participant_id INTEGER NOT NULL,
+		PRIMARY KEY (label_id, participant_id),
+		FOREIGN KEY (label_id) REFERENCES labels(id) ON DELETE CASCADE,
+		FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS driver_labels (
+		label_id INTEGER NOT NULL,
+		driver_id INTEGER NOT NULL,
+		PRIMARY KEY (label_id, driver_id),
+		FOREIGN KEY (label_id) REFERENCES labels(id) ON DELETE CASCADE,
+		FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 	);
 
 	-- Settings (single row table)
@@ -242,6 +268,9 @@ func (s *Store) createSchema() error {
 	-- Indexes for common queries
 	CREATE INDEX IF NOT EXISTS idx_participants_name ON participants(name);
 	CREATE INDEX IF NOT EXISTS idx_drivers_name ON drivers(name);
+	CREATE INDEX IF NOT EXISTS idx_labels_name ON labels(name);
+	CREATE INDEX IF NOT EXISTS idx_participant_labels_participant ON participant_labels(participant_id);
+	CREATE INDEX IF NOT EXISTS idx_driver_labels_driver ON driver_labels(driver_id);
 	CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date DESC);
 	CREATE INDEX IF NOT EXISTS idx_event_routes_event ON event_routes(event_id);
 	CREATE INDEX IF NOT EXISTS idx_event_route_stops_route ON event_route_stops(event_route_id);
@@ -360,6 +389,39 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 		if err := backfillLegacyEventHistory(tx); err != nil {
 			return err
+		}
+	}
+
+	if fromVersion < 4 {
+		if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS labels (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+
+			CREATE TABLE IF NOT EXISTS participant_labels (
+				label_id INTEGER NOT NULL,
+				participant_id INTEGER NOT NULL,
+				PRIMARY KEY (label_id, participant_id),
+				FOREIGN KEY (label_id) REFERENCES labels(id) ON DELETE CASCADE,
+				FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+			);
+
+			CREATE TABLE IF NOT EXISTS driver_labels (
+				label_id INTEGER NOT NULL,
+				driver_id INTEGER NOT NULL,
+				PRIMARY KEY (label_id, driver_id),
+				FOREIGN KEY (label_id) REFERENCES labels(id) ON DELETE CASCADE,
+				FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_labels_name ON labels(name);
+			CREATE INDEX IF NOT EXISTS idx_participant_labels_participant ON participant_labels(participant_id);
+			CREATE INDEX IF NOT EXISTS idx_driver_labels_driver ON driver_labels(driver_id);
+		`); err != nil {
+			return fmt.Errorf("failed to create v4 label tables: %w", err)
 		}
 	}
 
@@ -771,3 +833,4 @@ func (s *Store) OrganizationVehicles() database.OrganizationVehicleRepository {
 }
 func (s *Store) Events() database.EventRepository                { return s.eventRepo }
 func (s *Store) DistanceCache() database.DistanceCacheRepository { return s.distanceCacheRepo }
+func (s *Store) Labels() database.LabelRepository                { return s.labelRepo }

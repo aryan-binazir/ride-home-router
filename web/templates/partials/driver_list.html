@@ -3,6 +3,12 @@
 <table>
     <thead>
         <tr>
+            <th style="width: 42px;">
+                <input type="checkbox"
+                       class="form-checkbox"
+                       aria-label="Select all visible drivers"
+                       onclick="selectVisibleTableRows('drivers-tbody', this.checked)">
+            </th>
             <th>Name</th>
             <th>Address</th>
             <th><abbr title="Available Capacity">Capacity</abbr></th>
@@ -12,7 +18,7 @@
     </thead>
     <tbody id="drivers-tbody">
         {{range .Drivers}}
-        {{template "driver_row" .}}
+        {{template "driver_row" dict "Driver" . "LabelIDs" (labelIDsFor $.LabelIDs .ID)}}
         {{end}}
     </tbody>
 </table>

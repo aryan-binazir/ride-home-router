@@ -35,7 +35,12 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "driver_list", DriverListView{Drivers: drivers})
+		view, err := h.driverListView(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", view)
 		return
 	}
 
@@ -75,10 +80,12 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 // HandleCreateDriver handles POST /api/v1/drivers
 func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name            string `json:"name"`
-		Address         string `json:"address"`
-		VehicleCapacity int    `json:"vehicle_capacity"`
+		Name            string  `json:"name"`
+		Address         string  `json:"address"`
+		VehicleCapacity int     `json:"vehicle_capacity"`
+		LabelIDs        []int64 `json:"label_ids"`
 	}
+	var labelIDs []int64
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
@@ -96,11 +103,18 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			}
 			req.VehicleCapacity = capacity
 		}
+		parsedLabelIDs, err := parseLabelIDs(r)
+		if err != nil {
+			h.renderError(w, r, errors.New("Invalid label selection"))
+			return
+		}
+		labelIDs = parsedLabelIDs
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
+		labelIDs = req.LabelIDs
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -118,6 +132,15 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
+		return
+	}
+	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+		log.Printf("[HTTP] POST /api/v1/drivers: invalid_labels err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			return
+		}
+		h.handleValidationError(w, messageInvalidLabelSelection)
 		return
 	}
 
@@ -153,6 +176,15 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, driver.Name)
+	if err := h.DB.Labels().SetLabelsForDriver(r.Context(), driver.ID, labelIDs); err != nil {
+		log.Printf("[ERROR] Failed to set driver labels: id=%d err=%v", driver.ID, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
@@ -161,7 +193,12 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.setHTMXToastWithEvent(w, "driverCreated", messageEntityAdded("Driver", driver.Name), toastTypeSuccess)
-		h.renderTemplate(w, "driver_list", DriverListView{Drivers: drivers})
+		view, err := h.driverListView(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", view)
 		return
 	}
 
@@ -205,10 +242,13 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name            string `json:"name"`
-		Address         string `json:"address"`
-		VehicleCapacity int    `json:"vehicle_capacity"`
+		Name            string   `json:"name"`
+		Address         string   `json:"address"`
+		VehicleCapacity int      `json:"vehicle_capacity"`
+		LabelIDs        *[]int64 `json:"label_ids"`
 	}
+	var labelIDs []int64
+	shouldSetLabels := false
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
@@ -226,10 +266,21 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			}
 			req.VehicleCapacity = capacity
 		}
+		parsedLabelIDs, err := parseLabelIDs(r)
+		if err != nil {
+			h.renderError(w, r, errors.New("Invalid label selection"))
+			return
+		}
+		labelIDs = parsedLabelIDs
+		shouldSetLabels = true
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
+		}
+		if req.LabelIDs != nil {
+			labelIDs = *req.LabelIDs
+			shouldSetLabels = true
 		}
 	}
 
@@ -249,6 +300,17 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
 		return
+	}
+	if shouldSetLabels {
+		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_labels id=%d err=%v", id, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+				return
+			}
+			h.handleValidationError(w, messageInvalidLabelSelection)
+			return
+		}
 	}
 
 	driver := &models.Driver{
@@ -297,6 +359,17 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, driver.Name)
+	if shouldSetLabels {
+		if err := h.DB.Labels().SetLabelsForDriver(r.Context(), driver.ID, labelIDs); err != nil {
+			log.Printf("[ERROR] Failed to set driver labels: id=%d err=%v", driver.ID, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, err)
+				return
+			}
+			h.handleInternalError(w, err)
+			return
+		}
+	}
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
@@ -305,7 +378,12 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.setHTMXToastWithEvent(w, "driverUpdated", messageEntityUpdated("Driver", driver.Name), toastTypeSuccess)
-		h.renderTemplate(w, "driver_list", DriverListView{Drivers: drivers})
+		view, err := h.driverListView(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_list", view)
 		return
 	}
 
@@ -363,6 +441,11 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	idStr = strings.TrimSuffix(idStr, "/edit")
 
 	var driver *models.Driver
+	var (
+		labels           []models.Label
+		selectedLabelIDs map[int64]bool
+		err              error
+	)
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -379,9 +462,52 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, errors.New(messageDriverNotFound))
 			return
 		}
+		labels, selectedLabelIDs, err = h.loadLabelsForDriver(r, driver.ID)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
 	} else {
 		driver = &models.Driver{}
+		labels, err = h.DB.Labels().List(r.Context())
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		selectedLabelIDs = map[int64]bool{}
 	}
 
-	h.renderTemplate(w, "driver_form", DriverFormView{Driver: driver})
+	h.renderTemplate(w, "driver_form", DriverFormView{
+		Driver:           driver,
+		Labels:           labels,
+		SelectedLabelIDs: selectedLabelIDs,
+	})
+}
+
+func (h *Handler) driverListView(r *http.Request, drivers []models.Driver) (DriverListView, error) {
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		return DriverListView{}, err
+	}
+	labelIDs, err := h.DB.Labels().ListLabelIDsForDrivers(r.Context())
+	if err != nil {
+		return DriverListView{}, err
+	}
+	return DriverListView{
+		Drivers:  drivers,
+		Labels:   labels,
+		LabelIDs: labelIDs,
+	}, nil
+}
+
+func (h *Handler) loadLabelsForDriver(r *http.Request, driverID int64) ([]models.Label, map[int64]bool, error) {
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		return nil, nil, err
+	}
+	selectedLabels, err := h.DB.Labels().ListLabelsForDriver(r.Context(), driverID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return labels, buildSelectedLabelIDMap(selectedLabels), nil
 }

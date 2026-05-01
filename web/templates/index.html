@@ -92,11 +92,31 @@
             </div>
 
             {{if .Participants}}
-            <div class="panel-toolbar">
+            <div class="panel-toolbar panel-toolbar-stack">
+                {{if .Labels}}
+                <div class="filter-chip-toolbar">
+                    <div class="filter-chip-list" id="participants-label-filters">
+                        {{range .Labels}}
+                        <button type="button"
+                                class="filter-chip label-filter-chip"
+                                data-list-id="participants-selection"
+                                data-label-id="{{.ID}}"
+                                aria-pressed="false"
+                                onclick="toggleLabelFilter(this)">
+                            {{.Name}}
+                        </button>
+                        {{end}}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="clearPlannerFilters('participants-selection')">Clear filters</button>
+                </div>
+                {{end}}
                 <input type="search"
+                       id="participants-search"
                        class="form-input form-input-search"
                        placeholder="Search participants…"
                        aria-label="Search participants"
+                       data-filter-role="search"
+                       data-list-id="participants-selection"
                        oninput="filterSelectList(this, 'participants-selection')">
                 <span class="panel-count text-muted">
                     <span id="participants-selected-count">0</span> selected
@@ -105,7 +125,9 @@
 
             <div class="select-list" id="participants-selection">
                 {{range .Participants}}
-                <label class="select-row" data-search="{{.Name}} {{.Address}}">
+                <label class="select-row"
+                       data-search="{{.Name}} {{.Address}}"
+                       data-labels="{{labelIDsFor $.ParticipantLabels .ID}}">
                     <input type="checkbox"
                            name="participant_ids"
                            value="{{.ID}}"
@@ -137,11 +159,31 @@
             </div>
 
             {{if .Drivers}}
-            <div class="panel-toolbar">
+            <div class="panel-toolbar panel-toolbar-stack">
+                {{if .Labels}}
+                <div class="filter-chip-toolbar">
+                    <div class="filter-chip-list" id="drivers-label-filters">
+                        {{range .Labels}}
+                        <button type="button"
+                                class="filter-chip label-filter-chip"
+                                data-list-id="drivers-selection"
+                                data-label-id="{{.ID}}"
+                                aria-pressed="false"
+                                onclick="toggleLabelFilter(this)">
+                            {{.Name}}
+                        </button>
+                        {{end}}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="clearPlannerFilters('drivers-selection')">Clear filters</button>
+                </div>
+                {{end}}
                 <input type="search"
+                       id="drivers-search"
                        class="form-input form-input-search"
                        placeholder="Search drivers…"
                        aria-label="Search drivers"
+                       data-filter-role="search"
+                       data-list-id="drivers-selection"
                        oninput="filterSelectList(this, 'drivers-selection')">
                 <span class="panel-count text-muted">
                     <span id="drivers-selected-count">0</span> selected •
@@ -151,7 +193,9 @@
 
             <div class="select-list" id="drivers-selection">
                 {{range .Drivers}}
-                <label class="select-row" data-search="{{.Name}} {{.Address}}">
+                <label class="select-row"
+                       data-search="{{.Name}} {{.Address}}"
+                       data-labels="{{labelIDsFor $.DriverLabels .ID}}">
                     <input type="checkbox"
                            name="driver_ids"
                            value="{{.ID}}"
@@ -316,6 +360,7 @@
             mode: selectedMode ? selectedMode.value : 'dropoff',
             routeTime: routeTime ? routeTime.value : '',
             vanAssignments: getVanAssignments(),
+            labelFilters: getPlannerLabelFilters(),
         };
 
         try {
@@ -370,6 +415,9 @@
 
             applyCheckedValues('.participant-checkbox', draft.participantIds);
             applyCheckedValues('.driver-checkbox', draft.driverIds);
+            applyPlannerLabelFilters(draft.labelFilters);
+            recomputeSelectListVisibility('participants-selection');
+            recomputeSelectListVisibility('drivers-selection');
 
             renderVanAssignmentsPanel();
 
@@ -573,23 +621,85 @@
         }
     }
 
-    function filterSelectList(input, listId) {
+    function getActiveLabelFilters(listId) {
+        return Array.from(document.querySelectorAll(`.label-filter-chip[data-list-id="${listId}"].is-active`))
+            .map(button => button.dataset.labelId);
+    }
+
+    function getPlannerLabelFilters() {
+        return {
+            participants: getActiveLabelFilters('participants-selection'),
+            drivers: getActiveLabelFilters('drivers-selection'),
+        };
+    }
+
+    function applyPlannerLabelFilters(filters) {
+        const participantFilters = Array.isArray(filters && filters.participants) ? filters.participants.map(String) : [];
+        const driverFilters = Array.isArray(filters && filters.drivers) ? filters.drivers.map(String) : [];
+
+        setActiveLabelFilters('participants-selection', participantFilters);
+        setActiveLabelFilters('drivers-selection', driverFilters);
+    }
+
+    function setActiveLabelFilters(listId, activeIDs) {
+        const active = new Set(activeIDs || []);
+        document.querySelectorAll(`.label-filter-chip[data-list-id="${listId}"]`).forEach(button => {
+            const isActive = active.has(String(button.dataset.labelId));
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    function recomputeSelectListVisibility(listId) {
         const list = document.getElementById(listId);
         if (!list) return;
 
-        const query = (input.value || '').trim().toLowerCase();
+        const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
+        const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+        const activeLabels = new Set(getActiveLabelFilters(listId));
         const rows = list.querySelectorAll('.select-row');
 
         rows.forEach(row => {
             const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
-            row.classList.toggle('hidden', query.length > 0 && !haystack.includes(query));
+            const matchesSearch = query.length === 0 || haystack.includes(query);
+            const rowLabels = (row.dataset.labels || '').trim();
+            const labelIDs = rowLabels ? rowLabels.split(',').filter(Boolean) : [];
+            const matchesLabels = activeLabels.size === 0 || labelIDs.some(id => activeLabels.has(id));
+            row.classList.toggle('hidden', !(matchesSearch && matchesLabels));
         });
+    }
+
+    function filterSelectList(input, listId) {
+        recomputeSelectListVisibility(listId);
+        saveEventPlannerDraft();
+    }
+
+    function toggleLabelFilter(button) {
+        const isActive = !button.classList.contains('is-active');
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        recomputeSelectListVisibility(button.dataset.listId);
+        saveEventPlannerDraft();
+    }
+
+    function clearPlannerFilters(listId) {
+        setActiveLabelFilters(listId, []);
+        const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
+        if (searchInput) searchInput.value = '';
+        recomputeSelectListVisibility(listId);
+        saveEventPlannerDraft();
+    }
+
+    function clearAllPlannerFilters() {
+        clearPlannerFilters('participants-selection');
+        clearPlannerFilters('drivers-selection');
     }
 
     function selectAllParticipants() {
         document.querySelectorAll('.participant-checkbox').forEach(cb => {
-            cb.checked = true;
             const row = cb.closest('.select-row');
+            if (row && row.classList.contains('hidden')) return;
+            cb.checked = true;
             if (row) row.classList.add('is-selected');
         });
         updateEventStats();
@@ -598,8 +708,9 @@
 
     function selectAllDrivers() {
         document.querySelectorAll('.driver-checkbox').forEach(cb => {
-            cb.checked = true;
             const row = cb.closest('.select-row');
+            if (row && row.classList.contains('hidden')) return;
+            cb.checked = true;
             if (row) row.classList.add('is-selected');
         });
         renderVanAssignmentsPanel();
@@ -615,6 +726,14 @@
             if (row) row.classList.remove('is-selected');
         });
         if (form) {
+            setActiveLabelFilters('participants-selection', []);
+            setActiveLabelFilters('drivers-selection', []);
+            form.querySelectorAll('input[data-filter-role="search"]').forEach(input => {
+                input.value = '';
+            });
+            recomputeSelectListVisibility('participants-selection');
+            recomputeSelectListVisibility('drivers-selection');
+
             const activityLocation = form.querySelector('select[name="activity_location_id"]');
             if (activityLocation) {
                 activityLocation.value = '';

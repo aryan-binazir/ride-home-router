@@ -35,7 +35,12 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 
 	log.Printf("[HTTP] Listed participants: count=%d", len(participants))
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "participant_list", ParticipantListView{Participants: participants})
+		view, err := h.participantListView(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", view)
 		return
 	}
 
@@ -75,9 +80,11 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 // HandleCreateParticipant handles POST /api/v1/participants
 func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name    string `json:"name"`
-		Address string `json:"address"`
+		Name     string  `json:"name"`
+		Address  string  `json:"address"`
+		LabelIDs []int64 `json:"label_ids"`
 	}
+	var labelIDs []int64
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
@@ -87,12 +94,19 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		parsedLabelIDs, err := parseLabelIDs(r)
+		if err != nil {
+			h.renderError(w, r, errors.New("Invalid label selection"))
+			return
+		}
+		labelIDs = parsedLabelIDs
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
+		labelIDs = req.LabelIDs
 	}
 
 	if req.Name == "" || req.Address == "" {
@@ -102,6 +116,15 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
+		return
+	}
+	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+		log.Printf("[HTTP] POST /api/v1/participants: invalid_labels err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			return
+		}
+		h.handleValidationError(w, messageInvalidLabelSelection)
 		return
 	}
 
@@ -137,6 +160,11 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Created participant: id=%d name=%s", participant.ID, participant.Name)
 	if h.isHTMX(r) {
+		if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
+			log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
+			h.renderError(w, r, err)
+			return
+		}
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after create: err=%v", err)
@@ -144,7 +172,17 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.setHTMXToastWithEvent(w, "participantCreated", messageEntityAdded("Participant", participant.Name), toastTypeSuccess)
-		h.renderTemplate(w, "participant_list", ParticipantListView{Participants: participants})
+		view, err := h.participantListView(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", view)
+		return
+	}
+	if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
+		log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
+		h.handleInternalError(w, err)
 		return
 	}
 
@@ -191,9 +229,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Name    string `json:"name"`
-		Address string `json:"address"`
+		Name     string   `json:"name"`
+		Address  string   `json:"address"`
+		LabelIDs *[]int64 `json:"label_ids"`
 	}
+	var labelIDs []int64
+	shouldSetLabels := false
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
@@ -202,10 +243,21 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		parsedLabelIDs, err := parseLabelIDs(r)
+		if err != nil {
+			h.renderError(w, r, errors.New("Invalid label selection"))
+			return
+		}
+		labelIDs = parsedLabelIDs
+		shouldSetLabels = true
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
+		}
+		if req.LabelIDs != nil {
+			labelIDs = *req.LabelIDs
+			shouldSetLabels = true
 		}
 	}
 
@@ -216,6 +268,17 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
+	}
+	if shouldSetLabels {
+		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
+			log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_labels id=%d err=%v", id, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+				return
+			}
+			h.handleValidationError(w, messageInvalidLabelSelection)
+			return
+		}
 	}
 
 	participant := &models.Participant{
@@ -263,6 +326,17 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Printf("[HTTP] Updated participant: id=%d name=%s", participant.ID, participant.Name)
+	if shouldSetLabels {
+		if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
+			log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
+			if h.isHTMX(r) {
+				h.renderError(w, r, err)
+				return
+			}
+			h.handleInternalError(w, err)
+			return
+		}
+	}
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
@@ -271,7 +345,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.setHTMXToastWithEvent(w, "participantUpdated", messageEntityUpdated("Participant", participant.Name), toastTypeSuccess)
-		h.renderTemplate(w, "participant_list", ParticipantListView{Participants: participants})
+		view, err := h.participantListView(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_list", view)
 		return
 	}
 
@@ -329,6 +408,11 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 	idStr = strings.TrimSuffix(idStr, "/edit")
 
 	var participant *models.Participant
+	var (
+		labels           []models.Label
+		selectedLabelIDs map[int64]bool
+		err              error
+	)
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -345,9 +429,52 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 			h.renderError(w, r, errors.New(messageParticipantNotFound))
 			return
 		}
+		labels, selectedLabelIDs, err = h.loadLabelsForParticipant(r, participant.ID)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
 	} else {
 		participant = &models.Participant{}
+		labels, err = h.DB.Labels().List(r.Context())
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		selectedLabelIDs = map[int64]bool{}
 	}
 
-	h.renderTemplate(w, "participant_form", ParticipantFormView{Participant: participant})
+	h.renderTemplate(w, "participant_form", ParticipantFormView{
+		Participant:      participant,
+		Labels:           labels,
+		SelectedLabelIDs: selectedLabelIDs,
+	})
+}
+
+func (h *Handler) participantListView(r *http.Request, participants []models.Participant) (ParticipantListView, error) {
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		return ParticipantListView{}, err
+	}
+	labelIDs, err := h.DB.Labels().ListLabelIDsForParticipants(r.Context())
+	if err != nil {
+		return ParticipantListView{}, err
+	}
+	return ParticipantListView{
+		Participants: participants,
+		Labels:       labels,
+		LabelIDs:     labelIDs,
+	}, nil
+}
+
+func (h *Handler) loadLabelsForParticipant(r *http.Request, participantID int64) ([]models.Label, map[int64]bool, error) {
+	labels, err := h.DB.Labels().List(r.Context())
+	if err != nil {
+		return nil, nil, err
+	}
+	selectedLabels, err := h.DB.Labels().ListLabelsForParticipant(r.Context(), participantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return labels, buildSelectedLabelIDMap(selectedLabels), nil
 }

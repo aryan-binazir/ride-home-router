@@ -19,6 +19,61 @@ function filterTable(input, tbodyId) {
   });
 }
 
+function updateBulkSelectionCount(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  const count = tbody.querySelectorAll('input[data-bulk-row]:checked').length;
+  const countEl = document.getElementById(tbodyId.replace('-tbody', '-bulk-selected-count'));
+  if (countEl) countEl.textContent = String(count);
+}
+
+function selectVisibleTableRows(tbodyId, shouldSelect) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  tbody.querySelectorAll('tr[data-search]').forEach(row => {
+    if (row.classList.contains('hidden')) return;
+
+    const checkbox = row.querySelector('input[data-bulk-row]');
+    if (checkbox) checkbox.checked = !!shouldSelect;
+  });
+
+  updateBulkSelectionCount(tbodyId);
+}
+
+function clearTableSelection(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  tbody.querySelectorAll('input[data-bulk-row]').forEach(checkbox => {
+    checkbox.checked = false;
+  });
+
+  updateBulkSelectionCount(tbodyId);
+}
+
+document.body.addEventListener('htmx:afterSwap', event => {
+  const targetId = event.target && event.target.id;
+  if (targetId === 'participants-list') {
+    updateBulkSelectionCount('participants-tbody');
+  }
+  if (targetId === 'drivers-list') {
+    updateBulkSelectionCount('drivers-tbody');
+  }
+});
+
+function toggleBulkDropdown(button) {
+  const wrapper = button.closest('.btn-dropdown');
+  if (!wrapper) return;
+
+  document.querySelectorAll('.btn-dropdown.is-open').forEach(dropdown => {
+    if (dropdown !== wrapper) dropdown.classList.remove('is-open');
+  });
+
+  wrapper.classList.toggle('is-open');
+}
+
 /**
  * Toggle event detail expansion in history view.
  * @param {HTMLElement} eventItem - The event item element
@@ -370,6 +425,12 @@ function toggleEventDetail(eventItem, eventId) {
     document.querySelectorAll(".ui-select.is-open").forEach((container) => {
       if (container !== clickedSelect) closeSelect(container);
     });
+
+    if (!e.target.closest(".btn-dropdown")) {
+      document.querySelectorAll(".btn-dropdown.is-open").forEach((dropdown) => {
+        dropdown.classList.remove("is-open");
+      });
+    }
   });
 
   function initAddressAutocomplete() {
@@ -425,6 +486,12 @@ function toggleEventDetail(eventItem, eventId) {
     initAll(e.target);
     initSettingsValidation();
     initAddressAutocomplete();
+  });
+
+  document.addEventListener("htmx:beforeRequest", () => {
+    document.querySelectorAll(".btn-dropdown.is-open").forEach((dropdown) => {
+      dropdown.classList.remove("is-open");
+    });
   });
 
   document.addEventListener("htmx:confirm", (e) => {

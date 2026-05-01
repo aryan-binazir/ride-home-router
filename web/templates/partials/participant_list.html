@@ -3,6 +3,12 @@
 <table>
     <thead>
         <tr>
+            <th style="width: 42px;">
+                <input type="checkbox"
+                       class="form-checkbox"
+                       aria-label="Select all visible participants"
+                       onclick="selectVisibleTableRows('participants-tbody', this.checked)">
+            </th>
             <th>Name</th>
             <th>Address</th>
             <th>Coordinates</th>
@@ -11,7 +17,7 @@
     </thead>
     <tbody id="participants-tbody">
         {{range .Participants}}
-        {{template "participant_row" .}}
+        {{template "participant_row" dict "Participant" . "LabelIDs" (labelIDsFor $.LabelIDs .ID)}}
         {{end}}
     </tbody>
 </table>
