@@ -53,6 +53,16 @@ function clearTableSelection(tbodyId) {
   updateBulkSelectionCount(tbodyId);
 }
 
+document.body.addEventListener('htmx:afterSwap', event => {
+  const targetId = event.target && event.target.id;
+  if (targetId === 'participants-list') {
+    updateBulkSelectionCount('participants-tbody');
+  }
+  if (targetId === 'drivers-list') {
+    updateBulkSelectionCount('drivers-tbody');
+  }
+});
+
 function toggleBulkDropdown(button) {
   const wrapper = button.closest('.btn-dropdown');
   if (!wrapper) return;

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -171,6 +172,14 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	updated, err := h.DB.Labels().GetByID(r.Context(), id)
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
+	if updated != nil {
+		label = updated
+	}
 	h.writeJSON(w, http.StatusOK, label)
 }
 
@@ -419,6 +428,28 @@ func parseInt64FormValues(r *http.Request, fieldName string) ([]int64, error) {
 
 func parseLabelIDs(r *http.Request) ([]int64, error) {
 	return parseInt64FormValues(r, "label_ids")
+}
+
+func (h *Handler) validateLabelIDs(ctx context.Context, labelIDs []int64) error {
+	seen := make(map[int64]struct{}, len(labelIDs))
+	for _, labelID := range labelIDs {
+		if labelID <= 0 {
+			return errors.New(messageInvalidLabelSelection)
+		}
+		if _, ok := seen[labelID]; ok {
+			continue
+		}
+		seen[labelID] = struct{}{}
+
+		label, err := h.DB.Labels().GetByID(ctx, labelID)
+		if err != nil {
+			return err
+		}
+		if label == nil {
+			return errors.New(messageInvalidLabelSelection)
+		}
+	}
+	return nil
 }
 
 func buildSelectedLabelIDMap(labels []models.Label) map[int64]bool {
