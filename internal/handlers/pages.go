@@ -139,6 +139,9 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 			DefaultPath:  defaultDBPath,
 			IsDefault:    dbConfig.DatabasePath == defaultDBPath,
 		},
+		RoutingProviderConfig: RoutingProviderConfigView{
+			GoogleMapsAPIKeyConfigured: dbConfig.GoogleMapsAPIKey != "",
+		},
 	})
 }
 

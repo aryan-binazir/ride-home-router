@@ -53,10 +53,15 @@ type DatabaseConfigView struct {
 	IsDefault    bool
 }
 
+type RoutingProviderConfigView struct {
+	GoogleMapsAPIKeyConfigured bool
+}
+
 type SettingsPageView struct {
 	BasePageView
-	Settings       *models.Settings
-	DatabaseConfig DatabaseConfigView
+	Settings              *models.Settings
+	DatabaseConfig        DatabaseConfigView
+	RoutingProviderConfig RoutingProviderConfigView
 }
 
 type HistoryPageView struct {
@@ -146,4 +151,9 @@ type RouteCalculationResponse struct {
 type DatabasePathUpdateResponse struct {
 	DatabasePath string `json:"database_path"`
 	Message      string `json:"message"`
+}
+
+type RoutingProviderConfigResponse struct {
+	GoogleMapsAPIKeyConfigured bool   `json:"google_maps_api_key_configured"`
+	Message                    string `json:"message,omitempty"`
 }

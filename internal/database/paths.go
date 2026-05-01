@@ -49,7 +49,8 @@ func GetConfigFilePath() (string, error) {
 
 // AppConfig stores application configuration
 type AppConfig struct {
-	DatabasePath string `json:"database_path"`
+	DatabasePath     string `json:"database_path"`
+	GoogleMapsAPIKey string `json:"google_maps_api_key,omitempty"`
 }
 
 // LoadConfig loads the application config, returning defaults if not found
@@ -107,6 +108,6 @@ func SaveConfig(config *AppConfig) error {
 		return fmt.Errorf("failed to rename config file: %w", err)
 	}
 
-	log.Printf("Config saved: database_path=%s", config.DatabasePath)
+	log.Printf("Config saved: database_path=%s google_maps_api_key_configured=%t", config.DatabasePath, config.GoogleMapsAPIKey != "")
 	return nil
 }

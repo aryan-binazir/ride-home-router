@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
@@ -243,6 +245,61 @@ func TestHandleCalculateRoutes_InvalidModeReturnsValidationError(t *testing.T) {
 	}
 	if router.lastRequest != nil {
 		t.Fatalf("expected router to not receive a request, got %#v", router.lastRequest)
+	}
+}
+
+func TestHandleCalculateRoutes_DistanceProviderFailureReturnsVisibleError(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Rd",
+		Lat:     40.10,
+		Lng:     -73.90,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "2 Driver Rd",
+		Lat:             40.20,
+		Lng:             -73.80,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
+		Name:    "Event",
+		Address: "3 Event Ave",
+		Lat:     42.00,
+		Lng:     -75.00,
+	})
+	if err != nil {
+		t.Fatalf("create location: %v", err)
+	}
+
+	handler.Router = &captureRouter{err: fmt.Errorf("%w: missing key", distance.ErrProviderNotConfigured)}
+
+	form := url.Values{}
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "Google Maps API key is not configured") {
+		t.Fatalf("body = %q, want provider setup message", rr.Body.String())
 	}
 }
 
