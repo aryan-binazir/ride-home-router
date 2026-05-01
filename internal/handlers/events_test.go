@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -62,6 +63,59 @@ func TestHandleCreateEvent_MissingRoutesReturnsBadRequest(t *testing.T) {
 	}
 	if resp.Error.Message != "Routes are required" {
 		t.Fatalf("expected routes validation message, got %q", resp.Error.Message)
+	}
+}
+
+func TestHandleCreateEvent_OutOfBalanceSessionReturnsBadRequest(t *testing.T) {
+	handler, _ := newTestEventHandler(t, false)
+
+	session := handler.RouteSession.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 1},
+				EffectiveCapacity:   1,
+				Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10}}, {Participant: &models.Participant{ID: 11}}},
+				TotalDistanceMeters: 5000,
+			},
+		},
+		[]models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 1}},
+		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		false,
+		"18:30",
+		"dropoff",
+		nil,
+	)
+
+	routingPayload := models.RoutingResult{
+		Routes: session.CurrentRoutes,
+		Summary: models.RoutingSummary{
+			TotalParticipants:   2,
+			TotalDriversUsed:    1,
+			TotalDistanceMeters: 5000,
+		},
+		Mode: "dropoff",
+	}
+	payloadBytes, err := json.Marshal(routingPayload)
+	if err != nil {
+		t.Fatalf("marshal routing payload: %v", err)
+	}
+
+	form := "event_date=2026-03-14&session_id=" + session.ID + "&routes_json=" + url.QueryEscape(string(payloadBytes))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+	var resp ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error.Message != messageRoutesMustBeBalancedBeforeSaving {
+		t.Fatalf("expected %q, got %q", messageRoutesMustBeBalancedBeforeSaving, resp.Error.Message)
 	}
 }
 
