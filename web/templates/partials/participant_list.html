@@ -11,13 +11,14 @@
             </th>
             <th>Name</th>
             <th>Address</th>
+            <th>Labels</th>
             <th>Coordinates</th>
             <th style="width: 150px;">Actions</th>
         </tr>
     </thead>
     <tbody id="participants-tbody">
         {{range .Participants}}
-        {{template "participant_row" dict "Participant" . "LabelIDs" (labelIDsFor $.LabelIDs .ID)}}
+        {{template "participant_row" dict "Participant" . "LabelIDs" (labelIDsFor $.LabelIDs .ID) "LabelNames" (labelNamesFor $.Labels $.LabelIDs .ID)}}
         {{end}}
     </tbody>
 </table>

@@ -26,7 +26,9 @@ type ParticipantRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
+	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
+	UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -36,7 +38,9 @@ type DriverRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
+	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
+	UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -44,6 +48,7 @@ type DriverRepository interface {
 type LabelRepository interface {
 	List(ctx context.Context) ([]models.Label, error)
 	GetByID(ctx context.Context, id int64) (*models.Label, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]models.Label, error)
 	Create(ctx context.Context, label *models.Label) (*models.Label, error)
 	Update(ctx context.Context, label *models.Label) (*models.Label, error)
 	Delete(ctx context.Context, id int64) error

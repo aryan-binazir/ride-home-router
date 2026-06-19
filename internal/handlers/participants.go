@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -13,8 +14,14 @@ import (
 
 // ParticipantListResponse represents the list response
 type ParticipantListResponse struct {
-	Participants []models.Participant `json:"participants"`
-	Total        int                  `json:"total"`
+	Participants []ParticipantResponse `json:"participants"`
+	Total        int                   `json:"total"`
+}
+
+// ParticipantResponse represents a participant API response.
+type ParticipantResponse struct {
+	models.Participant
+	LabelIDs []int64 `json:"label_ids"`
 }
 
 // HandleListParticipants handles GET /api/v1/participants
@@ -44,8 +51,15 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	responseParticipants, err := h.participantResponses(r.Context(), participants)
+	if err != nil {
+		log.Printf("[ERROR] Failed to load participant labels for list: err=%v", err)
+		h.handleInternalError(w, err)
+		return
+	}
+
 	h.writeJSON(w, http.StatusOK, ParticipantListResponse{
-		Participants: participants,
+		Participants: responseParticipants,
 		Total:        len(participants),
 	})
 }
@@ -74,7 +88,14 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, participant)
+	response, err := h.participantResponse(r.Context(), participant)
+	if err != nil {
+		log.Printf("[ERROR] Failed to load participant labels: id=%d err=%v", participant.ID, err)
+		h.handleInternalError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // HandleCreateParticipant handles POST /api/v1/participants
@@ -147,7 +168,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		Lng:     geocodeResult.Coords.Lng,
 	}
 
-	participant, err = h.DB.Participants().Create(r.Context(), participant)
+	participant, err = h.DB.Participants().CreateWithLabels(r.Context(), participant, labelIDs)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create participant: name=%s address=%s err=%v", req.Name, req.Address, err)
 		if h.isHTMX(r) {
@@ -160,11 +181,6 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Created participant: id=%d name=%s", participant.ID, participant.Name)
 	if h.isHTMX(r) {
-		if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
-			log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
-			h.renderError(w, r, err)
-			return
-		}
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after create: err=%v", err)
@@ -180,13 +196,15 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		h.renderTemplate(w, "participant_list", view)
 		return
 	}
-	if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
-		log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
+
+	response, err := h.participantResponse(r.Context(), participant)
+	if err != nil {
+		log.Printf("[ERROR] Failed to load participant labels after create: id=%d err=%v", participant.ID, err)
 		h.handleInternalError(w, err)
 		return
 	}
 
-	h.writeJSON(w, http.StatusCreated, participant)
+	h.writeJSON(w, http.StatusCreated, response)
 }
 
 // HandleUpdateParticipant handles PUT /api/v1/participants/{id}
@@ -304,7 +322,11 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		participant.Lng = geocodeResult.Coords.Lng
 	}
 
-	participant, err = h.DB.Participants().Update(r.Context(), participant)
+	if shouldSetLabels {
+		participant, err = h.DB.Participants().UpdateWithLabels(r.Context(), participant, labelIDs)
+	} else {
+		participant, err = h.DB.Participants().Update(r.Context(), participant)
+	}
 	if err != nil {
 		log.Printf("[ERROR] Failed to update participant: id=%d err=%v", id, err)
 		if h.isHTMX(r) {
@@ -326,17 +348,6 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Printf("[HTTP] Updated participant: id=%d name=%s", participant.ID, participant.Name)
-	if shouldSetLabels {
-		if err := h.DB.Labels().SetLabelsForParticipant(r.Context(), participant.ID, labelIDs); err != nil {
-			log.Printf("[ERROR] Failed to set participant labels: id=%d err=%v", participant.ID, err)
-			if h.isHTMX(r) {
-				h.renderError(w, r, err)
-				return
-			}
-			h.handleInternalError(w, err)
-			return
-		}
-	}
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
@@ -354,7 +365,14 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, participant)
+	response, err := h.participantResponse(r.Context(), participant)
+	if err != nil {
+		log.Printf("[ERROR] Failed to load participant labels after update: id=%d err=%v", participant.ID, err)
+		h.handleInternalError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // HandleDeleteParticipant handles DELETE /api/v1/participants/{id}
@@ -477,4 +495,39 @@ func (h *Handler) loadLabelsForParticipant(r *http.Request, participantID int64)
 		return nil, nil, err
 	}
 	return labels, buildSelectedLabelIDMap(selectedLabels), nil
+}
+
+func (h *Handler) participantResponse(ctx context.Context, participant *models.Participant) (ParticipantResponse, error) {
+	labels, err := h.DB.Labels().ListLabelsForParticipant(ctx, participant.ID)
+	if err != nil {
+		return ParticipantResponse{}, err
+	}
+	labelIDs := make([]int64, 0, len(labels))
+	for _, label := range labels {
+		labelIDs = append(labelIDs, label.ID)
+	}
+	return ParticipantResponse{
+		Participant: *participant,
+		LabelIDs:    labelIDs,
+	}, nil
+}
+
+func (h *Handler) participantResponses(ctx context.Context, participants []models.Participant) ([]ParticipantResponse, error) {
+	labelIDsByParticipant, err := h.DB.Labels().ListLabelIDsForParticipants(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make([]ParticipantResponse, 0, len(participants))
+	for _, participant := range participants {
+		labelIDs := append([]int64{}, labelIDsByParticipant[participant.ID]...)
+		if labelIDs == nil {
+			labelIDs = []int64{}
+		}
+		responses = append(responses, ParticipantResponse{
+			Participant: participant,
+			LabelIDs:    labelIDs,
+		})
+	}
+	return responses, nil
 }

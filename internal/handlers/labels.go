@@ -23,6 +23,11 @@ const (
 	messageSelectDriverForTag      = "Select at least one driver"
 )
 
+var (
+	errInvalidParticipantSelection = errors.New("invalid participant selection")
+	errInvalidDriverSelection      = errors.New("invalid driver selection")
+)
+
 type LabelListResponse struct {
 	Labels []models.Label `json:"labels"`
 	Total  int            `json:"total"`
@@ -264,6 +269,14 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageSelectParticipantForTag)
 		return
 	}
+	if err := h.validateBulkParticipantIDs(r.Context(), participantIDs); err != nil {
+		if errors.Is(err, errInvalidParticipantSelection) {
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid participant selection")
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
 
 	switch action {
 	case "add":
@@ -309,6 +322,14 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 	}
 	if len(driverIDs) == 0 {
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageSelectDriverForTag)
+		return
+	}
+	if err := h.validateBulkDriverIDs(r.Context(), driverIDs); err != nil {
+		if errors.Is(err, errInvalidDriverSelection) {
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid driver selection")
+			return
+		}
+		h.handleInternalError(w, err)
 		return
 	}
 
@@ -431,25 +452,64 @@ func parseLabelIDs(r *http.Request) ([]int64, error) {
 }
 
 func (h *Handler) validateLabelIDs(ctx context.Context, labelIDs []int64) error {
-	seen := make(map[int64]struct{}, len(labelIDs))
-	for _, labelID := range labelIDs {
-		if labelID <= 0 {
-			return errors.New(messageInvalidLabelSelection)
-		}
-		if _, ok := seen[labelID]; ok {
-			continue
-		}
-		seen[labelID] = struct{}{}
-
-		label, err := h.DB.Labels().GetByID(ctx, labelID)
-		if err != nil {
-			return err
-		}
-		if label == nil {
-			return errors.New(messageInvalidLabelSelection)
-		}
+	uniqueIDs, ok := uniquePositiveIDs(labelIDs)
+	if !ok {
+		return errors.New(messageInvalidLabelSelection)
+	}
+	labels, err := h.DB.Labels().GetByIDs(ctx, uniqueIDs)
+	if err != nil {
+		return err
+	}
+	if len(labels) != len(uniqueIDs) {
+		return errors.New(messageInvalidLabelSelection)
 	}
 	return nil
+}
+
+func (h *Handler) validateBulkParticipantIDs(ctx context.Context, participantIDs []int64) error {
+	uniqueIDs, ok := uniquePositiveIDs(participantIDs)
+	if !ok {
+		return errInvalidParticipantSelection
+	}
+	participants, err := h.DB.Participants().GetByIDs(ctx, uniqueIDs)
+	if err != nil {
+		return err
+	}
+	if len(participants) != len(uniqueIDs) {
+		return errInvalidParticipantSelection
+	}
+	return nil
+}
+
+func (h *Handler) validateBulkDriverIDs(ctx context.Context, driverIDs []int64) error {
+	uniqueIDs, ok := uniquePositiveIDs(driverIDs)
+	if !ok {
+		return errInvalidDriverSelection
+	}
+	drivers, err := h.DB.Drivers().GetByIDs(ctx, uniqueIDs)
+	if err != nil {
+		return err
+	}
+	if len(drivers) != len(uniqueIDs) {
+		return errInvalidDriverSelection
+	}
+	return nil
+}
+
+func uniquePositiveIDs(ids []int64) ([]int64, bool) {
+	seen := make(map[int64]struct{}, len(ids))
+	uniqueIDs := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, false
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	return uniqueIDs, true
 }
 
 func buildSelectedLabelIDMap(labels []models.Label) map[int64]bool {

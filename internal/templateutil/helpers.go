@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ride-home-router/internal/models"
 )
 
 const (
@@ -98,6 +100,23 @@ func FuncMap() template.FuncMap {
 				parts = append(parts, strconv.FormatInt(v, 10))
 			}
 			return strings.Join(parts, ",")
+		},
+		"labelNamesFor": func(labels []models.Label, m map[int64][]int64, id int64) []string {
+			values := m[id]
+			if len(values) == 0 {
+				return nil
+			}
+			namesByID := make(map[int64]string, len(labels))
+			for _, label := range labels {
+				namesByID[label.ID] = label.Name
+			}
+			names := make([]string, 0, len(values))
+			for _, labelID := range values {
+				if name, ok := namesByID[labelID]; ok {
+					names = append(names, name)
+				}
+			}
+			return names
 		},
 	}
 }

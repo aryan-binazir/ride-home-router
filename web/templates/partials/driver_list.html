@@ -11,6 +11,7 @@
             </th>
             <th>Name</th>
             <th>Address</th>
+            <th>Labels</th>
             <th><abbr title="Available Capacity">Capacity</abbr></th>
             <th>Coordinates</th>
             <th style="width: 150px;">Actions</th>
@@ -18,7 +19,7 @@
     </thead>
     <tbody id="drivers-tbody">
         {{range .Drivers}}
-        {{template "driver_row" dict "Driver" . "LabelIDs" (labelIDsFor $.LabelIDs .ID)}}
+        {{template "driver_row" dict "Driver" . "LabelIDs" (labelIDsFor $.LabelIDs .ID) "LabelNames" (labelNamesFor $.Labels $.LabelIDs .ID)}}
         {{end}}
     </tbody>
 </table>

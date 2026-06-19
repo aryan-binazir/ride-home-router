@@ -84,6 +84,35 @@ func TestLabelRepository_CRUDCountsAndUniqueness(t *testing.T) {
 	assertRowCount(t, store.db, "driver_labels", 0)
 }
 
+func TestLabelRepository_GetByIDsReturnsExistingLabels(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+
+	first, err := store.Labels().Create(ctx, &models.Label{Name: "First"})
+	if err != nil {
+		t.Fatalf("create first label: %v", err)
+	}
+	second, err := store.Labels().Create(ctx, &models.Label{Name: "Second"})
+	if err != nil {
+		t.Fatalf("create second label: %v", err)
+	}
+
+	labels, err := store.Labels().GetByIDs(ctx, []int64{second.ID, first.ID, second.ID, 9999})
+	if err != nil {
+		t.Fatalf("GetByIDs() error = %v", err)
+	}
+	if len(labels) != 2 {
+		t.Fatalf("labels = %#v, want two existing unique labels", labels)
+	}
+	found := map[int64]bool{}
+	for _, label := range labels {
+		found[label.ID] = true
+	}
+	if !found[first.ID] || !found[second.ID] {
+		t.Fatalf("labels = %#v, want first and second labels", labels)
+	}
+}
+
 func TestLabelRepository_SetAndBulkMembershipsAreIdempotent(t *testing.T) {
 	store := newTestLabelStore(t)
 	ctx := context.Background()
@@ -163,6 +192,85 @@ func TestLabelRepository_SetAndBulkMembershipsAreIdempotent(t *testing.T) {
 	if len(driverLabels) != 1 || driverLabels[0].ID != secondLabel.ID {
 		t.Fatalf("driver labels = %#v, want second label only", driverLabels)
 	}
+}
+
+func TestParticipantRepository_CreateWithLabelsRollsBackOnInvalidLabel(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+
+	_, err := store.Participants().CreateWithLabels(ctx, &models.Participant{
+		Name:    "Rider With Bad Label",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	}, []int64{9999})
+	if err == nil {
+		t.Fatal("CreateWithLabels() error = nil, want invalid label error")
+	}
+
+	assertRowCount(t, store.db, "participants", 0)
+	assertRowCount(t, store.db, "participant_labels", 0)
+}
+
+func TestParticipantRepository_UpdateWithLabelsRollsBackOnInvalidLabel(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+	participant := createTestParticipant(t, store, "Original Rider")
+
+	participant.Name = "Changed Rider"
+	_, err := store.Participants().UpdateWithLabels(ctx, participant, []int64{9999})
+	if err == nil {
+		t.Fatal("UpdateWithLabels() error = nil, want invalid label error")
+	}
+
+	unchanged, err := store.Participants().GetByID(ctx, participant.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if unchanged.Name != "Original Rider" {
+		t.Fatalf("participant name = %q, want rollback to Original Rider", unchanged.Name)
+	}
+	assertRowCount(t, store.db, "participant_labels", 0)
+}
+
+func TestDriverRepository_CreateWithLabelsRollsBackOnInvalidLabel(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+
+	_, err := store.Drivers().CreateWithLabels(ctx, &models.Driver{
+		Name:            "Driver With Bad Label",
+		Address:         "1 Driver Way",
+		Lat:             40.1,
+		Lng:             -73.9,
+		VehicleCapacity: 4,
+	}, []int64{9999})
+	if err == nil {
+		t.Fatal("CreateWithLabels() error = nil, want invalid label error")
+	}
+
+	assertRowCount(t, store.db, "drivers", 0)
+	assertRowCount(t, store.db, "driver_labels", 0)
+}
+
+func TestDriverRepository_UpdateWithLabelsRollsBackOnInvalidLabel(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+	driver := createTestDriver(t, store, "Original Driver")
+
+	driver.Name = "Changed Driver"
+	_, err := store.Drivers().UpdateWithLabels(ctx, driver, []int64{9999})
+	if err == nil {
+		t.Fatal("UpdateWithLabels() error = nil, want invalid label error")
+	}
+
+	unchanged, err := store.Drivers().GetByID(ctx, driver.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if unchanged.Name != "Original Driver" {
+		t.Fatalf("driver name = %q, want rollback to Original Driver", unchanged.Name)
+	}
+	assertRowCount(t, store.db, "driver_labels", 0)
 }
 
 func TestStoreMigratesV3DatabaseToV4LabelsSchema(t *testing.T) {

@@ -80,6 +80,60 @@ func (r *labelRepository) GetByID(ctx context.Context, id int64) (*models.Label,
 	return &label, nil
 }
 
+func (r *labelRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Label, error) {
+	if len(ids) == 0 {
+		return []models.Label{}, nil
+	}
+
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	rows, err := r.store.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT l.id, l.name,
+		       COALESCE(pl.participant_count, 0),
+		       COALESCE(dl.driver_count, 0),
+		       l.created_at, l.updated_at
+		FROM labels l
+		LEFT JOIN (
+			SELECT label_id, COUNT(*) AS participant_count
+			FROM participant_labels
+			GROUP BY label_id
+		) pl ON pl.label_id = l.id
+		LEFT JOIN (
+			SELECT label_id, COUNT(*) AS driver_count
+			FROM driver_labels
+			GROUP BY label_id
+		) dl ON dl.label_id = l.id
+		WHERE l.id IN (%s)
+		ORDER BY l.name
+	`, strings.Join(placeholders, ",")), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query labels by IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var labels []models.Label
+	for rows.Next() {
+		var label models.Label
+		if err := rows.Scan(&label.ID, &label.Name, &label.ParticipantCount, &label.DriverCount, &label.CreatedAt, &label.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan label: %w", err)
+		}
+		labels = append(labels, label)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating labels by IDs: %w", err)
+	}
+
+	return labels, nil
+}
+
 func (r *labelRepository) Create(ctx context.Context, label *models.Label) (*models.Label, error) {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
@@ -244,6 +298,31 @@ func (r *labelRepository) listLabelsForOwner(ctx context.Context, tableName, own
 	}
 
 	return labels, nil
+}
+
+func insertLabelMemberships(ctx context.Context, tx *sql.Tx, tableName, ownerColumn string, ownerID int64, labelIDs []int64) error {
+	if err := validateLabelMembershipTable(tableName, ownerColumn); err != nil {
+		return err
+	}
+
+	seen := make(map[int64]struct{}, len(labelIDs))
+	for _, labelID := range labelIDs {
+		if labelID <= 0 {
+			continue
+		}
+		if _, exists := seen[labelID]; exists {
+			continue
+		}
+		seen[labelID] = struct{}{}
+
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			INSERT INTO %s (label_id, %s)
+			VALUES (?, ?)
+		`, tableName, ownerColumn), labelID, ownerID); err != nil {
+			return fmt.Errorf("failed to insert label membership: %w", err)
+		}
+	}
+	return nil
 }
 
 func (r *labelRepository) replaceMemberships(ctx context.Context, tableName, ownerColumn string, ownerID int64, labelIDs []int64) error {

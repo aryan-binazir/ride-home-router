@@ -10,6 +10,13 @@
     </td>
     <td>{{.Driver.Name}}</td>
     <td>{{.Driver.Address}}</td>
+    <td>
+        <div class="table-labels">
+            {{range .LabelNames}}
+            <span class="badge badge-muted">{{.}}</span>
+            {{end}}
+        </div>
+    </td>
     <td>{{.Driver.VehicleCapacity}}</td>
     <td class="text-muted">
         {{if and .Driver.Lat .Driver.Lng}}

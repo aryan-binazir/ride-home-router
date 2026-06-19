@@ -10,6 +10,13 @@
     </td>
     <td>{{.Participant.Name}}</td>
     <td>{{.Participant.Address}}</td>
+    <td>
+        <div class="table-labels">
+            {{range .LabelNames}}
+            <span class="badge badge-muted">{{.}}</span>
+            {{end}}
+        </div>
+    </td>
     <td class="text-muted">
         {{if and .Participant.Lat .Participant.Lng}}
         {{printf "%.4f, %.4f" .Participant.Lat .Participant.Lng}}
