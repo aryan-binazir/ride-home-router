@@ -44,7 +44,12 @@ func ValidateURL(raw string) (*url.URL, error) {
 }
 
 // Open validates raw and opens it in the system default browser.
+// Caller ctx can cancel work before the opener starts; the child process is not tied to ctx cancellation.
 func Open(ctx context.Context, raw string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	u, err := ValidateURL(raw)
 	if err != nil {
 		return err
@@ -53,21 +58,31 @@ func Open(ctx context.Context, raw string) error {
 	openURL := u.String()
 	var cmd *exec.Cmd
 
+	openerCtx := context.WithoutCancel(ctx)
+
 	switch runtime.GOOS {
 	case "darwin":
 		//nolint:gosec // G204: openURL validated (http/https, host, no credentials) before exec.
-		cmd = exec.CommandContext(ctx, "open", openURL)
+		cmd = exec.CommandContext(openerCtx, "open", openURL)
 	case "windows":
 		//nolint:gosec // G204: openURL validated (http/https, host, no credentials) before exec.
-		cmd = exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", openURL)
+		cmd = exec.CommandContext(openerCtx, "rundll32", "url.dll,FileProtocolHandler", openURL)
 	case "linux", "freebsd", "openbsd":
 		//nolint:gosec // G204: openURL validated (http/https, host, no credentials) before exec.
-		cmd = exec.CommandContext(ctx, "xdg-open", openURL)
+		cmd = exec.CommandContext(openerCtx, "xdg-open", openURL)
 	default:
 		return ErrUnsupportedPlatform
 	}
 
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	return nil
 }
 
 // IsInvalidURL reports whether err is from ValidateURL or Open rejecting a URL.
