@@ -28,7 +28,48 @@
         </div>
     </div>
 
-    <div class="panel-toolbar">
+    <form id="driver-bulk-form" onsubmit="return false">
+    <div class="panel-toolbar panel-toolbar-stack">
+        {{if .Labels}}
+        <div class="bulk-toolbar">
+            <span class="panel-count text-muted"><span id="drivers-bulk-selected-count">0</span> selected</span>
+            <div class="btn-dropdown">
+                <button type="button" class="btn btn-sm btn-outline" onclick="toggleBulkDropdown(this)">Add label</button>
+                <div class="btn-dropdown-menu">
+                    {{range .Labels}}
+                    <button type="button"
+                            class="btn-dropdown-item"
+                            onclick="this.closest('.btn-dropdown').classList.remove('is-open')"
+                            hx-post="/api/v1/drivers/labels/add"
+                            hx-vals='{"label_id": "{{.ID}}"}'
+                            hx-include="#driver-bulk-form input[name='driver_ids']:checked"
+                            hx-target="#drivers-list"
+                            hx-swap="innerHTML">
+                        {{.Name}}
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+            <div class="btn-dropdown">
+                <button type="button" class="btn btn-sm btn-outline" onclick="toggleBulkDropdown(this)">Remove label</button>
+                <div class="btn-dropdown-menu">
+                    {{range .Labels}}
+                    <button type="button"
+                            class="btn-dropdown-item"
+                            onclick="this.closest('.btn-dropdown').classList.remove('is-open')"
+                            hx-post="/api/v1/drivers/labels/remove"
+                            hx-vals='{"label_id": "{{.ID}}"}'
+                            hx-include="#driver-bulk-form input[name='driver_ids']:checked"
+                            hx-target="#drivers-list"
+                            hx-swap="innerHTML">
+                        {{.Name}}
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline" onclick="clearTableSelection('drivers-tbody')">Clear selection</button>
+        </div>
+        {{end}}
         <input type="search"
                class="form-input form-input-search"
                placeholder="Search drivers…"
@@ -39,5 +80,6 @@
     <div id="drivers-list" class="table-container mb-0">
         {{template "driver_list" .}}
     </div>
+    </form>
 </section>
 {{end}}

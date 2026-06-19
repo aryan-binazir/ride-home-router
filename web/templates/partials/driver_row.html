@@ -1,26 +1,43 @@
 {{define "driver_row"}}
-<tr id="driver-{{.ID}}" data-search="{{.Name}} {{.Address}}">
-    <td>{{.Name}}</td>
-    <td>{{.Address}}</td>
-    <td>{{.VehicleCapacity}}</td>
+<tr id="driver-{{.Driver.ID}}" data-search="{{.Driver.Name}} {{.Driver.Address}}" data-labels="{{.LabelIDs}}">
+    <td>
+        <input type="checkbox"
+               name="driver_ids"
+               value="{{.Driver.ID}}"
+               class="form-checkbox bulk-table-checkbox"
+               data-bulk-row
+               onchange="updateBulkSelectionCount('drivers-tbody')">
+    </td>
+    <td>{{.Driver.Name}}</td>
+    <td>{{.Driver.Address}}</td>
+    <td>
+        <div class="table-labels">
+            {{range .LabelNames}}
+            <span class="badge badge-muted">{{.}}</span>
+            {{end}}
+        </div>
+    </td>
+    <td>{{.Driver.VehicleCapacity}}</td>
     <td class="text-muted">
-        {{if and .Lat .Lng}}
-        {{printf "%.4f, %.4f" .Lat .Lng}}
+        {{if and .Driver.Lat .Driver.Lng}}
+        {{printf "%.4f, %.4f" .Driver.Lat .Driver.Lng}}
         {{end}}
     </td>
     <td>
         <div class="table-actions">
-            <button class="btn btn-sm btn-outline"
-                    hx-get="/api/v1/drivers/{{.ID}}/edit"
+            <button type="button"
+                    class="btn btn-sm btn-outline"
+                    hx-get="/api/v1/drivers/{{.Driver.ID}}/edit"
                     hx-target="#driver-form-container"
                     hx-swap="innerHTML">
                 Edit
             </button>
-            <button class="btn btn-sm btn-danger"
-                    hx-delete="/api/v1/drivers/{{.ID}}"
-                    hx-target="#driver-{{.ID}}"
+            <button type="button"
+                    class="btn btn-sm btn-danger"
+                    hx-delete="/api/v1/drivers/{{.Driver.ID}}"
+                    hx-target="#driver-{{.Driver.ID}}"
                     hx-swap="outerHTML swap:1s"
-                    hx-confirm="Are you sure you want to delete {{.Name}}?">
+                    hx-confirm="Are you sure you want to delete {{.Driver.Name}}?">
                 Delete
             </button>
         </div>

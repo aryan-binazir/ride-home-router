@@ -1,0 +1,40 @@
+{{define "content"}}
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Labels</h2>
+        <p class="page-subtitle">Create reusable labels for repeat participant and driver cohorts.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-primary"
+                hx-get="/api/v1/labels/new"
+                hx-target="#label-form-container"
+                hx-swap="innerHTML">
+            Add Label
+        </button>
+    </div>
+</div>
+
+<div id="label-form-container" class="mb-4"></div>
+<div id="error-container"></div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3 class="panel-title">Saved Labels</h3>
+            <p class="panel-subtitle">Labels can be assigned to participants and drivers, then used as planner filters.</p>
+        </div>
+    </div>
+
+    <div class="panel-toolbar">
+        <input type="search"
+               class="form-input form-input-search"
+               placeholder="Search labels..."
+               aria-label="Search labels"
+               oninput="filterTable(this, 'labels-tbody')">
+    </div>
+
+    <div id="labels-list" class="table-container mb-0">
+        {{template "label_list" .}}
+    </div>
+</section>
+{{end}}

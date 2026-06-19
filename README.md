@@ -18,9 +18,10 @@ A desktop app that optimizes driver assignments for getting people home after ev
 - [Features](#features)
 - [Privacy First](#privacy-first)
 - [Installation](#installation)
+- [Google Routes API Setup](#google-routes-api-setup)
 - [Usage](#usage)
 - [Technical Details](#technical-details)
-- [Rate Limiting](#rate-limiting)
+- [API Usage & Limits](#api-usage--limits)
 - [Disclaimer](#disclaimer)
 - [Contributing](#contributing)
 - [License](#license)
@@ -42,6 +43,7 @@ Manually figuring out who goes with whom is tedious and often results in unfair 
 - **Capacity Aware** — Respects each driver's vehicle capacity
 - **Van Support** — Save shared vans and assign them to drivers during planning when personal vehicles are not enough
 - **Address Autocomplete** — Search and select addresses with live suggestions from OpenStreetMap
+- **Google Drive-Time Routing** — Uses Google Routes for route distance and duration calculations
 - **Multiple Activity Locations** — Save different starting points (office, place of worship, school, etc.)
 - **Event History** — Keep records of past events for reference
 - **Manual Adjustments** — Move participants between routes or swap drivers after calculation
@@ -52,13 +54,13 @@ Manually figuring out who goes with whom is tedious and often results in unfair 
 
 ## Privacy First
 
-**All your data stays on your computer.** Names, addresses, and event history are stored locally in `~/.ride-home-router/`.
+**Persistent app data stays on your computer.** Names, addresses, API configuration, and event history are stored locally in `~/.ride-home-router/`. During route calculation, coordinates are sent to Google Routes; during address search, the search text is sent to Nominatim.
 
 The only external services used are:
-- **OSRM** — Open source routing service (calculates driving distances between coordinates)
+- **Google Routes API** — Calculates driving distances and durations between coordinates. Route calculation requires a Google Maps API key saved in Settings.
 - **Nominatim** — OpenStreetMap geocoder (converts addresses to coordinates)
 
-No accounts. No cloud sync. No tracking.
+No Ride Home Router account. No cloud sync. No tracking.
 
 ---
 
@@ -124,6 +126,22 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 
 ---
 
+## Google Routes API Setup
+
+Route calculation now uses Google's Routes API instead of the public OSRM demo server. Address search still uses Nominatim/OpenStreetMap.
+
+Before calculating routes:
+
+1. Create or choose a Google Cloud project.
+2. Enable the **Routes API** for that project.
+3. Create a Google Maps API key with permission to call the Routes API.
+4. Open **Settings** in Ride Home Router.
+5. Paste the key under **Routing Provider** and click **Save API Key**.
+
+The key is stored in `~/.ride-home-router/config.json` as `google_maps_api_key`. Saving a new key clears cached distances so future route calculations use the new provider credentials. If no key is configured, route calculation fails with a Settings prompt; address autocomplete still works.
+
+---
+
 ## Usage
 
 ### Quick Start
@@ -132,7 +150,8 @@ sudo dnf install gtk3-devel webkit2gtk4.0-devel
 2. **Add Participants** — People who need rides
 3. **Add Drivers** — People with vehicles, including their capacity
 4. **Add Vans** (Optional) — Save shared vans on the Vans page for overflow events
-5. **Calculate Routes** — Select participants, drivers, activity location, optional van assignments, and mode, then click Calculate
+5. **Configure Google Routes** — Add a Google Maps API key in Settings before the first route calculation
+6. **Calculate Routes** — Select participants, drivers, activity location, optional van assignments, and mode, then click Calculate
 
 ### Workflow
 
@@ -182,7 +201,7 @@ ride-home-router/
 │   ├── sqlite/          # SQLite storage implementation
 │   ├── handlers/        # HTTP request handlers
 │   ├── routing/         # Route optimization algorithms
-│   ├── distance/        # OSRM API client
+│   ├── distance/        # Google Routes distance provider and legacy OSRM client
 │   ├── geocoding/       # Nominatim API client
 │   ├── httpx/           # HTTP constants and helpers
 │   ├── templateutil/    # Shared template helper functions
@@ -202,7 +221,7 @@ ride-home-router/
 - **Frontend**: HTML templates + [HTMX](https://htmx.org/) for dynamic updates
 - **Desktop**: [Wails v2](https://wails.io/) (Go + WebView)
 - **Storage**: SQLite database in `~/.ride-home-router/`
-- **Routing**: OSRM public API
+- **Routing**: Google Routes API `computeRouteMatrix`
 - **Geocoding**: Nominatim (OpenStreetMap)
 
 ### Development
@@ -227,20 +246,21 @@ All data is stored in `~/.ride-home-router/`:
 
 ```
 ~/.ride-home-router/
+├── config.json            # App config, including database path and Google Maps API key
 └── data.db                # SQLite database (participants, drivers, settings, events, distance cache)
 ```
 
 ---
 
-## Rate Limiting
+## API Usage & Limits
 
-This app uses public APIs that have usage limits:
+This app uses external APIs that have usage limits:
 
-- **OSRM (Open Source Routing Machine)**: The public demo server at `router.project-osrm.org` is provided for light use only. For heavy usage or production deployments, consider [running your own OSRM instance](https://github.com/Project-OSRM/osrm-backend).
+- **Google Routes API**: Route distance and duration calculations use `routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix`. Google Cloud billing, quotas, and API key restrictions apply. The app caches distance results in SQLite and batches route matrix calls up to 625 elements per request.
 
 - **Nominatim (OpenStreetMap Geocoding)**: The public Nominatim service has a [usage policy](https://operations.osmfoundation.org/policies/nominatim/) limiting requests to 1 per second. The app includes built-in delays to respect this limit.
 
-For typical community group usage (under 150 participants per event), the public APIs should work fine. If you experience slow responses or errors, it may be due to rate limiting—try waiting a few minutes before retrying.
+For typical community group usage, address search should stay within Nominatim's public limits. Route calculation depends on your Google Cloud quota and billing configuration. If route calculation fails, first verify the API key in Settings, that the Routes API is enabled, and that the key is allowed to call it.
 
 ---
 
@@ -250,7 +270,7 @@ For typical community group usage (under 150 participants per event), the public
 
 - **Driver vetting**: This software only calculates routes—it does not screen or verify drivers. You are solely responsible for vetting all drivers, including performing background checks as appropriate for your organization.
 - **Route accuracy**: Route suggestions are approximations based on heuristic algorithms. They may not be optimal, accurate, or safe. Always verify addresses and routes before driving.
-- **Third-party services**: This tool relies on OSRM and Nominatim (OpenStreetMap) for routing and geocoding. Accuracy and availability depend on these external services, which are outside our control.
+- **Third-party services**: This tool relies on Google Routes and Nominatim (OpenStreetMap) for routing and geocoding. Accuracy, availability, quotas, and costs depend on these external services, which are outside our control.
 - **Data security**: While data is stored locally on your computer, we make no guarantees about data protection or security. You are responsible for securing your own device and backups.
 - **No liability**: The developers are not responsible for any damages, losses, injuries, data breaches, or incidents arising from use of this software or the transportation it helps coordinate.
 

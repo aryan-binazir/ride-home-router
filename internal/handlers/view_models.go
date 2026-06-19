@@ -8,6 +8,7 @@ const (
 	ActivePageHome              ActivePage = "home"
 	ActivePageParticipants      ActivePage = "participants"
 	ActivePageDrivers           ActivePage = "drivers"
+	ActivePageLabels            ActivePage = "labels"
 	ActivePageActivityLocations ActivePage = "activity_locations"
 	ActivePageVans              ActivePage = "vans"
 	ActivePageSettings          ActivePage = "settings"
@@ -23,6 +24,9 @@ type IndexPageView struct {
 	BasePageView
 	Participants      []models.Participant
 	Drivers           []models.Driver
+	Labels            []models.Label
+	ParticipantLabels map[int64][]int64
+	DriverLabels      map[int64][]int64
 	ActivityLocations []models.ActivityLocation
 	OrgVehicles       []models.OrganizationVehicle
 }
@@ -30,11 +34,20 @@ type IndexPageView struct {
 type ParticipantsPageView struct {
 	BasePageView
 	Participants []models.Participant
+	Labels       []models.Label
+	LabelIDs     map[int64][]int64
 }
 
 type DriversPageView struct {
 	BasePageView
-	Drivers []models.Driver
+	Drivers  []models.Driver
+	Labels   []models.Label
+	LabelIDs map[int64][]int64
+}
+
+type LabelsPageView struct {
+	BasePageView
+	Labels []models.Label
 }
 
 type ActivityLocationsPageView struct {
@@ -78,18 +91,34 @@ type HistoryPageView struct {
 
 type ParticipantListView struct {
 	Participants []models.Participant
+	LabelIDs     map[int64][]int64
+	Labels       []models.Label
 }
 
 type ParticipantFormView struct {
-	Participant *models.Participant
+	Participant      *models.Participant
+	Labels           []models.Label
+	SelectedLabelIDs map[int64]bool
 }
 
 type DriverListView struct {
-	Drivers []models.Driver
+	Drivers  []models.Driver
+	LabelIDs map[int64][]int64
+	Labels   []models.Label
 }
 
 type DriverFormView struct {
-	Driver *models.Driver
+	Driver           *models.Driver
+	Labels           []models.Label
+	SelectedLabelIDs map[int64]bool
+}
+
+type LabelListView struct {
+	Labels []models.Label
+}
+
+type LabelFormView struct {
+	Label *models.Label
 }
 
 type ActivityLocationFormView struct {

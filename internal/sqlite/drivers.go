@@ -144,6 +144,45 @@ func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*model
 	return d, nil
 }
 
+func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin driver label transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	d.CreatedAt = now
+	d.UpdatedAt = now
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO drivers (name, address, lat, lng, vehicle_capacity, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.CreatedAt, d.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create driver: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	d.ID = id
+
+	if err := insertLabelMemberships(ctx, tx, "driver_labels", "driver_id", d.ID, labelIDs); err != nil {
+		return nil, fmt.Errorf("failed to insert driver label memberships: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit driver label transaction: %w", err)
+	}
+
+	return d, nil
+}
+
 func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*models.Driver, error) {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
@@ -167,6 +206,50 @@ func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*model
 	}
 	if rows == 0 {
 		return nil, database.ErrNotFound
+	}
+
+	return d, nil
+}
+
+func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin driver label transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	d.UpdatedAt = time.Now()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE drivers
+		SET name = ?, address = ?, lat = ?, lng = ?, vehicle_capacity = ?, updated_at = ?
+		WHERE id = ?
+	`, d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update driver: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, database.ErrNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM driver_labels WHERE driver_id = ?`, d.ID); err != nil {
+		return nil, fmt.Errorf("failed to clear driver label memberships: %w", err)
+	}
+
+	if err := insertLabelMemberships(ctx, tx, "driver_labels", "driver_id", d.ID, labelIDs); err != nil {
+		return nil, fmt.Errorf("failed to insert driver label memberships: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit driver label transaction: %w", err)
 	}
 
 	return d, nil

@@ -17,6 +17,7 @@ type DataStore interface {
 	OrganizationVehicles() OrganizationVehicleRepository
 	Events() EventRepository
 	DistanceCache() DistanceCacheRepository
+	Labels() LabelRepository
 }
 
 // ParticipantRepository handles participant persistence
@@ -25,7 +26,9 @@ type ParticipantRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
+	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
+	UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -35,8 +38,30 @@ type DriverRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
+	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
+	UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error
+}
+
+// LabelRepository handles label persistence and memberships.
+type LabelRepository interface {
+	List(ctx context.Context) ([]models.Label, error)
+	GetByID(ctx context.Context, id int64) (*models.Label, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]models.Label, error)
+	Create(ctx context.Context, label *models.Label) (*models.Label, error)
+	Update(ctx context.Context, label *models.Label) (*models.Label, error)
+	Delete(ctx context.Context, id int64) error
+	ListLabelsForParticipant(ctx context.Context, participantID int64) ([]models.Label, error)
+	ListLabelsForDriver(ctx context.Context, driverID int64) ([]models.Label, error)
+	SetLabelsForParticipant(ctx context.Context, participantID int64, labelIDs []int64) error
+	SetLabelsForDriver(ctx context.Context, driverID int64, labelIDs []int64) error
+	AddLabelToParticipants(ctx context.Context, labelID int64, participantIDs []int64) error
+	RemoveLabelFromParticipants(ctx context.Context, labelID int64, participantIDs []int64) error
+	AddLabelToDrivers(ctx context.Context, labelID int64, driverIDs []int64) error
+	RemoveLabelFromDrivers(ctx context.Context, labelID int64, driverIDs []int64) error
+	ListLabelIDsForParticipants(ctx context.Context) (map[int64][]int64, error)
+	ListLabelIDsForDrivers(ctx context.Context) (map[int64][]int64, error)
 }
 
 // SettingsRepository handles settings persistence

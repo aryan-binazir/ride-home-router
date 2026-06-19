@@ -145,6 +145,45 @@ func (r *participantRepository) Create(ctx context.Context, p *models.Participan
 	return p, nil
 }
 
+func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin participant label transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	p.CreatedAt = now
+	p.UpdatedAt = now
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO participants (name, address, lat, lng, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, p.Name, p.Address, p.Lat, p.Lng, p.CreatedAt, p.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create participant: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	p.ID = id
+
+	if err := insertLabelMemberships(ctx, tx, "participant_labels", "participant_id", p.ID, labelIDs); err != nil {
+		return nil, fmt.Errorf("failed to insert participant label memberships: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit participant label transaction: %w", err)
+	}
+
+	return p, nil
+}
+
 func (r *participantRepository) Update(ctx context.Context, p *models.Participant) (*models.Participant, error) {
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
@@ -168,6 +207,50 @@ func (r *participantRepository) Update(ctx context.Context, p *models.Participan
 	}
 	if rows == 0 {
 		return nil, database.ErrNotFound
+	}
+
+	return p, nil
+}
+
+func (r *participantRepository) UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin participant label transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	p.UpdatedAt = time.Now()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE participants
+		SET name = ?, address = ?, lat = ?, lng = ?, updated_at = ?
+		WHERE id = ?
+	`, p.Name, p.Address, p.Lat, p.Lng, p.UpdatedAt, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update participant: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, database.ErrNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM participant_labels WHERE participant_id = ?`, p.ID); err != nil {
+		return nil, fmt.Errorf("failed to clear participant label memberships: %w", err)
+	}
+
+	if err := insertLabelMemberships(ctx, tx, "participant_labels", "participant_id", p.ID, labelIDs); err != nil {
+		return nil, fmt.Errorf("failed to insert participant label memberships: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit participant label transaction: %w", err)
 	}
 
 	return p, nil
