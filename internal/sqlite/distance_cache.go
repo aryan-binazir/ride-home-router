@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -41,7 +42,7 @@ func (r *distanceCacheRepository) Get(ctx context.Context, origin, dest models.C
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, database.ErrCacheMiss
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get distance cache entry: %w", err)

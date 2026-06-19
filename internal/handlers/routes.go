@@ -132,13 +132,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	// Get the selected activity location
 	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
+			h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
+			return
+		}
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if activityLocation == nil {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
-		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
 		return
 	}
 
@@ -321,8 +320,12 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	}
 
 	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
-	if err != nil || activityLocation == nil {
-		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
+	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
+			return
+		}
+		h.handleInternalError(w, err)
 		return
 	}
 

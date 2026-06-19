@@ -52,7 +52,7 @@ func (r *activityLocationRepository) GetByID(ctx context.Context, id int64) (*mo
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, database.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get activity location: %w", err)

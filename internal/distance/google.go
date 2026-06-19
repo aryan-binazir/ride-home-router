@@ -53,7 +53,7 @@ func (c *googleCalculator) GetDistance(ctx context.Context, origin, dest models.
 	}
 
 	cached, err := c.cache.Get(ctx, origin, dest)
-	if err != nil {
+	if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 		return nil, err
 	}
 	if cached != nil {
@@ -165,7 +165,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 		}
 
 		cached, err := c.cache.Get(ctx, origin, dest)
-		if err != nil {
+		if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 			return nil, err
 		}
 		if cached != nil {

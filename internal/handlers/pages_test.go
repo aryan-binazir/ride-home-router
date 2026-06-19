@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -132,7 +133,7 @@ func TestHandleUpdateRoutingProviderConfig_SavesKeyAndClearsDistanceCache(t *tes
 		t.Fatalf("GoogleMapsAPIKey = %q, want saved key", config.GoogleMapsAPIKey)
 	}
 	cached, err := store.DistanceCache().Get(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, models.Coordinates{Lat: 36, Lng: -79})
-	if err != nil {
+	if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 		t.Fatalf("read cache: %v", err)
 	}
 	if cached != nil {

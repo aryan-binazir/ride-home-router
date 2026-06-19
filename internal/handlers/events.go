@@ -144,14 +144,13 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/events/{id}: id=%d", id)
 	event, routes, summary, err := h.DB.Events().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Event not found: id=%d", id)
+			h.handleNotFound(w, messageEventNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if event == nil {
-		log.Printf("[HTTP] Event not found: id=%d", id)
-		h.handleNotFound(w, messageEventNotFound)
 		return
 	}
 

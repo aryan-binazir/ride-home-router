@@ -124,12 +124,12 @@ func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Reque
 	log.Printf("[HTTP] GET /api/v1/activity-locations/%d", id)
 	location, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleNotFoundHTMX(w, r, "Activity location not found")
+			return
+		}
 		log.Printf("[ERROR] Failed to get activity location: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-	if location == nil {
-		h.handleNotFoundHTMX(w, r, "Activity location not found")
 		return
 	}
 
@@ -151,11 +151,11 @@ func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Requ
 
 	location, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.renderError(w, r, fmt.Errorf("activity location not found"))
+			return
+		}
 		h.renderError(w, r, err)
-		return
-	}
-	if location == nil {
-		h.renderError(w, r, fmt.Errorf("activity location not found"))
 		return
 	}
 
@@ -173,12 +173,12 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 
 	existing, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
+			return
+		}
 		log.Printf("[ERROR] Failed to get activity location for update: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-	if existing == nil {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
 		return
 	}
 

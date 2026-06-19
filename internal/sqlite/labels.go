@@ -70,7 +70,7 @@ func (r *labelRepository) GetByID(ctx context.Context, id int64) (*models.Label,
 		WHERE l.id = ?
 	`, id).Scan(&label.ID, &label.Name, &label.ParticipantCount, &label.DriverCount, &label.CreatedAt, &label.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, database.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get label: %w", err)

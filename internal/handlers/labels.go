@@ -73,11 +73,11 @@ func (h *Handler) HandleGetLabel(w http.ResponseWriter, r *http.Request) {
 
 	label, err := h.DB.Labels().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleNotFound(w, messageLabelNotFound)
+			return
+		}
 		h.handleInternalError(w, err)
-		return
-	}
-	if label == nil {
-		h.handleNotFound(w, messageLabelNotFound)
 		return
 	}
 
@@ -131,11 +131,11 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.DB.Labels().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleLabelNotFound(w, r)
+			return
+		}
 		h.handleInternalError(w, err)
-		return
-	}
-	if existing == nil {
-		h.handleLabelNotFound(w, r)
 		return
 	}
 
@@ -224,11 +224,11 @@ func (h *Handler) HandleLabelForm(w http.ResponseWriter, r *http.Request) {
 		}
 		label, err = h.DB.Labels().GetByID(r.Context(), id)
 		if err != nil {
+			if h.checkNotFound(err) {
+				h.renderError(w, r, errors.New(messageLabelNotFound))
+				return
+			}
 			h.renderError(w, r, err)
-			return
-		}
-		if label == nil {
-			h.renderError(w, r, errors.New(messageLabelNotFound))
 			return
 		}
 	} else {
@@ -378,11 +378,11 @@ func (h *Handler) parseBulkLabelAction(w http.ResponseWriter, r *http.Request) (
 
 	label, err := h.DB.Labels().GetByID(r.Context(), labelID)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageLabelNotFound)
+			return 0, nil, false
+		}
 		h.handleInternalError(w, err)
-		return 0, nil, false
-	}
-	if label == nil {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageLabelNotFound)
 		return 0, nil, false
 	}
 

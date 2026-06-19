@@ -3,6 +3,7 @@ package distance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -82,7 +83,7 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 	}
 
 	cached, err := c.cache.Get(ctx, origin, dest)
-	if err != nil {
+	if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 		return nil, err
 	}
 	if cached != nil {
@@ -296,7 +297,7 @@ func (c *osrmCalculator) hydrateMatrixFromCache(ctx context.Context, points []mo
 			}
 
 			cached, err := c.cache.Get(ctx, points[i], points[j])
-			if err != nil {
+			if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 				return nil, err
 			}
 			if cached != nil {

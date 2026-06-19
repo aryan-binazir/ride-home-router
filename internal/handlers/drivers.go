@@ -76,14 +76,13 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/drivers/{id}: id=%d", id)
 	driver, err := h.DB.Drivers().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Driver not found: id=%d", id)
+			h.handleNotFound(w, messageDriverNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to get driver: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if driver == nil {
-		log.Printf("[HTTP] Driver not found: id=%d", id)
-		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 
@@ -243,19 +242,19 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] PUT /api/v1/drivers/{id}: id=%d", id)
 	existing, err := h.DB.Drivers().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageDriverNotFound))
+				return
+			}
+			h.handleNotFound(w, messageDriverNotFound)
+			return
+		}
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
 		h.handleInternalError(w, err)
-		return
-	}
-	if existing == nil {
-		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageDriverNotFound))
-			return
-		}
-		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 
@@ -361,22 +360,21 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		driver, err = h.DB.Drivers().Update(r.Context(), driver)
 	}
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Driver not found after update: id=%d", id)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageDriverNotFound))
+				return
+			}
+			h.handleNotFound(w, messageDriverNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to update driver: id=%d err=%v", id, err)
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if driver == nil {
-		log.Printf("[HTTP] Driver not found after update: id=%d", id)
-		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageDriverNotFound))
-			return
-		}
-		h.handleNotFound(w, messageDriverNotFound)
 		return
 	}
 
@@ -473,11 +471,11 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 
 		driver, err = h.DB.Drivers().GetByID(r.Context(), id)
 		if err != nil {
+			if h.checkNotFound(err) {
+				h.renderError(w, r, errors.New(messageDriverNotFound))
+				return
+			}
 			h.renderError(w, r, err)
-			return
-		}
-		if driver == nil {
-			h.renderError(w, r, errors.New(messageDriverNotFound))
 			return
 		}
 		labels, selectedLabelIDs, err = h.loadLabelsForDriver(r, driver.ID)

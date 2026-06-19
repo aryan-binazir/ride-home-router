@@ -123,7 +123,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		WHERE id = ?
 	`, id).Scan(&event.ID, &event.EventDate, &notes, &mode, &event.CreatedAt)
 	if err == sql.ErrNoRows {
-		return nil, nil, nil, nil
+		return nil, nil, nil, database.ErrNotFound
 	}
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get event: %w", err)
