@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"fmt"
-
 	"ride-home-router/internal/models"
 )
 

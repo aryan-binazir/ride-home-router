@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
-
-	"ride-home-router/internal/models"
 )
 
 const (

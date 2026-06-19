@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
@@ -23,7 +22,7 @@ func (r *activityLocationRepository) List(ctx context.Context) ([]models.Activit
 	if err != nil {
 		return nil, fmt.Errorf("failed to query activity locations: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var locations []models.ActivityLocation
 	for rows.Next() {

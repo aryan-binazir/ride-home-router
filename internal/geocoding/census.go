@@ -8,9 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
-
 	"ride-home-router/internal/models"
+	"strings"
 )
 
 type censusGeocoder struct {
@@ -90,7 +89,7 @@ func (g *censusGeocoder) Search(ctx context.Context, query string, limit int) ([
 		log.Printf("[ERROR] Census geocoding request failed: query=%s err=%v", query, err)
 		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

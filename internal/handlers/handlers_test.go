@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ type triggerHeaderWithEvent struct {
 
 func TestHandleValidationErrorHTMX_SetsToastHeader(t *testing.T) {
 	handler := &Handler{}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", nil)
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
 

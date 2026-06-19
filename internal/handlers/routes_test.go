@@ -9,15 +9,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
-	"strings"
-	"testing"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
+	"strings"
+	"testing"
+	"time"
 )
 
 type captureRouter struct {
@@ -123,7 +122,7 @@ func TestHandleCalculateRoutes_UsesRequestedActivityLocation(t *testing.T) {
 	form.Set("activity_location_id", int64ToString(requestedLocation.ID))
 	form.Set("route_time", "18:30")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
 
@@ -188,7 +187,7 @@ func TestHandleCalculateRoutes_JSONPickupPropagatesTypedMode(t *testing.T) {
 	handler.Router = router
 
 	body := `{"participant_ids":[` + int64ToString(participant.ID) + `],"driver_ids":[` + int64ToString(driver.ID) + `],"activity_location_id":` + int64ToString(location.ID) + `,"route_time":"18:30","mode":"pickup"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -229,7 +228,7 @@ func TestHandleCalculateRoutes_InvalidModeReturnsValidationError(t *testing.T) {
 	form.Set("route_time", "18:30")
 	form.Set("mode", "sideways")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -288,7 +287,7 @@ func TestHandleCalculateRoutes_DistanceProviderFailureReturnsVisibleError(t *tes
 	form.Set("activity_location_id", int64ToString(location.ID))
 	form.Set("route_time", "18:30")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -315,7 +314,7 @@ func TestHandleCalculateRoutesWithOrgVehicles_InvalidModeReturnsValidationError(
 	form.Set("route_time", "18:30")
 	form.Set("mode", "sideways")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -359,7 +358,7 @@ func TestHandleCalculateRoutes_HTMXMissingActivityLocationReturnsEventPlanningMe
 	form.Add("driver_ids", "1")
 	form.Set("route_time", "18:30")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -436,7 +435,7 @@ func TestHandleCalculateRoutes_AppliesAssignedVanCapacityBeforeRouting(t *testin
 	form.Set("route_time", "18:30")
 	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
 
@@ -520,7 +519,7 @@ func TestHandleCalculateRoutes_HTMXRendersRouteTimeMetadataAndParentCopyButton(t
 	form.Set("route_time", "18:30")
 	form.Set("mode", "dropoff")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -613,7 +612,7 @@ func TestHandleCalculateRoutes_RejectsDuplicateVanAssignments(t *testing.T) {
 	form.Set("org_vehicle_"+int64ToString(driverOne.ID), int64ToString(van.ID))
 	form.Set("org_vehicle_"+int64ToString(driverTwo.ID), int64ToString(van.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -624,7 +623,7 @@ func TestHandleCalculateRoutes_RejectsDuplicateVanAssignments(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
-	expected := `{"showToast":{"message":"A van can only be assigned to one driver per event.","type":"error"}}`
+	expected := `{"showToast":{"message":"a van can only be assigned to one driver per event","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expected {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
 	}
@@ -648,7 +647,7 @@ func TestHandleCalculateRoutes_RequiresRouteTime(t *testing.T) {
 	form.Add("driver_ids", "1")
 	form.Set("activity_location_id", int64ToString(location.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -659,7 +658,7 @@ func TestHandleCalculateRoutes_RequiresRouteTime(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
-	expected := `{"showToast":{"message":"Please choose a route time.","type":"error"}}`
+	expected := `{"showToast":{"message":"please choose a route time","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expected {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
 	}
@@ -713,7 +712,7 @@ func TestHandleCalculateRoutes_RejectsAssignmentsForUnselectedDrivers(t *testing
 	form.Set("route_time", "18:30")
 	form.Set("org_vehicle_"+int64ToString(unselectedDriver.ID), int64ToString(van.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -724,7 +723,7 @@ func TestHandleCalculateRoutes_RejectsAssignmentsForUnselectedDrivers(t *testing
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
-	expected := `{"showToast":{"message":"Only selected drivers can be assigned vans.","type":"error"}}`
+	expected := `{"showToast":{"message":"only selected drivers can be assigned vans","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expected {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
 	}
@@ -798,7 +797,7 @@ func TestHandleCalculateRoutes_PreservesVanAssignmentsInShortageFlow(t *testing.
 	form.Set("route_time", "18:30")
 	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -876,7 +875,7 @@ func TestHandleCalculateRoutes_OrgVehicleRepositoryFailureReturnsInternalError(t
 	form.Set("route_time", "18:30")
 	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -934,7 +933,7 @@ func TestHandleGetRouteSession_ValidSession(t *testing.T) {
 
 	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "18:30", "dropoff", nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
@@ -958,7 +957,7 @@ func TestHandleGetRouteSession_ValidSession(t *testing.T) {
 func TestHandleGetRouteSession_MissingSession(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id=nonexistent", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id=nonexistent", nil)
 	req.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
@@ -972,7 +971,7 @@ func TestHandleGetRouteSession_MissingSession(t *testing.T) {
 func TestHandleGetRouteSession_EmptyParam(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session", nil)
 	req.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
@@ -1012,7 +1011,7 @@ func TestHandleGetRouteSession_JSONResponse(t *testing.T) {
 
 	session := handler.RouteSession.Create(routes, drivers, activityLoc, true, "08:15", "pickup", nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	w := httptest.NewRecorder()
 
 	handler.HandleGetRouteSession(w, req)
@@ -1082,7 +1081,7 @@ func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
 		s.CurrentRoutes[1].Stops = append(s.CurrentRoutes[1].Stops, moved)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
@@ -1103,7 +1102,7 @@ func TestHandleGetRouteSession_ExpiredSessionReturnsNoContent(t *testing.T) {
 	session := handler.RouteSession.Create(nil, nil, &models.ActivityLocation{ID: 1, Name: "HQ"}, false, "18:30", "dropoff", nil)
 	session.LastAccessedAt = time.Now().Add(-3 * time.Hour)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
@@ -1140,7 +1139,7 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 
 	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "08:15", "pickup", nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 

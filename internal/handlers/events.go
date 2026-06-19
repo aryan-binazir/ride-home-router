@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
-
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/models"
 )
 
 // EventListResponse represents the list response.
@@ -278,7 +277,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `<div class="alert alert-success">Event saved successfully! <a href="/history">View History</a></div>`)
+		_, _ = fmt.Fprintf(w, `<div class="alert alert-success">Event saved successfully! <a href="/history">View History</a></div>`)
 		return
 	}
 

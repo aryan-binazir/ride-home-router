@@ -7,18 +7,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
-
-	"ride-home-router/internal/models"
 )
 
 const (
 	messageLabelNameRequired       = "Label name is required"
-	messageLabelNotFound           = "Label not found"
+	messageLabelNotFound           = "label not found"
 	messageDuplicateLabelName      = "A label with that name already exists"
 	messageChooseLabelFirst        = "Choose a label first"
-	messageInvalidLabelSelection   = "Invalid label selection"
+	messageInvalidLabelSelection   = "invalid label selection"
 	messageSelectParticipantForTag = "Select at least one participant"
 	messageSelectDriverForTag      = "Select at least one driver"
 )

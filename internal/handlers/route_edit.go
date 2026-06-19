@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
-	"time"
-
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
+	"sync"
+	"time"
 )
 
 const (
@@ -381,7 +380,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 
 	// Find and remove participant from source route
 	var participant *models.Participant
-	var stopIdx int = -1
+	stopIdx := -1
 	for i, stop := range fromRoute.Stops {
 		if stop.Participant.ID == req.ParticipantID {
 			participant = stop.Participant

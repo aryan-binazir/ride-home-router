@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-
 	"ride-home-router/internal/models"
 )
 

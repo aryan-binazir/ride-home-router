@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 type organizationVehicleRepository struct {
@@ -27,7 +26,7 @@ func (r *organizationVehicleRepository) List(ctx context.Context) ([]models.Orga
 	if err != nil {
 		return nil, fmt.Errorf("failed to query organization vehicles: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var vehicles []models.OrganizationVehicle
 	for rows.Next() {
@@ -92,7 +91,7 @@ func (r *organizationVehicleRepository) GetByIDs(ctx context.Context, ids []int6
 	if err != nil {
 		return nil, fmt.Errorf("failed to query organization vehicles by IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var vehicles []models.OrganizationVehicle
 	for rows.Next() {

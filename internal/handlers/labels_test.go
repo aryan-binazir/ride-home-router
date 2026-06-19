@@ -6,10 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/models"
 	"strings"
 	"testing"
-
-	"ride-home-router/internal/models"
 )
 
 func TestHandleCreateLabel_HTMXTrimsAndRendersList(t *testing.T) {
@@ -17,7 +16,7 @@ func TestHandleCreateLabel_HTMXTrimsAndRendersList(t *testing.T) {
 
 	form := url.Values{}
 	form.Set("name", "  Youth Conference  ")
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/labels", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/labels", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -52,7 +51,7 @@ func TestHandleUpdateLabel_HTMXRejectsDuplicateName(t *testing.T) {
 
 	form := url.Values{}
 	form.Set("name", "Second")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/labels/"+int64ToString(first.ID), strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/labels/"+int64ToString(first.ID), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -87,7 +86,7 @@ func TestHandleUpdateLabel_JSONReturnsMembershipCounts(t *testing.T) {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/labels/"+int64ToString(label.ID), strings.NewReader(`{"name":"New"}`))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/labels/"+int64ToString(label.ID), strings.NewReader(`{"name":"New"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -165,7 +164,7 @@ func TestHandleAddParticipantsToLabel_HTMXAddsMembershipsIdempotently(t *testing
 	form.Add("participant_ids", int64ToString(participantOne.ID))
 	form.Add("participant_ids", int64ToString(participantTwo.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/participants/labels/add", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/labels/add", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -179,7 +178,7 @@ func TestHandleAddParticipantsToLabel_HTMXAddsMembershipsIdempotently(t *testing
 		t.Fatalf("expected bulk success toast, HX-Trigger=%q", rr.Header().Get("HX-Trigger"))
 	}
 
-	secondReq := httptest.NewRequest(http.MethodPost, "/api/v1/participants/labels/add", strings.NewReader(form.Encode()))
+	secondReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/labels/add", strings.NewReader(form.Encode()))
 	secondReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	secondReq.Header.Set("HX-Request", "true")
 	secondRR := httptest.NewRecorder()
@@ -223,7 +222,7 @@ func TestHandleAddParticipantsToLabel_HTMXRejectsInvalidParticipantIDWithoutPart
 	form.Add("participant_ids", int64ToString(participant.ID))
 	form.Add("participant_ids", "9999")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/participants/labels/add", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/labels/add", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -270,7 +269,7 @@ func TestHandleRemoveParticipantsFromLabel_HTMXRejectsInvalidParticipantIDWithou
 	form.Add("participant_ids", int64ToString(participant.ID))
 	form.Add("participant_ids", "9999")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/participants/labels/remove", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/labels/remove", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -312,7 +311,7 @@ func TestHandleAddDriversToLabel_HTMXRejectsInvalidDriverIDWithoutPartialMutatio
 	form.Add("driver_ids", int64ToString(driver.ID))
 	form.Add("driver_ids", "9999")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/drivers/labels/add", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/add", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -356,7 +355,7 @@ func TestHandleRemoveDriversFromLabel_HTMXRemovesMembershipsIdempotently(t *test
 	form.Set("label_id", int64ToString(label.ID))
 	form.Add("driver_ids", int64ToString(driver.ID))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -374,7 +373,7 @@ func TestHandleRemoveDriversFromLabel_HTMXRemovesMembershipsIdempotently(t *test
 		t.Fatalf("driver labels = %#v, want empty", driverLabels)
 	}
 
-	secondReq := httptest.NewRequest(http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
+	secondReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
 	secondReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	secondReq.Header.Set("HX-Request", "true")
 	secondRR := httptest.NewRecorder()
@@ -412,7 +411,7 @@ func TestHandleRemoveDriversFromLabel_HTMXRejectsInvalidDriverIDWithoutPartialMu
 	form.Add("driver_ids", int64ToString(driver.ID))
 	form.Add("driver_ids", "9999")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -451,7 +450,7 @@ func TestHandleParticipantForm_RendersSelectedLabels(t *testing.T) {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/participants/"+int64ToString(participant.ID)+"/edit", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/"+int64ToString(participant.ID)+"/edit", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -486,7 +485,7 @@ func TestHandleListParticipants_HTMXRendersAssignedLabels(t *testing.T) {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/participants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -521,7 +520,7 @@ func TestHandleListDrivers_HTMXRendersAssignedLabels(t *testing.T) {
 		t.Fatalf("SetLabelsForDriver() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/drivers", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/drivers", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -556,7 +555,7 @@ func TestHandleUpdateParticipant_JSONOmittedLabelIDsPreservesLabels(t *testing.T
 	}
 
 	body := `{"name":"Participant One Updated","address":"1 Rider Way"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -596,7 +595,7 @@ func TestHandleUpdateDriver_JSONOmittedLabelIDsPreservesLabels(t *testing.T) {
 	}
 
 	body := `{"name":"Driver One Updated","address":"1 Driver Way","vehicle_capacity":4}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -635,7 +634,7 @@ func TestHandleGetDriver_JSONIncludesLabelIDs(t *testing.T) {
 		t.Fatalf("SetLabelsForDriver() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/drivers/"+int64ToString(driver.ID), nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/drivers/"+int64ToString(driver.ID), nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleGetDriver(rr, req)
@@ -676,7 +675,7 @@ func TestHandleListDrivers_JSONIncludesLabelIDs(t *testing.T) {
 		t.Fatalf("SetLabelsForDriver() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/drivers", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/drivers", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleListDrivers(rr, req)
@@ -723,7 +722,7 @@ func TestHandleGetParticipant_JSONIncludesLabelIDs(t *testing.T) {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/participants/"+int64ToString(participant.ID), nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/"+int64ToString(participant.ID), nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleGetParticipant(rr, req)
@@ -763,7 +762,7 @@ func TestHandleListParticipants_JSONIncludesLabelIDs(t *testing.T) {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/participants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleListParticipants(rr, req)
@@ -799,7 +798,7 @@ func TestHandleCreateParticipant_JSONReturnsLabelIDs(t *testing.T) {
 	}
 
 	body := `{"name":"Participant One","address":"1 Rider Way","label_ids":[` + int64ToString(label.ID) + `]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/participants", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -829,7 +828,7 @@ func TestHandleCreateDriver_JSONReturnsLabelIDs(t *testing.T) {
 	}
 
 	body := `{"name":"Driver One","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[` + int64ToString(label.ID) + `]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -875,7 +874,7 @@ func TestHandleUpdateParticipant_JSONReturnsLabelIDs(t *testing.T) {
 	}
 
 	body := `{"name":"Participant One Updated","address":"1 Rider Way","label_ids":[` + int64ToString(newLabel.ID) + `]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -922,7 +921,7 @@ func TestHandleUpdateDriver_JSONReturnsLabelIDs(t *testing.T) {
 	}
 
 	body := `{"name":"Driver One Updated","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[` + int64ToString(newLabel.ID) + `]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -964,7 +963,7 @@ func TestHandleUpdateParticipant_JSONEmptyLabelIDsClearsLabels(t *testing.T) {
 	}
 
 	body := `{"name":"Participant One Updated","address":"1 Rider Way","label_ids":[]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -1013,7 +1012,7 @@ func TestHandleUpdateDriver_JSONEmptyLabelIDsClearsLabels(t *testing.T) {
 	}
 
 	body := `{"name":"Driver One Updated","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -1061,7 +1060,7 @@ func TestHandleUpdateParticipant_JSONInvalidLabelDoesNotMutateParticipant(t *tes
 	}
 
 	body := `{"name":"Changed","address":"1 Rider Way","label_ids":[9999]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -1090,7 +1089,7 @@ func TestHandleCreateParticipant_JSONInvalidLabelDoesNotCreateParticipant(t *tes
 	handler, store := newTestManagementHandler(t)
 
 	body := `{"name":"Participant One","address":"1 Rider Way","label_ids":[9999]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/participants", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -1130,7 +1129,7 @@ func TestHandleUpdateDriver_JSONInvalidLabelDoesNotMutateDriver(t *testing.T) {
 	}
 
 	body := `{"name":"Changed","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[9999]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -1159,7 +1158,7 @@ func TestHandleCreateDriver_JSONInvalidLabelDoesNotCreateDriver(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
 	body := `{"name":"Driver One","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[9999]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 

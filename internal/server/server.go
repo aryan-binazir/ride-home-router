@@ -10,10 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
-	"runtime"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
@@ -23,6 +19,9 @@ import (
 	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templateutil"
 	"ride-home-router/web"
+	"runtime"
+	"strings"
+	"time"
 )
 
 // Server wraps the HTTP server and all dependencies
@@ -77,7 +76,7 @@ func New(cfg Config) (*Server, error) {
 	log.Printf("Loading templates...")
 	templates, err := loadTemplates(web.Templates)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
@@ -128,7 +127,7 @@ func (s *Server) GetDBPath() string {
 
 // Start starts the server and returns the actual address (useful for random port)
 func (s *Server) Start() (string, error) {
-	listener, err := net.Listen("tcp", s.addr)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
 		return "", fmt.Errorf("failed to listen: %w", err)
 	}

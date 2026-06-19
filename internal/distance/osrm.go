@@ -7,11 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 // DistanceResult contains the result of a distance calculation
@@ -115,9 +114,9 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 
 const (
 	// maxOSRMCoordinates is the maximum number of coordinates OSRM public API accepts
-	maxOSRMCoordinates   = 80
-	osrmClientTimeout    = 30 * time.Second
-	osrmBatchRateDelay   = 100 * time.Millisecond
+	maxOSRMCoordinates = 80
+	osrmClientTimeout  = 30 * time.Second
+	osrmBatchRateDelay = 100 * time.Millisecond
 )
 
 func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error) {
@@ -400,7 +399,7 @@ func (c *osrmCalculator) requestTable(ctx context.Context, points []models.Coord
 		log.Printf("[ERROR] OSRM API request failed: points=%d err=%v", len(points), err)
 		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

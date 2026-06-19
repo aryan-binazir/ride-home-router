@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 func parseActivityLocationID(path string) (int64, error) {
@@ -146,7 +145,7 @@ func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Reque
 func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Request) {
 	id, err := parseActivityLocationID(r.URL.Path)
 	if err != nil {
-		h.renderError(w, r, fmt.Errorf("Invalid activity location ID"))
+		h.renderError(w, r, fmt.Errorf("invalid activity location ID"))
 		return
 	}
 
@@ -156,7 +155,7 @@ func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if location == nil {
-		h.renderError(w, r, fmt.Errorf("Activity location not found"))
+		h.renderError(w, r, fmt.Errorf("activity location not found"))
 		return
 	}
 

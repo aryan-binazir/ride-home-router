@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/testutil"
+	"strings"
+	"testing"
 )
 
 func TestGetDistanceMatrix_AllCached(t *testing.T) {
@@ -25,7 +24,7 @@ func TestGetDistanceMatrix_AllCached(t *testing.T) {
 	for i, p1 := range points {
 		for j, p2 := range points {
 			if i != j {
-				cache.Set(context.Background(), &models.DistanceCacheEntry{
+				_ = cache.Set(context.Background(), &models.DistanceCacheEntry{
 					Origin:         p1,
 					Destination:    p2,
 					DistanceMeters: float64((i+1)*1000 + j*100),
@@ -86,7 +85,7 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 	}
 
 	// Only cache the reverse direction.
-	cache.Set(context.Background(), &models.DistanceCacheEntry{
+	_ = cache.Set(context.Background(), &models.DistanceCacheEntry{
 		Origin:         points[1],
 		Destination:    points[0],
 		DistanceMeters: 5000,
@@ -105,7 +104,7 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 			Distances: [][]float64{{11100}},
 			Durations: [][]float64{{600}},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -158,7 +157,7 @@ func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
 		{Lat: 0, Lng: 0.1},
 	}
 
-	cache.Set(context.Background(), &models.DistanceCacheEntry{
+	_ = cache.Set(context.Background(), &models.DistanceCacheEntry{
 		Origin:         points[0],
 		Destination:    points[1],
 		DistanceMeters: 5000,
@@ -188,7 +187,7 @@ func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
 				{31, 32, 0},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -275,7 +274,7 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 			Distances: distances,
 			Durations: durations,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -336,7 +335,7 @@ func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
 			if i == j || (i == missingSource && j == missingDestination) {
 				continue
 			}
-			cache.Set(context.Background(), &models.DistanceCacheEntry{
+			_ = cache.Set(context.Background(), &models.DistanceCacheEntry{
 				Origin:         points[i],
 				Destination:    points[j],
 				DistanceMeters: expectedDistance(i, j),
@@ -358,7 +357,7 @@ func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
 			Distances: [][]float64{{4242}},
 			Durations: [][]float64{{242}},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -473,7 +472,7 @@ func TestGetDistanceMatrix_SinglePoint(t *testing.T) {
 			Distances: [][]float64{{0}},
 			Durations: [][]float64{{0}},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

@@ -4,10 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
-	"testing"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"testing"
 
 	_ "modernc.org/sqlite"
 )
@@ -328,7 +327,7 @@ func TestStoreMigratesV3DatabaseToV4LabelsSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	_, err = db.Exec(`
+	_, err = db.ExecContext(context.Background(), `
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
 		INSERT INTO schema_version (version) VALUES (3);

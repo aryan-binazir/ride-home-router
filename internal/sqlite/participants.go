@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 type participantRepository struct {
@@ -38,7 +37,7 @@ func (r *participantRepository) List(ctx context.Context, search string) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("failed to query participants: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var participants []models.Participant
 	for rows.Next() {
@@ -104,7 +103,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []int64) ([]mo
 	if err != nil {
 		return nil, fmt.Errorf("failed to query participants by IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var participants []models.Participant
 	for rows.Next() {
@@ -153,7 +152,7 @@ func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin participant label transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now()
 	p.CreatedAt = now
@@ -220,7 +219,7 @@ func (r *participantRepository) UpdateWithLabels(ctx context.Context, p *models.
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin participant label transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	p.UpdatedAt = time.Now()
 

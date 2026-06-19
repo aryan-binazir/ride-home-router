@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 type labelRepository struct {
@@ -40,7 +39,7 @@ func (r *labelRepository) List(ctx context.Context) ([]models.Label, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query labels: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var labels []models.Label
 	for rows.Next() {
@@ -117,7 +116,7 @@ func (r *labelRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.L
 	if err != nil {
 		return nil, fmt.Errorf("failed to query labels by IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var labels []models.Label
 	for rows.Next() {
@@ -283,7 +282,7 @@ func (r *labelRepository) listLabelsForOwner(ctx context.Context, tableName, own
 	if err != nil {
 		return nil, fmt.Errorf("failed to query owner labels: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var labels []models.Label
 	for rows.Next() {
@@ -334,7 +333,7 @@ func (r *labelRepository) replaceMemberships(ctx context.Context, tableName, own
 	if err != nil {
 		return fmt.Errorf("failed to begin label membership transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, tableName, ownerColumn), ownerID); err != nil {
 		return fmt.Errorf("failed to clear label memberships: %w", err)
@@ -363,7 +362,7 @@ func (r *labelRepository) addMemberships(ctx context.Context, tableName, ownerCo
 	if err != nil {
 		return fmt.Errorf("failed to begin add label memberships transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	seen := make(map[int64]struct{}, len(ownerIDs))
 	for _, ownerID := range ownerIDs {
@@ -444,7 +443,7 @@ func (r *labelRepository) listLabelIDsForOwners(ctx context.Context, tableName, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query label IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[int64][]int64)
 	for rows.Next() {

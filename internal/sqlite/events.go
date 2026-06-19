@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 type eventRepository struct {
@@ -33,7 +32,7 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int) ([]models
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []models.Event
 	for rows.Next() {
@@ -85,7 +84,7 @@ func (r *eventRepository) GetSummariesByEventIDs(ctx context.Context, eventIDs [
 	if err != nil {
 		return nil, fmt.Errorf("failed to query event summaries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var summary models.EventSummary
@@ -150,7 +149,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to query event routes: %w", err)
 	}
-	defer routeRows.Close()
+	defer func() { _ = routeRows.Close() }()
 
 	var routes []models.EventRoute
 	routeIDs := make([]int64, 0)
@@ -209,7 +208,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to query event route stops: %w", err)
 		}
-		defer stopRows.Close()
+		defer func() { _ = stopRows.Close() }()
 
 		for stopRows.Next() {
 			var stop models.EventRouteStop
@@ -265,7 +264,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	event.CreatedAt = time.Now()
 	result, err := tx.ExecContext(ctx, `

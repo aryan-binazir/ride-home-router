@@ -4,10 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"ride-home-router/internal/models"
 	"testing"
 	"time"
-
-	"ride-home-router/internal/models"
 )
 
 func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) {
@@ -357,7 +356,7 @@ func createLegacyEventDB(t *testing.T, dbPath string) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	legacySchema := `
 		CREATE TABLE schema_version (
@@ -413,7 +412,7 @@ func createLegacyEventDB(t *testing.T, dbPath string) {
 		) VALUES (1, 2, 1, 2100, 1, 'dropoff');
 	`
 
-	if _, err := db.Exec(legacySchema); err != nil {
+	if _, err := db.ExecContext(context.Background(), legacySchema); err != nil {
 		t.Fatalf("creating legacy schema: %v", err)
 	}
 }
@@ -422,7 +421,7 @@ func assertSchemaVersion(t *testing.T, db *sql.DB, want int) {
 	t.Helper()
 
 	var version int
-	if err := db.QueryRow(`SELECT version FROM schema_version LIMIT 1`).Scan(&version); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT version FROM schema_version LIMIT 1`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
 	if version != want {
@@ -459,7 +458,7 @@ func assertRowCount(t *testing.T, db *sql.DB, tableName string, want int) {
 
 	var count int
 	query := "SELECT COUNT(*) FROM " + tableName
-	if err := db.QueryRow(query).Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), query).Scan(&count); err != nil {
 		t.Fatalf("count rows in %q: %v", tableName, err)
 	}
 	if count != want {

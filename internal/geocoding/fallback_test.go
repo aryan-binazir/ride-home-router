@@ -3,9 +3,8 @@ package geocoding
 import (
 	"context"
 	"errors"
-	"testing"
-
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 type stubGeocoder struct {

@@ -6,12 +6,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/sqlite"
+	"strings"
+	"testing"
 )
 
 func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {
@@ -24,7 +23,7 @@ func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {
 		t.Fatalf("create van: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/vans", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/vans", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleVansPage(rr, req)
@@ -48,7 +47,7 @@ func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {
 func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
 	handler, _ := newTestPageHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleSettingsPage(rr, req)
@@ -78,7 +77,7 @@ func TestHandleSettingsPage_ShowsGoogleKeyStatusWithoutRenderingKey(t *testing.T
 
 	handler, _ := newTestPageHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleSettingsPage(rr, req)
@@ -115,7 +114,7 @@ func TestHandleUpdateRoutingProviderConfig_SavesKeyAndClearsDistanceCache(t *tes
 
 	form := url.Values{}
 	form.Set("google_maps_api_key", "new-google-key")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/routing-provider", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/config/routing-provider", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -153,7 +152,7 @@ func TestHandleUpdateRoutingProviderConfig_EmptyKeyDoesNotOverwriteExistingKey(t
 	handler, _ := newTestPageHandler(t)
 
 	form := url.Values{}
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/routing-provider", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/config/routing-provider", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -189,7 +188,7 @@ func TestHandleUpdateDatabaseConfig_PreservesGoogleKey(t *testing.T) {
 	newDBPath := filepath.Join(home, "new.db")
 	form := url.Values{}
 	form.Set("database_path", newDBPath)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/database", strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/config/database", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -238,7 +237,7 @@ func TestHandleIndexPage_RendersVanAssignmentsPanelWhenVansExist(t *testing.T) {
 		t.Fatalf("create van: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleIndexPage(rr, req)
@@ -272,7 +271,7 @@ func TestHandleLabelsPage_RendersLabelsNavAndTable(t *testing.T) {
 		t.Fatalf("create label: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/labels", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/labels", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleLabelsPage(rr, req)
@@ -322,7 +321,7 @@ func TestHandleIndexPage_RendersLabelFiltersAndRowMetadata(t *testing.T) {
 		t.Fatalf("SetLabelsForDriver() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleIndexPage(rr, req)

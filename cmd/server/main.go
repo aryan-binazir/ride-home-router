@@ -7,15 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"ride-home-router/internal/server"
 	"runtime"
 	"syscall"
 	"time"
-
-	"ride-home-router/internal/server"
 )
 
 const (
-	browserLaunchDelay  = 500 * time.Millisecond
+	browserLaunchDelay    = 500 * time.Millisecond
 	serverShutdownTimeout = 30 * time.Second
 )
 

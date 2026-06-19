@@ -6,10 +6,9 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
-
-	"ride-home-router/internal/models"
 )
 
 // ParticipantListResponse represents the list response
@@ -117,7 +116,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		req.Address = r.FormValue("address")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("Invalid label selection"))
+			h.renderError(w, r, errors.New("invalid label selection"))
 			return
 		}
 		labelIDs = parsedLabelIDs
@@ -263,7 +262,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		req.Address = r.FormValue("address")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("Invalid label selection"))
+			h.renderError(w, r, errors.New("invalid label selection"))
 			return
 		}
 		labelIDs = parsedLabelIDs

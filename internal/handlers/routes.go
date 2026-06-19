@@ -6,13 +6,12 @@ import (
 	"html"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/routing"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // CalculateRoutesRequest represents the request for route calculation
@@ -418,7 +417,7 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 		h.setHTMXToast(w, message, toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(status)
-		w.Write([]byte(`<div class="alert alert-warning">` + html.EscapeString(message) + `</div>`))
+		_, _ = w.Write([]byte(`<div class="alert alert-warning">` + html.EscapeString(message) + `</div>`))
 		return
 	}
 

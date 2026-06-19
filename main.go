@@ -62,7 +62,6 @@ func main() {
 			WebviewGpuPolicy: linux.WebviewGpuPolicyAlways,
 		},
 	})
-
 	if err != nil {
 		log.Fatal(err)
 	}

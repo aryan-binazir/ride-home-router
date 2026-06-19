@@ -3,11 +3,10 @@ package handlers
 import (
 	"html/template"
 	"io/fs"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/templateutil"
 	"ride-home-router/web"
+	"strings"
+	"testing"
 )
 
 func loadEmbeddedTemplates(t *testing.T) *TemplateSet {

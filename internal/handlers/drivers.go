@@ -6,10 +6,9 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
-
-	"ride-home-router/internal/models"
 )
 
 // DriverListResponse represents the list response
@@ -119,14 +118,14 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
 			if err != nil {
-				h.renderError(w, r, errors.New("Invalid vehicle capacity"))
+				h.renderError(w, r, errors.New("invalid vehicle capacity"))
 				return
 			}
 			req.VehicleCapacity = capacity
 		}
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("Invalid label selection"))
+			h.renderError(w, r, errors.New("invalid label selection"))
 			return
 		}
 		labelIDs = parsedLabelIDs
@@ -280,14 +279,14 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
 			if err != nil {
-				h.renderError(w, r, errors.New("Invalid vehicle capacity"))
+				h.renderError(w, r, errors.New("invalid vehicle capacity"))
 				return
 			}
 			req.VehicleCapacity = capacity
 		}
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("Invalid label selection"))
+			h.renderError(w, r, errors.New("invalid label selection"))
 			return
 		}
 		labelIDs = parsedLabelIDs

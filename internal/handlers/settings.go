@@ -6,11 +6,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 // HandleGetSettings handles GET /api/v1/settings
@@ -299,7 +298,7 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 
 	// Ensure the directory exists
 	dir := filepath.Dir(req.DatabasePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		log.Printf("[ERROR] Failed to create database directory: err=%v", err)
 		if h.isHTMX(r) {
 			h.setHTMXToast(w, messageFailedToCreateDirectory(err), toastTypeError)

@@ -22,7 +22,7 @@ func GetAppDir() (string, error) {
 	}
 
 	appDir := filepath.Join(homeDir, AppDirName)
-	if err := os.MkdirAll(appDir, 0700); err != nil {
+	if err := os.MkdirAll(appDir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create app directory: %w", err)
 	}
 
@@ -100,7 +100,7 @@ func SaveConfig(config *AppConfig) error {
 	}
 
 	tmpPath := configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

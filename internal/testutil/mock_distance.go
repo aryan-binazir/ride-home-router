@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-
 	"ride-home-router/internal/models"
 )
 
@@ -171,7 +170,7 @@ func (c *MockDistanceCache) Set(ctx context.Context, entry *models.DistanceCache
 
 func (c *MockDistanceCache) SetBatch(ctx context.Context, entries []models.DistanceCacheEntry) error {
 	for i := range entries {
-		c.Set(ctx, &entries[i])
+		_ = c.Set(ctx, &entries[i])
 	}
 	return nil
 }
