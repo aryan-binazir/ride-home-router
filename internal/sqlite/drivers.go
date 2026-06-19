@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 type driverRepository struct {
@@ -38,7 +37,7 @@ func (r *driverRepository) List(ctx context.Context, search string) ([]models.Dr
 	if err != nil {
 		return nil, fmt.Errorf("failed to query drivers: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var drivers []models.Driver
 	for rows.Next() {
@@ -69,7 +68,7 @@ func (r *driverRepository) GetByID(ctx context.Context, id int64) (*models.Drive
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, database.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get driver: %w", err)
@@ -93,7 +92,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
 		`SELECT id, name, address, lat, lng, vehicle_capacity, created_at, updated_at
 		 FROM drivers WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),
@@ -103,7 +102,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query drivers by IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var drivers []models.Driver
 	for rows.Next() {
@@ -152,7 +151,7 @@ func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Drive
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin driver label transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now()
 	d.CreatedAt = now
@@ -219,7 +218,7 @@ func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Drive
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin driver label transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	d.UpdatedAt = time.Now()
 

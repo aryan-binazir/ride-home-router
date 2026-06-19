@@ -7,11 +7,10 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"slices"
-	"testing"
-
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"slices"
+	"testing"
 )
 
 type routeEditDistanceCalculator struct{}
@@ -300,7 +299,7 @@ func TestHandleMoveParticipantOptimizesDestinationRoute(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.HandleMoveParticipant(rec, req)
 
@@ -431,7 +430,7 @@ func TestHandleMoveParticipant_RecalculatesAllDirtyRoutesWhenBalancedAgain(t *te
 			t.Fatalf("marshal move request: %v", err)
 		}
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.HandleMoveParticipant(rr, req)
 		if rr.Code != http.StatusOK {

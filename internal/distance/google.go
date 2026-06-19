@@ -11,11 +11,10 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 const (
@@ -54,7 +53,7 @@ func (c *googleCalculator) GetDistance(ctx context.Context, origin, dest models.
 	}
 
 	cached, err := c.cache.Get(ctx, origin, dest)
-	if err != nil {
+	if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 		return nil, err
 	}
 	if cached != nil {
@@ -166,7 +165,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 		}
 
 		cached, err := c.cache.Get(ctx, origin, dest)
-		if err != nil {
+		if err != nil && !errors.Is(err, database.ErrCacheMiss) {
 			return nil, err
 		}
 		if cached != nil {
@@ -336,7 +335,7 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 	if err != nil {
 		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		responseBody, err := io.ReadAll(resp.Body)
@@ -390,7 +389,7 @@ func (c *googleCalculator) currentAPIKey() (string, error) {
 	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return "", fmt.Errorf("%w: Google Maps API key is missing. Add it in Settings.", ErrProviderNotConfigured)
+		return "", fmt.Errorf("%w: Google Maps API key is missing; add it in Settings", ErrProviderNotConfigured)
 	}
 	return apiKey, nil
 }

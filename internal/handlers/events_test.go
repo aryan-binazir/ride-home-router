@@ -11,14 +11,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"ride-home-router/internal/models"
+	"ride-home-router/internal/sqlite"
+	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/sqlite"
-	"ride-home-router/web"
 
 	_ "modernc.org/sqlite"
 )
@@ -38,7 +37,7 @@ PAGE|{{.DisplayedCount}}/{{.Total}}{{range .Events}}<div class="event-item">{{.I
 func TestHandleCreateEvent_MissingRoutesReturnsBadRequest(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/events", strings.NewReader("event_date=2026-03-14"))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("event_date=2026-03-14"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
 
@@ -101,7 +100,7 @@ func TestHandleCreateEvent_OutOfBalanceSessionReturnsBadRequest(t *testing.T) {
 	}
 
 	form := "event_date=2026-03-14&session_id=" + session.ID + "&routes_json=" + url.QueryEscape(string(payloadBytes))
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
 
@@ -124,7 +123,7 @@ func TestHandleListEvents_ReturnsJSONForStandardRequest(t *testing.T) {
 	createTestEvent(t, store, "2026-03-10", "older")
 	createTestEvent(t, store, "2026-03-12", "newer")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events?limit=1", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleListEvents(rr, req)
@@ -160,7 +159,7 @@ func TestHandleListEvents_ReturnsJSONForStandardRequest(t *testing.T) {
 func TestHandleListEvents_HTMXRendersHTMLWithoutLegacyNoticeAndIncludesMigratedEvents(t *testing.T) {
 	handler, _ := newTestEventHandler(t, true)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -186,7 +185,7 @@ func TestHandleGetEvent_ReturnsLegacyCompatibleJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	event := createTestEvent(t, store, "2026-03-14", "current event")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/"+int64ToString(event.ID), nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events/"+int64ToString(event.ID), nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleGetEvent(rr, req)
@@ -229,7 +228,7 @@ func TestHandleGetEvent_ReturnsLegacyCompatibleJSON(t *testing.T) {
 func TestHandleGetEvent_HTMXUsesLegacyDetailForMigratedHistory(t *testing.T) {
 	handler, _ := newTestEventHandler(t, true)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events/1", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -254,7 +253,7 @@ func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	event := createTestEvent(t, store, "2026-03-14", "current event")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/"+int64ToString(event.ID), nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events/"+int64ToString(event.ID), nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -278,7 +277,7 @@ func TestHandleListEvents_HTMXLoadMoreRendersAppendPartial(t *testing.T) {
 		createTestEvent(t, store, time.Date(2026, time.March, i+1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), "event "+strconv.Itoa(i))
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?offset=20&limit=20", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events?offset=20&limit=20", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -363,7 +362,7 @@ func TestHandleDeleteEvent_HTMXRerendersEventList(t *testing.T) {
 	deleted := createTestEvent(t, store, "2026-03-13", "delete me")
 	createTestEvent(t, store, "2026-03-14", "keep me")
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/events/"+int64ToString(deleted.ID), nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/events/"+int64ToString(deleted.ID), nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -539,7 +538,7 @@ func createLegacyHistoryDB(t *testing.T, dbPath string) {
 	if err != nil {
 		t.Fatalf("open legacy db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	statements := []string{
 		`CREATE TABLE schema_version (version INTEGER PRIMARY KEY)`,
@@ -594,7 +593,7 @@ func createLegacyHistoryDB(t *testing.T, dbPath string) {
 	}
 
 	for _, stmt := range statements {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 			t.Fatalf("exec legacy statement %q: %v", stmt, err)
 		}
 	}

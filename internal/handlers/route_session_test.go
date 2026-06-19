@@ -1,11 +1,10 @@
 package handlers
 
 import (
+	"ride-home-router/internal/models"
 	"sync"
 	"testing"
 	"time"
-
-	"ride-home-router/internal/models"
 )
 
 func TestDeepCopy_Independence(t *testing.T) {

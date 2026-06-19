@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
-
-	"ride-home-router/internal/models"
 )
 
 const (
@@ -40,7 +39,7 @@ func FuncMap() template.FuncMap {
 			if err != nil {
 				return template.JS("[]")
 			}
-			return template.JS(b)
+			return template.JS(b) //nolint:gosec // G203: json.Marshal output embedded as JS literal in JSON script block.
 		},
 		"formatDistance": func(meters float64, useMiles bool) string {
 			if useMiles {

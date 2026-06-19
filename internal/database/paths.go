@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -22,7 +23,7 @@ func GetAppDir() (string, error) {
 	}
 
 	appDir := filepath.Join(homeDir, AppDirName)
-	if err := os.MkdirAll(appDir, 0700); err != nil {
+	if err := os.MkdirAll(appDir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create app directory: %w", err)
 	}
 
@@ -53,6 +54,33 @@ type AppConfig struct {
 	GoogleMapsAPIKey string `json:"google_maps_api_key,omitempty"`
 }
 
+func ensurePathUnderAppDir(path string) (string, error) {
+	appDir, err := GetAppDir()
+	if err != nil {
+		return "", err
+	}
+
+	absAppDir, err := filepath.Abs(appDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve app directory: %w", err)
+	}
+
+	absPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve config path: %w", err)
+	}
+
+	rel, err := filepath.Rel(absAppDir, absPath)
+	if err != nil {
+		return "", fmt.Errorf("config path outside app directory: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("config path outside app directory")
+	}
+
+	return absPath, nil
+}
+
 // LoadConfig loads the application config, returning defaults if not found
 func LoadConfig() (*AppConfig, error) {
 	configPath, err := GetConfigFilePath()
@@ -60,7 +88,12 @@ func LoadConfig() (*AppConfig, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(configPath)
+	configPath, err = ensurePathUnderAppDir(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(configPath) //nolint:gosec // G304: path constrained to app config dir above.
 	if os.IsNotExist(err) {
 		defaultDBPath, err := GetDefaultDBPath()
 		if err != nil {
@@ -100,7 +133,7 @@ func SaveConfig(config *AppConfig) error {
 	}
 
 	tmpPath := configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
-
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/models"
 )
 
 // EventListResponse represents the list response.
@@ -145,14 +144,13 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/events/{id}: id=%d", id)
 	event, routes, summary, err := h.DB.Events().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Event not found: id=%d", id)
+			h.handleNotFound(w, messageEventNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if event == nil {
-		log.Printf("[HTTP] Event not found: id=%d", id)
-		h.handleNotFound(w, messageEventNotFound)
 		return
 	}
 
@@ -278,7 +276,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `<div class="alert alert-success">Event saved successfully! <a href="/history">View History</a></div>`)
+		_, _ = fmt.Fprintf(w, `<div class="alert alert-success">Event saved successfully! <a href="/history">View History</a></div>`)
 		return
 	}
 

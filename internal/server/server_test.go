@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,7 +12,7 @@ func TestHandleMethods_RejectsUnsupportedMethod(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}, nil, nil, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/participants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/participants", nil)
 	rec := httptest.NewRecorder()
 
 	handler(rec, req)
@@ -39,7 +40,7 @@ func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T
 		nil,
 	)
 
-	editReq := httptest.NewRequest(http.MethodGet, "/api/v1/participants/42/edit", nil)
+	editReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/42/edit", nil)
 	editRec := httptest.NewRecorder()
 	handler(editRec, editReq)
 
@@ -50,7 +51,7 @@ func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T
 		t.Fatalf("edit status = %d, want %d", editRec.Code, http.StatusNoContent)
 	}
 
-	emptyReq := httptest.NewRequest(http.MethodGet, "/api/v1/participants/", nil)
+	emptyReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/", nil)
 	emptyRec := httptest.NewRecorder()
 	handler(emptyRec, emptyReq)
 

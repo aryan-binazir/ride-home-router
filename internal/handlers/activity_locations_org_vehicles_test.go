@@ -6,12 +6,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/sqlite"
+	"strings"
+	"testing"
 )
 
 type stubGeocoder struct {
@@ -74,7 +73,7 @@ func TestHandleActivityLocationForm_RendersInlineEditForm(t *testing.T) {
 		t.Fatalf("create activity location: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/activity-locations/"+int64ToString(location.ID)+"/edit", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/activity-locations/"+int64ToString(location.ID)+"/edit", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -110,7 +109,7 @@ func TestHandleUpdateActivityLocation_HTMXReturnsUpdatedRow(t *testing.T) {
 	form.Set("name", "Updated Gym")
 	form.Set("address", "2 Main St")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/activity-locations/"+int64ToString(location.ID), strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/activity-locations/"+int64ToString(location.ID), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -151,7 +150,7 @@ func TestHandleOrgVehicleForm_RendersInlineEditForm(t *testing.T) {
 		t.Fatalf("create organization vehicle: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID)+"/edit", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID)+"/edit", nil)
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
 
@@ -187,7 +186,7 @@ func TestHandleUpdateActivityLocation_HTMXValidationKeepsForm(t *testing.T) {
 	form.Set("name", "")
 	form.Set("address", "2 Main St")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/activity-locations/"+int64ToString(location.ID), strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/activity-locations/"+int64ToString(location.ID), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -221,7 +220,7 @@ func TestHandleUpdateOrgVehicle_HTMXReturnsUpdatedRow(t *testing.T) {
 	form.Set("name", "Updated Van")
 	form.Set("capacity", "10")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID), strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -263,7 +262,7 @@ func TestHandleUpdateOrgVehicle_HTMXValidationKeepsForm(t *testing.T) {
 	form.Set("name", "Updated Van")
 	form.Set("capacity", "0")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID), strings.NewReader(form.Encode()))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()

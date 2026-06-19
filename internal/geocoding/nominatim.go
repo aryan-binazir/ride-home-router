@@ -10,10 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"ride-home-router/internal/models"
 	"strings"
 	"time"
-
-	"ride-home-router/internal/models"
 )
 
 // GeocodingResult contains the result of a geocoding operation
@@ -92,8 +91,8 @@ type nominatimAddress struct {
 }
 
 const (
-	geocoderClientTimeout  = 10 * time.Second
-	nominatimRateInterval  = 1 * time.Second
+	geocoderClientTimeout = 10 * time.Second
+	nominatimRateInterval = 1 * time.Second
 )
 
 // NewNominatimGeocoder creates a geocoder using Nominatim as primary with Census as fallback
@@ -139,7 +138,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 		log.Printf("[ERROR] Geocoding API request failed: address=%s err=%v", address, err)
 		return nil, &ErrGeocodingFailed{Address: address, Reason: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -210,7 +209,7 @@ func (g *nominatimGeocoder) Search(ctx context.Context, query string, limit int)
 		log.Printf("[ERROR] Geocoding search API request failed: query=%s err=%v", query, err)
 		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -421,9 +420,11 @@ var usStateAbbreviations = map[string]string{
 	"wyoming":              "WY",
 }
 
-var usStateCodePattern = regexp.MustCompile(`\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b`)
-var usZIPCodePattern = regexp.MustCompile(`\b\d{5}(?:-\d{4})?\b`)
-var addressNumberPattern = regexp.MustCompile(`\d`)
+var (
+	usStateCodePattern   = regexp.MustCompile(`\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b`)
+	usZIPCodePattern     = regexp.MustCompile(`\b\d{5}(?:-\d{4})?\b`)
+	addressNumberPattern = regexp.MustCompile(`\d`)
+)
 
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
 	var lastErr error

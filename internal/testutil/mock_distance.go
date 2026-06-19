@@ -2,9 +2,10 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
-
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -148,13 +149,16 @@ func (c *MockDistanceCache) Get(ctx context.Context, origin, dest models.Coordin
 	if entry, ok := c.entries[key]; ok {
 		return entry, nil
 	}
-	return nil, nil
+	return nil, database.ErrCacheMiss
 }
 
 func (c *MockDistanceCache) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
 	result := make(map[string]*models.DistanceCacheEntry)
 	for _, pair := range pairs {
-		entry, _ := c.Get(ctx, pair.Origin, pair.Dest)
+		entry, err := c.Get(ctx, pair.Origin, pair.Dest)
+		if err != nil && !errors.Is(err, database.ErrCacheMiss) {
+			return nil, err
+		}
 		if entry != nil {
 			key := c.cacheKey(pair.Origin, pair.Dest)
 			result[key] = entry
@@ -171,7 +175,7 @@ func (c *MockDistanceCache) Set(ctx context.Context, entry *models.DistanceCache
 
 func (c *MockDistanceCache) SetBatch(ctx context.Context, entries []models.DistanceCacheEntry) error {
 	for i := range entries {
-		c.Set(ctx, &entries[i])
+		_ = c.Set(ctx, &entries[i])
 	}
 	return nil
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
@@ -42,7 +42,7 @@ func (r *distanceCacheRepository) Get(ctx context.Context, origin, dest models.C
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, database.ErrCacheMiss
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get distance cache entry: %w", err)
@@ -71,7 +71,7 @@ func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ 
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare batch query: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, pair := range pairs {
 		originLat := models.RoundCoordinate(pair.Origin.Lat)
@@ -136,7 +136,7 @@ func (r *distanceCacheRepository) SetBatch(ctx context.Context, entries []models
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	query := `INSERT OR REPLACE INTO distance_cache
 	          (origin_lat, origin_lng, dest_lat, dest_lng, distance_meters, duration_secs)
@@ -146,7 +146,7 @@ func (r *distanceCacheRepository) SetBatch(ctx context.Context, entries []models
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, entry := range entries {
 		originLat := models.RoundCoordinate(entry.Origin.Lat)

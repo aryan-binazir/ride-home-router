@@ -3,11 +3,10 @@ package routing
 import (
 	"context"
 	"math"
-	"sync"
-	"testing"
-
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"sync"
+	"testing"
 )
 
 type stableDistanceCalculator struct{}

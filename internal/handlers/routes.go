@@ -6,13 +6,12 @@ import (
 	"html"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/routing"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // CalculateRoutesRequest represents the request for route calculation
@@ -133,13 +132,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	// Get the selected activity location
 	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
+			h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
+			return
+		}
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if activityLocation == nil {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
-		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
 		return
 	}
 
@@ -322,8 +320,12 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	}
 
 	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
-	if err != nil || activityLocation == nil {
-		h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
+	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
+			return
+		}
+		h.handleInternalError(w, err)
 		return
 	}
 
@@ -418,7 +420,7 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 		h.setHTMXToast(w, message, toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(status)
-		w.Write([]byte(`<div class="alert alert-warning">` + html.EscapeString(message) + `</div>`))
+		_, _ = w.Write([]byte(`<div class="alert alert-warning">` + html.EscapeString(message) + `</div>`))
 		return
 	}
 

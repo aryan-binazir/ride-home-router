@@ -5,20 +5,38 @@ run:
   relative-path-mode: gomod
 
 linters:
-  default: none
+  default: standard
   enable:
-    - govet
-    - ineffassign
-    - misspell
+    - bodyclose
+    - contextcheck
+    - exhaustive
+    - gosec
+    - loggercheck
     - modernize
-    - unconvert
-    - unused
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
   exclusions:
-    generated: strict
-    warn-unused: true
-    presets:
-      - common-false-positives
-      - std-error-handling
+    rules:
+      # Local desktop app: verbose handler request logging; no shared log pipeline.
+      - path: internal/handlers/
+        linters:
+          - gosec
+        text: "G706"
+    paths:
+      - frontend
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  exclusions:
+    paths:
+      - frontend
 
 issues:
   max-issues-per-linter: 0

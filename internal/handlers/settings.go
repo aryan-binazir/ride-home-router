@@ -6,11 +6,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 // HandleGetSettings handles GET /api/v1/settings
@@ -163,6 +162,16 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if selectedActivityLocationID > 0 {
 			location, err = h.DB.ActivityLocations().GetByID(r.Context(), selectedActivityLocationID)
 			if err != nil {
+				if h.checkNotFound(err) {
+					log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", selectedActivityLocationID)
+					if h.isHTMX(r) {
+						h.setHTMXToast(w, messageSelectedActivityLocationNotFound, toastTypeError)
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+					h.handleNotFound(w, "Activity location not found")
+					return
+				}
 				log.Printf("[ERROR] Failed to get activity location: err=%v", err)
 				if h.isHTMX(r) {
 					h.setHTMXToast(w, err.Error(), toastTypeError)
@@ -170,17 +179,6 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				h.handleInternalError(w, err)
-				return
-			}
-
-			if location == nil {
-				log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", selectedActivityLocationID)
-				if h.isHTMX(r) {
-					h.setHTMXToast(w, messageSelectedActivityLocationNotFound, toastTypeError)
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-				h.handleNotFound(w, "Activity location not found")
 				return
 			}
 		}
@@ -299,7 +297,7 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 
 	// Ensure the directory exists
 	dir := filepath.Dir(req.DatabasePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		log.Printf("[ERROR] Failed to create database directory: err=%v", err)
 		if h.isHTMX(r) {
 			h.setHTMXToast(w, messageFailedToCreateDirectory(err), toastTypeError)

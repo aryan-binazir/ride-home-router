@@ -9,20 +9,19 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os/exec"
-	"runtime"
-	"strings"
-	"time"
-
+	"ride-home-router/internal/browser"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templateutil"
 	"ride-home-router/web"
+	"strings"
+	"time"
 )
 
 // Server wraps the HTTP server and all dependencies
@@ -77,7 +76,7 @@ func New(cfg Config) (*Server, error) {
 	log.Printf("Loading templates...")
 	templates, err := loadTemplates(web.Templates)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
@@ -128,7 +127,7 @@ func (s *Server) GetDBPath() string {
 
 // Start starts the server and returns the actual address (useful for random port)
 func (s *Server) Start() (string, error) {
-	listener, err := net.Listen("tcp", s.addr)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
 		return "", fmt.Errorf("failed to listen: %w", err)
 	}
@@ -352,26 +351,15 @@ func handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only allow http/https URLs for security
-	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
-		http.Error(w, serverMessageOnlyHTTPHTTPSURLsAllowed, http.StatusBadRequest)
-		return
-	}
-
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "linux":
-		cmd = exec.Command("xdg-open", req.URL)
-	case "darwin":
-		cmd = exec.Command("open", req.URL)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", req.URL)
-	default:
-		http.Error(w, serverMessageUnsupportedPlatform, http.StatusInternalServerError)
-		return
-	}
-
-	if err := cmd.Start(); err != nil {
+	if err := browser.Open(r.Context(), req.URL); err != nil {
+		if browser.IsInvalidURL(err) {
+			http.Error(w, serverMessageOnlyHTTPHTTPSURLsAllowed, http.StatusBadRequest)
+			return
+		}
+		if browser.IsUnsupportedPlatform(err) {
+			http.Error(w, serverMessageUnsupportedPlatform, http.StatusInternalServerError)
+			return
+		}
 		log.Printf("Failed to open URL: %v", err)
 		http.Error(w, serverMessageFailedToOpenURL, http.StatusInternalServerError)
 		return
@@ -389,7 +377,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(lrw, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, lrw.statusCode, duration)
+		//nolint:gosec // G706: method/path sanitized; local access log only.
+		log.Printf("%s %s %d %v",
+			logutil.SafeString(r.Method),
+			logutil.SafeString(r.URL.Path),
+			lrw.statusCode,
+			duration,
+		)
 	})
 }
 

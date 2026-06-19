@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 func TestHandleIndexPage_RendersDraftSaveAbortBeforeClearingSession(t *testing.T) {
 	handler, _ := newTestPageHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleIndexPage(rr, req)
@@ -43,7 +44,7 @@ func TestHandleIndexPage_RendersDraftSaveAbortBeforeClearingSession(t *testing.T
 
 func TestHandleIndexPage_RendersRouteRestoreFetchHooks(t *testing.T) {
 	handler, _ := newTestPageHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleIndexPage(rr, req)

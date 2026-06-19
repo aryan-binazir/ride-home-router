@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 type organizationVehicleRepository struct {
@@ -27,7 +26,7 @@ func (r *organizationVehicleRepository) List(ctx context.Context) ([]models.Orga
 	if err != nil {
 		return nil, fmt.Errorf("failed to query organization vehicles: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var vehicles []models.OrganizationVehicle
 	for rows.Next() {
@@ -58,7 +57,7 @@ func (r *organizationVehicleRepository) GetByID(ctx context.Context, id int64) (
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, database.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get organization vehicle: %w", err)
@@ -82,7 +81,7 @@ func (r *organizationVehicleRepository) GetByIDs(ctx context.Context, ids []int6
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
 		`SELECT id, name, capacity, created_at, updated_at
 		 FROM organization_vehicles WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),
@@ -92,7 +91,7 @@ func (r *organizationVehicleRepository) GetByIDs(ctx context.Context, ids []int6
 	if err != nil {
 		return nil, fmt.Errorf("failed to query organization vehicles by IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var vehicles []models.OrganizationVehicle
 	for rows.Next() {

@@ -3,10 +3,9 @@ package routing
 import (
 	"context"
 	"fmt"
-	"testing"
-
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 func TestGroupParticipantsByAddress(t *testing.T) {
@@ -95,7 +94,6 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 		},
 		Mode: RouteModeDropoff,
 	})
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,30 +124,6 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 	if participantToRoute[3] != participantToRoute[4] {
 		t.Errorf("Charlie and David should be on the same route")
 	}
-
-	// Verify household members are consecutive in the route
-	for _, route := range result.Routes {
-		stops := route.Stops
-		for i := 0; i < len(stops)-1; i++ {
-			p1 := stops[i].Participant
-			p2 := stops[i+1].Participant
-
-			// Check if they're from the same household (same rounded coordinates)
-			lat1 := models.RoundCoordinate(p1.Lat)
-			lng1 := models.RoundCoordinate(p1.Lng)
-			lat2 := models.RoundCoordinate(p2.Lat)
-			lng2 := models.RoundCoordinate(p2.Lng)
-
-			sameHousehold := (lat1 == lat2 && lng1 == lng2)
-
-			// If they're from the same household and not consecutive, that's an error
-			// But we need to check if there are other members between them
-			if sameHousehold {
-				// They should be consecutive - this is good
-				// We just verify they exist in the route
-			}
-		}
-	}
 }
 
 func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
@@ -172,7 +146,6 @@ func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
 		},
 		Mode: RouteModeDropoff,
 	})
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -218,7 +191,6 @@ func TestBalancedRouter_LargeHouseholdSplit(t *testing.T) {
 		},
 		Mode: RouteModeDropoff,
 	})
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

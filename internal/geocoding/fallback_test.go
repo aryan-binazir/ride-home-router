@@ -3,9 +3,8 @@ package geocoding
 import (
 	"context"
 	"errors"
-	"testing"
-
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 type stubGeocoder struct {
@@ -90,11 +89,11 @@ func TestFallbackGeocoder_SearchFallsBackOnlyForSpecificUSAddress(t *testing.T) 
 
 	g := &fallbackGeocoder{
 		primary: stubGeocoder{
-			geocodeFunc: func(context.Context, string) (*GeocodingResult, error) { return nil, nil },
+			geocodeFunc: func(context.Context, string) (*GeocodingResult, error) { return nil, ErrNoGeocodingResults },
 			searchFunc:  func(context.Context, string, int) ([]GeocodingResult, error) { return []GeocodingResult{}, nil },
 		},
 		fallback: stubGeocoder{
-			geocodeFunc: func(context.Context, string) (*GeocodingResult, error) { return nil, nil },
+			geocodeFunc: func(context.Context, string) (*GeocodingResult, error) { return nil, ErrNoGeocodingResults },
 			searchFunc: func(context.Context, string, int) ([]GeocodingResult, error) {
 				fallbackCalled = true
 				return expected, nil

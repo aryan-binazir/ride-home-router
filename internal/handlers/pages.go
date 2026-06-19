@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-
 	"ride-home-router/internal/database"
 )
 

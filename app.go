@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"ride-home-router/internal/server"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
-
-	"ride-home-router/internal/server"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -57,7 +56,7 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is called when the app closes
 func (a *App) shutdown(ctx context.Context) {
 	if a.server != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 		defer cancel()
 
 		if err := a.server.Shutdown(shutdownCtx); err != nil {
@@ -65,4 +64,3 @@ func (a *App) shutdown(ctx context.Context) {
 		}
 	}
 }
-

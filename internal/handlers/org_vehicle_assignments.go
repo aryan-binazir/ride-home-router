@@ -3,20 +3,18 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
+	"strconv"
+	"strings"
 )
 
 const (
-	invalidVanAssignmentMessage          = "Please choose a valid van assignment."
-	unselectedDriverVanAssignmentMessage = "Only selected drivers can be assigned vans."
-	duplicateVanAssignmentMessage        = "A van can only be assigned to one driver per event."
-	selectedVanNotFoundMessage           = "Selected van not found. Refresh and try again."
+	invalidVanAssignmentMessage          = "please choose a valid van assignment"
+	unselectedDriverVanAssignmentMessage = "only selected drivers can be assigned vans"
+	duplicateVanAssignmentMessage        = "a van can only be assigned to one driver per event"
+	selectedVanNotFoundMessage           = "selected van not found; refresh and try again"
 )
 
 var errSelectedVanNotFound = errors.New(selectedVanNotFoundMessage)
@@ -43,19 +41,19 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf(invalidVanAssignmentMessage)
+			return nil, errors.New(invalidVanAssignmentMessage)
 		}
 		if _, ok := selectedDrivers[driverID]; !ok {
-			return nil, fmt.Errorf(unselectedDriverVanAssignmentMessage)
+			return nil, errors.New(unselectedDriverVanAssignmentMessage)
 		}
 
 		vehicleID, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil || vehicleID <= 0 {
-			return nil, fmt.Errorf(invalidVanAssignmentMessage)
+			return nil, errors.New(invalidVanAssignmentMessage)
 		}
 
 		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
-			return nil, fmt.Errorf(duplicateVanAssignmentMessage)
+			return nil, errors.New(duplicateVanAssignmentMessage)
 		}
 
 		assignments[driverID] = vehicleID

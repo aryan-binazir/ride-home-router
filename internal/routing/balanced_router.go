@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"ride-home-router/internal/distance"
+	"ride-home-router/internal/models"
 	"slices"
 	"sort"
 	"time"
-
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 )
 
 // BalancedRouter implements fair distribution routing that:

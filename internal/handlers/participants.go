@@ -6,10 +6,9 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
-
-	"ride-home-router/internal/models"
 )
 
 // ParticipantListResponse represents the list response
@@ -77,14 +76,13 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/participants/{id}: id=%d", id)
 	participant, err := h.DB.Participants().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Participant not found: id=%d", id)
+			h.handleNotFound(w, "Participant not found")
+			return
+		}
 		log.Printf("[ERROR] Failed to get participant: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if participant == nil {
-		log.Printf("[HTTP] Participant not found: id=%d", id)
-		h.handleNotFound(w, "Participant not found")
 		return
 	}
 
@@ -117,7 +115,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		req.Address = r.FormValue("address")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("Invalid label selection"))
+			h.renderError(w, r, errors.New("invalid label selection"))
 			return
 		}
 		labelIDs = parsedLabelIDs
@@ -228,21 +226,21 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 
 	existing, err := h.DB.Participants().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Participant not found for update: id=%d", id)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageParticipantNotFound))
+				return
+			}
+			h.handleNotFound(w, messageParticipantNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to get participant for update: id=%d err=%v", id, err)
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
 		h.handleInternalError(w, err)
-		return
-	}
-	if existing == nil {
-		log.Printf("[HTTP] Participant not found for update: id=%d", id)
-		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageParticipantNotFound))
-			return
-		}
-		h.handleNotFound(w, messageParticipantNotFound)
 		return
 	}
 
@@ -263,7 +261,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		req.Address = r.FormValue("address")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("Invalid label selection"))
+			h.renderError(w, r, errors.New("invalid label selection"))
 			return
 		}
 		labelIDs = parsedLabelIDs
@@ -328,22 +326,21 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		participant, err = h.DB.Participants().Update(r.Context(), participant)
 	}
 	if err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Participant not found after update: id=%d", id)
+			if h.isHTMX(r) {
+				h.renderError(w, r, errors.New(messageParticipantNotFound))
+				return
+			}
+			h.handleNotFound(w, messageParticipantNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to update participant: id=%d err=%v", id, err)
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
 		h.handleInternalError(w, err)
-		return
-	}
-
-	if participant == nil {
-		log.Printf("[HTTP] Participant not found after update: id=%d", id)
-		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageParticipantNotFound))
-			return
-		}
-		h.handleNotFound(w, messageParticipantNotFound)
 		return
 	}
 
@@ -440,11 +437,11 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 
 		participant, err = h.DB.Participants().GetByID(r.Context(), id)
 		if err != nil {
+			if h.checkNotFound(err) {
+				h.renderError(w, r, errors.New(messageParticipantNotFound))
+				return
+			}
 			h.renderError(w, r, err)
-			return
-		}
-		if participant == nil {
-			h.renderError(w, r, errors.New(messageParticipantNotFound))
 			return
 		}
 		labels, selectedLabelIDs, err = h.loadLabelsForParticipant(r, participant.ID)

@@ -3,7 +3,6 @@ package handlers
 import (
 	"log"
 	"net/http"
-
 	"ride-home-router/internal/httpx"
 )
 

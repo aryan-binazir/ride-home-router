@@ -7,12 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"ride-home-router/internal/models"
+	"ride-home-router/internal/sqlite"
 	"strconv"
 	"strings"
 	"testing"
-
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/sqlite"
 )
 
 func newTestGoogleCalculator(t *testing.T, handler http.HandlerFunc) (*googleCalculator, *sqlite.Store) {
@@ -53,8 +52,8 @@ func TestGoogleCalculator_GetDistancesFromPointSendsRequiredHeadersAndParsesStre
 			t.Fatalf("decode request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}` + "\n"))
-		w.Write([]byte(`{"originIndex":0,"destinationIndex":1,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":2400,"duration":"600.5s"}` + "\n"))
+		_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}` + "\n"))
+		_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":1,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":2400,"duration":"600.5s"}` + "\n"))
 	})
 
 	results, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{
@@ -93,7 +92,7 @@ func TestGoogleCalculator_BatchesDestinationsUnderElementLimit(t *testing.T) {
 			t.Fatalf("request elements = %d, exceeds %d", len(captured.Origins)*len(captured.Destinations), googleRouteMatrixMaxElements)
 		}
 		for i := range captured.Destinations {
-			w.Write([]byte(`{"originIndex":0,"destinationIndex":` + intToString(i) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
+			_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":` + intToString(i) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
 		}
 	})
 
@@ -123,7 +122,7 @@ func TestGoogleCalculator_GetDistanceMatrixBatchesOriginDestinationBlocks(t *tes
 		}
 		for originIndex := range captured.Origins {
 			for destIndex := range captured.Destinations {
-				w.Write([]byte(`{"originIndex":` + strconv.Itoa(originIndex) + `,"destinationIndex":` + strconv.Itoa(destIndex) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
+				_, _ = w.Write([]byte(`{"originIndex":` + strconv.Itoa(originIndex) + `,"destinationIndex":` + strconv.Itoa(destIndex) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
 			}
 		}
 	})
@@ -142,7 +141,7 @@ func TestGoogleCalculator_GetDistanceMatrixBatchesOriginDestinationBlocks(t *tes
 
 func TestGoogleCalculator_ReturnsElementFailure(t *testing.T) {
 	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"status":{"code":5,"message":"route not found"},"condition":"ROUTE_NOT_FOUND"}` + "\n"))
+		_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"status":{"code":5,"message":"route not found"},"condition":"ROUTE_NOT_FOUND"}` + "\n"))
 	})
 
 	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
@@ -156,7 +155,7 @@ func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	calc := NewGoogleCalculator(store.DistanceCache(), func() (string, error) {
 		return "", nil
@@ -172,7 +171,7 @@ func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	origin := models.Coordinates{Lat: 35, Lng: -79}
 	dest := models.Coordinates{Lat: 36, Lng: -79}

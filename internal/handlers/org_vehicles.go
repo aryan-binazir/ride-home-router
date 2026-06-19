@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 func parseOrgVehicleID(path string) (int64, error) {
@@ -122,12 +121,12 @@ func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/org-vehicles/%d", id)
 	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
+			return
+		}
 		log.Printf("[ERROR] Failed to get organization vehicle: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
-		return
-	}
-	if vehicle == nil {
-		h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 		return
 	}
 
@@ -149,11 +148,11 @@ func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
 
 	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.renderError(w, r, errors.New(messageOrganizationVehicleNotFound))
+			return
+		}
 		h.renderError(w, r, err)
-		return
-	}
-	if vehicle == nil {
-		h.renderError(w, r, errors.New(messageOrganizationVehicleNotFound))
 		return
 	}
 

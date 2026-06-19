@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
@@ -91,7 +90,7 @@ func (h *Handler) isHTMX(r *http.Request) bool {
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeJSON)
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 // writeError writes a JSON error response
@@ -115,7 +114,7 @@ func (h *Handler) handleNotFoundHTMX(w http.ResponseWriter, r *http.Request, mes
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
+		_, _ = fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
 		return
 	}
 	h.handleNotFound(w, message)
@@ -132,7 +131,7 @@ func (h *Handler) handleValidationErrorHTMX(w http.ResponseWriter, r *http.Reque
 		h.setHTMXToast(w, message, toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
+		_, _ = fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
 		return
 	}
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
@@ -249,7 +248,7 @@ func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error)
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))
+		_, _ = fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))
 		return
 	}
 	h.handleInternalError(w, err)

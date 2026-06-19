@@ -2,9 +2,8 @@ package handlers
 
 import (
 	"errors"
-	"testing"
-
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 func TestNormalizeRouteMode_WrapsInvalidModeError(t *testing.T) {

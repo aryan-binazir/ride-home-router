@@ -7,9 +7,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
-
 	"ride-home-router/internal/database"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -41,7 +40,7 @@ type Store struct {
 func New(dbPath string) (*Store, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
@@ -62,8 +61,8 @@ func New(dbPath string) (*Store, error) {
 	}
 
 	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
-			db.Close()
+		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
+			_ = db.Close()
 			return nil, fmt.Errorf("failed to set pragma %s: %w", pragma, err)
 		}
 	}
@@ -75,7 +74,7 @@ func New(dbPath string) (*Store, error) {
 
 	// Initialize schema
 	if err := store.initSchema(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
@@ -99,7 +98,7 @@ func (s *Store) GetDBPath() string {
 
 func (s *Store) initSchema() error {
 	var version int
-	err := s.db.QueryRow("SELECT version FROM schema_version LIMIT 1").Scan(&version)
+	err := s.db.QueryRowContext(context.Background(), "SELECT version FROM schema_version LIMIT 1").Scan(&version)
 	if err != nil {
 		return s.createSchema()
 	}
@@ -275,17 +274,17 @@ func (s *Store) createSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_event_route_stops_route ON event_route_stops(event_route_id);
 	`
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin schema transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.Exec(schema); err != nil {
+	if _, err := tx.ExecContext(context.Background(), schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
-	if _, err := tx.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
+	if _, err := tx.ExecContext(context.Background(), "INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
 		return fmt.Errorf("failed to record schema version: %w", err)
 	}
 
@@ -298,11 +297,11 @@ func (s *Store) createSchema() error {
 }
 
 func (s *Store) runMigrations(fromVersion int) error {
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin migration transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if fromVersion < 2 {
 		legacyTables := []string{"event_assignments", "event_summaries", "events"}
@@ -324,12 +323,12 @@ func (s *Store) runMigrations(fromVersion int) error {
 				continue
 			}
 
-			if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", table, legacyName)); err != nil {
+			if _, err := tx.ExecContext(context.Background(), fmt.Sprintf("ALTER TABLE %s RENAME TO %s", table, legacyName)); err != nil {
 				return fmt.Errorf("failed to archive %s: %w", table, err)
 			}
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(context.Background(), `
 			CREATE TABLE IF NOT EXISTS events (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				event_date DATETIME NOT NULL,
@@ -405,7 +404,7 @@ func (s *Store) runMigrations(fromVersion int) error {
 	}
 
 	if fromVersion < 4 {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(context.Background(), `
 			CREATE TABLE IF NOT EXISTS labels (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				name TEXT NOT NULL UNIQUE,
@@ -437,7 +436,7 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 	}
 
-	if _, err := tx.Exec("UPDATE schema_version SET version = ?", schemaVersion); err != nil {
+	if _, err := tx.ExecContext(context.Background(), "UPDATE schema_version SET version = ?", schemaVersion); err != nil {
 		return fmt.Errorf("failed to update schema version: %w", err)
 	}
 
@@ -456,7 +455,7 @@ func ensureEventRouteColumn(tx *sql.Tx, name, definition string) error {
 	if exists {
 		return nil
 	}
-	if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE event_routes ADD COLUMN %s %s", name, definition)); err != nil {
+	if _, err := tx.ExecContext(context.Background(), fmt.Sprintf("ALTER TABLE event_routes ADD COLUMN %s %s", name, definition)); err != nil {
 		return fmt.Errorf("failed to add event_routes.%s: %w", name, err)
 	}
 	return nil
@@ -464,7 +463,8 @@ func ensureEventRouteColumn(tx *sql.Tx, name, definition string) error {
 
 func tableExists(queryer interface {
 	QueryRow(query string, args ...any) *sql.Row
-}, tableName string) (bool, error) {
+}, tableName string,
+) (bool, error) {
 	var exists int
 	err := queryer.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)`, tableName).Scan(&exists)
 	if err != nil {
@@ -475,12 +475,13 @@ func tableExists(queryer interface {
 
 func columnExists(queryer interface {
 	Query(query string, args ...any) (*sql.Rows, error)
-}, tableName, columnName string) (bool, error) {
+}, tableName, columnName string,
+) (bool, error) {
 	rows, err := queryer.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {
 		return false, fmt.Errorf("failed checking columns for %s: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var (
@@ -524,7 +525,7 @@ func backfillLegacyEventHistory(tx *sql.Tx) error {
 		return err
 	}
 
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(context.Background(), `
 		SELECT id, event_date, notes, mode, created_at
 		FROM events_legacy
 		ORDER BY id
@@ -532,7 +533,7 @@ func backfillLegacyEventHistory(tx *sql.Tx) error {
 	if err != nil {
 		return fmt.Errorf("failed to query legacy events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var (
@@ -565,7 +566,7 @@ func backfillLegacyEventHistory(tx *sql.Tx) error {
 			nextEventID++
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(context.Background(), `
 			INSERT INTO events (id, event_date, notes, mode, created_at)
 			VALUES (?, ?, ?, ?, ?)
 		`, eventID, eventDate, notes, mode, createdAt); err != nil {
@@ -589,7 +590,7 @@ func backfillLegacyEventHistory(tx *sql.Tx) error {
 
 func nextAvailableEventID(tx *sql.Tx) (int64, error) {
 	var maxID sql.NullInt64
-	if err := tx.QueryRow(`SELECT MAX(id) FROM events`).Scan(&maxID); err != nil {
+	if err := tx.QueryRowContext(context.Background(), `SELECT MAX(id) FROM events`).Scan(&maxID); err != nil {
 		return 0, fmt.Errorf("failed to query next event id: %w", err)
 	}
 	if !maxID.Valid {
@@ -600,7 +601,7 @@ func nextAvailableEventID(tx *sql.Tx) (int64, error) {
 
 func eventExists(tx *sql.Tx, eventID int64) (bool, error) {
 	var exists int
-	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM events WHERE id = ?)`, eventID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(context.Background(), `SELECT EXISTS(SELECT 1 FROM events WHERE id = ?)`, eventID).Scan(&exists); err != nil {
 		return false, fmt.Errorf("failed to check event existence for %d: %w", eventID, err)
 	}
 	return exists == 1, nil
@@ -608,7 +609,7 @@ func eventExists(tx *sql.Tx, eventID int64) (bool, error) {
 
 func eventHasLegacyBackfill(tx *sql.Tx, eventID int64) (bool, error) {
 	var count int
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(context.Background(), `
 		SELECT COUNT(*)
 		FROM event_routes
 		WHERE event_id = ? AND snapshot_version = 1
@@ -619,7 +620,7 @@ func eventHasLegacyBackfill(tx *sql.Tx, eventID int64) (bool, error) {
 }
 
 func moveCurrentEvent(tx *sql.Tx, oldID, newID int64) error {
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(context.Background(), `
 		INSERT INTO events (id, event_date, notes, mode, created_at)
 		SELECT ?, event_date, notes, mode, created_at
 		FROM events
@@ -628,13 +629,13 @@ func moveCurrentEvent(tx *sql.Tx, oldID, newID int64) error {
 		return fmt.Errorf("failed to duplicate event %d to %d: %w", oldID, newID, err)
 	}
 
-	if _, err := tx.Exec(`UPDATE event_routes SET event_id = ? WHERE event_id = ?`, newID, oldID); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `UPDATE event_routes SET event_id = ? WHERE event_id = ?`, newID, oldID); err != nil {
 		return fmt.Errorf("failed to move event routes from %d to %d: %w", oldID, newID, err)
 	}
-	if _, err := tx.Exec(`UPDATE event_summaries SET event_id = ? WHERE event_id = ?`, newID, oldID); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `UPDATE event_summaries SET event_id = ? WHERE event_id = ?`, newID, oldID); err != nil {
 		return fmt.Errorf("failed to move event summary from %d to %d: %w", oldID, newID, err)
 	}
-	if _, err := tx.Exec(`DELETE FROM events WHERE id = ?`, oldID); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM events WHERE id = ?`, oldID); err != nil {
 		return fmt.Errorf("failed to delete remapped event %d: %w", oldID, err)
 	}
 
@@ -642,7 +643,7 @@ func moveCurrentEvent(tx *sql.Tx, oldID, newID int64) error {
 }
 
 func backfillLegacyRoutes(tx *sql.Tx, eventID int64, mode string) error {
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(context.Background(), `
 		SELECT id, driver_id, driver_name, driver_address, route_order,
 		       participant_id, participant_name, participant_address,
 		       distance_from_prev_meters, org_vehicle_id, org_vehicle_name
@@ -653,7 +654,7 @@ func backfillLegacyRoutes(tx *sql.Tx, eventID int64, mode string) error {
 	if err != nil {
 		return fmt.Errorf("failed to query legacy assignments for event %d: %w", eventID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type legacyAssignment struct {
 		driverID           int64
@@ -728,7 +729,7 @@ func backfillLegacyRoutes(tx *sql.Tx, eventID int64, mode string) error {
 			orgVehicleName = &route.orgVehicleName.String
 		}
 
-		result, err := tx.Exec(`
+		result, err := tx.ExecContext(context.Background(), `
 			INSERT INTO event_routes (
 				event_id, route_order, driver_id, driver_name, driver_address,
 				effective_capacity, org_vehicle_id, org_vehicle_name,
@@ -750,7 +751,7 @@ func backfillLegacyRoutes(tx *sql.Tx, eventID int64, mode string) error {
 		}
 
 		for stopIndex, assignment := range route.assignments {
-			if _, err := tx.Exec(`
+			if _, err := tx.ExecContext(context.Background(), `
 				INSERT INTO event_route_stops (
 					event_route_id, route_order, participant_id, participant_name,
 					participant_address, distance_from_prev_meters, cumulative_distance_meters,
@@ -782,7 +783,7 @@ func backfillLegacySummary(tx *sql.Tx, eventID int64, mode string) error {
 	}
 
 	if hasLegacySummaries {
-		err = tx.QueryRow(`
+		err = tx.QueryRowContext(context.Background(), `
 			SELECT total_participants, total_drivers, total_distance_meters, org_vehicles_used, mode
 			FROM event_summaries_legacy
 			WHERE event_id = ?
@@ -795,7 +796,7 @@ func backfillLegacySummary(tx *sql.Tx, eventID int64, mode string) error {
 	}
 
 	if err == sql.ErrNoRows {
-		if err := tx.QueryRow(`
+		if err := tx.QueryRowContext(context.Background(), `
 			SELECT COUNT(*), COUNT(DISTINCT driver_id), COALESCE(SUM(distance_from_prev_meters), 0),
 			       COUNT(DISTINCT CASE WHEN org_vehicle_id IS NOT NULL AND org_vehicle_id != 0 THEN org_vehicle_id END)
 			FROM event_assignments_legacy
@@ -806,7 +807,7 @@ func backfillLegacySummary(tx *sql.Tx, eventID int64, mode string) error {
 		summaryMode = mode
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(context.Background(), `
 		INSERT INTO event_summaries (
 			event_id, total_participants, total_drivers, total_distance_meters,
 			org_vehicles_used, mode
@@ -822,7 +823,7 @@ func backfillLegacySummary(tx *sql.Tx, eventID int64, mode string) error {
 func (s *Store) Close() error {
 	if s.db != nil {
 		// Checkpoint WAL before closing
-		s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+		_, _ = s.db.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
 		return s.db.Close()
 	}
 	return nil
@@ -840,6 +841,7 @@ func (s *Store) Settings() database.SettingsRepository        { return s.setting
 func (s *Store) ActivityLocations() database.ActivityLocationRepository {
 	return s.activityLocationRepo
 }
+
 func (s *Store) OrganizationVehicles() database.OrganizationVehicleRepository {
 	return s.organizationVehicleRepo
 }
