@@ -81,7 +81,7 @@ func (r *organizationVehicleRepository) GetByIDs(ctx context.Context, ids []int6
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
 		`SELECT id, name, capacity, created_at, updated_at
 		 FROM organization_vehicles WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),

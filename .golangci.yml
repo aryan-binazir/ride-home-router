@@ -21,6 +21,12 @@ linters:
     - sloglint
     - sqlclosecheck
   exclusions:
+    rules:
+      # Local desktop app: verbose handler request logging; no shared log pipeline.
+      - path: internal/handlers/
+        linters:
+          - gosec
+        text: "G706"
     paths:
       - frontend
 

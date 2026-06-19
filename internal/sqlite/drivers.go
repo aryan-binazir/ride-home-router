@@ -92,7 +92,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
 		`SELECT id, name, address, lat, lng, vehicle_capacity, created_at, updated_at
 		 FROM drivers WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),

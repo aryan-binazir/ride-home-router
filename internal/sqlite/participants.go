@@ -93,7 +93,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []int64) ([]mo
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
 		`SELECT id, name, address, lat, lng, created_at, updated_at
 		 FROM participants WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),

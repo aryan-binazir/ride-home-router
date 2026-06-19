@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
+	"ride-home-router/internal/browser"
 	"ride-home-router/internal/server"
-	"runtime"
 	"syscall"
 	"time"
 )
@@ -43,7 +42,7 @@ func run() error {
 	go func() {
 		time.Sleep(browserLaunchDelay)
 		url := fmt.Sprintf("http://%s", actualAddr)
-		if err := openBrowser(url); err != nil {
+		if err := browser.Open(context.Background(), url); err != nil {
 			log.Printf("Could not open browser: %v", err)
 		} else {
 			log.Printf("Opened browser at %s", url)
@@ -72,19 +71,4 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default: // linux, freebsd, etc.
-		cmd = exec.Command("xdg-open", url)
-	}
-
-	return cmd.Start()
 }
