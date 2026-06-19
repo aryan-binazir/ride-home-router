@@ -308,7 +308,7 @@ func insertLabelMemberships(ctx context.Context, tx *sql.Tx, tableName, ownerCol
 	seen := make(map[int64]struct{}, len(labelIDs))
 	for _, labelID := range labelIDs {
 		if labelID <= 0 {
-			continue
+			return fmt.Errorf("invalid label ID: %d", labelID)
 		}
 		if _, exists := seen[labelID]; exists {
 			continue
@@ -340,22 +340,8 @@ func (r *labelRepository) replaceMemberships(ctx context.Context, tableName, own
 		return fmt.Errorf("failed to clear label memberships: %w", err)
 	}
 
-	seen := make(map[int64]struct{}, len(labelIDs))
-	for _, labelID := range labelIDs {
-		if labelID <= 0 {
-			continue
-		}
-		if _, exists := seen[labelID]; exists {
-			continue
-		}
-		seen[labelID] = struct{}{}
-
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-			INSERT INTO %s (label_id, %s)
-			VALUES (?, ?)
-		`, tableName, ownerColumn), labelID, ownerID); err != nil {
-			return fmt.Errorf("failed to insert label membership: %w", err)
-		}
+	if err := insertLabelMemberships(ctx, tx, tableName, ownerColumn, ownerID, labelIDs); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -129,7 +129,7 @@ func TestLabelRepository_SetAndBulkMembershipsAreIdempotent(t *testing.T) {
 	participantTwo := createTestParticipant(t, store, "Rider Two")
 	driver := createTestDriver(t, store, "Driver One")
 
-	if err := store.Labels().SetLabelsForParticipant(ctx, participantOne.ID, []int64{firstLabel.ID, firstLabel.ID, 0, secondLabel.ID}); err != nil {
+	if err := store.Labels().SetLabelsForParticipant(ctx, participantOne.ID, []int64{firstLabel.ID, firstLabel.ID, secondLabel.ID}); err != nil {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 	participantLabels, err := store.Labels().ListLabelsForParticipant(ctx, participantOne.ID)
@@ -194,6 +194,37 @@ func TestLabelRepository_SetAndBulkMembershipsAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestLabelRepository_SetLabelsRejectsNonPositiveLabelIDWithoutMutation(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+
+	firstLabel, err := store.Labels().Create(ctx, &models.Label{Name: "First"})
+	if err != nil {
+		t.Fatalf("create first label: %v", err)
+	}
+	secondLabel, err := store.Labels().Create(ctx, &models.Label{Name: "Second"})
+	if err != nil {
+		t.Fatalf("create second label: %v", err)
+	}
+	participant := createTestParticipant(t, store, "Rider One")
+	if err := store.Labels().SetLabelsForParticipant(ctx, participant.ID, []int64{firstLabel.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() initial error = %v", err)
+	}
+
+	err = store.Labels().SetLabelsForParticipant(ctx, participant.ID, []int64{secondLabel.ID, 0})
+	if err == nil {
+		t.Fatal("SetLabelsForParticipant() error = nil, want invalid label error")
+	}
+
+	labels, err := store.Labels().ListLabelsForParticipant(ctx, participant.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForParticipant() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != firstLabel.ID {
+		t.Fatalf("participant labels = %#v, want original label preserved", labels)
+	}
+}
+
 func TestParticipantRepository_CreateWithLabelsRollsBackOnInvalidLabel(t *testing.T) {
 	store := newTestLabelStore(t)
 	ctx := context.Background()
@@ -204,6 +235,24 @@ func TestParticipantRepository_CreateWithLabelsRollsBackOnInvalidLabel(t *testin
 		Lat:     40.1,
 		Lng:     -73.9,
 	}, []int64{9999})
+	if err == nil {
+		t.Fatal("CreateWithLabels() error = nil, want invalid label error")
+	}
+
+	assertRowCount(t, store.db, "participants", 0)
+	assertRowCount(t, store.db, "participant_labels", 0)
+}
+
+func TestParticipantRepository_CreateWithLabelsRollsBackOnNonPositiveLabel(t *testing.T) {
+	store := newTestLabelStore(t)
+	ctx := context.Background()
+
+	_, err := store.Participants().CreateWithLabels(ctx, &models.Participant{
+		Name:    "Rider With Bad Label",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	}, []int64{0})
 	if err == nil {
 		t.Fatal("CreateWithLabels() error = nil, want invalid label error")
 	}

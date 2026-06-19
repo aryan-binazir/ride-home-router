@@ -1043,6 +1043,10 @@ func TestHandleUpdateDriver_JSONEmptyLabelIDsClearsLabels(t *testing.T) {
 func TestHandleUpdateParticipant_JSONInvalidLabelDoesNotMutateParticipant(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
 	participant, err := store.Participants().Create(context.Background(), &models.Participant{
 		Name:    "Participant One",
 		Address: "1 Rider Way",
@@ -1051,6 +1055,9 @@ func TestHandleUpdateParticipant_JSONInvalidLabelDoesNotMutateParticipant(t *tes
 	})
 	if err != nil {
 		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
 	body := `{"name":"Changed","address":"1 Rider Way","label_ids":[9999]}`
@@ -1069,6 +1076,82 @@ func TestHandleUpdateParticipant_JSONInvalidLabelDoesNotMutateParticipant(t *tes
 	}
 	if unchanged.Name != "Participant One" {
 		t.Fatalf("participant name = %q, want unchanged", unchanged.Name)
+	}
+	labels, err := store.Labels().ListLabelsForParticipant(context.Background(), participant.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForParticipant() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("participant labels = %#v, want existing label preserved", labels)
+	}
+}
+
+func TestHandleCreateParticipant_JSONInvalidLabelDoesNotCreateParticipant(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	body := `{"name":"Participant One","address":"1 Rider Way","label_ids":[9999]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/participants", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateParticipant(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	participants, err := store.Participants().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(participants) != 0 {
+		t.Fatalf("participants = %#v, want none created", participants)
+	}
+}
+
+func TestHandleUpdateDriver_JSONInvalidLabelDoesNotMutateDriver(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "1 Driver Way",
+		Lat:             40.1,
+		Lng:             -73.9,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForDriver() error = %v", err)
+	}
+
+	body := `{"name":"Changed","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[9999]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleUpdateDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	unchanged, err := store.Drivers().GetByID(context.Background(), driver.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if unchanged.Name != "Driver One" {
+		t.Fatalf("driver name = %q, want unchanged", unchanged.Name)
+	}
+	labels, err := store.Labels().ListLabelsForDriver(context.Background(), driver.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForDriver() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("driver labels = %#v, want existing label preserved", labels)
 	}
 }
 
