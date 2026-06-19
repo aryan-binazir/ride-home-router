@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	DefaultDBFileName = "data.db"
-	schemaVersion     = 3
-	sqliteCacheSizeKB = -64000 // 64MB cache (negative = KiB)
+	DefaultDBFileName   = "data.db"
+	schemaVersion       = 3
+	sqliteCacheSizeKB   = -64000 // 64MB cache (negative = KiB)
 	sqliteBusyTimeoutMS = 5000
 )
 
@@ -118,7 +118,6 @@ func (s *Store) createSchema() error {
 	CREATE TABLE IF NOT EXISTS schema_version (
 		version INTEGER PRIMARY KEY
 	);
-	INSERT INTO schema_version (version) VALUES (3);
 
 	-- Activity locations
 	CREATE TABLE IF NOT EXISTS activity_locations (
@@ -247,9 +246,22 @@ func (s *Store) createSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_event_route_stops_route ON event_route_stops(event_route_id);
 	`
 
-	_, err := s.db.Exec(schema)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("failed to begin schema transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	if _, err := tx.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
+		return fmt.Errorf("failed to record schema version: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit schema transaction: %w", err)
 	}
 
 	log.Printf("SQLite schema initialized (version %d)", schemaVersion)
