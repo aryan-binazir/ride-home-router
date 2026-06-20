@@ -2,10 +2,11 @@ package routing
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -546,14 +547,11 @@ func legacyTwoOptRouteDurationForTest(ctx context.Context, rc routeContext, driv
 }
 
 func participantIDs(stops []*models.Participant) string {
-	ids := ""
+	ids := make([]string, len(stops))
 	for i, stop := range stops {
-		if i > 0 {
-			ids += ","
-		}
-		ids += fmt.Sprintf("%d", stop.ID)
+		ids[i] = strconv.FormatInt(stop.ID, 10)
 	}
-	return ids
+	return strings.Join(ids, ",")
 }
 
 func TestTwoOptRouteDuration_SplitHouseholdBlocksPreservesAllParticipants(t *testing.T) {
