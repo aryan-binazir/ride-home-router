@@ -367,8 +367,8 @@ func (rc routeContext) twoOptBlockDelta(ctx context.Context, driver *models.Driv
 	}
 
 	beforeI := rc.origin(driver)
-	if i > 0 {
-		beforeI = blockLastMember(blocks[i-1]).GetCoords()
+	if prev := i - 1; prev >= 0 && prev < len(blocks) {
+		beforeI = blockLastMember(blocks[prev]).GetCoords()
 	}
 
 	entryI := blockFirstMember(blocks[i]).GetCoords()
@@ -420,8 +420,8 @@ func (rc routeContext) twoOptDelta(ctx context.Context, driver *models.Driver, s
 	}
 
 	beforeI := rc.origin(driver)
-	if i > 0 {
-		beforeI = stops[i-1].GetCoords()
+	if prev := i - 1; prev >= 0 && prev < len(stops) {
+		beforeI = stops[prev].GetCoords()
 	}
 
 	currentFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, stops[i].GetCoords())

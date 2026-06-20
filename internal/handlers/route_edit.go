@@ -17,7 +17,7 @@ import (
 const (
 	routeSessionTTL             = 2 * time.Hour
 	routeSessionCleanupInterval = 15 * time.Minute
-	maxParticipantMovesPerBatch   = 64
+	maxParticipantMovesPerBatch = 64
 )
 
 type participantMove struct {
@@ -353,11 +353,11 @@ func (h *Handler) optimizeRouteOrder(ctx context.Context, activityLocation *mode
 // HandleMoveParticipant handles POST /api/v1/routes/edit/move-participant
 func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SessionID        string `json:"session_id"`
-		ParticipantID    int64  `json:"participant_id"`
-		FromRouteIndex   int    `json:"from_route_index"`
-		ToRouteIndex     int    `json:"to_route_index"`
-		InsertAtPosition int    `json:"insert_at_position"` // -1 for end
+		SessionID        string            `json:"session_id"`
+		ParticipantID    int64             `json:"participant_id"`
+		FromRouteIndex   int               `json:"from_route_index"`
+		ToRouteIndex     int               `json:"to_route_index"`
+		InsertAtPosition int               `json:"insert_at_position"` // -1 for end
 		Moves            []participantMove `json:"moves"`
 	}
 
