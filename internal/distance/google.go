@@ -157,26 +157,41 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	}
 
 	results := make([]DistanceResult, len(destinations))
-	var missingDestinations []models.Coordinates
-	var missingIndexes []int
+	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(destinations))
+	cacheIndexes := make([]int, 0, len(destinations))
 	for i, dest := range destinations {
 		if sameRoundedPoint(origin, dest) {
 			continue
 		}
+		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: origin, Dest: dest})
+		cacheIndexes = append(cacheIndexes, i)
+	}
 
-		cached, err := c.cache.Get(ctx, origin, dest)
-		if err != nil && !errors.Is(err, database.ErrCacheMiss) {
-			return nil, err
-		}
-		if cached != nil {
-			results[i] = DistanceResult{
-				DistanceMeters: cached.DistanceMeters,
-				DurationSecs:   cached.DurationSecs,
+	cached, err := c.cache.GetBatch(ctx, cachePairs)
+	if err != nil {
+		return nil, err
+	}
+
+	var missingDestinations []models.Coordinates
+	var missingIndexes []int
+	for pairIndex, pair := range cachePairs {
+		resultIndex := cacheIndexes[pairIndex]
+		entry := cached[googleCacheKey(pair.Origin, pair.Dest)]
+		if entry != nil {
+			results[resultIndex] = DistanceResult{
+				DistanceMeters: entry.DistanceMeters,
+				DurationSecs:   entry.DurationSecs,
 			}
 			continue
 		}
-		missingDestinations = append(missingDestinations, dest)
-		missingIndexes = append(missingIndexes, i)
+		missingDestinations = append(missingDestinations, pair.Dest)
+		missingIndexes = append(missingIndexes, resultIndex)
+	}
+
+	if len(missingDestinations) > 0 {
+		if _, err := c.currentAPIKey(); err != nil {
+			return nil, err
+		}
 	}
 
 	for start := 0; start < len(missingDestinations); start += googleRouteMatrixMaxElements {

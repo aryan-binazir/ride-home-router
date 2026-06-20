@@ -207,6 +207,70 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 	}
 }
 
+func TestPrewarmPairs_RequestsOnlyMissingDirectedPairs(t *testing.T) {
+	cache := newMockDistanceCache()
+	origin := models.Coordinates{Lat: 0, Lng: 0}
+	destA := models.Coordinates{Lat: 0.1, Lng: 0}
+	destB := models.Coordinates{Lat: 0, Lng: 0.1}
+
+	requestCount := 0
+	var requestSources string
+	var requestDestinations string
+	var requestRawQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		requestSources = r.URL.Query().Get("sources")
+		requestDestinations = r.URL.Query().Get("destinations")
+		requestRawQuery = r.URL.RawQuery
+		resp := osrmTableResponse{
+			Code:      "Ok",
+			Distances: [][]float64{{11100, 22200}},
+			Durations: [][]float64{{600, 1200}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	calc := &osrmCalculator{
+		baseURL:    server.URL,
+		httpClient: server.Client(),
+		cache:      cache,
+	}
+
+	err := calc.PrewarmPairs(context.Background(), []DistancePair{
+		{Origin: origin, Destination: destA},
+		{Origin: origin, Destination: destB},
+		{Origin: origin, Destination: destA},
+	})
+	if err != nil {
+		t.Fatalf("PrewarmPairs() error = %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Fatalf("expected one OSRM request, got %d", requestCount)
+	}
+	if requestSources != "0" || !strings.Contains(requestRawQuery, "destinations=1;2") {
+		t.Fatalf("expected exact directed request sources=0 destinations=1;2, got sources=%q destinations=%q rawQuery=%q", requestSources, requestDestinations, requestRawQuery)
+	}
+	if cache.Count() != 2 {
+		t.Fatalf("cache entries = %d, want 2", cache.Count())
+	}
+	cachedA, err := cache.Get(context.Background(), origin, destA)
+	if err != nil {
+		t.Fatalf("expected cached origin->destA: %v", err)
+	}
+	if cachedA.DistanceMeters != 11100 || cachedA.DurationSecs != 600 {
+		t.Fatalf("origin->destA cache = %.0fm %.0fs, want 11100m 600s", cachedA.DistanceMeters, cachedA.DurationSecs)
+	}
+	cachedB, err := cache.Get(context.Background(), origin, destB)
+	if err != nil {
+		t.Fatalf("expected cached origin->destB: %v", err)
+	}
+	if cachedB.DistanceMeters != 22200 || cachedB.DurationSecs != 1200 {
+		t.Fatalf("origin->destB cache = %.0fm %.0fs, want 22200m 1200s", cachedB.DistanceMeters, cachedB.DurationSecs)
+	}
+}
+
 func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
 	cache := newMockDistanceCache()
 

@@ -121,6 +121,58 @@ func TestHandleCreateEvent_ExpiredSessionReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestHandleCreateEvent_ExpiredSessionFallsBackToPostedRoutesJSON(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+
+	routingPayload := models.RoutingResult{
+		Routes: []models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 7, Name: "Fallback Driver", VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+				Mode:              "dropoff",
+			},
+		},
+		Summary: models.RoutingSummary{
+			TotalParticipants: 1,
+			TotalDriversUsed:  1,
+		},
+		Mode: "dropoff",
+	}
+	payloadBytes, err := json.Marshal(routingPayload)
+	if err != nil {
+		t.Fatalf("marshal routing payload: %v", err)
+	}
+
+	form := "event_date=2026-03-14&session_id=expired-session-id&routes_json=" + url.QueryEscape(string(payloadBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, rr.Code, rr.Body.String())
+	}
+	events, _, err := store.Events().List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 saved event, got %d", len(events))
+	}
+	_, routes, _, err := store.Events().GetByID(context.Background(), events[0].ID)
+	if err != nil {
+		t.Fatalf("get event: %v", err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("route count = %d, want 1", len(routes))
+	}
+	if routes[0].DriverName != "Fallback Driver" {
+		t.Fatalf("saved driver = %q, want fallback posted route driver", routes[0].DriverName)
+	}
+}
+
 func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 

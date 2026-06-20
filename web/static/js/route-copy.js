@@ -188,6 +188,7 @@ async function flushQueuedParticipantMoves() {
             movesToRetry = null;
         }
     } catch (err) {
+        movesToRetry = null;
         console.error('Failed to move participant:', err);
         showRouteError('Failed to move participant: ' + err.message);
     } finally {

@@ -198,18 +198,15 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		req.Notes = r.FormValue("notes")
 		req.SessionID = r.FormValue("session_id")
 
-		// Session saves load routes from server state; ignore any posted routes_json payload.
-		if req.SessionID == "" {
-			routesJSON := r.FormValue("routes_json")
-			if routesJSON != "" {
-				var routingResult models.RoutingResult
-				if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
-					log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
-					h.handleValidationError(w, messageInvalidRoutesData)
-					return
-				}
-				req.Routes = &routingResult
+		routesJSON := r.FormValue("routes_json")
+		if routesJSON != "" {
+			var routingResult models.RoutingResult
+			if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
+				log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
+				h.handleValidationError(w, messageInvalidRoutesData)
+				return
 			}
+			req.Routes = &routingResult
 		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -227,22 +224,26 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if req.SessionID != "" {
 		session := h.RouteSession.Get(req.SessionID)
 		if session == nil {
-			log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", req.SessionID)
-			h.handleNotFound(w, messageSessionNotFound)
-			return
-		}
-		session.mu.Lock()
-		_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
-		if isOutOfBalance {
+			if req.Routes == nil {
+				log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", req.SessionID)
+				h.handleNotFound(w, messageSessionNotFound)
+				return
+			}
+			log.Printf("[HTTP] POST /api/v1/events: session_not_found using posted routes fallback session_id=%s", req.SessionID)
+		} else {
+			session.mu.Lock()
+			_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
+			if isOutOfBalance {
+				session.mu.Unlock()
+				log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
+				h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
+				return
+			}
+			summary := h.calculateSummary(session.CurrentRoutes)
+			routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
 			session.mu.Unlock()
-			log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
-			h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
-			return
+			req.Routes = &routes
 		}
-		summary := h.calculateSummary(session.CurrentRoutes)
-		routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
-		session.mu.Unlock()
-		req.Routes = &routes
 	} else if req.Routes == nil {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")
 		h.handleValidationError(w, messageRoutesRequired)

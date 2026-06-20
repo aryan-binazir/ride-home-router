@@ -337,7 +337,7 @@ func (rc routeContext) twoOptDistance(ctx context.Context, driver *models.Driver
 		return result.DistanceMeters
 	})
 	return twoOptByDelta(stops, func(candidate []*models.Participant, i, j int) (float64, error) {
-		return rc.twoOptDeltaFromScores(driver, candidate, i, j, scoreCache.score, false)
+		return rc.twoOptDeltaFromScores(driver, candidate, i, j, scoreCache.score, rc.objectiveIncludesTerminal())
 	})
 }
 

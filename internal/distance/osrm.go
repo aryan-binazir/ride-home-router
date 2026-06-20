@@ -286,10 +286,8 @@ func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair)
 		return nil
 	}
 
-	byOrigin := make(map[string][]models.Coordinates)
-	originCoords := make(map[string]models.Coordinates)
+	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
 	seen := make(map[string]struct{}, len(pairs))
-
 	for _, pair := range pairs {
 		if sameRoundedPoint(pair.Origin, pair.Destination) {
 			continue
@@ -299,19 +297,61 @@ func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair)
 			continue
 		}
 		seen[key] = struct{}{}
+		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: pair.Origin, Dest: pair.Destination})
+	}
 
+	cached, err := c.cache.GetBatch(ctx, cachePairs)
+	if err != nil {
+		return err
+	}
+
+	byOrigin := make(map[string][]models.Coordinates)
+	originCoords := make(map[string]models.Coordinates)
+	for _, pair := range cachePairs {
+		if cached[PairCacheKey(pair.Origin, pair.Dest)] != nil {
+			continue
+		}
 		originKey := fmt.Sprintf("%.5f,%.5f",
 			models.RoundCoordinate(pair.Origin.Lat),
 			models.RoundCoordinate(pair.Origin.Lng),
 		)
 		originCoords[originKey] = pair.Origin
-		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
+		byOrigin[originKey] = append(byOrigin[originKey], pair.Dest)
 	}
 
 	for originKey, destinations := range byOrigin {
 		destinations = uniqueCoordinates(destinations)
-		if _, err := c.GetDistancesFromPoint(ctx, originCoords[originKey], destinations); err != nil {
-			return err
+		origin := originCoords[originKey]
+		for start := 0; start < len(destinations); start += maxOSRMCoordinates - 1 {
+			end := min(start+maxOSRMCoordinates-1, len(destinations))
+			chunkDestinations := destinations[start:end]
+			queryPoints := append([]models.Coordinates{origin}, chunkDestinations...)
+			destinationIndexes := make([]int, len(chunkDestinations))
+			for i := range chunkDestinations {
+				destinationIndexes[i] = i + 1
+			}
+
+			response, err := c.requestTable(ctx, queryPoints, []int{0}, destinationIndexes)
+			if err != nil {
+				return err
+			}
+			cacheEntries := make([]models.DistanceCacheEntry, 0, len(chunkDestinations))
+			for i, destination := range chunkDestinations {
+				dist := response.Distances[0][i]
+				dur := response.Durations[0][i]
+				if dist <= 0 {
+					continue
+				}
+				cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
+					Origin:         origin,
+					Destination:    destination,
+					DistanceMeters: dist,
+					DurationSecs:   dur,
+				})
+			}
+			if err := c.persistCacheEntries(ctx, cacheEntries); err != nil {
+				return err
+			}
 		}
 	}
 
