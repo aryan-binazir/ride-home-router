@@ -32,6 +32,37 @@ type routeMetrics struct {
 	DetourSecs              float64
 }
 
+type edgeScoreCache struct {
+	ctx          context.Context
+	distanceCalc distance.DistanceCalculator
+	selector     func(*distance.DistanceResult) float64
+	values       map[string]float64
+}
+
+func newEdgeScoreCache(ctx context.Context, distanceCalc distance.DistanceCalculator, selector func(*distance.DistanceResult) float64) *edgeScoreCache {
+	return &edgeScoreCache{
+		ctx:          ctx,
+		distanceCalc: distanceCalc,
+		selector:     selector,
+		values:       make(map[string]float64),
+	}
+}
+
+func (c *edgeScoreCache) score(origin, dest models.Coordinates) (float64, error) {
+	key := distance.PairCacheKey(origin, dest)
+	if value, ok := c.values[key]; ok {
+		return value, nil
+	}
+
+	result, err := c.distanceCalc.GetDistance(c.ctx, origin, dest)
+	if err != nil {
+		return 0, err
+	}
+	value := c.selector(result)
+	c.values[key] = value
+	return value, nil
+}
+
 func newRouteContext(distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode) routeContext {
 	if mode == "" {
 		mode = RouteModeDropoff
@@ -302,10 +333,11 @@ func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.DistanceCalcu
 }
 
 func (rc routeContext) twoOptDistance(ctx context.Context, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
+	scoreCache := newEdgeScoreCache(ctx, rc.distanceCalc, func(result *distance.DistanceResult) float64 {
+		return result.DistanceMeters
+	})
 	return twoOptByDelta(stops, func(candidate []*models.Participant, i, j int) (float64, error) {
-		return rc.twoOptDelta(ctx, driver, candidate, i, j, func(result *distance.DistanceResult) float64 {
-			return result.DistanceMeters
-		}, false)
+		return rc.twoOptDeltaFromScores(driver, candidate, i, j, scoreCache.score, false)
 	})
 }
 
@@ -315,10 +347,11 @@ func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.D
 		return stops, nil
 	}
 
+	scoreCache := newEdgeScoreCache(ctx, rc.distanceCalc, func(result *distance.DistanceResult) float64 {
+		return result.DurationSecs
+	})
 	optimizedBlocks, err := twoOptBlocksByDelta(blocks, func(candidate []*participantGroup, i, j int) (float64, error) {
-		return rc.twoOptBlockDelta(ctx, driver, candidate, i, j, func(result *distance.DistanceResult) float64 {
-			return result.DurationSecs
-		}, true)
+		return rc.twoOptBlockDeltaFromScores(driver, candidate, i, j, scoreCache.score, true)
 	})
 	if err != nil {
 		return nil, err
@@ -350,7 +383,7 @@ func twoOptBlocksByDelta(blocks []*participantGroup, deltaFn func([]*participant
 				if err != nil {
 					return nil, err
 				}
-				if delta < 0 {
+				if delta < -scoreImprovementEpsilon {
 					reverseParticipantGroups(current, i, j-1)
 					improved = true
 				}
@@ -362,6 +395,11 @@ func twoOptBlocksByDelta(blocks []*participantGroup, deltaFn func([]*participant
 }
 
 func (rc routeContext) twoOptBlockDelta(ctx context.Context, driver *models.Driver, blocks []*participantGroup, i, j int, selector func(*distance.DistanceResult) float64, includeTerminal bool) (float64, error) {
+	scoreCache := newEdgeScoreCache(ctx, rc.distanceCalc, selector)
+	return rc.twoOptBlockDeltaFromScores(driver, blocks, i, j, scoreCache.score, includeTerminal)
+}
+
+func (rc routeContext) twoOptBlockDeltaFromScores(driver *models.Driver, blocks []*participantGroup, i, j int, score func(models.Coordinates, models.Coordinates) (float64, error), includeTerminal bool) (float64, error) {
 	if driver == nil {
 		return 0, fmt.Errorf("route driver is required")
 	}
@@ -371,50 +409,69 @@ func (rc routeContext) twoOptBlockDelta(ctx context.Context, driver *models.Driv
 		beforeI = blockLastMember(blocks[prev]).GetCoords()
 	}
 
-	entryI := blockFirstMember(blocks[i]).GetCoords()
-	exitJM1 := blockLastMember(blocks[j-1]).GetCoords()
+	firstI := blockFirstMember(blocks[i]).GetCoords()
+	lastI := blockLastMember(blocks[i]).GetCoords()
+	firstJM1 := blockFirstMember(blocks[j-1]).GetCoords()
+	lastJM1 := blockLastMember(blocks[j-1]).GetCoords()
 
-	currentFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, entryI)
+	currentFirst, err := score(beforeI, firstI)
 	if err != nil {
 		return 0, err
 	}
-	newFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, exitJM1)
+	newFirst, err := score(beforeI, firstJM1)
 	if err != nil {
 		return 0, err
 	}
 
-	delta := selector(newFirst) - selector(currentFirst)
+	delta := newFirst - currentFirst
+	for k := i; k < j-1; k++ {
+		currentEdge, err := score(blockLastMember(blocks[k]).GetCoords(), blockFirstMember(blocks[k+1]).GetCoords())
+		if err != nil {
+			return 0, err
+		}
+		newEdge, err := score(blockLastMember(blocks[k+1]).GetCoords(), blockFirstMember(blocks[k]).GetCoords())
+		if err != nil {
+			return 0, err
+		}
+		delta += newEdge - currentEdge
+	}
+
 	if j < len(blocks) {
 		afterJ := blockFirstMember(blocks[j]).GetCoords()
-		currentSecond, err := rc.distanceCalc.GetDistance(ctx, exitJM1, afterJ)
+		currentSecond, err := score(lastJM1, afterJ)
 		if err != nil {
 			return 0, err
 		}
-		newSecond, err := rc.distanceCalc.GetDistance(ctx, entryI, afterJ)
+		newSecond, err := score(lastI, afterJ)
 		if err != nil {
 			return 0, err
 		}
-		delta += selector(newSecond) - selector(currentSecond)
+		delta += newSecond - currentSecond
 		return delta, nil
 	}
 
 	if includeTerminal {
 		destination := rc.destination(driver)
-		currentTerminal, err := rc.distanceCalc.GetDistance(ctx, exitJM1, destination)
+		currentTerminal, err := score(lastJM1, destination)
 		if err != nil {
 			return 0, err
 		}
-		newTerminal, err := rc.distanceCalc.GetDistance(ctx, entryI, destination)
+		newTerminal, err := score(lastI, destination)
 		if err != nil {
 			return 0, err
 		}
-		delta += selector(newTerminal) - selector(currentTerminal)
+		delta += newTerminal - currentTerminal
 	}
 
 	return delta, nil
 }
 
 func (rc routeContext) twoOptDelta(ctx context.Context, driver *models.Driver, stops []*models.Participant, i, j int, selector func(*distance.DistanceResult) float64, includeTerminal bool) (float64, error) {
+	scoreCache := newEdgeScoreCache(ctx, rc.distanceCalc, selector)
+	return rc.twoOptDeltaFromScores(driver, stops, i, j, scoreCache.score, includeTerminal)
+}
+
+func (rc routeContext) twoOptDeltaFromScores(driver *models.Driver, stops []*models.Participant, i, j int, score func(models.Coordinates, models.Coordinates) (float64, error), includeTerminal bool) (float64, error) {
 	if driver == nil {
 		return 0, fmt.Errorf("route driver is required")
 	}
@@ -424,48 +481,60 @@ func (rc routeContext) twoOptDelta(ctx context.Context, driver *models.Driver, s
 		beforeI = stops[prev].GetCoords()
 	}
 
-	currentFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, stops[i].GetCoords())
+	currentFirst, err := score(beforeI, stops[i].GetCoords())
 	if err != nil {
 		return 0, err
 	}
-	newFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, stops[j-1].GetCoords())
+	newFirst, err := score(beforeI, stops[j-1].GetCoords())
 	if err != nil {
 		return 0, err
 	}
 
-	delta := selector(newFirst) - selector(currentFirst)
+	delta := newFirst - currentFirst
+	for k := i; k < j-1; k++ {
+		currentEdge, err := score(stops[k].GetCoords(), stops[k+1].GetCoords())
+		if err != nil {
+			return 0, err
+		}
+		newEdge, err := score(stops[k+1].GetCoords(), stops[k].GetCoords())
+		if err != nil {
+			return 0, err
+		}
+		delta += newEdge - currentEdge
+	}
+
 	if j < len(stops) {
 		afterJ := stops[j].GetCoords()
-		currentSecond, err := rc.distanceCalc.GetDistance(ctx, stops[j-1].GetCoords(), afterJ)
+		currentSecond, err := score(stops[j-1].GetCoords(), afterJ)
 		if err != nil {
 			return 0, err
 		}
-		newSecond, err := rc.distanceCalc.GetDistance(ctx, stops[i].GetCoords(), afterJ)
+		newSecond, err := score(stops[i].GetCoords(), afterJ)
 		if err != nil {
 			return 0, err
 		}
-		delta += selector(newSecond) - selector(currentSecond)
+		delta += newSecond - currentSecond
 		return delta, nil
 	}
 
 	if includeTerminal {
 		destination := rc.destination(driver)
-		currentTerminal, err := rc.distanceCalc.GetDistance(ctx, stops[j-1].GetCoords(), destination)
+		currentTerminal, err := score(stops[j-1].GetCoords(), destination)
 		if err != nil {
 			return 0, err
 		}
-		newTerminal, err := rc.distanceCalc.GetDistance(ctx, stops[i].GetCoords(), destination)
+		newTerminal, err := score(stops[i].GetCoords(), destination)
 		if err != nil {
 			return 0, err
 		}
-		delta += selector(newTerminal) - selector(currentTerminal)
+		delta += newTerminal - currentTerminal
 	}
 
 	return delta, nil
 }
 
 func twoOptByDelta(stops []*models.Participant, deltaFn func([]*models.Participant, int, int) (float64, error)) ([]*models.Participant, error) {
-	if len(stops) < 2 {
+	if len(stops) < 3 {
 		return stops, nil
 	}
 
@@ -479,7 +548,7 @@ func twoOptByDelta(stops []*models.Participant, deltaFn func([]*models.Participa
 				if err != nil {
 					return nil, err
 				}
-				if delta < 0 {
+				if delta < -scoreImprovementEpsilon {
 					reverse(current, i, j-1)
 					improved = true
 				}

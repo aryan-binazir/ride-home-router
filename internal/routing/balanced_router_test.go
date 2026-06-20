@@ -453,6 +453,37 @@ func (a *overrideDistanceAdapter) PrewarmCache(ctx context.Context, points []mod
 	return nil
 }
 
+type trackingDistanceAdapter struct {
+	*overrideDistanceAdapter
+	tracked      map[string]struct{}
+	trackedCalls int
+	trackedEdges []string
+}
+
+func newTrackingDistanceAdapter(defaultDuration float64) *trackingDistanceAdapter {
+	return &trackingDistanceAdapter{
+		overrideDistanceAdapter: newOverrideDistanceAdapter(defaultDuration),
+		tracked:                 make(map[string]struct{}),
+	}
+}
+
+func (a *trackingDistanceAdapter) track(coord models.Coordinates) {
+	a.tracked[coordinateKey(models.RoundCoordinate(coord.Lat), models.RoundCoordinate(coord.Lng))] = struct{}{}
+}
+
+func (a *trackingDistanceAdapter) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	if a.isTracked(origin) || a.isTracked(dest) {
+		a.trackedCalls++
+		a.trackedEdges = append(a.trackedEdges, distance.PairCacheKey(origin, dest))
+	}
+	return a.overrideDistanceAdapter.GetDistance(ctx, origin, dest)
+}
+
+func (a *trackingDistanceAdapter) isTracked(coord models.Coordinates) bool {
+	_, ok := a.tracked[coordinateKey(models.RoundCoordinate(coord.Lat), models.RoundCoordinate(coord.Lng))]
+	return ok
+}
+
 func TestRoundRobinInsertion_KeepsPickupHouseholdsIntact(t *testing.T) {
 	driverHome := models.Coordinates{Lat: 10, Lng: 10}
 	activity := models.Coordinates{Lat: 0, Lng: 0}
@@ -632,6 +663,68 @@ func TestMaxCachedRouteDuration_ExcludesProvidedDrivers(t *testing.T) {
 	got := maxCachedRouteDuration(cached, driverIDs, 2, 3)
 	if got != 100 {
 		t.Fatalf("maxCachedRouteDuration() = %.0f, want 100", got)
+	}
+}
+
+func TestMinMaxOptimizeDoesNotRecalculateUnaffectedRoutesForCandidates(t *testing.T) {
+	distances := newTrackingDistanceAdapter(100)
+	router := &BalancedRouter{distanceCalc: distances}
+	rc := newRouteContext(distances, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
+
+	sourceDriver := &models.Driver{ID: 1, Name: "Source", Lat: 50, Lng: 0, VehicleCapacity: 6}
+	destDriver := &models.Driver{ID: 2, Name: "Dest", Lat: 60, Lng: 0, VehicleCapacity: 6}
+	unaffectedDriverA := &models.Driver{ID: 3, Name: "Unaffected A", Lat: 70, Lng: 0, VehicleCapacity: 1}
+	unaffectedDriverB := &models.Driver{ID: 4, Name: "Unaffected B", Lat: 80, Lng: 0, VehicleCapacity: 1}
+	destStop := &models.Participant{ID: 20, Name: "Dest Stop", Lat: 20, Lng: 0}
+	unaffectedStopA := &models.Participant{ID: 30, Name: "Unaffected Stop A", Lat: 30, Lng: 0}
+	unaffectedStopB := &models.Participant{ID: 40, Name: "Unaffected Stop B", Lat: 40, Lng: 0}
+	sourceStops := []*models.Participant{
+		{ID: 10, Name: "Source 1", Lat: 10, Lng: 0},
+		{ID: 11, Name: "Source 2", Lat: 11, Lng: 0},
+		{ID: 12, Name: "Source 3", Lat: 12, Lng: 0},
+		{ID: 13, Name: "Source 4", Lat: 13, Lng: 0},
+	}
+	for _, stop := range sourceStops {
+		distances.setDuration(stop.GetCoords(), destStop.GetCoords(), 1000)
+		distances.setDuration(destStop.GetCoords(), stop.GetCoords(), 1000)
+		distances.setDuration(stop.GetCoords(), destDriver.GetCoords(), 1000)
+	}
+	distances.track(unaffectedDriverA.GetCoords())
+	distances.track(unaffectedStopA.GetCoords())
+	distances.track(unaffectedDriverB.GetCoords())
+	distances.track(unaffectedStopB.GetCoords())
+
+	routes := map[int64]*balancedRoute{
+		sourceDriver.ID: {
+			driver: sourceDriver,
+			stops:  sourceStops,
+		},
+		destDriver.ID: {
+			driver: destDriver,
+			stops:  []*models.Participant{destStop},
+		},
+		unaffectedDriverA.ID: {
+			driver: unaffectedDriverA,
+			stops:  []*models.Participant{unaffectedStopA},
+		},
+		unaffectedDriverB.ID: {
+			driver: unaffectedDriverB,
+			stops:  []*models.Participant{unaffectedStopB},
+		},
+	}
+
+	iterations := router.minMaxOptimize(context.Background(), rc, routes, []int64{
+		sourceDriver.ID,
+		destDriver.ID,
+		unaffectedDriverA.ID,
+		unaffectedDriverB.ID,
+	})
+
+	if iterations != 1 {
+		t.Fatalf("minMaxOptimize() iterations = %d, want exactly one no-move pass", iterations)
+	}
+	if distances.trackedCalls != 6 {
+		t.Fatalf("unaffected route distance calls = %d, want only initial route-duration calls (6): %v", distances.trackedCalls, distances.trackedEdges)
 	}
 }
 

@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -410,6 +411,72 @@ func TestTwoOptRouteDuration_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
 	}
 }
 
+func TestTwoOptRouteDurationMatchesLegacyFullScoreForDirectedDistances(t *testing.T) {
+	for _, mode := range []RouteMode{RouteModeDropoff, RouteModePickup} {
+		t.Run(string(mode), func(t *testing.T) {
+			calc := newOverrideDistanceAdapter(100)
+			institute := models.Coordinates{Lat: 0, Lng: 0}
+			driver := &models.Driver{ID: 1, Name: "Driver", Lat: 4, Lng: 0}
+			stops := []*models.Participant{
+				{ID: 1, Name: "A", Lat: 1, Lng: 0},
+				{ID: 2, Name: "B", Lat: 2, Lng: 0},
+				{ID: 3, Name: "C", Lat: 3, Lng: 0},
+			}
+			rc := newRouteContext(calc, institute, mode)
+			origin := rc.origin(driver)
+			destination := rc.destination(driver)
+
+			calc.setDuration(origin, stops[0].GetCoords(), 100)
+			calc.setDuration(stops[0].GetCoords(), stops[1].GetCoords(), 10)
+			calc.setDuration(stops[1].GetCoords(), stops[2].GetCoords(), 100)
+			calc.setDuration(stops[2].GetCoords(), destination, 100)
+			calc.setDuration(origin, stops[1].GetCoords(), 10)
+			calc.setDuration(stops[1].GetCoords(), stops[0].GetCoords(), 500)
+			calc.setDuration(stops[0].GetCoords(), stops[2].GetCoords(), 10)
+
+			want, err := legacyTwoOptRouteDurationForTest(context.Background(), rc, driver, stops)
+			if err != nil {
+				t.Fatalf("legacy two-opt error = %v", err)
+			}
+			got, err := rc.twoOptRouteDuration(context.Background(), driver, stops)
+			if err != nil {
+				t.Fatalf("twoOptRouteDuration() error = %v", err)
+			}
+
+			if gotIDs, wantIDs := participantIDs(got), participantIDs(want); gotIDs != wantIDs {
+				t.Fatalf("optimized order = %s, want legacy full-score order %s", gotIDs, wantIDs)
+			}
+			if gotIDs := participantIDs(got); gotIDs != "1,2,3" {
+				t.Fatalf("directed internal edge costs should keep original order, got %s", gotIDs)
+			}
+		})
+	}
+}
+
+func TestTwoOptByDeltaRequiresLegacyImprovementEpsilon(t *testing.T) {
+	stops := []*models.Participant{
+		{ID: 1, Name: "A"},
+		{ID: 2, Name: "B"},
+		{ID: 3, Name: "C"},
+	}
+	calls := 0
+
+	got, err := twoOptByDelta(stops, func(candidate []*models.Participant, i, j int) (float64, error) {
+		calls++
+		if calls == 1 {
+			return -scoreImprovementEpsilon / 2, nil
+		}
+		return 0, nil
+	})
+	if err != nil {
+		t.Fatalf("twoOptByDelta() error = %v", err)
+	}
+
+	if gotIDs := participantIDs(got); gotIDs != "1,2,3" {
+		t.Fatalf("sub-epsilon gain changed order to %s", gotIDs)
+	}
+}
+
 func TestTwoOptBlockDelta_UsesLastMemberOfPreviousBlock(t *testing.T) {
 	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
 	driver := &models.Driver{ID: 1, Lat: 10, Lng: 0}
@@ -438,6 +505,55 @@ func TestTwoOptBlockDelta_UsesLastMemberOfPreviousBlock(t *testing.T) {
 	if blockDelta == repDelta {
 		t.Fatalf("block delta %.0f should differ from first-member rep delta %.0f", blockDelta, repDelta)
 	}
+}
+
+func legacyTwoOptRouteDurationForTest(ctx context.Context, rc routeContext, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
+	blocks := routeHouseholdBlocks(stops)
+	if len(blocks) < 2 {
+		return stops, nil
+	}
+
+	currentBlocks := append([]*participantGroup(nil), blocks...)
+	currentStops := flattenParticipantGroups(currentBlocks)
+	currentScore, err := rc.totalDriveDuration(ctx, driver, currentStops)
+	if err != nil {
+		return nil, err
+	}
+
+	improved := true
+	for improved {
+		improved = false
+		for i := 0; i < len(currentBlocks)-1; i++ {
+			for j := i + 2; j <= len(currentBlocks); j++ {
+				candidateBlocks := append([]*participantGroup(nil), currentBlocks...)
+				reverseParticipantGroups(candidateBlocks, i, j-1)
+				candidateStops := flattenParticipantGroups(candidateBlocks)
+				candidateScore, err := rc.totalDriveDuration(ctx, driver, candidateStops)
+				if err != nil {
+					return nil, err
+				}
+				if candidateScore < currentScore-scoreImprovementEpsilon {
+					currentBlocks = candidateBlocks
+					currentStops = candidateStops
+					currentScore = candidateScore
+					improved = true
+				}
+			}
+		}
+	}
+
+	return currentStops, nil
+}
+
+func participantIDs(stops []*models.Participant) string {
+	ids := ""
+	for i, stop := range stops {
+		if i > 0 {
+			ids += ","
+		}
+		ids += fmt.Sprintf("%d", stop.ID)
+	}
+	return ids
 }
 
 func TestTwoOptRouteDuration_SplitHouseholdBlocksPreservesAllParticipants(t *testing.T) {

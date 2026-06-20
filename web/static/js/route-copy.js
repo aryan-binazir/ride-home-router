@@ -178,6 +178,7 @@ async function flushQueuedParticipantMoves() {
             const routeResults = document.getElementById('results-section');
             if (routeResults) {
                 if (!response.ok) {
+                    movesToRetry = null;
                     showRouteError(html);
                     break;
                 }
