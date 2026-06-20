@@ -534,7 +534,7 @@ func TestHandleMoveParticipant_TooManyMovesReturnsBadRequest(t *testing.T) {
 	}
 }
 
-func TestHandleMoveParticipant_DuplicateParticipantInBatchReturnsBadRequest(t *testing.T) {
+func TestHandleMoveParticipant_DuplicateParticipantInBatchMatchesSequentialMoves(t *testing.T) {
 	store := NewRouteSessionStore()
 	defer store.Close()
 
@@ -543,54 +543,84 @@ func TestHandleMoveParticipant_DuplicateParticipantInBatchReturnsBadRequest(t *t
 		RouteSession: store,
 	}
 	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
-	session := store.Create(
-		[]models.CalculatedRoute{
-			{
-				Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 2},
-				EffectiveCapacity: 2,
-				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}}},
-			},
-			{
-				Driver:            &models.Driver{ID: 2, Name: "Driver 2", Lat: 7, Lng: 0, VehicleCapacity: 2},
-				EffectiveCapacity: 2,
-				Stops:             []models.RouteStop{},
-			},
+	baseRoutes := []models.CalculatedRoute{
+		{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}}},
 		},
-		[]models.Driver{},
-		activityLocation,
-		false,
-		"18:30",
-		models.RouteModeDropoff,
-		nil,
-	)
-
-	body, err := json.Marshal(map[string]any{
-		"session_id": session.ID,
-		"moves": []map[string]any{
-			{
-				"participant_id":     int64(101),
-				"from_route_index":   0,
-				"to_route_index":     1,
-				"insert_at_position": -1,
-			},
-			{
-				"participant_id":     int64(101),
-				"from_route_index":   1,
-				"to_route_index":     0,
-				"insert_at_position": -1,
-			},
+		{
+			Driver:            &models.Driver{ID: 2, Name: "Driver 2", Lat: 7, Lng: 0, VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Stops:             []models.RouteStop{},
 		},
-	})
-	if err != nil {
-		t.Fatalf("marshal request: %v", err)
+	}
+	moves := []map[string]any{
+		{
+			"participant_id":     int64(101),
+			"from_route_index":   0,
+			"to_route_index":     1,
+			"insert_at_position": -1,
+		},
+		{
+			"participant_id":     int64(101),
+			"from_route_index":   1,
+			"to_route_index":     0,
+			"insert_at_position": -1,
+		},
 	}
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	handler.HandleMoveParticipant(rec, req)
+	applyMoves := func(sessionID string, batch bool) []models.CalculatedRoute {
+		if batch {
+			body, err := json.Marshal(map[string]any{
+				"session_id": sessionID,
+				"moves":      moves,
+			})
+			if err != nil {
+				t.Fatalf("marshal batch request: %v", err)
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+			handler.HandleMoveParticipant(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("batch status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+		} else {
+			for _, move := range moves {
+				payload := map[string]any{
+					"session_id":         sessionID,
+					"participant_id":     move["participant_id"],
+					"from_route_index":   move["from_route_index"],
+					"to_route_index":     move["to_route_index"],
+					"insert_at_position": move["insert_at_position"],
+				}
+				body, err := json.Marshal(payload)
+				if err != nil {
+					t.Fatalf("marshal single request: %v", err)
+				}
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+				rec := httptest.NewRecorder()
+				handler.HandleMoveParticipant(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("sequential status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+				}
+			}
+		}
+		session := store.Get(sessionID)
+		if session == nil {
+			t.Fatal("expected route session to remain available")
+		}
+		return deepCopyRoutes(session.CurrentRoutes)
+	}
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	sequentialSession := store.Create(baseRoutes, []models.Driver{}, activityLocation, false, "18:30", models.RouteModeDropoff, nil)
+	sequentialRoutes := applyMoves(sequentialSession.ID, false)
+
+	batchSession := store.Create(baseRoutes, []models.Driver{}, activityLocation, false, "18:30", models.RouteModeDropoff, nil)
+	batchRoutes := applyMoves(batchSession.ID, true)
+
+	if !routesEqual(sequentialRoutes, batchRoutes) {
+		t.Fatalf("duplicate-participant batch routes differ from sequential application")
 	}
 }
 

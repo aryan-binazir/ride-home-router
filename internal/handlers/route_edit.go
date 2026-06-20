@@ -451,15 +451,10 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 }
 
 func validateParticipantMoveBatch(moves []participantMove) error {
-	seen := make(map[int64]struct{}, len(moves))
 	for _, move := range moves {
 		if move.ParticipantID == 0 {
 			return fmt.Errorf("%s", messageInvalidParticipantID)
 		}
-		if _, exists := seen[move.ParticipantID]; exists {
-			return fmt.Errorf("%s", messageDuplicateMoveParticipant)
-		}
-		seen[move.ParticipantID] = struct{}{}
 	}
 	return nil
 }
