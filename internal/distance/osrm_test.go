@@ -3,16 +3,75 @@ package distance
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/testutil"
 	"strings"
 	"testing"
+
+	"ride-home-router/internal/models"
 )
 
+type mockDistanceCache struct {
+	entries map[string]*models.DistanceCacheEntry
+}
+
+func newMockDistanceCache() *mockDistanceCache {
+	return &mockDistanceCache{
+		entries: make(map[string]*models.DistanceCacheEntry),
+	}
+}
+
+func (c *mockDistanceCache) cacheKey(origin, dest models.Coordinates) string {
+	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
+		models.RoundCoordinate(origin.Lat),
+		models.RoundCoordinate(origin.Lng),
+		models.RoundCoordinate(dest.Lat),
+		models.RoundCoordinate(dest.Lng))
+}
+
+func (c *mockDistanceCache) Get(_ context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error) {
+	key := c.cacheKey(origin, dest)
+	if entry, ok := c.entries[key]; ok {
+		return entry, nil
+	}
+	return nil, nil
+}
+
+func (c *mockDistanceCache) GetBatch(_ context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
+	result := make(map[string]*models.DistanceCacheEntry)
+	for _, pair := range pairs {
+		entry, _ := c.Get(context.Background(), pair.Origin, pair.Dest)
+		if entry != nil {
+			result[c.cacheKey(pair.Origin, pair.Dest)] = entry
+		}
+	}
+	return result, nil
+}
+
+func (c *mockDistanceCache) Set(_ context.Context, entry *models.DistanceCacheEntry) error {
+	c.entries[c.cacheKey(entry.Origin, entry.Destination)] = entry
+	return nil
+}
+
+func (c *mockDistanceCache) SetBatch(_ context.Context, entries []models.DistanceCacheEntry) error {
+	for _, entry := range entries {
+		c.entries[c.cacheKey(entry.Origin, entry.Destination)] = &entry
+	}
+	return nil
+}
+
+func (c *mockDistanceCache) Clear(_ context.Context) error {
+	c.entries = make(map[string]*models.DistanceCacheEntry)
+	return nil
+}
+
+func (c *mockDistanceCache) Count() int {
+	return len(c.entries)
+}
+
 func TestGetDistanceMatrix_AllCached(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	// Pre-populate cache with all pairs
 	points := []models.Coordinates{
@@ -77,7 +136,7 @@ func TestGetDistanceMatrix_AllCached(t *testing.T) {
 }
 
 func TestGetDistanceMatrix_PartialCache(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	points := []models.Coordinates{
 		{Lat: 0, Lng: 0},
@@ -149,7 +208,7 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 }
 
 func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	points := []models.Coordinates{
 		{Lat: 0, Lng: 0},
@@ -211,7 +270,7 @@ func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
 }
 
 func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	// Create more points than maxOSRMCoordinates (80)
 	numPoints := 85
@@ -310,7 +369,7 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 }
 
 func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	numPoints := 81
 	points := make([]models.Coordinates, numPoints)
@@ -413,7 +472,7 @@ func TestCoordinateRounding_Consistency(t *testing.T) {
 }
 
 func TestGetDistance_SamePoint(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("server should not be called for same point")
@@ -445,7 +504,7 @@ func TestGetDistance_SamePoint(t *testing.T) {
 }
 
 func TestGetDistanceMatrix_Empty(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	calc := &osrmCalculator{
 		baseURL:    "http://not-called",
@@ -464,7 +523,7 @@ func TestGetDistanceMatrix_Empty(t *testing.T) {
 }
 
 func TestGetDistanceMatrix_SinglePoint(t *testing.T) {
-	cache := testutil.NewMockDistanceCache()
+	cache := newMockDistanceCache()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := osrmTableResponse{

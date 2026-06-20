@@ -384,3 +384,28 @@ func TestTwoOptDistance_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
 		t.Fatalf("twoOptDistance() made %d distance calls, want <= 100 for local-edge evaluation", calc.calls)
 	}
 }
+
+func TestTwoOptRouteDuration_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
+	calc := &countingDistanceCalculator{}
+	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
+	stops := []*models.Participant{
+		{ID: 1, Name: "P1", Lat: 1, Lng: 0},
+		{ID: 2, Name: "P2", Lat: 2, Lng: 0},
+		{ID: 3, Name: "P3", Lat: 3, Lng: 0},
+		{ID: 4, Name: "P4", Lat: 4, Lng: 0},
+		{ID: 5, Name: "P5", Lat: 5, Lng: 0},
+		{ID: 6, Name: "P6", Lat: 6, Lng: 0},
+	}
+
+	optimized, err := rc.twoOptRouteDuration(context.Background(), driver, stops)
+	if err != nil {
+		t.Fatalf("twoOptRouteDuration() error = %v", err)
+	}
+	if len(optimized) != len(stops) {
+		t.Fatalf("optimized stop count = %d, want %d", len(optimized), len(stops))
+	}
+	if calc.calls > 100 {
+		t.Fatalf("twoOptRouteDuration() made %d distance calls, want <= 100 for local-edge evaluation", calc.calls)
+	}
+}

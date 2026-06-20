@@ -216,6 +216,60 @@ func (c *googleCalculator) PrewarmCache(ctx context.Context, points []models.Coo
 	return err
 }
 
+func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	byOrigin := make(map[string][]models.Coordinates)
+	originCoords := make(map[string]models.Coordinates)
+	seen := make(map[string]struct{}, len(pairs))
+
+	for _, pair := range pairs {
+		if sameRoundedPoint(pair.Origin, pair.Destination) {
+			continue
+		}
+		key := PairCacheKey(pair.Origin, pair.Destination)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		originKey := fmt.Sprintf("%.5f,%.5f",
+			models.RoundCoordinate(pair.Origin.Lat),
+			models.RoundCoordinate(pair.Origin.Lng),
+		)
+		originCoords[originKey] = pair.Origin
+		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
+	}
+
+	for originKey, destinations := range byOrigin {
+		destinations = uniqueCoordinates(destinations)
+		if _, err := c.GetDistancesFromPoint(ctx, originCoords[originKey], destinations); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func uniqueCoordinates(points []models.Coordinates) []models.Coordinates {
+	seen := make(map[string]struct{}, len(points))
+	unique := make([]models.Coordinates, 0, len(points))
+	for _, point := range points {
+		key := fmt.Sprintf("%.5f,%.5f",
+			models.RoundCoordinate(point.Lat),
+			models.RoundCoordinate(point.Lng),
+		)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, point)
+	}
+	return unique
+}
+
 type matrixIndex struct {
 	origin      int
 	destination int

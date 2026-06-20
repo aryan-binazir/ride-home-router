@@ -350,11 +350,34 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		FromRouteIndex   int    `json:"from_route_index"`
 		ToRouteIndex     int    `json:"to_route_index"`
 		InsertAtPosition int    `json:"insert_at_position"` // -1 for end
+		Moves            []struct {
+			ParticipantID    int64 `json:"participant_id"`
+			FromRouteIndex   int   `json:"from_route_index"`
+			ToRouteIndex     int   `json:"to_route_index"`
+			InsertAtPosition int   `json:"insert_at_position"`
+		} `json:"moves"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
+	}
+
+	moves := req.Moves
+	if len(moves) == 0 {
+		moves = []struct {
+			ParticipantID    int64 `json:"participant_id"`
+			FromRouteIndex   int   `json:"from_route_index"`
+			ToRouteIndex     int   `json:"to_route_index"`
+			InsertAtPosition int   `json:"insert_at_position"`
+		}{
+			{
+				ParticipantID:    req.ParticipantID,
+				FromRouteIndex:   req.FromRouteIndex,
+				ToRouteIndex:     req.ToRouteIndex,
+				InsertAtPosition: req.InsertAtPosition,
+			},
+		}
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
@@ -368,49 +391,13 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	defer session.mu.Unlock()
 
 	backupRoutes := deepCopyRoutes(session.CurrentRoutes)
-
-	if req.FromRouteIndex < 0 || req.FromRouteIndex >= len(session.CurrentRoutes) ||
-		req.ToRouteIndex < 0 || req.ToRouteIndex >= len(session.CurrentRoutes) {
-		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
-		return
-	}
-
-	fromRoute := &session.CurrentRoutes[req.FromRouteIndex]
-	toRoute := &session.CurrentRoutes[req.ToRouteIndex]
-
-	// Find and remove participant from source route
-	var participant *models.Participant
-	stopIdx := -1
-	for i, stop := range fromRoute.Stops {
-		if stop.Participant.ID == req.ParticipantID {
-			participant = stop.Participant
-			stopIdx = i
-			break
+	for _, move := range moves {
+		if err := applyParticipantMove(session, move.ParticipantID, move.FromRouteIndex, move.ToRouteIndex, move.InsertAtPosition); err != nil {
+			session.CurrentRoutes = backupRoutes
+			h.handleValidationErrorHTMX(w, r, err.Error())
+			return
 		}
 	}
-
-	if participant == nil {
-		h.handleValidationErrorHTMX(w, r, "Participant not found in source route")
-		return
-	}
-
-	// Remove from source
-	fromRoute.Stops = append(fromRoute.Stops[:stopIdx], fromRoute.Stops[stopIdx+1:]...)
-
-	// Add to destination
-	newStop := models.RouteStop{
-		Participant: participant,
-	}
-
-	if req.InsertAtPosition < 0 || req.InsertAtPosition >= len(toRoute.Stops) {
-		toRoute.Stops = append(toRoute.Stops, newStop)
-	} else {
-		toRoute.Stops = append(toRoute.Stops[:req.InsertAtPosition],
-			append([]models.RouteStop{newStop}, toRoute.Stops[req.InsertAtPosition:]...)...)
-	}
-
-	markRouteDirty(session, req.FromRouteIndex)
-	markRouteDirty(session, req.ToRouteIndex)
 
 	_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
 
@@ -426,8 +413,12 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	// Recalculate summary
 	summary := h.calculateSummary(session.CurrentRoutes)
 
-	log.Printf("[EDIT] Moved participant %d from route %d to route %d",
-		req.ParticipantID, req.FromRouteIndex, req.ToRouteIndex)
+	if len(moves) == 1 {
+		log.Printf("[EDIT] Moved participant %d from route %d to route %d",
+			moves[0].ParticipantID, moves[0].FromRouteIndex, moves[0].ToRouteIndex)
+	} else {
+		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), req.SessionID)
+	}
 
 	// Return updated routes
 	if h.isHTMX(r) {
@@ -441,6 +432,47 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		SessionID: session.ID,
 		Mode:      session.Mode,
 	})
+}
+
+func applyParticipantMove(session *RouteSession, participantID int64, fromRouteIndex, toRouteIndex, insertAtPosition int) error {
+	if fromRouteIndex < 0 || fromRouteIndex >= len(session.CurrentRoutes) ||
+		toRouteIndex < 0 || toRouteIndex >= len(session.CurrentRoutes) {
+		return fmt.Errorf("%s", messageInvalidRouteIndex)
+	}
+
+	fromRoute := &session.CurrentRoutes[fromRouteIndex]
+	toRoute := &session.CurrentRoutes[toRouteIndex]
+
+	var participant *models.Participant
+	stopIdx := -1
+	for i, stop := range fromRoute.Stops {
+		if stop.Participant.ID == participantID {
+			participant = stop.Participant
+			stopIdx = i
+			break
+		}
+	}
+
+	if participant == nil {
+		return fmt.Errorf("Participant not found in source route")
+	}
+
+	fromRoute.Stops = append(fromRoute.Stops[:stopIdx], fromRoute.Stops[stopIdx+1:]...)
+
+	newStop := models.RouteStop{
+		Participant: participant,
+	}
+
+	if insertAtPosition < 0 || insertAtPosition >= len(toRoute.Stops) {
+		toRoute.Stops = append(toRoute.Stops, newStop)
+	} else {
+		toRoute.Stops = append(toRoute.Stops[:insertAtPosition],
+			append([]models.RouteStop{newStop}, toRoute.Stops[insertAtPosition:]...)...)
+	}
+
+	markRouteDirty(session, fromRouteIndex)
+	markRouteDirty(session, toRouteIndex)
+	return nil
 }
 
 // HandleSwapDrivers handles POST /api/v1/routes/edit/swap-drivers

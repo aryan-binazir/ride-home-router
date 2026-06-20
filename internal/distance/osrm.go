@@ -281,6 +281,43 @@ func (c *osrmCalculator) PrewarmCache(ctx context.Context, points []models.Coord
 	return err
 }
 
+func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	byOrigin := make(map[string][]models.Coordinates)
+	originCoords := make(map[string]models.Coordinates)
+	seen := make(map[string]struct{}, len(pairs))
+
+	for _, pair := range pairs {
+		if sameRoundedPoint(pair.Origin, pair.Destination) {
+			continue
+		}
+		key := PairCacheKey(pair.Origin, pair.Destination)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		originKey := fmt.Sprintf("%.5f,%.5f",
+			models.RoundCoordinate(pair.Origin.Lat),
+			models.RoundCoordinate(pair.Origin.Lng),
+		)
+		originCoords[originKey] = pair.Origin
+		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
+	}
+
+	for originKey, destinations := range byOrigin {
+		destinations = uniqueCoordinates(destinations)
+		if _, err := c.GetDistancesFromPoint(ctx, originCoords[originKey], destinations); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c *osrmCalculator) hydrateMatrixFromCache(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) (*missingMatrixPlan, error) {
 	n := len(points)
 	plan := &missingMatrixPlan{

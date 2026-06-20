@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
@@ -51,53 +53,91 @@ func (r *distanceCacheRepository) Get(ctx context.Context, origin, dest models.C
 	return &entry, nil
 }
 
+const distanceCacheBatchSize = 200
+
 func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
 	if len(pairs) == 0 {
 		return make(map[string]*models.DistanceCacheEntry), nil
 	}
 
+	uniquePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
+	seen := make(map[string]struct{}, len(pairs))
+	for _, pair := range pairs {
+		key := makeCacheKey(pair.Origin, pair.Dest)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		uniquePairs = append(uniquePairs, struct{ Origin, Dest models.Coordinates }{
+			Origin: pair.Origin,
+			Dest:   pair.Dest,
+		})
+	}
+
 	r.store.mu.RLock()
 	defer r.store.mu.RUnlock()
 
-	result := make(map[string]*models.DistanceCacheEntry)
+	result := make(map[string]*models.DistanceCacheEntry, len(uniquePairs))
+	for start := 0; start < len(uniquePairs); start += distanceCacheBatchSize {
+		end := min(start+distanceCacheBatchSize, len(uniquePairs))
+		chunk := uniquePairs[start:end]
 
-	// SQLite doesn't support tuple comparisons well, so we query each pair
-	// For large batches, this could be optimized with a temporary table
-	query := `SELECT origin_lat, origin_lng, dest_lat, dest_lng, distance_meters, duration_secs
-	          FROM distance_cache
-	          WHERE origin_lat = ? AND origin_lng = ? AND dest_lat = ? AND dest_lng = ?`
-
-	stmt, err := r.store.db.PrepareContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare batch query: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	for _, pair := range pairs {
-		originLat := models.RoundCoordinate(pair.Origin.Lat)
-		originLng := models.RoundCoordinate(pair.Origin.Lng)
-		destLat := models.RoundCoordinate(pair.Dest.Lat)
-		destLng := models.RoundCoordinate(pair.Dest.Lng)
-
-		var entry models.DistanceCacheEntry
-		err := stmt.QueryRowContext(ctx, originLat, originLng, destLat, destLng).Scan(
-			&entry.Origin.Lat, &entry.Origin.Lng,
-			&entry.Destination.Lat, &entry.Destination.Lng,
-			&entry.DistanceMeters, &entry.DurationSecs,
-		)
-
-		if err == sql.ErrNoRows {
-			continue
-		}
+		query, args := buildDistanceCacheBatchQuery(chunk)
+		rows, err := r.store.db.QueryContext(ctx, query, args...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query batch entry: %w", err)
+			return nil, fmt.Errorf("failed to query batch entries: %w", err)
 		}
 
-		key := makeCacheKey(pair.Origin, pair.Dest)
-		result[key] = &entry
+		for rows.Next() {
+			var entry models.DistanceCacheEntry
+			if err := rows.Scan(
+				&entry.Origin.Lat, &entry.Origin.Lng,
+				&entry.Destination.Lat, &entry.Destination.Lng,
+				&entry.DistanceMeters, &entry.DurationSecs,
+			); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan batch entry: %w", err)
+			}
+			key := makeCacheKey(entry.Origin, entry.Destination)
+			result[key] = &entry
+		}
+		if err := rows.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close batch rows: %w", err)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to iterate batch entries: %w", err)
+		}
 	}
 
 	return result, nil
+}
+
+func buildDistanceCacheBatchQuery(pairs []struct{ Origin, Dest models.Coordinates }) (string, []any) {
+	valuePlaceholders := make([]string, len(pairs))
+	args := make([]any, 0, len(pairs)*4)
+	for i, pair := range pairs {
+		valuePlaceholders[i] = "(?, ?, ?, ?)"
+		args = append(args,
+			models.RoundCoordinate(pair.Origin.Lat),
+			models.RoundCoordinate(pair.Origin.Lng),
+			models.RoundCoordinate(pair.Dest.Lat),
+			models.RoundCoordinate(pair.Dest.Lng),
+		)
+	}
+
+	query := fmt.Sprintf(`WITH requested(origin_lat, origin_lng, dest_lat, dest_lng) AS (
+		VALUES %s
+	)
+	SELECT dc.origin_lat, dc.origin_lng, dc.dest_lat, dc.dest_lng,
+	       dc.distance_meters, dc.duration_secs
+	FROM requested r
+	JOIN distance_cache dc
+	  ON dc.origin_lat = r.origin_lat
+	 AND dc.origin_lng = r.origin_lng
+	 AND dc.dest_lat = r.dest_lat
+	 AND dc.dest_lng = r.dest_lng`, strings.Join(valuePlaceholders, ", "))
+
+	return query, args
 }
 
 func (r *distanceCacheRepository) Set(ctx context.Context, entry *models.DistanceCacheEntry) error {

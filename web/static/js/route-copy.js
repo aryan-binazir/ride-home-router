@@ -144,7 +144,24 @@ async function flushQueuedParticipantMoves() {
     isMoveParticipantFlushInProgress = true;
     try {
         while (pendingMoveParticipantQueue.length > 0) {
-            const payload = pendingMoveParticipantQueue.shift();
+            const moves = pendingMoveParticipantQueue.splice(0, pendingMoveParticipantQueue.length);
+            const sessionId = moves[0]?.session_id;
+            if (!sessionId) {
+                break;
+            }
+
+            const payload = moves.length === 1
+                ? moves[0]
+                : {
+                    session_id: sessionId,
+                    moves: moves.map(move => ({
+                        participant_id: move.participant_id,
+                        from_route_index: move.from_route_index,
+                        to_route_index: move.to_route_index,
+                        insert_at_position: move.insert_at_position
+                    }))
+                };
+
             const response = await fetch('/api/v1/routes/edit/move-participant', {
                 method: 'POST',
                 headers: {

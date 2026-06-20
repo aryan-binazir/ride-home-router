@@ -621,6 +621,20 @@ func TestOptimizeAllRoutes_FinalOrderingMinimizesTotalDriveTime(t *testing.T) {
 	}
 }
 
+func TestMaxCachedRouteDuration_ExcludesProvidedDrivers(t *testing.T) {
+	cached := map[int64]float64{
+		1: 100,
+		2: 500,
+		3: 300,
+	}
+	driverIDs := []int64{1, 2, 3}
+
+	got := maxCachedRouteDuration(cached, driverIDs, 2, 3)
+	if got != 100 {
+		t.Fatalf("maxCachedRouteDuration() = %.0f, want 100", got)
+	}
+}
+
 func TestShouldRunMinMaxOptimizeUsesGuardrailThresholds(t *testing.T) {
 	if shouldRunMinMaxOptimize([]float64{600, 600, 900}) {
 		t.Fatal("should not run min-max below relative and absolute thresholds")

@@ -198,15 +198,18 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		req.Notes = r.FormValue("notes")
 		req.SessionID = r.FormValue("session_id")
 
-		routesJSON := r.FormValue("routes_json")
-		if routesJSON != "" {
-			var routingResult models.RoutingResult
-			if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
-				log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
-				h.handleValidationError(w, messageInvalidRoutesData)
-				return
+		// Session saves load routes from server state; ignore any posted routes_json payload.
+		if req.SessionID == "" {
+			routesJSON := r.FormValue("routes_json")
+			if routesJSON != "" {
+				var routingResult models.RoutingResult
+				if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
+					log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
+					h.handleValidationError(w, messageInvalidRoutesData)
+					return
+				}
+				req.Routes = &routingResult
 			}
-			req.Routes = &routingResult
 		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -220,6 +223,18 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
 		h.handleValidationError(w, messageEventDateRequired)
 		return
+	}
+	if req.Routes == nil {
+		if req.SessionID != "" {
+			session := h.RouteSession.Get(req.SessionID)
+			if session != nil {
+				session.mu.Lock()
+				summary := h.calculateSummary(session.CurrentRoutes)
+				routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
+				session.mu.Unlock()
+				req.Routes = &routes
+			}
+		}
 	}
 	if req.Routes == nil {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")

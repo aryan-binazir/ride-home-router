@@ -255,8 +255,10 @@
         <form {{if not .IsOutOfBalance}}hx-post="/api/v1/events"{{end}}
               hx-target="#save-result"
               hx-indicator="#save-loading">
-            <input type="hidden" name="routes_json" value="{{toJSON .RoutingPayload}}">
             <input type="hidden" name="session_id" value="{{.SessionID}}">
+            {{if not .SessionID}}
+            <input type="hidden" name="routes_json" value="{{toJSON .RoutingPayload}}">
+            {{end}}
 
             <div class="form-group">
                 <label class="form-label">Event Date</label>

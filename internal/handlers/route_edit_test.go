@@ -326,6 +326,116 @@ func TestHandleMoveParticipantOptimizesDestinationRoute(t *testing.T) {
 	}
 }
 
+func TestHandleMoveParticipant_BatchMovesMatchSequentialApplication(t *testing.T) {
+	store := NewRouteSessionStore()
+	defer store.Close()
+
+	handler := &Handler{
+		DistanceCalc: routeEditDistanceCalculator{},
+		RouteSession: store,
+	}
+	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
+	baseRoutes := []models.CalculatedRoute{
+		{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 3},
+			EffectiveCapacity: 3,
+			Stops: []models.RouteStop{
+				{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}},
+				{Participant: &models.Participant{ID: 102, Name: "P102", Lat: 8, Lng: 0}},
+			},
+		},
+		{
+			Driver:            &models.Driver{ID: 2, Name: "Driver 2", Lat: 7, Lng: 0, VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Stops: []models.RouteStop{
+				{Participant: &models.Participant{ID: 201, Name: "P201", Lat: 6, Lng: 0}},
+			},
+		},
+	}
+
+	applyMoves := func(sessionID string, batch bool) []models.CalculatedRoute {
+		var body []byte
+		var err error
+		if batch {
+			body, err = json.Marshal(map[string]any{
+				"session_id": sessionID,
+				"moves": []map[string]any{
+					{
+						"participant_id":     int64(101),
+						"from_route_index":   0,
+						"to_route_index":     1,
+						"insert_at_position": -1,
+					},
+					{
+						"participant_id":     int64(102),
+						"from_route_index":   0,
+						"to_route_index":     1,
+						"insert_at_position": -1,
+					},
+				},
+			})
+		} else {
+			for _, move := range []map[string]any{
+				{
+					"session_id":         sessionID,
+					"participant_id":     int64(101),
+					"from_route_index":   0,
+					"to_route_index":     1,
+					"insert_at_position": -1,
+				},
+				{
+					"session_id":         sessionID,
+					"participant_id":     int64(102),
+					"from_route_index":   0,
+					"to_route_index":     1,
+					"insert_at_position": -1,
+				},
+			} {
+				moveBody, marshalErr := json.Marshal(move)
+				if marshalErr != nil {
+					t.Fatalf("marshal request: %v", marshalErr)
+				}
+				req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(moveBody))
+				rec := httptest.NewRecorder()
+				handler.HandleMoveParticipant(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("sequential move status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+				}
+			}
+			session := store.Get(sessionID)
+			if session == nil {
+				t.Fatal("expected route session to remain available")
+			}
+			return deepCopyRoutes(session.CurrentRoutes)
+		}
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		handler.HandleMoveParticipant(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("batch move status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		session := store.Get(sessionID)
+		if session == nil {
+			t.Fatal("expected route session to remain available")
+		}
+		return deepCopyRoutes(session.CurrentRoutes)
+	}
+
+	sequentialSession := store.Create(baseRoutes, []models.Driver{}, activityLocation, false, "18:30", models.RouteModeDropoff, nil)
+	sequentialRoutes := applyMoves(sequentialSession.ID, false)
+
+	batchSession := store.Create(baseRoutes, []models.Driver{}, activityLocation, false, "18:30", models.RouteModeDropoff, nil)
+	batchRoutes := applyMoves(batchSession.ID, true)
+
+	if !routesEqual(sequentialRoutes, batchRoutes) {
+		t.Fatalf("batch routes differ from sequential application")
+	}
+}
+
 func TestCalculateOverCapacity(t *testing.T) {
 	routes := []models.CalculatedRoute{
 		{
