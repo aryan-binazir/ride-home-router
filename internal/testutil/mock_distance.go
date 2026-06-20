@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 )
 
@@ -119,6 +120,11 @@ func (m *MockDistanceCalculator) GetDistancesFromPoint(ctx context.Context, orig
 
 // PrewarmCache is a no-op for the mock
 func (m *MockDistanceCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
+	return nil
+}
+
+// PrewarmPairs is a no-op for the mock
+func (m *MockDistanceCalculator) PrewarmPairs(ctx context.Context, pairs []distance.DistancePair) error {
 	return nil
 }
 

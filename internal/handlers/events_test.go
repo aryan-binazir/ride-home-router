@@ -65,6 +65,232 @@ func TestHandleCreateEvent_MissingRoutesReturnsBadRequest(t *testing.T) {
 	}
 }
 
+func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+
+	session := handler.RouteSession.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+				EffectiveCapacity:   2,
+				Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+				TotalDistanceMeters: 5000,
+				Mode:                "dropoff",
+			},
+		},
+		[]models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
+		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		false,
+		"18:30",
+		"dropoff",
+		nil,
+	)
+
+	form := "event_date=2026-03-14&session_id=" + session.ID
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, rr.Code, rr.Body.String())
+	}
+
+	events, _, err := store.Events().List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 saved event, got %d", len(events))
+	}
+}
+
+func TestHandleCreateEvent_ExpiredSessionReturnsNotFound(t *testing.T) {
+	handler, _ := newTestEventHandler(t, false)
+
+	form := "event_date=2026-03-14&session_id=expired-session-id"
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotFound, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleCreateEvent_ExpiredSessionFallsBackToPostedRoutesJSON(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+
+	routingPayload := models.RoutingResult{
+		Routes: []models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 7, Name: "Fallback Driver", VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+				Mode:              "dropoff",
+			},
+		},
+		Summary: models.RoutingSummary{
+			TotalParticipants: 1,
+			TotalDriversUsed:  1,
+		},
+		Mode: "dropoff",
+	}
+	payloadBytes, err := json.Marshal(routingPayload)
+	if err != nil {
+		t.Fatalf("marshal routing payload: %v", err)
+	}
+
+	form := "event_date=2026-03-14&session_id=expired-session-id&routes_json=" + url.QueryEscape(string(payloadBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, rr.Code, rr.Body.String())
+	}
+	events, _, err := store.Events().List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 saved event, got %d", len(events))
+	}
+	_, routes, _, err := store.Events().GetByID(context.Background(), events[0].ID)
+	if err != nil {
+		t.Fatalf("get event: %v", err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("route count = %d, want 1", len(routes))
+	}
+	if routes[0].DriverName != "Fallback Driver" {
+		t.Fatalf("saved driver = %q, want fallback posted route driver", routes[0].DriverName)
+	}
+}
+
+func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+
+	session := handler.RouteSession.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+				EffectiveCapacity:   2,
+				Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+				TotalDistanceMeters: 5000,
+				Mode:                "dropoff",
+			},
+		},
+		[]models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
+		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		false,
+		"18:30",
+		"dropoff",
+		nil,
+	)
+
+	body := map[string]any{
+		"event_date": "2026-03-14",
+		"session_id": session.ID,
+		"routes": map[string]any{
+			"routes": []map[string]any{
+				{
+					"driver": map[string]any{"id": 99, "name": "Forged Driver", "vehicle_capacity": 1},
+					"stops":  []map[string]any{},
+					"mode":   "dropoff",
+				},
+			},
+		},
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, rr.Code, rr.Body.String())
+	}
+
+	events, _, err := store.Events().List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 saved event, got %d", len(events))
+	}
+
+	event, routes, _, err := store.Events().GetByID(context.Background(), events[0].ID)
+	if err != nil {
+		t.Fatalf("get event: %v", err)
+	}
+	if event == nil {
+		t.Fatal("expected event")
+	}
+	if len(routes) != 1 {
+		t.Fatalf("route count = %d, want 1", len(routes))
+	}
+	if routes[0].DriverName != "Driver 1" {
+		t.Fatalf("saved driver = %q, want server session driver", routes[0].DriverName)
+	}
+}
+
+func TestHandleCreateEvent_SessionSaveIgnoresMalformedRoutesJSON(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+
+	session := handler.RouteSession.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 1, Name: "Session Driver", VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+				Mode:              "dropoff",
+			},
+		},
+		[]models.Driver{{ID: 1, Name: "Session Driver", VehicleCapacity: 2}},
+		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		false,
+		"18:30",
+		"dropoff",
+		nil,
+	)
+
+	form := "event_date=2026-03-14&session_id=" + url.QueryEscape(session.ID) + "&routes_json=%7Bnot-json"
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, rr.Code, rr.Body.String())
+	}
+	events, _, err := store.Events().List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 saved event, got %d", len(events))
+	}
+	_, routes, _, err := store.Events().GetByID(context.Background(), events[0].ID)
+	if err != nil {
+		t.Fatalf("get event: %v", err)
+	}
+	if routes[0].DriverName != "Session Driver" {
+		t.Fatalf("saved driver = %q, want server session driver", routes[0].DriverName)
+	}
+}
+
 func TestHandleCreateEvent_OutOfBalanceSessionReturnsBadRequest(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
 

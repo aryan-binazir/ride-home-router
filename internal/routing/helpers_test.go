@@ -54,3 +54,7 @@ func (a *mockDistanceAdapter) GetDistancesFromPoint(ctx context.Context, origin 
 func (a *mockDistanceAdapter) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
 	return a.mock.PrewarmCache(ctx, points)
 }
+
+func (a *mockDistanceAdapter) PrewarmPairs(ctx context.Context, pairs []distance.DistancePair) error {
+	return a.mock.PrewarmPairs(ctx, pairs)
+}
