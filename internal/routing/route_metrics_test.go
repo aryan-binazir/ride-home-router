@@ -410,6 +410,36 @@ func TestTwoOptRouteDuration_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
 	}
 }
 
+func TestTwoOptBlockDelta_UsesLastMemberOfPreviousBlock(t *testing.T) {
+	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
+	driver := &models.Driver{ID: 1, Lat: 10, Lng: 0}
+	memberFirst := &models.Participant{ID: 1, Lat: 1.000001, Lng: 0}
+	memberLast := &models.Participant{ID: 2, Lat: 1.000002, Lng: 0}
+	blockA := &participantGroup{members: []*models.Participant{memberFirst, memberLast}}
+	blockB := &participantGroup{members: []*models.Participant{{ID: 3, Lat: 3, Lng: 0}}}
+	blockC := &participantGroup{members: []*models.Participant{{ID: 4, Lat: 5, Lng: 0}}}
+	blocks := []*participantGroup{blockA, blockB, blockC}
+
+	blockDelta, err := rc.twoOptBlockDelta(context.Background(), driver, blocks, 1, 3, func(r *distance.DistanceResult) float64 {
+		return r.DurationSecs
+	}, true)
+	if err != nil {
+		t.Fatalf("twoOptBlockDelta() error = %v", err)
+	}
+
+	repStops := []*models.Participant{memberFirst, blockB.members[0], blockC.members[0]}
+	repDelta, err := rc.twoOptDelta(context.Background(), driver, repStops, 1, 3, func(r *distance.DistanceResult) float64 {
+		return r.DurationSecs
+	}, true)
+	if err != nil {
+		t.Fatalf("twoOptDelta() error = %v", err)
+	}
+
+	if blockDelta == repDelta {
+		t.Fatalf("block delta %.0f should differ from first-member rep delta %.0f", blockDelta, repDelta)
+	}
+}
+
 func TestTwoOptRouteDuration_SplitHouseholdBlocksPreservesAllParticipants(t *testing.T) {
 	calc := &countingDistanceCalculator{}
 	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)

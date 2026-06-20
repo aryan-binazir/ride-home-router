@@ -17,7 +17,15 @@ import (
 const (
 	routeSessionTTL             = 2 * time.Hour
 	routeSessionCleanupInterval = 15 * time.Minute
+	maxParticipantMovesPerBatch   = 64
 )
+
+type participantMove struct {
+	ParticipantID    int64 `json:"participant_id"`
+	FromRouteIndex   int   `json:"from_route_index"`
+	ToRouteIndex     int   `json:"to_route_index"`
+	InsertAtPosition int   `json:"insert_at_position"`
+}
 
 // RouteSession stores calculated routes for editing
 type RouteSession struct {
@@ -350,12 +358,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		FromRouteIndex   int    `json:"from_route_index"`
 		ToRouteIndex     int    `json:"to_route_index"`
 		InsertAtPosition int    `json:"insert_at_position"` // -1 for end
-		Moves            []struct {
-			ParticipantID    int64 `json:"participant_id"`
-			FromRouteIndex   int   `json:"from_route_index"`
-			ToRouteIndex     int   `json:"to_route_index"`
-			InsertAtPosition int   `json:"insert_at_position"`
-		} `json:"moves"`
+		Moves            []participantMove `json:"moves"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -363,31 +366,28 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var moves []struct {
-		ParticipantID    int64 `json:"participant_id"`
-		FromRouteIndex   int   `json:"from_route_index"`
-		ToRouteIndex     int   `json:"to_route_index"`
-		InsertAtPosition int   `json:"insert_at_position"`
-	}
+	var moves []participantMove
 	if req.Moves == nil {
-		moves = []struct {
-			ParticipantID    int64 `json:"participant_id"`
-			FromRouteIndex   int   `json:"from_route_index"`
-			ToRouteIndex     int   `json:"to_route_index"`
-			InsertAtPosition int   `json:"insert_at_position"`
-		}{
-			{
-				ParticipantID:    req.ParticipantID,
-				FromRouteIndex:   req.FromRouteIndex,
-				ToRouteIndex:     req.ToRouteIndex,
-				InsertAtPosition: req.InsertAtPosition,
-			},
-		}
+		moves = []participantMove{{
+			ParticipantID:    req.ParticipantID,
+			FromRouteIndex:   req.FromRouteIndex,
+			ToRouteIndex:     req.ToRouteIndex,
+			InsertAtPosition: req.InsertAtPosition,
+		}}
 	} else if len(req.Moves) == 0 {
 		h.handleValidationErrorHTMX(w, r, messageMovesRequired)
 		return
 	} else {
 		moves = req.Moves
+	}
+
+	if len(moves) > maxParticipantMovesPerBatch {
+		h.handleValidationErrorHTMX(w, r, messageTooManyMoves)
+		return
+	}
+	if err := validateParticipantMoveBatch(moves); err != nil {
+		h.handleValidationErrorHTMX(w, r, err.Error())
+		return
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
@@ -402,7 +402,13 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 
 	backupRoutes := deepCopyRoutes(session.CurrentRoutes)
 	for _, move := range moves {
-		if err := applyParticipantMove(session, move.ParticipantID, move.FromRouteIndex, move.ToRouteIndex, move.InsertAtPosition); err != nil {
+		fromRouteIndex, ok := findParticipantRouteIndex(session.CurrentRoutes, move.ParticipantID)
+		if !ok {
+			session.CurrentRoutes = backupRoutes
+			h.handleValidationErrorHTMX(w, r, messageParticipantNotFound)
+			return
+		}
+		if err := applyParticipantMove(session, move.ParticipantID, fromRouteIndex, move.ToRouteIndex, move.InsertAtPosition); err != nil {
 			session.CurrentRoutes = backupRoutes
 			h.handleValidationErrorHTMX(w, r, err.Error())
 			return
@@ -444,6 +450,31 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func validateParticipantMoveBatch(moves []participantMove) error {
+	seen := make(map[int64]struct{}, len(moves))
+	for _, move := range moves {
+		if move.ParticipantID == 0 {
+			return fmt.Errorf("%s", messageInvalidParticipantID)
+		}
+		if _, exists := seen[move.ParticipantID]; exists {
+			return fmt.Errorf("%s", messageDuplicateMoveParticipant)
+		}
+		seen[move.ParticipantID] = struct{}{}
+	}
+	return nil
+}
+
+func findParticipantRouteIndex(routes []models.CalculatedRoute, participantID int64) (int, bool) {
+	for routeIndex, route := range routes {
+		for _, stop := range route.Stops {
+			if stop.Participant != nil && stop.Participant.ID == participantID {
+				return routeIndex, true
+			}
+		}
+	}
+	return -1, false
+}
+
 func applyParticipantMove(session *RouteSession, participantID int64, fromRouteIndex, toRouteIndex, insertAtPosition int) error {
 	if fromRouteIndex < 0 || fromRouteIndex >= len(session.CurrentRoutes) ||
 		toRouteIndex < 0 || toRouteIndex >= len(session.CurrentRoutes) {
@@ -456,6 +487,9 @@ func applyParticipantMove(session *RouteSession, participantID int64, fromRouteI
 	var participant *models.Participant
 	stopIdx := -1
 	for i, stop := range fromRoute.Stops {
+		if stop.Participant == nil {
+			continue
+		}
 		if stop.Participant.ID == participantID {
 			participant = stop.Participant
 			stopIdx = i
@@ -464,7 +498,7 @@ func applyParticipantMove(session *RouteSession, participantID int64, fromRouteI
 	}
 
 	if participant == nil {
-		return fmt.Errorf("participant not found in source route")
+		return fmt.Errorf("%s", messageParticipantNotFound)
 	}
 
 	fromRoute.Stops = append(fromRoute.Stops[:stopIdx], fromRoute.Stops[stopIdx+1:]...)

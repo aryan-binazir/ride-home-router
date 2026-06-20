@@ -478,6 +478,180 @@ func TestHandleMoveParticipant_EmptyMovesReturnsBadRequest(t *testing.T) {
 	}
 }
 
+func TestHandleMoveParticipant_TooManyMovesReturnsBadRequest(t *testing.T) {
+	store := NewRouteSessionStore()
+	defer store.Close()
+
+	handler := &Handler{
+		DistanceCalc: routeEditDistanceCalculator{},
+		RouteSession: store,
+	}
+	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
+	session := store.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 100},
+				EffectiveCapacity: 100,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}}},
+			},
+			{
+				Driver:            &models.Driver{ID: 2, Name: "Driver 2", Lat: 7, Lng: 0, VehicleCapacity: 100},
+				EffectiveCapacity: 100,
+				Stops:             []models.RouteStop{},
+			},
+		},
+		[]models.Driver{},
+		activityLocation,
+		false,
+		"18:30",
+		models.RouteModeDropoff,
+		nil,
+	)
+
+	moves := make([]map[string]any, maxParticipantMovesPerBatch+1)
+	for i := range moves {
+		moves[i] = map[string]any{
+			"participant_id":     int64(101),
+			"from_route_index":   0,
+			"to_route_index":     1,
+			"insert_at_position": -1,
+		}
+	}
+	body, err := json.Marshal(map[string]any{
+		"session_id": session.ID,
+		"moves":      moves,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.HandleMoveParticipant(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleMoveParticipant_DuplicateParticipantInBatchReturnsBadRequest(t *testing.T) {
+	store := NewRouteSessionStore()
+	defer store.Close()
+
+	handler := &Handler{
+		DistanceCalc: routeEditDistanceCalculator{},
+		RouteSession: store,
+	}
+	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
+	session := store.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}}},
+			},
+			{
+				Driver:            &models.Driver{ID: 2, Name: "Driver 2", Lat: 7, Lng: 0, VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{},
+			},
+		},
+		[]models.Driver{},
+		activityLocation,
+		false,
+		"18:30",
+		models.RouteModeDropoff,
+		nil,
+	)
+
+	body, err := json.Marshal(map[string]any{
+		"session_id": session.ID,
+		"moves": []map[string]any{
+			{
+				"participant_id":     int64(101),
+				"from_route_index":   0,
+				"to_route_index":     1,
+				"insert_at_position": -1,
+			},
+			{
+				"participant_id":     int64(101),
+				"from_route_index":   1,
+				"to_route_index":     0,
+				"insert_at_position": -1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.HandleMoveParticipant(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleMoveParticipant_StaleFromRouteIndexResolved(t *testing.T) {
+	store := NewRouteSessionStore()
+	defer store.Close()
+
+	handler := &Handler{
+		DistanceCalc: routeEditDistanceCalculator{},
+		RouteSession: store,
+	}
+	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
+	session := store.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}}},
+			},
+			{
+				Driver:            &models.Driver{ID: 2, Name: "Driver 2", Lat: 7, Lng: 0, VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{},
+			},
+		},
+		[]models.Driver{},
+		activityLocation,
+		false,
+		"18:30",
+		models.RouteModeDropoff,
+		nil,
+	)
+
+	body, err := json.Marshal(map[string]any{
+		"session_id":         session.ID,
+		"participant_id":     int64(101),
+		"from_route_index":   1,
+		"to_route_index":     1,
+		"insert_at_position": -1,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.HandleMoveParticipant(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := store.Get(session.ID)
+	if len(updated.CurrentRoutes[1].Stops) != 1 {
+		t.Fatalf("expected participant on route 1, got %d stops", len(updated.CurrentRoutes[1].Stops))
+	}
+	if updated.CurrentRoutes[1].Stops[0].Participant.ID != 101 {
+		t.Fatalf("expected participant 101 on route 1, got %d", updated.CurrentRoutes[1].Stops[0].Participant.ID)
+	}
+}
+
 func TestCalculateOverCapacity(t *testing.T) {
 	routes := []models.CalculatedRoute{
 		{

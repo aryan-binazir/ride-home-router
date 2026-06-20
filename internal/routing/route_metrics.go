@@ -315,15 +315,8 @@ func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.D
 		return stops, nil
 	}
 
-	blockStops := make([]*models.Participant, len(blocks))
-	blockByRep := make(map[*models.Participant]*participantGroup, len(blocks))
-	for i, block := range blocks {
-		blockStops[i] = block.members[0]
-		blockByRep[block.members[0]] = block
-	}
-
-	optimizedStops, err := twoOptByDelta(blockStops, func(candidate []*models.Participant, i, j int) (float64, error) {
-		return rc.twoOptDelta(ctx, driver, candidate, i, j, func(result *distance.DistanceResult) float64 {
+	optimizedBlocks, err := twoOptBlocksByDelta(blocks, func(candidate []*participantGroup, i, j int) (float64, error) {
+		return rc.twoOptBlockDelta(ctx, driver, candidate, i, j, func(result *distance.DistanceResult) float64 {
 			return result.DurationSecs
 		}, true)
 	})
@@ -331,16 +324,94 @@ func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.D
 		return nil, err
 	}
 
-	orderedBlocks := make([]*participantGroup, 0, len(optimizedStops))
-	for _, rep := range optimizedStops {
-		block := blockByRep[rep]
-		if block == nil {
-			return nil, fmt.Errorf("optimized route lost household block")
-		}
-		orderedBlocks = append(orderedBlocks, block)
+	return flattenParticipantGroups(optimizedBlocks), nil
+}
+
+func blockFirstMember(block *participantGroup) *models.Participant {
+	return block.members[0]
+}
+
+func blockLastMember(block *participantGroup) *models.Participant {
+	return block.members[len(block.members)-1]
+}
+
+func twoOptBlocksByDelta(blocks []*participantGroup, deltaFn func([]*participantGroup, int, int) (float64, error)) ([]*participantGroup, error) {
+	if len(blocks) < 2 {
+		return blocks, nil
 	}
 
-	return flattenParticipantGroups(orderedBlocks), nil
+	current := append([]*participantGroup(nil), blocks...)
+	improved := true
+	for improved {
+		improved = false
+		for i := 0; i < len(current)-1; i++ {
+			for j := i + 2; j <= len(current); j++ {
+				delta, err := deltaFn(current, i, j)
+				if err != nil {
+					return nil, err
+				}
+				if delta < 0 {
+					reverseParticipantGroups(current, i, j-1)
+					improved = true
+				}
+			}
+		}
+	}
+
+	return current, nil
+}
+
+func (rc routeContext) twoOptBlockDelta(ctx context.Context, driver *models.Driver, blocks []*participantGroup, i, j int, selector func(*distance.DistanceResult) float64, includeTerminal bool) (float64, error) {
+	if driver == nil {
+		return 0, fmt.Errorf("route driver is required")
+	}
+
+	beforeI := rc.origin(driver)
+	if i > 0 {
+		beforeI = blockLastMember(blocks[i-1]).GetCoords()
+	}
+
+	entryI := blockFirstMember(blocks[i]).GetCoords()
+	exitJM1 := blockLastMember(blocks[j-1]).GetCoords()
+
+	currentFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, entryI)
+	if err != nil {
+		return 0, err
+	}
+	newFirst, err := rc.distanceCalc.GetDistance(ctx, beforeI, exitJM1)
+	if err != nil {
+		return 0, err
+	}
+
+	delta := selector(newFirst) - selector(currentFirst)
+	if j < len(blocks) {
+		afterJ := blockFirstMember(blocks[j]).GetCoords()
+		currentSecond, err := rc.distanceCalc.GetDistance(ctx, exitJM1, afterJ)
+		if err != nil {
+			return 0, err
+		}
+		newSecond, err := rc.distanceCalc.GetDistance(ctx, entryI, afterJ)
+		if err != nil {
+			return 0, err
+		}
+		delta += selector(newSecond) - selector(currentSecond)
+		return delta, nil
+	}
+
+	if includeTerminal {
+		destination := rc.destination(driver)
+		currentTerminal, err := rc.distanceCalc.GetDistance(ctx, exitJM1, destination)
+		if err != nil {
+			return 0, err
+		}
+		newTerminal, err := rc.distanceCalc.GetDistance(ctx, entryI, destination)
+		if err != nil {
+			return 0, err
+		}
+		delta += selector(newTerminal) - selector(currentTerminal)
+	}
+
+	return delta, nil
 }
 
 func (rc routeContext) twoOptDelta(ctx context.Context, driver *models.Driver, stops []*models.Participant, i, j int, selector func(*distance.DistanceResult) float64, includeTerminal bool) (float64, error) {

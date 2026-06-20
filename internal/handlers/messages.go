@@ -35,6 +35,8 @@ const (
 	messageRoutesRequired                                = "Routes are required"
 	messageRoutesMustBeBalancedBeforeSaving              = "Routes must be balanced before saving"
 	messageMovesRequired                                 = "At least one move is required"
+	messageTooManyMoves                                  = "Too many moves in one request"
+	messageDuplicateMoveParticipant                      = "Duplicate participant in move batch"
 	messageSessionNotFound                               = "Session not found"
 	messageSelectedActivityLocationNotFound              = "Selected activity location not found"
 	messageSelectedActivityLocationNotFoundChooseAnother = "Selected activity location not found. Choose another location."

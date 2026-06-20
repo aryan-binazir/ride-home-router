@@ -232,6 +232,13 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		session.mu.Lock()
+		_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
+		if isOutOfBalance {
+			session.mu.Unlock()
+			log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
+			h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
+			return
+		}
 		summary := h.calculateSummary(session.CurrentRoutes)
 		routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
 		session.mu.Unlock()
@@ -240,19 +247,6 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")
 		h.handleValidationError(w, messageRoutesRequired)
 		return
-	}
-	if req.SessionID != "" {
-		session := h.RouteSession.Get(req.SessionID)
-		if session != nil {
-			session.mu.Lock()
-			_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
-			session.mu.Unlock()
-			if isOutOfBalance {
-				log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
-				h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
-				return
-			}
-		}
 	}
 
 	eventDate, err := time.Parse("2006-01-02", req.EventDate)
