@@ -3,7 +3,6 @@ package distance
 import (
 	"context"
 	"fmt"
-
 	"ride-home-router/internal/models"
 )
 
@@ -45,14 +44,16 @@ func PrewarmRoutingPairs(ctx context.Context, calc DistanceCalculator, pairs []D
 }
 
 func coordinatePointKey(coord models.Coordinates) string {
-	return fmt.Sprintf("%.5f,%.5f",
+	return fmt.Sprintf(
+		"%.5f,%.5f",
 		models.RoundCoordinate(coord.Lat),
 		models.RoundCoordinate(coord.Lng),
 	)
 }
 
 func PairCacheKey(origin, dest models.Coordinates) string {
-	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
+	return fmt.Sprintf(
+		"%.5f,%.5f->%.5f,%.5f",
 		models.RoundCoordinate(origin.Lat),
 		models.RoundCoordinate(origin.Lng),
 		models.RoundCoordinate(dest.Lat),

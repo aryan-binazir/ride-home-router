@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"

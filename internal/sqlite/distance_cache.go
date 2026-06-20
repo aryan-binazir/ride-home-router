@@ -4,10 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
 )
 
 type distanceCacheRepository struct {
@@ -15,7 +14,8 @@ type distanceCacheRepository struct {
 }
 
 func makeCacheKey(origin, dest models.Coordinates) string {
-	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
+	return fmt.Sprintf(
+		"%.5f,%.5f->%.5f,%.5f",
 		models.RoundCoordinate(origin.Lat),
 		models.RoundCoordinate(origin.Lng),
 		models.RoundCoordinate(dest.Lat),
@@ -83,29 +83,31 @@ func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ 
 		chunk := uniquePairs[start:end]
 
 		query, args := buildDistanceCacheBatchQuery(chunk)
-		rows, err := r.store.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query batch entries: %w", err)
-		}
-
-		for rows.Next() {
-			var entry models.DistanceCacheEntry
-			if err := rows.Scan(
-				&entry.Origin.Lat, &entry.Origin.Lng,
-				&entry.Destination.Lat, &entry.Destination.Lng,
-				&entry.DistanceMeters, &entry.DurationSecs,
-			); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("failed to scan batch entry: %w", err)
+		if err := func() error {
+			rows, err := r.store.db.QueryContext(ctx, query, args...)
+			if err != nil {
+				return fmt.Errorf("failed to query batch entries: %w", err)
 			}
-			key := makeCacheKey(entry.Origin, entry.Destination)
-			result[key] = &entry
-		}
-		if err := rows.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close batch rows: %w", err)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("failed to iterate batch entries: %w", err)
+			defer func() { _ = rows.Close() }()
+
+			for rows.Next() {
+				var entry models.DistanceCacheEntry
+				if err := rows.Scan(
+					&entry.Origin.Lat, &entry.Origin.Lng,
+					&entry.Destination.Lat, &entry.Destination.Lng,
+					&entry.DistanceMeters, &entry.DurationSecs,
+				); err != nil {
+					return fmt.Errorf("failed to scan batch entry: %w", err)
+				}
+				key := makeCacheKey(entry.Origin, entry.Destination)
+				result[key] = &entry
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("failed to iterate batch entries: %w", err)
+			}
+			return nil
+		}(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -117,7 +119,8 @@ func buildDistanceCacheBatchQuery(pairs []struct{ Origin, Dest models.Coordinate
 	args := make([]any, 0, len(pairs)*4)
 	for i, pair := range pairs {
 		valuePlaceholders[i] = "(?, ?, ?, ?)"
-		args = append(args,
+		args = append(
+			args,
 			models.RoundCoordinate(pair.Origin.Lat),
 			models.RoundCoordinate(pair.Origin.Lng),
 			models.RoundCoordinate(pair.Dest.Lat),
@@ -153,7 +156,8 @@ func (r *distanceCacheRepository) Set(ctx context.Context, entry *models.Distanc
 	destLat := models.RoundCoordinate(entry.Destination.Lat)
 	destLng := models.RoundCoordinate(entry.Destination.Lng)
 
-	_, err := r.store.db.ExecContext(ctx, query,
+	_, err := r.store.db.ExecContext(
+		ctx, query,
 		originLat, originLng, destLat, destLng,
 		entry.DistanceMeters, entry.DurationSecs,
 	)

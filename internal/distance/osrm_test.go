@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 	"strings"
 	"testing"
-
-	"ride-home-router/internal/models"
 )
 
 type mockDistanceCache struct {
@@ -35,13 +35,13 @@ func (c *mockDistanceCache) Get(_ context.Context, origin, dest models.Coordinat
 	if entry, ok := c.entries[key]; ok {
 		return entry, nil
 	}
-	return nil, nil
+	return nil, database.ErrCacheMiss
 }
 
-func (c *mockDistanceCache) GetBatch(_ context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
+func (c *mockDistanceCache) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
 	result := make(map[string]*models.DistanceCacheEntry)
 	for _, pair := range pairs {
-		entry, _ := c.Get(context.Background(), pair.Origin, pair.Dest)
+		entry, _ := c.Get(ctx, pair.Origin, pair.Dest)
 		if entry != nil {
 			result[c.cacheKey(pair.Origin, pair.Dest)] = entry
 		}

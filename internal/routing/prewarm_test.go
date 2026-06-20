@@ -2,10 +2,9 @@ package routing
 
 import (
 	"context"
-	"testing"
-
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 type countingPrewarmCalculator struct {

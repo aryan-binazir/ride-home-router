@@ -224,19 +224,19 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageEventDateRequired)
 		return
 	}
-	if req.Routes == nil {
-		if req.SessionID != "" {
-			session := h.RouteSession.Get(req.SessionID)
-			if session != nil {
-				session.mu.Lock()
-				summary := h.calculateSummary(session.CurrentRoutes)
-				routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
-				session.mu.Unlock()
-				req.Routes = &routes
-			}
+	if req.SessionID != "" {
+		session := h.RouteSession.Get(req.SessionID)
+		if session == nil {
+			log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", req.SessionID)
+			h.handleNotFound(w, messageSessionNotFound)
+			return
 		}
-	}
-	if req.Routes == nil {
+		session.mu.Lock()
+		summary := h.calculateSummary(session.CurrentRoutes)
+		routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
+		session.mu.Unlock()
+		req.Routes = &routes
+	} else if req.Routes == nil {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")
 		h.handleValidationError(w, messageRoutesRequired)
 		return

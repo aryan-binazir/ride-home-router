@@ -395,7 +395,7 @@ func TestHandleMoveParticipant_BatchMovesMatchSequentialApplication(t *testing.T
 				if marshalErr != nil {
 					t.Fatalf("marshal request: %v", marshalErr)
 				}
-				req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(moveBody))
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(moveBody))
 				rec := httptest.NewRecorder()
 				handler.HandleMoveParticipant(rec, req)
 				if rec.Code != http.StatusOK {
@@ -412,7 +412,7 @@ func TestHandleMoveParticipant_BatchMovesMatchSequentialApplication(t *testing.T
 			t.Fatalf("marshal request: %v", err)
 		}
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
 		rec := httptest.NewRecorder()
 		handler.HandleMoveParticipant(rec, req)
 		if rec.Code != http.StatusOK {
@@ -433,6 +433,48 @@ func TestHandleMoveParticipant_BatchMovesMatchSequentialApplication(t *testing.T
 
 	if !routesEqual(sequentialRoutes, batchRoutes) {
 		t.Fatalf("batch routes differ from sequential application")
+	}
+}
+
+func TestHandleMoveParticipant_EmptyMovesReturnsBadRequest(t *testing.T) {
+	store := NewRouteSessionStore()
+	defer store.Close()
+
+	handler := &Handler{
+		DistanceCalc: routeEditDistanceCalculator{},
+		RouteSession: store,
+	}
+	activityLocation := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0}
+	session := store.Create(
+		[]models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 1, Name: "Driver 1", Lat: 10, Lng: 0, VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 101, Name: "P101", Lat: 9, Lng: 0}}},
+			},
+		},
+		[]models.Driver{},
+		activityLocation,
+		false,
+		"18:30",
+		models.RouteModeDropoff,
+		nil,
+	)
+
+	body, err := json.Marshal(map[string]any{
+		"session_id": session.ID,
+		"moves":      []map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.HandleMoveParticipant(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
 }
 

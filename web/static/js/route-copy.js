@@ -142,11 +142,14 @@ async function flushQueuedParticipantMoves() {
     }
 
     isMoveParticipantFlushInProgress = true;
+    let movesToRetry = null;
     try {
         while (pendingMoveParticipantQueue.length > 0) {
             const moves = pendingMoveParticipantQueue.splice(0, pendingMoveParticipantQueue.length);
+            movesToRetry = moves;
             const sessionId = moves[0]?.session_id;
             if (!sessionId) {
+                movesToRetry = null;
                 break;
             }
 
@@ -175,18 +178,21 @@ async function flushQueuedParticipantMoves() {
             const routeResults = document.getElementById('results-section');
             if (routeResults) {
                 if (!response.ok) {
-                    // Show error inline above routes
                     showRouteError(html);
                     break;
                 }
                 routeResults.innerHTML = html;
                 populateStopEtas();
             }
+            movesToRetry = null;
         }
     } catch (err) {
         console.error('Failed to move participant:', err);
         showRouteError('Failed to move participant: ' + err.message);
     } finally {
+        if (movesToRetry) {
+            pendingMoveParticipantQueue.unshift(...movesToRetry);
+        }
         isMoveParticipantFlushInProgress = false;
         if (pendingMoveParticipantQueue.length > 0 && !pendingMoveParticipantTimeout) {
             scheduleMoveParticipantFlush();

@@ -3,9 +3,8 @@ package sqlite
 import (
 	"context"
 	"path/filepath"
-	"testing"
-
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 func TestDistanceCacheGetBatch_HitsMissesAndDuplicates(t *testing.T) {

@@ -409,3 +409,33 @@ func TestTwoOptRouteDuration_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
 		t.Fatalf("twoOptRouteDuration() made %d distance calls, want <= 100 for local-edge evaluation", calc.calls)
 	}
 }
+
+func TestTwoOptRouteDuration_SplitHouseholdBlocksPreservesAllParticipants(t *testing.T) {
+	calc := &countingDistanceCalculator{}
+	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
+	householdLat, householdLng := 1.0, 0.0
+	stops := []*models.Participant{
+		{ID: 1, Name: "H1", Lat: householdLat, Lng: householdLng},
+		{ID: 2, Name: "Other", Lat: 5, Lng: 0},
+		{ID: 3, Name: "H2", Lat: householdLat, Lng: householdLng},
+	}
+
+	optimized, err := rc.twoOptRouteDuration(context.Background(), driver, stops)
+	if err != nil {
+		t.Fatalf("twoOptRouteDuration() error = %v", err)
+	}
+	if len(optimized) != len(stops) {
+		t.Fatalf("optimized stop count = %d, want %d", len(optimized), len(stops))
+	}
+
+	seen := make(map[int64]struct{}, len(stops))
+	for _, stop := range optimized {
+		seen[stop.ID] = struct{}{}
+	}
+	for _, stop := range stops {
+		if _, ok := seen[stop.ID]; !ok {
+			t.Fatalf("optimized route lost participant %d", stop.ID)
+		}
+	}
+}

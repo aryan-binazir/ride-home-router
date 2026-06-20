@@ -363,8 +363,13 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	moves := req.Moves
-	if len(moves) == 0 {
+	var moves []struct {
+		ParticipantID    int64 `json:"participant_id"`
+		FromRouteIndex   int   `json:"from_route_index"`
+		ToRouteIndex     int   `json:"to_route_index"`
+		InsertAtPosition int   `json:"insert_at_position"`
+	}
+	if req.Moves == nil {
 		moves = []struct {
 			ParticipantID    int64 `json:"participant_id"`
 			FromRouteIndex   int   `json:"from_route_index"`
@@ -378,6 +383,11 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 				InsertAtPosition: req.InsertAtPosition,
 			},
 		}
+	} else if len(req.Moves) == 0 {
+		h.handleValidationErrorHTMX(w, r, messageMovesRequired)
+		return
+	} else {
+		moves = req.Moves
 	}
 
 	session := h.RouteSession.Get(req.SessionID)
@@ -454,7 +464,7 @@ func applyParticipantMove(session *RouteSession, participantID int64, fromRouteI
 	}
 
 	if participant == nil {
-		return fmt.Errorf("Participant not found in source route")
+		return fmt.Errorf("participant not found in source route")
 	}
 
 	fromRoute.Stops = append(fromRoute.Stops[:stopIdx], fromRoute.Stops[stopIdx+1:]...)

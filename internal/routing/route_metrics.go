@@ -316,10 +316,10 @@ func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.D
 	}
 
 	blockStops := make([]*models.Participant, len(blocks))
-	blockByKey := make(map[string]*participantGroup, len(blocks))
+	blockByRep := make(map[*models.Participant]*participantGroup, len(blocks))
 	for i, block := range blocks {
 		blockStops[i] = block.members[0]
-		blockByKey[householdKey(block.members[0])] = block
+		blockByRep[block.members[0]] = block
 	}
 
 	optimizedStops, err := twoOptByDelta(blockStops, func(candidate []*models.Participant, i, j int) (float64, error) {
@@ -333,7 +333,7 @@ func (rc routeContext) twoOptRouteDuration(ctx context.Context, driver *models.D
 
 	orderedBlocks := make([]*participantGroup, 0, len(optimizedStops))
 	for _, rep := range optimizedStops {
-		block := blockByKey[householdKey(rep)]
+		block := blockByRep[rep]
 		if block == nil {
 			return nil, fmt.Errorf("optimized route lost household block")
 		}
