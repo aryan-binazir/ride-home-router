@@ -322,6 +322,17 @@ func markRouteDirty(session *RouteSession, routeIndex int) {
 	session.DirtyRouteIndexes[routeIndex] = struct{}{}
 }
 
+func cloneDirtyRouteIndexes(source map[int]struct{}) map[int]struct{} {
+	if source == nil {
+		return nil
+	}
+	clone := make(map[int]struct{}, len(source))
+	for routeIndex := range source {
+		clone[routeIndex] = struct{}{}
+	}
+	return clone
+}
+
 func (h *Handler) recalculateDirtyRoutes(ctx context.Context, session *RouteSession, backupRoutes []models.CalculatedRoute) error {
 	for routeIndex := range session.DirtyRouteIndexes {
 		if routeIndex < 0 || routeIndex >= len(session.CurrentRoutes) {
@@ -401,28 +412,34 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	defer session.mu.Unlock()
 
 	backupRoutes := deepCopyRoutes(session.CurrentRoutes)
+	backupDirtyRouteIndexes := cloneDirtyRouteIndexes(session.DirtyRouteIndexes)
+	restoreSession := func() {
+		session.CurrentRoutes = deepCopyRoutes(backupRoutes)
+		session.DirtyRouteIndexes = cloneDirtyRouteIndexes(backupDirtyRouteIndexes)
+	}
 	for _, move := range moves {
 		fromRouteIndex, ok := findParticipantRouteIndex(session.CurrentRoutes, move.ParticipantID)
 		if !ok {
-			session.CurrentRoutes = backupRoutes
+			restoreSession()
 			h.handleValidationErrorHTMX(w, r, messageParticipantNotFound)
 			return
 		}
 		if err := applyParticipantMove(session, move.ParticipantID, fromRouteIndex, move.ToRouteIndex, move.InsertAtPosition); err != nil {
-			session.CurrentRoutes = backupRoutes
+			restoreSession()
 			h.handleValidationErrorHTMX(w, r, err.Error())
 			return
 		}
-	}
 
-	_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
-
-	// Optimize and recalculate all dirty routes once balanced again.
-	// While out of balance, keep previous route metrics visible.
-	if !isOutOfBalance {
-		if err := h.recalculateDirtyRoutes(r.Context(), session, backupRoutes); err != nil {
-			h.handleInternalError(w, err)
-			return
+		// Match sequential move semantics: every balanced interim state refreshes
+		// dirty route order/metrics, while out-of-balance states keep the previous
+		// metrics visible until a later move restores balance.
+		_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
+		if !isOutOfBalance {
+			if err := h.recalculateDirtyRoutes(r.Context(), session, backupRoutes); err != nil {
+				session.DirtyRouteIndexes = cloneDirtyRouteIndexes(backupDirtyRouteIndexes)
+				h.handleInternalError(w, err)
+				return
+			}
 		}
 	}
 
