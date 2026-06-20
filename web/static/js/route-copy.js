@@ -127,6 +127,8 @@ function getSessionId() {
 let pendingMoveParticipantTimeout = null;
 let pendingMoveParticipantQueue = [];
 let isMoveParticipantFlushInProgress = false;
+let moveParticipantFlushPromise = null;
+const MOVE_PARTICIPANT_BATCH_LIMIT = 64;
 
 function scheduleMoveParticipantFlush() {
     if (pendingMoveParticipantTimeout) {
@@ -136,20 +138,58 @@ function scheduleMoveParticipantFlush() {
 }
 
 async function flushQueuedParticipantMoves() {
-    pendingMoveParticipantTimeout = null;
+    if (pendingMoveParticipantTimeout) {
+        clearTimeout(pendingMoveParticipantTimeout);
+        pendingMoveParticipantTimeout = null;
+    }
+
+    if (moveParticipantFlushPromise) {
+        return moveParticipantFlushPromise;
+    }
+
+    moveParticipantFlushPromise = runQueuedParticipantMoves();
+    try {
+        return await moveParticipantFlushPromise;
+    } finally {
+        moveParticipantFlushPromise = null;
+    }
+}
+
+function takeNextParticipantMoveBatch() {
+    const firstMove = pendingMoveParticipantQueue[0];
+    const sessionId = firstMove?.session_id;
+    if (!sessionId) {
+        pendingMoveParticipantQueue.shift();
+        return { sessionId: null, moves: [] };
+    }
+
+    const moves = [];
+    while (
+        pendingMoveParticipantQueue.length > 0 &&
+        moves.length < MOVE_PARTICIPANT_BATCH_LIMIT &&
+        pendingMoveParticipantQueue[0]?.session_id === sessionId
+    ) {
+        moves.push(pendingMoveParticipantQueue.shift());
+    }
+
+    return { sessionId, moves };
+}
+
+async function runQueuedParticipantMoves() {
     if (isMoveParticipantFlushInProgress) {
-        return;
+        return true;
     }
 
     isMoveParticipantFlushInProgress = true;
     let movesToRetry = null;
+    let flushSucceeded = true;
     try {
         while (pendingMoveParticipantQueue.length > 0) {
-            const moves = pendingMoveParticipantQueue.splice(0, pendingMoveParticipantQueue.length);
+            const { sessionId, moves } = takeNextParticipantMoveBatch();
             movesToRetry = moves;
-            const sessionId = moves[0]?.session_id;
-            if (!sessionId) {
+            if (!sessionId || moves.length === 0) {
                 movesToRetry = null;
+                flushSucceeded = false;
                 break;
             }
 
@@ -179,16 +219,20 @@ async function flushQueuedParticipantMoves() {
             if (routeResults) {
                 if (!response.ok) {
                     movesToRetry = null;
+                    flushSucceeded = false;
                     showRouteError(html);
                     break;
                 }
-                routeResults.innerHTML = html;
-                populateStopEtas();
+                if (getSessionId() === sessionId) {
+                    routeResults.innerHTML = html;
+                    populateStopEtas();
+                }
             }
             movesToRetry = null;
         }
     } catch (err) {
         movesToRetry = null;
+        flushSucceeded = false;
         console.error('Failed to move participant:', err);
         showRouteError('Failed to move participant: ' + err.message);
     } finally {
@@ -200,6 +244,8 @@ async function flushQueuedParticipantMoves() {
             scheduleMoveParticipantFlush();
         }
     }
+
+    return flushSucceeded && pendingMoveParticipantQueue.length === 0;
 }
 
 async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
@@ -220,6 +266,40 @@ async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
     });
     scheduleMoveParticipantFlush();
 }
+
+function hasQueuedParticipantMoves() {
+    return pendingMoveParticipantQueue.length > 0 || Boolean(pendingMoveParticipantTimeout) || isMoveParticipantFlushInProgress;
+}
+
+function isSaveEventForm(form) {
+    return form instanceof HTMLFormElement && form.getAttribute('hx-post') === '/api/v1/events';
+}
+
+document.addEventListener('submit', async function(evt) {
+    const form = evt.target;
+    if (!isSaveEventForm(form) || !hasQueuedParticipantMoves() || form.dataset.pendingMoveFlush === 'true') {
+        return;
+    }
+
+    evt.preventDefault();
+    evt.stopImmediatePropagation();
+    form.dataset.pendingMoveFlush = 'true';
+
+    const flushed = await flushQueuedParticipantMoves();
+    delete form.dataset.pendingMoveFlush;
+    if (!flushed) {
+        return;
+    }
+
+    if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit(evt.submitter || undefined);
+    } else {
+        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+        if (form.dispatchEvent(submitEvent)) {
+            form.submit();
+        }
+    }
+}, true);
 
 /**
  * Swaps drivers between two routes

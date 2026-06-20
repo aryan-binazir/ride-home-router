@@ -271,6 +271,67 @@ func TestPrewarmPairs_RequestsOnlyMissingDirectedPairs(t *testing.T) {
 	}
 }
 
+func TestPrewarmPairs_DensePairsUseSingleRectangularRequest(t *testing.T) {
+	cache := newMockDistanceCache()
+	originA := models.Coordinates{Lat: 0, Lng: 0}
+	originB := models.Coordinates{Lat: 1, Lng: 0}
+	destA := models.Coordinates{Lat: 0, Lng: 1}
+	destB := models.Coordinates{Lat: 1, Lng: 1}
+
+	requestCount := 0
+	var requestRawQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		requestRawQuery = r.URL.RawQuery
+		resp := osrmTableResponse{
+			Code: "Ok",
+			Distances: [][]float64{
+				{1100, 1200},
+				{2100, 2200},
+			},
+			Durations: [][]float64{
+				{11, 12},
+				{21, 22},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	calc := &osrmCalculator{
+		baseURL:    server.URL,
+		httpClient: server.Client(),
+		cache:      cache,
+	}
+
+	err := calc.PrewarmPairs(context.Background(), []DistancePair{
+		{Origin: originA, Destination: destA},
+		{Origin: originA, Destination: destB},
+		{Origin: originB, Destination: destA},
+		{Origin: originB, Destination: destB},
+	})
+	if err != nil {
+		t.Fatalf("PrewarmPairs() error = %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Fatalf("expected one rectangular OSRM request, got %d", requestCount)
+	}
+	if !strings.Contains(requestRawQuery, "sources=0;1") || !strings.Contains(requestRawQuery, "destinations=2;3") {
+		t.Fatalf("expected rectangular request sources=0;1 destinations=2;3, rawQuery=%q", requestRawQuery)
+	}
+	if cache.Count() != 4 {
+		t.Fatalf("cache entries = %d, want 4", cache.Count())
+	}
+	cached, err := cache.Get(context.Background(), originB, destB)
+	if err != nil {
+		t.Fatalf("expected cached originB->destB: %v", err)
+	}
+	if cached.DistanceMeters != 2200 || cached.DurationSecs != 22 {
+		t.Fatalf("originB->destB cache = %.0fm %.0fs, want 2200m 22s", cached.DistanceMeters, cached.DurationSecs)
+	}
+}
+
 func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
 	cache := newMockDistanceCache()
 

@@ -307,16 +307,28 @@ func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair)
 
 	byOrigin := make(map[string][]models.Coordinates)
 	originCoords := make(map[string]models.Coordinates)
+	missingPairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(cachePairs))
 	for _, pair := range cachePairs {
 		if cached[PairCacheKey(pair.Origin, pair.Dest)] != nil {
 			continue
 		}
-		originKey := fmt.Sprintf("%.5f,%.5f",
-			models.RoundCoordinate(pair.Origin.Lat),
-			models.RoundCoordinate(pair.Origin.Lng),
-		)
+		missingPairs = append(missingPairs, pair)
+		originKey := coordinatePointKey(pair.Origin)
 		originCoords[originKey] = pair.Origin
 		byOrigin[originKey] = append(byOrigin[originKey], pair.Dest)
+	}
+
+	if len(missingPairs) == 0 {
+		return nil
+	}
+
+	originRequestCount := 0
+	for _, destinations := range byOrigin {
+		destinations = uniqueCoordinates(destinations)
+		originRequestCount += (len(destinations) + maxOSRMCoordinates - 2) / (maxOSRMCoordinates - 1)
+	}
+	if shouldUseRectangularPairPrewarm(missingPairs, originRequestCount) {
+		return c.prewarmPairRectangle(ctx, missingPairs)
 	}
 
 	for originKey, destinations := range byOrigin {
@@ -356,6 +368,105 @@ func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair)
 	}
 
 	return nil
+}
+
+type pairRectangleRequest struct {
+	queryPoints        []models.Coordinates
+	sourceIndexes      []int
+	destinationIndexes []int
+	sourceCoords       []models.Coordinates
+	destinationCoords  []models.Coordinates
+	requestedPairs     map[string]struct{}
+}
+
+func shouldUseRectangularPairPrewarm(pairs []struct{ Origin, Dest models.Coordinates }, originRequestCount int) bool {
+	request, ok := buildPairRectangleRequest(pairs)
+	if !ok || originRequestCount <= 1 {
+		return false
+	}
+
+	rectangularCells := len(request.sourceIndexes) * len(request.destinationIndexes)
+	return rectangularCells <= len(pairs)*2 || originRequestCount > 8
+}
+
+func buildPairRectangleRequest(pairs []struct{ Origin, Dest models.Coordinates }) (*pairRectangleRequest, bool) {
+	request := &pairRectangleRequest{
+		requestedPairs: make(map[string]struct{}, len(pairs)),
+	}
+	sourceSeen := make(map[string]struct{})
+	destinationSeen := make(map[string]struct{})
+	queryIndexByKey := make(map[string]int)
+
+	addQueryPoint := func(point models.Coordinates) int {
+		key := coordinatePointKey(point)
+		if idx, ok := queryIndexByKey[key]; ok {
+			return idx
+		}
+		idx := len(request.queryPoints)
+		queryIndexByKey[key] = idx
+		request.queryPoints = append(request.queryPoints, point)
+		return idx
+	}
+
+	for _, pair := range pairs {
+		request.requestedPairs[PairCacheKey(pair.Origin, pair.Dest)] = struct{}{}
+
+		originKey := coordinatePointKey(pair.Origin)
+		if _, ok := sourceSeen[originKey]; !ok {
+			sourceSeen[originKey] = struct{}{}
+			request.sourceCoords = append(request.sourceCoords, pair.Origin)
+		}
+
+		destinationKey := coordinatePointKey(pair.Dest)
+		if _, ok := destinationSeen[destinationKey]; !ok {
+			destinationSeen[destinationKey] = struct{}{}
+			request.destinationCoords = append(request.destinationCoords, pair.Dest)
+		}
+	}
+
+	for _, source := range request.sourceCoords {
+		request.sourceIndexes = append(request.sourceIndexes, addQueryPoint(source))
+	}
+	for _, destination := range request.destinationCoords {
+		request.destinationIndexes = append(request.destinationIndexes, addQueryPoint(destination))
+	}
+
+	return request, len(request.queryPoints) <= maxOSRMCoordinates
+}
+
+func (c *osrmCalculator) prewarmPairRectangle(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) error {
+	request, ok := buildPairRectangleRequest(pairs)
+	if !ok {
+		return fmt.Errorf("OSRM pair rectangle exceeds coordinate limit")
+	}
+
+	response, err := c.requestTable(ctx, request.queryPoints, request.sourceIndexes, request.destinationIndexes)
+	if err != nil {
+		return err
+	}
+
+	cacheEntries := make([]models.DistanceCacheEntry, 0, len(pairs))
+	for sourceResponseIndex, origin := range request.sourceCoords {
+		for destinationResponseIndex, destination := range request.destinationCoords {
+			if _, ok := request.requestedPairs[PairCacheKey(origin, destination)]; !ok {
+				continue
+			}
+
+			dist := response.Distances[sourceResponseIndex][destinationResponseIndex]
+			dur := response.Durations[sourceResponseIndex][destinationResponseIndex]
+			if dist <= 0 {
+				continue
+			}
+			cacheEntries = append(cacheEntries, models.DistanceCacheEntry{
+				Origin:         origin,
+				Destination:    destination,
+				DistanceMeters: dist,
+				DurationSecs:   dur,
+			})
+		}
+	}
+
+	return c.persistCacheEntries(ctx, cacheEntries)
 }
 
 func (c *osrmCalculator) hydrateMatrixFromCache(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) (*missingMatrixPlan, error) {

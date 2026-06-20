@@ -378,7 +378,8 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var moves []participantMove
-	if req.Moves == nil {
+	legacySingleMove := req.Moves == nil
+	if legacySingleMove {
 		moves = []participantMove{{
 			ParticipantID:    req.ParticipantID,
 			FromRouteIndex:   req.FromRouteIndex,
@@ -422,6 +423,11 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		if !ok {
 			restoreSession()
 			h.handleValidationErrorHTMX(w, r, messageParticipantNotFound)
+			return
+		}
+		if legacySingleMove && fromRouteIndex != move.FromRouteIndex {
+			restoreSession()
+			h.handleValidationErrorHTMX(w, r, "Participant not found in source route")
 			return
 		}
 		if err := applyParticipantMove(session, move.ParticipantID, fromRouteIndex, move.ToRouteIndex, move.InsertAtPosition); err != nil {
