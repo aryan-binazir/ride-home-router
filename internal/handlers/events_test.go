@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/sqlite"
+	"ride-home-router/internal/templates"
 	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -671,7 +673,7 @@ func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlit
 
 	handler := &Handler{
 		DB:           store,
-		Templates:    newTestTemplates(t),
+		Renderer:     newTestTemplates(t),
 		RouteSession: NewRouteSessionStore(),
 	}
 
@@ -685,18 +687,26 @@ func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlit
 	return handler, store
 }
 
-func newTestTemplates(t *testing.T) *TemplateSet {
+func newTestTemplates(t *testing.T) *templates.Renderer {
 	t.Helper()
 
-	base, err := template.New("test").Parse(testEventTemplates)
+	templatesFS := fstest.MapFS{
+		"templates/layout.html":             {Data: []byte(`{{template "content" .}}`)},
+		"templates/partials/events.html":    {Data: []byte(testEventTemplates)},
+		"templates/index.html":              {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/participants.html":       {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/drivers.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/labels.html":             {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/activity_locations.html": {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/vans.html":               {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/settings.html":           {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/history.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},
+	}
+	renderer, err := templates.New(templatesFS)
 	if err != nil {
-		t.Fatalf("parse test templates: %v", err)
+		t.Fatalf("load test templates: %v", err)
 	}
-
-	return &TemplateSet{
-		Base:  base,
-		Pages: map[string]string{},
-	}
+	return renderer
 }
 
 func createTestEvent(t *testing.T, store *sqlite.Store, eventDate, notes string) *models.Event {

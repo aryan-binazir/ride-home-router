@@ -350,7 +350,7 @@ func newTestPageHandler(t *testing.T) (*Handler, *sqlite.Store) {
 
 	handler := &Handler{
 		DB:           store,
-		Templates:    loadEmbeddedTemplates(t),
+		Renderer:     loadEmbeddedTemplates(t),
 		RouteSession: NewRouteSessionStore(),
 	}
 

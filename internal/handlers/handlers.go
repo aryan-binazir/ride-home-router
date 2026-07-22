@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"html/template"
 	"log"
 	"net/http"
 	"ride-home-router/internal/database"
@@ -13,14 +12,8 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/routing"
+	"ride-home-router/internal/templates"
 )
-
-// TemplateSet holds base templates and page templates separately
-type TemplateSet struct {
-	Base  *template.Template
-	Pages map[string]string
-	Funcs template.FuncMap
-}
 
 // Handler provides common handler utilities and dependencies
 type Handler struct {
@@ -28,7 +21,7 @@ type Handler struct {
 	Geocoder     geocoding.Geocoder
 	DistanceCalc distance.DistanceCalculator
 	Router       routing.Router
-	Templates    *TemplateSet
+	Renderer     *templates.Renderer
 	RouteSession *RouteSessionStore
 }
 
@@ -210,35 +203,8 @@ func (h *Handler) checkNotFound(err error) bool {
 func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 
-	// Always clone to avoid "cannot Clone after executed" error
-	tmpl, err := h.Templates.Base.Clone()
-	if err != nil {
-		log.Printf("[ERROR] Template clone error: template=%s err=%v", name, err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	// Check if this is a page template (has content in Pages map)
-	if pageContent, ok := h.Templates.Pages[name]; ok {
-		// Parse the page template (which defines "content")
-		_, err = tmpl.New(name).Parse(pageContent)
-		if err != nil {
-			log.Printf("[ERROR] Template parse error: template=%s err=%v", name, err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		// Execute layout.html (which includes {{template "content" .}})
-		if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
-			log.Printf("[ERROR] Template execute error: template=%s err=%v", name, err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// For partials, execute from the cloned template
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
-		log.Printf("[ERROR] Template partial error: template=%s err=%v", name, err)
+	if err := h.Renderer.Render(w, name, data); err != nil {
+		log.Printf("[ERROR] Template render error: template=%s err=%v", name, err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
