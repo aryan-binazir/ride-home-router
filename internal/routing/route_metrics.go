@@ -86,14 +86,6 @@ func (rc routeContext) riderScore(ctx context.Context, driver *models.Driver, st
 	return total, nil
 }
 
-func (rc routeContext) totalDriveDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant) (float64, error) {
-	metrics, err := rc.evaluateParticipants(ctx, driver, stops)
-	if err != nil {
-		return 0, err
-	}
-	return metrics.RouteDurationSecs, nil
-}
-
 func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.Driver, stops []*models.Participant) (*routeMetrics, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("route driver is required")
@@ -149,64 +141,6 @@ func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.
 	metrics.DetourSecs = metrics.RouteDurationSecs - baseline.DurationSecs
 
 	return metrics, nil
-}
-
-func (rc routeContext) objectiveIncludesTerminal() bool {
-	return rc.mode == RouteModePickup
-}
-
-func (rc routeContext) insertionDeltaDistance(ctx context.Context, driver *models.Driver, stops []*models.Participant, participant *models.Participant, pos int) (float64, error) {
-	return rc.insertionDelta(ctx, driver, stops, participant, pos, func(result *distance.DistanceResult) float64 {
-		return result.DistanceMeters
-	})
-}
-
-func (rc routeContext) insertionDeltaDuration(ctx context.Context, driver *models.Driver, stops []*models.Participant, participant *models.Participant, pos int) (float64, error) {
-	return rc.insertionDelta(ctx, driver, stops, participant, pos, func(result *distance.DistanceResult) float64 {
-		return result.DurationSecs
-	})
-}
-
-func (rc routeContext) insertionDelta(ctx context.Context, driver *models.Driver, stops []*models.Participant, participant *models.Participant, pos int, selector func(*distance.DistanceResult) float64) (float64, error) {
-	if driver == nil {
-		return 0, fmt.Errorf("route driver is required")
-	}
-	if participant == nil {
-		return 0, fmt.Errorf("participant is required")
-	}
-
-	prev := rc.origin(driver)
-	if pos > 0 {
-		prev = stops[pos-1].GetCoords()
-	}
-
-	if pos == len(stops) && !rc.objectiveIncludesTerminal() {
-		prevToParticipant, err := rc.distanceCalc.GetDistance(ctx, prev, participant.GetCoords())
-		if err != nil {
-			return 0, err
-		}
-		return selector(prevToParticipant), nil
-	}
-
-	next := rc.destination(driver)
-	if pos < len(stops) {
-		next = stops[pos].GetCoords()
-	}
-
-	prevToNext, err := rc.distanceCalc.GetDistance(ctx, prev, next)
-	if err != nil {
-		return 0, err
-	}
-	prevToParticipant, err := rc.distanceCalc.GetDistance(ctx, prev, participant.GetCoords())
-	if err != nil {
-		return 0, err
-	}
-	participantToNext, err := rc.distanceCalc.GetDistance(ctx, participant.GetCoords(), next)
-	if err != nil {
-		return 0, err
-	}
-
-	return selector(prevToParticipant) + selector(participantToNext) - selector(prevToNext), nil
 }
 
 func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {

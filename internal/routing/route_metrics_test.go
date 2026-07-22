@@ -140,42 +140,6 @@ func TestGroupInsertionDeltaRiderScorePrefersEarlierPickup(t *testing.T) {
 	}
 }
 
-func TestInsertionDeltaDistance_DropoffInsertAtEndPreservesLegacyBehavior(t *testing.T) {
-	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
-	existingStops := []*models.Participant{
-		{ID: 1, Name: "Existing", Lat: 7, Lng: 0},
-	}
-	inserted := &models.Participant{ID: 2, Name: "Inserted", Lat: 9, Lng: 0}
-
-	delta, err := rc.insertionDeltaDistance(context.Background(), driver, existingStops, inserted, len(existingStops))
-	if err != nil {
-		t.Fatalf("insertionDeltaDistance() error = %v", err)
-	}
-
-	if delta != 2000 {
-		t.Fatalf("dropoff end-insertion delta = %.0f, want 2000", delta)
-	}
-}
-
-func TestInsertionDeltaDuration_PickupInsertAtEndUsesActivityDestination(t *testing.T) {
-	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModePickup)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
-	existingStops := []*models.Participant{
-		{ID: 1, Name: "Existing", Lat: 7, Lng: 0},
-	}
-	inserted := &models.Participant{ID: 2, Name: "Inserted", Lat: 9, Lng: 0}
-
-	delta, err := rc.insertionDeltaDuration(context.Background(), driver, existingStops, inserted, len(existingStops))
-	if err != nil {
-		t.Fatalf("insertionDeltaDuration() error = %v", err)
-	}
-
-	if delta != 4000 {
-		t.Fatalf("pickup end-insertion delta = %.0f, want 4000", delta)
-	}
-}
-
 func TestPopulateRouteMetrics_PickupIncludesActivityDestination(t *testing.T) {
 	route := &models.CalculatedRoute{
 		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 4},
