@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"net/url"
 	"ride-home-router/internal/models"
@@ -61,36 +60,6 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 	}
 
 	return assignments, nil
-}
-
-func (h *Handler) loadAssignedOrgVehicles(ctx context.Context, assignments map[int64]int64) (map[int64]*models.OrganizationVehicle, error) {
-	if len(assignments) == 0 {
-		return map[int64]*models.OrganizationVehicle{}, nil
-	}
-
-	vehicleIDs := make([]int64, 0, len(assignments))
-	seen := make(map[int64]struct{}, len(assignments))
-	for _, vehicleID := range assignments {
-		if _, ok := seen[vehicleID]; ok {
-			continue
-		}
-		seen[vehicleID] = struct{}{}
-		vehicleIDs = append(vehicleIDs, vehicleID)
-	}
-
-	vehicles, err := h.DB.OrganizationVehicles().GetByIDs(ctx, vehicleIDs)
-	if err != nil {
-		return nil, err
-	}
-	if len(vehicles) != len(vehicleIDs) {
-		return nil, errSelectedVanNotFound
-	}
-
-	vehicleMap := make(map[int64]*models.OrganizationVehicle, len(vehicles))
-	for i := range vehicles {
-		vehicleMap[vehicles[i].ID] = &vehicles[i]
-	}
-	return vehicleMap, nil
 }
 
 func applyOrgVehicleAssignments(drivers []models.Driver, assignments map[int64]int64, vehicleMap map[int64]*models.OrganizationVehicle) ([]models.Driver, map[int64]*models.OrganizationVehicle) {

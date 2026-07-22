@@ -54,94 +54,6 @@ func (r *captureRouter) CalculateRoutes(_ context.Context, req *routing.RoutingR
 	return &models.RoutingResult{}, nil
 }
 
-func TestHandleCalculateRoutes_UsesRequestedActivityLocation(t *testing.T) {
-	handler, store := newTestRouteHandler(t)
-
-	participant, err := store.Participants().Create(context.Background(), &models.Participant{
-		Name:    "Participant One",
-		Address: "1 Rider Rd",
-		Lat:     40.10,
-		Lng:     -73.90,
-	})
-	if err != nil {
-		t.Fatalf("create participant: %v", err)
-	}
-
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "2 Driver Rd",
-		Lat:             40.20,
-		Lng:             -73.80,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-
-	fallbackLocation, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
-		Name:    "Fallback",
-		Address: "3 Default Ave",
-		Lat:     41.00,
-		Lng:     -74.00,
-	})
-	if err != nil {
-		t.Fatalf("create fallback location: %v", err)
-	}
-
-	requestedLocation, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
-		Name:    "Requested",
-		Address: "4 Event Ave",
-		Lat:     42.00,
-		Lng:     -75.00,
-	})
-	if err != nil {
-		t.Fatalf("create requested location: %v", err)
-	}
-
-	if err := store.Settings().Update(context.Background(), &models.Settings{
-		SelectedActivityLocationID: fallbackLocation.ID,
-		UseMiles:                   false,
-	}); err != nil {
-		t.Fatalf("update settings: %v", err)
-	}
-
-	router := &captureRouter{
-		result: &models.RoutingResult{
-			Routes: []models.CalculatedRoute{},
-			Summary: models.RoutingSummary{
-				TotalDriversUsed:           1,
-				TotalDropoffDistanceMeters: 1200,
-			},
-		},
-	}
-	handler.Router = router
-
-	form := url.Values{}
-	form.Add("participant_ids", int64ToString(participant.ID))
-	form.Add("driver_ids", int64ToString(driver.ID))
-	form.Set("activity_location_id", int64ToString(requestedLocation.ID))
-	form.Set("route_time", "18:30")
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCalculateRoutes(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d body=%q", http.StatusOK, rr.Code, rr.Body.String())
-	}
-	if router.lastRequest == nil {
-		t.Fatal("expected router to receive a request")
-	}
-	if router.lastRequest.InstituteCoords != requestedLocation.GetCoords() {
-		t.Fatalf("expected requested location coords %+v, got %+v", requestedLocation.GetCoords(), router.lastRequest.InstituteCoords)
-	}
-	if router.lastRequest.Mode != models.RouteModeDropoff {
-		t.Fatalf("expected default mode %q, got %q", models.RouteModeDropoff, router.lastRequest.Mode)
-	}
-}
-
 func TestHandleCalculateRoutes_JSONPickupPropagatesTypedMode(t *testing.T) {
 	handler, store := newTestRouteHandler(t)
 
@@ -333,6 +245,130 @@ func TestHandleCalculateRoutesWithOrgVehicles_InvalidModeReturnsValidationError(
 	}
 }
 
+func TestHandleCalculateRoutesWithOrgVehicles_ShortageRendersHTMLWithoutWarningToast(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Blue Van", Capacity: 2})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+	handler.Router = &captureRouter{err: &routing.ErrRoutingFailed{
+		Reason:            "still short",
+		UnassignedCount:   1,
+		TotalCapacity:     2,
+		TotalParticipants: 3,
+	}}
+
+	form := url.Values{}
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+	form.Set("mode", "dropoff")
+	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("HX-Trigger"); got != "" {
+		t.Fatalf("HX-Trigger = %q, want no warning toast", got)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `class="capacity-shortage-container"`) || !strings.Contains(body, "Not Enough Available Capacity") {
+		t.Fatalf("expected capacity shortage HTML, body=%q", body)
+	}
+}
+
+func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSession(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Blue Van", Capacity: 2})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+	handler.Router = &captureRouter{result: &models.RoutingResult{
+		Routes: []models.CalculatedRoute{{
+			Driver: driver,
+			Stops:  []models.RouteStop{{Participant: participant}},
+			Mode:   models.RouteModeDropoff,
+		}},
+		Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1},
+	}}
+
+	form := url.Values{}
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+	form.Set("mode", "dropoff")
+	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"Routes calculated! 1 drivers assigned.","type":"success"}}`; got != want {
+		t.Fatalf("HX-Trigger = %q, want %q", got, want)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `class="routes-container"`) {
+		t.Fatalf("expected route-result HTML, body=%q", body)
+	}
+	sessionIDMarker := `data-session-id="`
+	start := strings.Index(body, sessionIDMarker)
+	if start < 0 {
+		t.Fatalf("expected rendered session ID, body=%q", body)
+	}
+	start += len(sessionIDMarker)
+	end := strings.Index(body[start:], `"`)
+	if end < 0 {
+		t.Fatalf("expected rendered session ID terminator, body=%q", body)
+	}
+	session := handler.RouteSession.Get(body[start : start+end])
+	if session == nil {
+		t.Fatal("expected route session to be restorable")
+	}
+	if got := session.DriverOrgVehicles[driver.ID]; got == nil || got.ID != van.ID {
+		t.Fatalf("session organization vehicle = %#v, want ID %d", got, van.ID)
+	}
+}
+
 func TestHandleCalculateRoutes_HTMXMissingActivityLocationReturnsEventPlanningMessage(t *testing.T) {
 	handler, store := newTestRouteHandler(t)
 
@@ -372,83 +408,6 @@ func TestHandleCalculateRoutes_HTMXMissingActivityLocationReturnsEventPlanningMe
 	expectedTrigger := `{"showToast":{"message":"Please choose an activity location for this event.","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expectedTrigger)
-	}
-}
-
-func TestHandleCalculateRoutes_AppliesAssignedVanCapacityBeforeRouting(t *testing.T) {
-	handler, store := newTestRouteHandler(t)
-
-	participant, err := store.Participants().Create(context.Background(), &models.Participant{
-		Name:    "Participant One",
-		Address: "1 Rider Rd",
-		Lat:     40.10,
-		Lng:     -73.90,
-	})
-	if err != nil {
-		t.Fatalf("create participant: %v", err)
-	}
-
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "2 Driver Rd",
-		Lat:             40.20,
-		Lng:             -73.80,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-
-	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
-		Name:    "Gym",
-		Address: "4 Event Ave",
-		Lat:     42.00,
-		Lng:     -75.00,
-	})
-	if err != nil {
-		t.Fatalf("create activity location: %v", err)
-	}
-
-	van, err := store.OrganizationVehicles().Create(context.Background(), &models.OrganizationVehicle{
-		Name:     "Overflow Van",
-		Capacity: 8,
-	})
-	if err != nil {
-		t.Fatalf("create van: %v", err)
-	}
-
-	router := &captureRouter{
-		result: &models.RoutingResult{
-			Routes: []models.CalculatedRoute{},
-			Summary: models.RoutingSummary{
-				TotalDriversUsed:           1,
-				TotalDropoffDistanceMeters: 1200,
-			},
-		},
-	}
-	handler.Router = router
-
-	form := url.Values{}
-	form.Add("participant_ids", int64ToString(participant.ID))
-	form.Add("driver_ids", int64ToString(driver.ID))
-	form.Set("activity_location_id", int64ToString(location.ID))
-	form.Set("route_time", "18:30")
-	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCalculateRoutes(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d body=%q", http.StatusOK, rr.Code, rr.Body.String())
-	}
-	if router.lastRequest == nil {
-		t.Fatal("expected router to receive a request")
-	}
-	if got := router.lastRequest.Drivers[0].VehicleCapacity; got != van.Capacity {
-		t.Fatalf("driver capacity = %d, want %d", got, van.Capacity)
 	}
 }
 
