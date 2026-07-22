@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -442,9 +443,7 @@ func (r *BalancedRouter) optimizeStopsForSolution(
 ) (map[int64][]*models.Participant, map[int64]routeObjectiveMetrics, solutionScore, error) {
 	currentStops := make(map[int64][]*models.Participant, len(changedStops))
 	currentMetrics := make(map[int64]routeObjectiveMetrics, len(baseMetrics))
-	for driverID, metrics := range baseMetrics {
-		currentMetrics[driverID] = metrics
-	}
+	maps.Copy(currentMetrics, baseMetrics)
 	for driverID, stops := range changedStops {
 		stops = coalesceHouseholdStops(stops)
 		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, stops)
@@ -531,7 +530,7 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 	}
 
 	const maxIterations = 50
-	for iteration := 0; iteration < maxIterations; iteration++ {
+	for iteration := range maxIterations {
 		currentScore := scoreSolution(routeMetrics, driverIDs)
 		best := assignmentChange{}
 		budgetExhausted := false
