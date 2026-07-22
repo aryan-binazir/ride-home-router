@@ -69,9 +69,8 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	for i := range req.Drivers {
 		driver := &req.Drivers[i]
 		routes[driver.ID] = &balancedRoute{
-			driver:        driver,
-			stops:         []*models.Participant{},
-			totalDuration: 0,
+			driver: driver,
+			stops:  []*models.Participant{},
 		}
 		driverIDs = append(driverIDs, driver.ID)
 	}
@@ -82,7 +81,8 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		unassigned[i] = &req.Participants[i]
 	}
 
-	// Phase 1: Round-robin insertion to distribute evenly across drivers
+	// Phase 1: Build a feasible rider-score seed. The complete lexicographic
+	// objective is applied by the ordering and assignment phases below.
 	phase1Start := time.Now()
 	unassigned, err := r.roundRobinInsertion(ctx, rc, routes, driverIDs, unassigned)
 	if err != nil {
@@ -133,11 +133,10 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	return result, nil
 }
 
-// balancedRoute tracks route state including running duration
+// balancedRoute tracks the driver and assigned participant order.
 type balancedRoute struct {
-	driver        *models.Driver
-	stops         []*models.Participant
-	totalDuration float64
+	driver *models.Driver
+	stops  []*models.Participant
 }
 
 // roundRobinInsertion assigns participants by cycling through drivers
@@ -279,9 +278,6 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 
 		// Insert the group
 		route.stops = insertGroupAt(route.stops, bestGroup, bestPosition)
-		if err := r.updateRouteDuration(ctx, rc, route); err != nil {
-			return nil, err
-		}
 
 		memberNames := make([]string, len(bestGroup.members))
 		for i, m := range bestGroup.members {
@@ -389,23 +385,6 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 	return result, nil
 }
 
-func (metrics routeObjectiveMetrics) betterThan(other routeObjectiveMetrics) bool {
-	for _, values := range [][2]float64{
-		{metrics.latestParticipantCompletion, other.latestParticipantCompletion},
-		{metrics.driverDetour, other.driverDetour},
-		{metrics.aggregateParticipantCompletion, other.aggregateParticipantCompletion},
-		{metrics.driveDuration, other.driveDuration},
-	} {
-		if values[0] < values[1]-scoreImprovementEpsilon {
-			return true
-		}
-		if values[0] > values[1]+scoreImprovementEpsilon {
-			return false
-		}
-	}
-	return false
-}
-
 func scoreSolution(routeMetrics map[int64]routeObjectiveMetrics, driverIDs []int64) solutionScore {
 	result := solutionScore{maxDriverDetour: math.Inf(-1)}
 	for _, driverID := range driverIDs {
@@ -439,13 +418,12 @@ func (r *BalancedRouter) optimizeRouteOrders(ctx context.Context, rc routeContex
 		candidateStops[driverID] = stops
 	}
 
-	optimizedStops, optimizedMetrics, _, err := r.optimizeStopsForSolution(ctx, rc, routes, routeMetrics, candidateStops, driverIDs)
+	optimizedStops, _, _, err := r.optimizeStopsForSolution(ctx, rc, routes, routeMetrics, candidateStops, driverIDs)
 	if err != nil {
 		return err
 	}
 	for _, driverID := range driverIDs {
 		routes[driverID].stops = optimizedStops[driverID]
-		routes[driverID].totalDuration = optimizedMetrics[driverID].driveDuration
 	}
 	return nil
 }
@@ -647,8 +625,6 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 		secondRoute := routes[best.secondDriverID]
 		firstRoute.stops = best.firstStops
 		secondRoute.stops = best.secondStops
-		firstRoute.totalDuration = best.firstMetrics.driveDuration
-		secondRoute.totalDuration = best.secondMetrics.driveDuration
 		routeMetrics[best.firstDriverID] = best.firstMetrics
 		routeMetrics[best.secondDriverID] = best.secondMetrics
 	}
@@ -658,21 +634,6 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 
 func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *participantGroup) []*models.Participant {
 	return insertGroupAt(removeRange(stops, start, end), group, start)
-}
-
-// updateRouteDuration recalculates and caches the total duration for a route
-func (r *BalancedRouter) updateRouteDuration(ctx context.Context, rc routeContext, route *balancedRoute) error {
-	if len(route.stops) == 0 {
-		route.totalDuration = 0
-		return nil
-	}
-
-	total, err := rc.routeDuration(ctx, route.driver, route.stops)
-	if err != nil {
-		return err
-	}
-	route.totalDuration = total
-	return nil
 }
 
 // buildResult creates the final routing result

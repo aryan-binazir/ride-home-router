@@ -5,8 +5,6 @@ import (
 	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
-	"strconv"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -50,16 +48,6 @@ func (calc stableDistanceCalculator) GetDistancesFromPoint(ctx context.Context, 
 
 func (stableDistanceCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
 	return nil
-}
-
-type countingDistanceCalculator struct {
-	stableDistanceCalculator
-	calls int
-}
-
-func (c *countingDistanceCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
-	c.calls++
-	return c.stableDistanceCalculator.GetDistance(ctx, origin, dest)
 }
 
 func TestRouteContextRiderScoreWeightsCumulativeStopTimes(t *testing.T) {
@@ -267,6 +255,40 @@ func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
 	}
 }
 
+func TestOptimizeRouteOrder_MatchesSolverOrdering(t *testing.T) {
+	ctx := context.Background()
+	calc := stableDistanceCalculator{}
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	driver := &models.Driver{ID: 7, Name: "Driver", Lat: 10, Lng: 0}
+	participants := []*models.Participant{
+		{ID: 1, Name: "Far", Lat: 2, Lng: 8},
+		{ID: 2, Name: "Near Home", Lat: 9, Lng: 0},
+		{ID: 3, Name: "Near Activity", Lat: 1, Lng: 0},
+	}
+	route := &models.CalculatedRoute{Driver: driver, Stops: make([]models.RouteStop, len(participants))}
+	for i, participant := range participants {
+		route.Stops[i].Participant = participant
+	}
+
+	if err := OptimizeRouteOrder(ctx, calc, activity, RouteModeDropoff, route); err != nil {
+		t.Fatalf("OptimizeRouteOrder() error = %v", err)
+	}
+
+	internalRoutes := map[int64]*balancedRoute{
+		driver.ID: {driver: driver, stops: append([]*models.Participant(nil), participants...)},
+	}
+	router := &BalancedRouter{distanceCalc: calc}
+	if err := router.optimizeRouteOrders(ctx, newRouteContext(calc, activity, RouteModeDropoff), internalRoutes, []int64{driver.ID}); err != nil {
+		t.Fatalf("optimizeRouteOrders() error = %v", err)
+	}
+
+	for i, stop := range route.Stops {
+		if got, want := stop.Participant.ID, internalRoutes[driver.ID].stops[i].ID; got != want {
+			t.Fatalf("stop %d participant = %d, want solver order %d", i, got, want)
+		}
+	}
+}
+
 func TestOptimizeRouteOrder_DropoffPrioritizesLastParticipantOverDriverHomeLeg(t *testing.T) {
 	activity := models.Coordinates{Lat: 0, Lng: 0}
 	firstHome := models.Coordinates{Lat: 1, Lng: 0}
@@ -408,60 +430,4 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-}
-
-func TestTwoOptDistance_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
-	calc := &countingDistanceCalculator{}
-	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
-	stops := []*models.Participant{
-		{ID: 1, Name: "P1", Lat: 1, Lng: 0},
-		{ID: 2, Name: "P2", Lat: 2, Lng: 0},
-		{ID: 3, Name: "P3", Lat: 3, Lng: 0},
-		{ID: 4, Name: "P4", Lat: 4, Lng: 0},
-		{ID: 5, Name: "P5", Lat: 5, Lng: 0},
-		{ID: 6, Name: "P6", Lat: 6, Lng: 0},
-		{ID: 7, Name: "P7", Lat: 7, Lng: 0},
-		{ID: 8, Name: "P8", Lat: 8, Lng: 0},
-	}
-
-	if _, err := rc.twoOptDistance(context.Background(), driver, stops); err != nil {
-		t.Fatalf("twoOptDistance() error = %v", err)
-	}
-
-	if calc.calls > 100 {
-		t.Fatalf("twoOptDistance() made %d distance calls, want <= 100 for local-edge evaluation", calc.calls)
-	}
-}
-
-func TestTwoOptByDeltaRequiresLegacyImprovementEpsilon(t *testing.T) {
-	stops := []*models.Participant{
-		{ID: 1, Name: "A"},
-		{ID: 2, Name: "B"},
-		{ID: 3, Name: "C"},
-	}
-	calls := 0
-
-	got, err := twoOptByDelta(stops, func(candidate []*models.Participant, i, j int) (float64, error) {
-		calls++
-		if calls == 1 {
-			return -scoreImprovementEpsilon / 2, nil
-		}
-		return 0, nil
-	})
-	if err != nil {
-		t.Fatalf("twoOptByDelta() error = %v", err)
-	}
-
-	if gotIDs := participantIDs(got); gotIDs != "1,2,3" {
-		t.Fatalf("sub-epsilon gain changed order to %s", gotIDs)
-	}
-}
-
-func participantIDs(stops []*models.Participant) string {
-	ids := make([]string, len(stops))
-	for i, stop := range stops {
-		ids[i] = strconv.FormatInt(stop.ID, 10)
-	}
-	return strings.Join(ids, ",")
 }
