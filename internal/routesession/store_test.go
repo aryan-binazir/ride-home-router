@@ -9,6 +9,7 @@ import (
 	"ride-home-router/internal/routesession"
 	"sync"
 	"testing"
+	"time"
 )
 
 type calculator struct{}
@@ -57,6 +58,39 @@ func (c failingCalculator) GetDistancesFromPoint(context.Context, models.Coordin
 func (c failingCalculator) PrewarmCache(context.Context, []models.Coordinates) error {
 	return c.err
 }
+
+type blockingCalculator struct {
+	started     chan struct{}
+	release     chan struct{}
+	startedOnce sync.Once
+	releaseOnce sync.Once
+}
+
+func newBlockingCalculator() *blockingCalculator {
+	return &blockingCalculator{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (c *blockingCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	c.startedOnce.Do(func() { close(c.started) })
+	select {
+	case <-c.release:
+		return calculator{}.GetDistance(ctx, origin, dest)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *blockingCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
+	return calculator{}.GetDistanceMatrix(ctx, points)
+}
+
+func (c *blockingCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
+	return calculator{}.GetDistancesFromPoint(ctx, origin, destinations)
+}
+
+func (c *blockingCalculator) PrewarmCache(context.Context, []models.Coordinates) error { return nil }
+
+func (c *blockingCalculator) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
 
 func TestCreateReturnsIndependentFreshSnapshot(t *testing.T) {
 	store := routesession.NewStore(calculator{})
@@ -307,6 +341,47 @@ func TestStoreSupportsConcurrentSnapshotsAndResets(t *testing.T) {
 	wait.Wait()
 	if _, ok := store.Snapshot(created.ID); !ok {
 		t.Fatal("session disappeared during concurrent access")
+	}
+}
+
+func TestDeleteWaitsForInFlightEditAndPreventsDetachedSuccess(t *testing.T) {
+	calc := newBlockingCalculator()
+	defer calc.unblock()
+	store := routesession.NewStore(calc)
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+
+	editDone := make(chan error, 1)
+	go func() {
+		_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
+			ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
+		}}, routesession.ApplyMovesOptions{})
+		editDone <- err
+	}()
+	<-calc.started
+
+	deleteDone := make(chan struct{})
+	go func() {
+		store.Delete(created.ID)
+		close(deleteDone)
+	}()
+	select {
+	case <-deleteDone:
+		t.Fatal("Delete returned while an edit was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	calc.unblock()
+	if err := <-editDone; err != nil {
+		t.Fatalf("ApplyMoves: %v", err)
+	}
+	select {
+	case <-deleteDone:
+	case <-time.After(time.Second):
+		t.Fatal("Delete did not finish after the edit completed")
+	}
+	if _, ok := store.Snapshot(created.ID); ok {
+		t.Fatal("deleted session remained visible")
 	}
 }
 

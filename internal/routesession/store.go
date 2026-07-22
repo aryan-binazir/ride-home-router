@@ -77,6 +77,7 @@ type session struct {
 	routeTime         string
 	mode              models.RouteMode
 	lastAccessedAt    time.Time
+	deleted           bool
 	mu                sync.Mutex
 }
 
@@ -128,11 +129,10 @@ func (s *Store) Create(input CreateInput) Snapshot {
 }
 
 func (s *Store) Snapshot(id string) (Snapshot, bool) {
-	state := s.getAndTouch(id)
-	if state == nil {
+	state, err := s.lockSession(id)
+	if err != nil {
 		return Snapshot{}, false
 	}
-	state.mu.Lock()
 	defer state.mu.Unlock()
 	return snapshotOf(state), true
 }
@@ -264,38 +264,48 @@ func (s *Store) SaveSnapshot(id string) (models.RoutingResult, error) {
 
 func (s *Store) Delete(id string) {
 	s.mu.Lock()
-	delete(s.sessions, id)
+	state := s.sessions[id]
 	s.mu.Unlock()
+	if state != nil {
+		state.mu.Lock()
+		state.deleted = true
+		state.mu.Unlock()
+		s.remove(id, state)
+	}
 	log.Printf("[SESSION] Deleted route session: id=%s", id)
 }
 
 func (s *Store) Close() { s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone }) }
 
-func (s *Store) getAndTouch(id string) *session {
-	now := s.now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	state := s.sessions[id]
-	if state == nil {
-		return nil
-	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if now.Sub(state.lastAccessedAt) > s.ttl {
-		delete(s.sessions, id)
-		return nil
-	}
-	state.lastAccessedAt = now
-	return state
-}
-
 func (s *Store) lockSession(id string) (*session, error) {
-	state := s.getAndTouch(id)
+	s.mu.Lock()
+	state := s.sessions[id]
+	s.mu.Unlock()
 	if state == nil {
 		return nil, ErrNotFound
 	}
 	state.mu.Lock()
+	if state.deleted {
+		state.mu.Unlock()
+		return nil, ErrNotFound
+	}
+	now := s.now()
+	if now.Sub(state.lastAccessedAt) > s.ttl {
+		state.deleted = true
+		state.mu.Unlock()
+		s.remove(id, state)
+		return nil, ErrNotFound
+	}
+	state.lastAccessedAt = now
 	return state, nil
+}
+
+func (s *Store) remove(id string, state *session) {
+	s.mu.Lock()
+	if s.sessions[id] == state {
+		delete(s.sessions, id)
+	}
+	s.mu.Unlock()
 }
 
 func (s *Store) cleanupLoop() {
@@ -313,14 +323,28 @@ func (s *Store) cleanupLoop() {
 }
 
 func (s *Store) deleteExpired(now time.Time) {
+	type candidate struct {
+		id    string
+		state *session
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	states := make([]candidate, 0, len(s.sessions))
 	for id, state := range s.sessions {
-		state.mu.Lock()
-		expired := now.Sub(state.lastAccessedAt) > s.ttl
+		states = append(states, candidate{id: id, state: state})
+	}
+	s.mu.Unlock()
+	for _, candidate := range states {
+		id, state := candidate.id, candidate.state
+		if !state.mu.TryLock() {
+			continue
+		}
+		expired := !state.deleted && now.Sub(state.lastAccessedAt) > s.ttl
+		if expired {
+			state.deleted = true
+		}
 		state.mu.Unlock()
 		if expired {
-			delete(s.sessions, id)
+			s.remove(id, state)
 		}
 	}
 }
