@@ -173,13 +173,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	result := outcome.Result
 	session := outcome.Session
-	activityLocation := outcome.ActivityLocation
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, outcome.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(session))
 		return
 	}
 
@@ -302,13 +301,12 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 
 	result := outcome.Result
 	session := outcome.Session
-	activityLocation := outcome.ActivityLocation
 
 	log.Printf("[HTTP] Routes calculated with org vehicles: drivers=%d org_vehicles=%d total_distance=%.0f",
 		result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, outcome.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
+	h.renderTemplate(w, "route_results", buildRouteResultsView(session))
 }
 
 func routeCalculationValidationMessage(err error) string {

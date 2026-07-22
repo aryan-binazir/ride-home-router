@@ -5,6 +5,7 @@ import (
 	"errors"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 )
 
@@ -37,7 +38,7 @@ type routeCalculationInput struct {
 type routeCalculationOutcome struct {
 	Kind             routeCalculationKind
 	Result           *models.RoutingResult
-	Session          *RouteSession
+	Session          routesession.Snapshot
 	Shortage         *routeCalculationShortageContext
 	ActivityLocation *models.ActivityLocation
 	UseMiles         bool
@@ -61,10 +62,10 @@ type routeCalculationShortageContext struct {
 type routeCalculation struct {
 	db       database.DataStore
 	router   routing.Router
-	sessions *RouteSessionStore
+	sessions *routesession.Store
 }
 
-func newRouteCalculation(db database.DataStore, router routing.Router, sessions *RouteSessionStore) *routeCalculation {
+func newRouteCalculation(db database.DataStore, router routing.Router, sessions *routesession.Store) *routeCalculation {
 	return &routeCalculation{db: db, router: router, sessions: sessions}
 }
 
@@ -134,7 +135,10 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 
 	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicles)
 	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
-	session := c.sessions.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, input.RouteTime, input.Mode, driverOrgVehicles)
+	session := c.sessions.Create(routesession.CreateInput{
+		Routes: result.Routes, SelectedDrivers: modifiedDrivers, ActivityLocation: activityLocation,
+		UseMiles: settings.UseMiles, RouteTime: input.RouteTime, Mode: input.Mode, DriverOrgVehicles: driverOrgVehicles,
+	})
 
 	return routeCalculationOutcome{
 		Kind:             routeCalculationSuccess,

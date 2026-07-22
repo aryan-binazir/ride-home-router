@@ -12,11 +12,11 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
 	"strings"
 	"testing"
-	"time"
 )
 
 type captureRouter struct {
@@ -119,8 +119,8 @@ func TestHandleCalculateRoutes_JSONPickupPropagatesTypedMode(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	session := handler.RouteSession.Get(resp.SessionID)
-	if session == nil {
+	session, ok := handler.RouteSession.Snapshot(resp.SessionID)
+	if !ok {
 		t.Fatal("expected route session to be created")
 	}
 	if session.Mode != models.RouteModePickup {
@@ -411,12 +411,12 @@ func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSessio
 	if end < 0 {
 		t.Fatalf("expected rendered session ID terminator, body=%q", body)
 	}
-	session := handler.RouteSession.Get(body[start : start+end])
-	if session == nil {
+	session, ok := handler.RouteSession.Snapshot(body[start : start+end])
+	if !ok {
 		t.Fatal("expected route session to be restorable")
 	}
-	if got := session.DriverOrgVehicles[driver.ID]; got == nil || got.ID != van.ID {
-		t.Fatalf("session organization vehicle = %#v, want ID %d", got, van.ID)
+	if got := session.Routes[0].OrgVehicleID; got != van.ID {
+		t.Fatalf("session organization vehicle ID = %d, want %d", got, van.ID)
 	}
 }
 
@@ -620,8 +620,8 @@ func TestHandleCalculateRoutes_HTMXRendersRouteTimeMetadataAndParentCopyButton(t
 		t.Fatalf("expected rendered route results to include session id terminator, body=%q", body)
 	}
 
-	session := handler.RouteSession.Get(body[start : start+end])
-	if session == nil {
+	session, ok := handler.RouteSession.Snapshot(body[start : start+end])
+	if !ok {
 		t.Fatal("expected route session to be created")
 	}
 	if session.RouteTime != "18:30" {
@@ -1002,7 +1002,7 @@ func TestHandleGetRouteSession_ValidSession(t *testing.T) {
 	drivers := []models.Driver{{ID: 1, Name: "Driver1", VehicleCapacity: 4}}
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 1.0, Lng: 2.0}
 
-	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "18:30", "dropoff", nil)
+	session := handler.RouteSession.Create(routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: activityLoc, RouteTime: "18:30", Mode: "dropoff"})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
@@ -1080,7 +1080,7 @@ func TestHandleGetRouteSession_JSONResponse(t *testing.T) {
 	}
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 1.0, Lng: 2.0}
 
-	session := handler.RouteSession.Create(routes, drivers, activityLoc, true, "08:15", "pickup", nil)
+	session := handler.RouteSession.Create(routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: activityLoc, UseMiles: true, RouteTime: "08:15", Mode: "pickup"})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	w := httptest.NewRecorder()
@@ -1143,14 +1143,12 @@ func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
 	}
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 1.0, Lng: 2.0}
 
-	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "18:30", "dropoff", nil)
+	session := handler.RouteSession.Create(routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: activityLoc, RouteTime: "18:30", Mode: "dropoff"})
 
-	// Modify current routes to simulate editing (move a participant)
-	handler.RouteSession.Update(session.ID, func(s *RouteSession) {
-		moved := s.CurrentRoutes[0].Stops[1]
-		s.CurrentRoutes[0].Stops = s.CurrentRoutes[0].Stops[:1]
-		s.CurrentRoutes[1].Stops = append(s.CurrentRoutes[1].Stops, moved)
-	})
+	// Modify current routes to simulate editing (move a participant).
+	if _, err := handler.RouteSession.ApplyMoves(context.Background(), session.ID, []routesession.Move{{ParticipantID: 2, FromRouteIndex: 0, ToRouteIndex: 1, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{RequireClaimedSource: true}); err != nil {
+		t.Fatalf("move participant: %v", err)
+	}
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
@@ -1167,11 +1165,11 @@ func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
 	}
 }
 
-func TestHandleGetRouteSession_ExpiredSessionReturnsNoContent(t *testing.T) {
+func TestHandleGetRouteSession_DeletedSessionReturnsNoContent(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 
-	session := handler.RouteSession.Create(nil, nil, &models.ActivityLocation{ID: 1, Name: "HQ"}, false, "18:30", "dropoff", nil)
-	session.LastAccessedAt = time.Now().Add(-3 * time.Hour)
+	session := handler.RouteSession.Create(routesession.CreateInput{ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ"}, RouteTime: "18:30", Mode: "dropoff"})
+	handler.RouteSession.Delete(session.ID)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
@@ -1182,7 +1180,7 @@ func TestHandleGetRouteSession_ExpiredSessionReturnsNoContent(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204 for expired session, got %d", w.Code)
 	}
-	if got := handler.RouteSession.Get(session.ID); got != nil {
+	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
 		t.Fatal("expected expired session to be removed from store")
 	}
 }
@@ -1208,7 +1206,7 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 	}
 	activityLoc := &models.ActivityLocation{ID: 1, Name: "HQ", Address: "4 Event Way", Lat: 1.0, Lng: 2.0}
 
-	session := handler.RouteSession.Create(routes, drivers, activityLoc, false, "08:15", "pickup", nil)
+	session := handler.RouteSession.Create(routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: activityLoc, RouteTime: "08:15", Mode: "pickup"})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
 	req.Header.Set("HX-Request", "true")
@@ -1247,7 +1245,7 @@ func newTestRouteHandler(t *testing.T) (*Handler, *sqlite.Store) {
 	handler := &Handler{
 		DB:           store,
 		Renderer:     loadEmbeddedTemplates(t),
-		RouteSession: NewRouteSessionStore(),
+		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
 	}
 
 	t.Cleanup(func() {

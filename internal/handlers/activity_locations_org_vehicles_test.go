@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/sqlite"
 	"strings"
 	"testing"
@@ -47,7 +48,7 @@ func newTestManagementHandler(t *testing.T) (*Handler, *sqlite.Store) {
 				Coords: models.Coordinates{Lat: 41.25, Lng: -72.75},
 			},
 		},
-		RouteSession: NewRouteSessionStore(),
+		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
 	}
 
 	t.Cleanup(func() {
