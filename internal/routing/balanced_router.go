@@ -19,7 +19,8 @@ type BalancedRouter struct {
 }
 
 const (
-	scoreImprovementEpsilon = 0.001
+	scoreImprovementEpsilon           = 0.001
+	maxAssignmentCandidateEvaluations = 10000
 )
 
 // NewBalancedRouter creates a participant-first bounded-search router.
@@ -62,6 +63,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		return nil, err
 	}
 	log.Printf("[TIMING] Prewarm cache: %v", time.Since(prewarmStart))
+	rc.distanceCalc = newSolveDistanceCache(r.distanceCalc)
 
 	// Initialize routes for each driver
 	routes := make(map[int64]*balancedRoute)
@@ -508,7 +510,6 @@ func (r *BalancedRouter) optimizeStopsForSolution(
 type assignmentChange struct {
 	firstDriverID, secondDriverID int64
 	firstStops, secondStops       []*models.Participant
-	firstMetrics, secondMetrics   routeObjectiveMetrics
 	score                         solutionScore
 	found                         bool
 }
@@ -519,6 +520,7 @@ type assignmentChange struct {
 // priority objective on a peer route.
 func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
 	slices.Sort(driverIDs)
+	candidateEvaluations := 0
 	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
 	for _, driverID := range driverIDs {
 		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
@@ -532,9 +534,16 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		currentScore := scoreSolution(routeMetrics, driverIDs)
 		best := assignmentChange{}
+		budgetExhausted := false
 
 		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
-			optimizedStops, optimizedMetrics, candidateScore, err := r.optimizeStopsForSolution(
+			if candidateEvaluations >= maxAssignmentCandidateEvaluations {
+				budgetExhausted = true
+				return nil
+			}
+			candidateEvaluations++
+
+			optimizedStops, _, candidateScore, err := r.optimizeStopsForSolution(
 				ctx,
 				rc,
 				routes,
@@ -557,14 +566,13 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 				secondDriverID: secondDriverID,
 				firstStops:     optimizedStops[firstDriverID],
 				secondStops:    optimizedStops[secondDriverID],
-				firstMetrics:   optimizedMetrics[firstDriverID],
-				secondMetrics:  optimizedMetrics[secondDriverID],
 				score:          candidateScore,
 				found:          true,
 			}
 			return nil
 		}
 
+	relocationSearch:
 		for _, sourceDriverID := range driverIDs {
 			sourceRoute := routes[sourceDriverID]
 			sourceBlocks := routeHouseholdBlocks(sourceRoute.stops)
@@ -586,13 +594,20 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 						if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops); err != nil {
 							return iteration, err
 						}
+						if budgetExhausted {
+							break relocationSearch
+						}
 					}
 				}
 				sourcePosition += groupSize
 			}
 		}
 
+	swapSearch:
 		for firstIndex, firstDriverID := range driverIDs {
+			if budgetExhausted {
+				break
+			}
 			firstRoute := routes[firstDriverID]
 			firstPosition := 0
 			for _, firstGroup := range routeHouseholdBlocks(firstRoute.stops) {
@@ -608,6 +623,9 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 							newSecondStops := replaceRangeWithGroup(secondRoute.stops, secondPosition, secondPosition+secondSize, firstGroup)
 							if err := consider(firstDriverID, secondDriverID, newFirstStops, newSecondStops); err != nil {
 								return iteration, err
+							}
+							if budgetExhausted {
+								break swapSearch
 							}
 						}
 						secondPosition += secondSize
@@ -625,8 +643,24 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 		secondRoute := routes[best.secondDriverID]
 		firstRoute.stops = best.firstStops
 		secondRoute.stops = best.secondStops
-		routeMetrics[best.firstDriverID] = best.firstMetrics
-		routeMetrics[best.secondDriverID] = best.secondMetrics
+
+		// The accepted assignment can expose an ordering improvement on an
+		// untouched peer route by changing which route sets the global maximum.
+		// Re-establish a full-solution ordering fixed point before evaluating the
+		// next assignment neighborhood.
+		if err := r.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+			return iteration, err
+		}
+		for _, driverID := range driverIDs {
+			metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
+			if err != nil {
+				return iteration, err
+			}
+			routeMetrics[driverID] = metrics
+		}
+		if budgetExhausted {
+			return iteration + 1, nil
+		}
 	}
 
 	return maxIterations, nil

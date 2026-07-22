@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+type countingSolveDistanceCalculator struct {
+	stableDistanceCalculator
+	calls map[string]int
+}
+
+func (c *countingSolveDistanceCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	if c.calls == nil {
+		c.calls = make(map[string]int)
+	}
+	c.calls[distance.PairCacheKey(origin, dest)]++
+	return c.stableDistanceCalculator.GetDistance(ctx, origin, dest)
+}
+
 func TestGroupParticipantsByAddress(t *testing.T) {
 	participants := []*models.Participant{
 		// Household 1: Alice and Bob at the same address
@@ -371,6 +384,35 @@ func TestBalancedRouter_SwapsFullRoutesToMinimizeLatestDropoff(t *testing.T) {
 	}
 }
 
+func TestBalancedRouter_MemoizesDistancePairsForOneSolve(t *testing.T) {
+	calc := &countingSolveDistanceCalculator{}
+	router := NewBalancedRouter(calc)
+
+	_, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "P1", Lat: 1, Lng: 0},
+			{ID: 2, Name: "P2", Lat: 2, Lng: 0},
+			{ID: 3, Name: "P3", Lat: -1, Lng: 0},
+			{ID: 4, Name: "P4", Lat: -2, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "D1", Lat: 3, Lng: 0, VehicleCapacity: 2},
+			{ID: 2, Name: "D2", Lat: -3, Lng: 0, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	for pair, calls := range calc.calls {
+		if calls > 1 {
+			t.Fatalf("distance pair %s loaded %d times in one solve, want at most once", pair, calls)
+		}
+	}
+}
+
 func TestBalancedRouter_OrdersRoutesAgainstTheFullSolutionObjective(t *testing.T) {
 	activity := models.Coordinates{Lat: 0, Lng: 0}
 	first := models.Coordinates{Lat: 1, Lng: 0}
@@ -436,6 +478,68 @@ func TestBalancedRouter_OrdersRoutesAgainstTheFullSolutionObjective(t *testing.T
 	}
 	if latestDropoff != 12 {
 		t.Fatalf("latest dropoff = %.0f, want peer-route maximum 12", latestDropoff)
+	}
+}
+
+func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *testing.T) {
+	ctx := context.Background()
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	x1 := &models.Participant{ID: 1, Name: "X1", Lat: 1, Lng: 0}
+	y1 := &models.Participant{ID: 2, Name: "Y1", Lat: 2, Lng: 0}
+	x2 := &models.Participant{ID: 3, Name: "X2", Lat: 3, Lng: 0}
+	y2 := &models.Participant{ID: 4, Name: "Y2", Lat: 4, Lng: 0}
+	c1 := &models.Participant{ID: 5, Name: "C1", Lat: 5, Lng: 0}
+	c2 := &models.Participant{ID: 6, Name: "C2", Lat: 6, Lng: 0}
+	driver1 := &models.Driver{ID: 1, Name: "Driver 1", Lat: 11, Lng: 0, VehicleCapacity: 2}
+	driver2 := &models.Driver{ID: 2, Name: "Driver 2", Lat: 12, Lng: 0, VehicleCapacity: 2}
+	driver3 := &models.Driver{ID: 3, Name: "Driver 3", Lat: 13, Lng: 0, VehicleCapacity: 2}
+
+	distances := newOverrideDistanceAdapter(1000)
+	for _, participant := range []*models.Participant{x1, y1, x2, y2, c1, c2} {
+		distances.setDuration(activity, participant.GetCoords(), 10)
+	}
+	distances.setDuration(x1.GetCoords(), y1.GetCoords(), 90)
+	distances.setDuration(y1.GetCoords(), x1.GetCoords(), 90)
+	distances.setDuration(x2.GetCoords(), y2.GetCoords(), 90)
+	distances.setDuration(y2.GetCoords(), x2.GetCoords(), 90)
+	distances.setDuration(x1.GetCoords(), x2.GetCoords(), 10)
+	distances.setDuration(x2.GetCoords(), x1.GetCoords(), 10)
+	distances.setDuration(y1.GetCoords(), y2.GetCoords(), 10)
+	distances.setDuration(y2.GetCoords(), y1.GetCoords(), 10)
+	distances.setDuration(c1.GetCoords(), c2.GetCoords(), 30)
+	distances.setDuration(c2.GetCoords(), c1.GetCoords(), 20)
+
+	for _, driver := range []*models.Driver{driver1, driver2} {
+		distances.setDuration(activity, driver.GetCoords(), 100)
+		for _, participant := range []*models.Participant{x1, y1, x2, y2} {
+			distances.setDuration(participant.GetCoords(), driver.GetCoords(), 80)
+		}
+	}
+	distances.setDuration(activity, driver3.GetCoords(), 40)
+	distances.setDuration(c2.GetCoords(), driver3.GetCoords(), 0)
+	distances.setDuration(c1.GetCoords(), driver3.GetCoords(), 100)
+
+	router := &BalancedRouter{distanceCalc: distances}
+	routes := map[int64]*balancedRoute{
+		driver1.ID: {driver: driver1, stops: []*models.Participant{x1, y1}},
+		driver2.ID: {driver: driver2, stops: []*models.Participant{x2, y2}},
+		driver3.ID: {driver: driver3, stops: []*models.Participant{c1, c2}},
+	}
+	driverIDs := []int64{driver1.ID, driver2.ID, driver3.ID}
+	rc := newRouteContext(distances, activity, RouteModeDropoff)
+
+	if err := router.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+		t.Fatalf("optimizeRouteOrders() error = %v", err)
+	}
+	if routes[driver3.ID].stops[0].ID != c1.ID {
+		t.Fatalf("peer route changed before the global maximum dropped")
+	}
+
+	if _, err := router.optimizeAssignments(ctx, rc, routes, driverIDs); err != nil {
+		t.Fatalf("optimizeAssignments() error = %v", err)
+	}
+	if routes[driver3.ID].stops[0].ID != c2.ID {
+		t.Fatalf("peer route starts with participant %d, want %d after the assignment lowered the global maximum", routes[driver3.ID].stops[0].ID, c2.ID)
 	}
 }
 
