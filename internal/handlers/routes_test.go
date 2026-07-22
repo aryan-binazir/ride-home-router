@@ -214,6 +214,57 @@ func TestHandleCalculateRoutes_DistanceProviderFailureReturnsVisibleError(t *tes
 	}
 }
 
+func TestHandleCalculateRoutes_JSONCapacityShortageReturnsRoutingFailure(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	handler.Router = &captureRouter{err: &routing.ErrRoutingFailed{
+		Reason:            "not enough capacity",
+		UnassignedCount:   2,
+		TotalCapacity:     1,
+		TotalParticipants: 3,
+	}}
+
+	body := fmt.Sprintf(`{"participant_ids":[%d],"driver_ids":[%d],"activity_location_id":%d,"route_time":"18:30","mode":"dropoff"}`, participant.ID, driver.ID, location.ID)
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusUnprocessableEntity, rr.Body.String())
+	}
+	var response struct {
+		Error struct {
+			Code    string              `json:"code"`
+			Message string              `json:"message"`
+			Details RoutingErrorDetails `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "ROUTING_FAILED" || response.Error.Message != "not enough capacity" {
+		t.Fatalf("error = %#v, want ROUTING_FAILED capacity error", response.Error)
+	}
+	if got, want := response.Error.Details, (RoutingErrorDetails{UnassignedCount: 2, TotalCapacity: 1, TotalParticipants: 3}); got != want {
+		t.Fatalf("routing details = %#v, want %#v", got, want)
+	}
+}
+
 func TestHandleCalculateRoutesWithOrgVehicles_InvalidModeReturnsValidationError(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 	router := &captureRouter{}
@@ -366,6 +417,63 @@ func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSessio
 	}
 	if got := session.DriverOrgVehicles[driver.ID]; got == nil || got.ID != van.ID {
 		t.Fatalf("session organization vehicle = %#v, want ID %d", got, van.ID)
+	}
+}
+
+func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBeforeRouting(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+
+	tests := []struct {
+		name          string
+		participantID int64
+		driverID      int64
+		wantMessage   string
+	}{
+		{name: "participant", participantID: participant.ID + 1000, driverID: driver.ID, wantMessage: "Some participants not found"},
+		{name: "driver", participantID: participant.ID, driverID: driver.ID + 1000, wantMessage: "Some drivers not found"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router := &captureRouter{}
+			handler.Router = router
+			form := url.Values{}
+			form.Add("participant_ids", int64ToString(test.participantID))
+			form.Add("driver_ids", int64ToString(test.driverID))
+			form.Set("activity_location_id", int64ToString(location.ID))
+			form.Set("route_time", "18:30")
+			form.Set("mode", "dropoff")
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			wantTrigger := `{"showToast":{"message":"` + test.wantMessage + `","type":"error"}}`
+			if got := rr.Header().Get("HX-Trigger"); got != wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, wantTrigger)
+			}
+			if router.lastRequest != nil {
+				t.Fatalf("router received request %#v for stale %s", router.lastRequest, test.name)
+			}
+		})
 	}
 }
 
@@ -765,6 +873,10 @@ func TestHandleCalculateRoutes_PreservesVanAssignmentsInShortageFlow(t *testing.
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%q", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	expectedTrigger := `{"showToast":{"message":"Not enough capacity - need 1 more seats","type":"warning"}}`
+	if got := rr.Header().Get("HX-Trigger"); got != expectedTrigger {
+		t.Fatalf("HX-Trigger = %q, want %q", got, expectedTrigger)
 	}
 
 	body := rr.Body.String()
