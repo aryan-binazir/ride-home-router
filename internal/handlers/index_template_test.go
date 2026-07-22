@@ -20,8 +20,8 @@ func TestHandleIndexPage_LoadsEventPlannerScript(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, `<script src="/static/js/event-planner.js"></script>`) {
-		t.Fatal("rendered index page should load event-planner.js")
+	if !strings.Contains(body, `<script src="/static/js/event-planner.js" defer></script>`) {
+		t.Fatal("rendered index page should defer event-planner.js")
 	}
 	if strings.Contains(body, `/static/js/route-copy.js`) {
 		t.Fatal("rendered index page should not load the removed route-copy.js")
