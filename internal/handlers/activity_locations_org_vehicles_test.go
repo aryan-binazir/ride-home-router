@@ -40,8 +40,8 @@ func newTestManagementHandler(t *testing.T) (*Handler, *sqlite.Store) {
 	}
 
 	handler := &Handler{
-		DB:        store,
-		Templates: loadEmbeddedTemplates(t),
+		DB:       store,
+		Renderer: loadEmbeddedTemplates(t),
 		Geocoder: stubGeocoder{
 			result: &geocoding.GeocodingResult{
 				Coords: models.Coordinates{Lat: 41.25, Lng: -72.75},
