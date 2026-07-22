@@ -12,21 +12,17 @@ import (
 	"time"
 )
 
-// BalancedRouter implements fair distribution routing that:
-// 1. Uses all available drivers
-// 2. Assigns riders with rider-experience scoring
-// 3. Finishes by minimizing driven time inside each fixed route
+// BalancedRouter assigns participants under vehicle and household constraints,
+// then improves the complete solution using the participant-first objective.
 type BalancedRouter struct {
 	distanceCalc distance.DistanceCalculator
 }
 
 const (
-	minMaxRelativeThreshold     = 1.6
-	minMaxAbsoluteThresholdSecs = 3600.0
-	scoreImprovementEpsilon     = 0.001
+	scoreImprovementEpsilon = 0.001
 )
 
-// NewBalancedRouter creates a router that balances load across all drivers.
+// NewBalancedRouter creates a participant-first bounded-search router.
 func NewBalancedRouter(distanceCalc distance.DistanceCalculator) Router {
 	return &BalancedRouter{
 		distanceCalc: distanceCalc,
@@ -94,26 +90,21 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 	log.Printf("[TIMING] Phase 1 (round-robin): %v", time.Since(phase1Start))
 
-	// Phase 2: Min-max inter-route optimization
+	// Phase 2: Improve route order in the context of the complete solution.
 	phase2Start := time.Now()
-	iterations := 0
-	durations, err := r.calculateRouteDurations(ctx, rc, routes, driverIDs)
+	if err := r.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+		return nil, err
+	}
+	log.Printf("[TIMING] Phase 2 (route ordering): %v", time.Since(phase2Start))
+
+	// Phase 3: Always search relocations and household swaps, including swaps
+	// between saturated vehicles.
+	phase3Start := time.Now()
+	iterations, err := r.optimizeAssignments(ctx, rc, routes, driverIDs)
 	if err != nil {
 		return nil, err
 	}
-	// Rider score drives construction. Min-max remains a duration guardrail and
-	// only runs before final in-car ordering when a route is clearly excessive.
-	if shouldRunMinMaxOptimize(durations) {
-		iterations = r.minMaxOptimize(ctx, rc, routes, driverIDs)
-	}
-	log.Printf("[TIMING] Phase 2 (min-max): %v (iterations=%d)", time.Since(phase2Start), iterations)
-
-	// Phase 3: Final 2-opt on each fixed route
-	phase3Start := time.Now()
-	if err := r.optimizeAllRoutes(ctx, rc, routes); err != nil {
-		return nil, err
-	}
-	log.Printf("[TIMING] Phase 3 (2-opt): %v", time.Since(phase3Start))
+	log.Printf("[TIMING] Phase 3 (assignment search): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
 	// Check for unassigned participants
 	if len(unassigned) > 0 {
@@ -336,279 +327,337 @@ func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContex
 	return unassignedResult, nil
 }
 
-// optimizeAllRoutes runs final local route optimization and updates durations.
-func (r *BalancedRouter) optimizeAllRoutes(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute) error {
-	for _, route := range routes {
-		if len(route.stops) >= 2 {
-			optimized, err := r.twoOpt(ctx, rc, route, route.stops)
-			if err != nil {
-				return err
-			}
-			route.stops = optimized
+type routeObjectiveMetrics struct {
+	latestParticipantCompletion    float64
+	aggregateParticipantCompletion float64
+	driverDetour                   float64
+	driveDuration                  float64
+	used                           bool
+}
+
+type solutionScore struct {
+	latestParticipantCompletion    float64
+	maxDriverDetour                float64
+	aggregateParticipantCompletion float64
+	aggregateDriveDuration         float64
+	usedDrivers                    int
+}
+
+func (score solutionScore) betterThan(other solutionScore) bool {
+	for _, values := range [][2]float64{
+		{score.latestParticipantCompletion, other.latestParticipantCompletion},
+		{score.maxDriverDetour, other.maxDriverDetour},
+		{score.aggregateParticipantCompletion, other.aggregateParticipantCompletion},
+		{score.aggregateDriveDuration, other.aggregateDriveDuration},
+	} {
+		if values[0] < values[1]-scoreImprovementEpsilon {
+			return true
 		}
-		route.stops = coalesceHouseholdStops(route.stops)
-		if err := r.updateRouteDuration(ctx, rc, route); err != nil {
+		if values[0] > values[1]+scoreImprovementEpsilon {
+			return false
+		}
+	}
+
+	return score.usedDrivers > other.usedDrivers
+}
+
+func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *models.Driver, stops []*models.Participant) (routeObjectiveMetrics, error) {
+	if len(stops) == 0 {
+		return routeObjectiveMetrics{}, nil
+	}
+
+	metrics, err := rc.evaluateParticipants(ctx, driver, stops)
+	if err != nil {
+		return routeObjectiveMetrics{}, err
+	}
+
+	result := routeObjectiveMetrics{
+		driverDetour:  metrics.DetourSecs,
+		driveDuration: metrics.RouteDurationSecs,
+		used:          true,
+	}
+	if rc.mode == RouteModePickup {
+		result.latestParticipantCompletion = metrics.RouteDurationSecs
+		result.aggregateParticipantCompletion = metrics.RouteDurationSecs * float64(len(stops))
+		return result, nil
+	}
+
+	for _, stop := range metrics.Stops {
+		result.latestParticipantCompletion = max(result.latestParticipantCompletion, stop.CumulativeDurationSecs)
+		result.aggregateParticipantCompletion += stop.CumulativeDurationSecs
+	}
+	return result, nil
+}
+
+func (metrics routeObjectiveMetrics) betterThan(other routeObjectiveMetrics) bool {
+	for _, values := range [][2]float64{
+		{metrics.latestParticipantCompletion, other.latestParticipantCompletion},
+		{metrics.driverDetour, other.driverDetour},
+		{metrics.aggregateParticipantCompletion, other.aggregateParticipantCompletion},
+		{metrics.driveDuration, other.driveDuration},
+	} {
+		if values[0] < values[1]-scoreImprovementEpsilon {
+			return true
+		}
+		if values[0] > values[1]+scoreImprovementEpsilon {
+			return false
+		}
+	}
+	return false
+}
+
+func scoreSolution(routeMetrics map[int64]routeObjectiveMetrics, driverIDs []int64) solutionScore {
+	result := solutionScore{maxDriverDetour: math.Inf(-1)}
+	for _, driverID := range driverIDs {
+		metrics := routeMetrics[driverID]
+		if !metrics.used {
+			continue
+		}
+		result.latestParticipantCompletion = max(result.latestParticipantCompletion, metrics.latestParticipantCompletion)
+		result.maxDriverDetour = max(result.maxDriverDetour, metrics.driverDetour)
+		result.aggregateParticipantCompletion += metrics.aggregateParticipantCompletion
+		result.aggregateDriveDuration += metrics.driveDuration
+		result.usedDrivers++
+	}
+	if result.usedDrivers == 0 {
+		result.maxDriverDetour = 0
+	}
+	return result
+}
+
+func (r *BalancedRouter) optimizeRouteOrders(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) error {
+	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
+	candidateStops := make(map[int64][]*models.Participant, len(driverIDs))
+	for _, driverID := range driverIDs {
+		route := routes[driverID]
+		stops := coalesceHouseholdStops(route.stops)
+		metrics, err := rc.evaluateRouteObjective(ctx, route.driver, stops)
+		if err != nil {
 			return err
 		}
+		routeMetrics[driverID] = metrics
+		candidateStops[driverID] = stops
+	}
+
+	optimizedStops, optimizedMetrics, _, err := r.optimizeStopsForSolution(ctx, rc, routes, routeMetrics, candidateStops, driverIDs)
+	if err != nil {
+		return err
+	}
+	for _, driverID := range driverIDs {
+		routes[driverID].stops = optimizedStops[driverID]
+		routes[driverID].totalDuration = optimizedMetrics[driverID].driveDuration
 	}
 	return nil
 }
 
-// twoOpt applies 2-opt-style block reversals to reduce total driven time.
-// Routes with fewer than two household blocks are returned unchanged.
-func (r *BalancedRouter) twoOpt(ctx context.Context, rc routeContext, route *balancedRoute, stops []*models.Participant) ([]*models.Participant, error) {
-	return rc.twoOptRouteDuration(ctx, route.driver, stops)
-}
-
-// minMaxOptimize moves participants between routes to minimize the maximum route duration
-func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) int {
-	maxIterations := 50
-	iteration := 0
-
-	// Calculate minimum stops per driver (hard floor to ensure all drivers used)
-	totalParticipants := 0
-	for _, route := range routes {
-		totalParticipants += len(route.stops)
+// optimizeStopsForSolution reorders only the supplied routes, but evaluates
+// every reversal against the complete solution including unchanged peer routes.
+func (r *BalancedRouter) optimizeStopsForSolution(
+	ctx context.Context,
+	rc routeContext,
+	routes map[int64]*balancedRoute,
+	baseMetrics map[int64]routeObjectiveMetrics,
+	changedStops map[int64][]*models.Participant,
+	driverIDs []int64,
+) (map[int64][]*models.Participant, map[int64]routeObjectiveMetrics, solutionScore, error) {
+	currentStops := make(map[int64][]*models.Participant, len(changedStops))
+	currentMetrics := make(map[int64]routeObjectiveMetrics, len(baseMetrics))
+	for driverID, metrics := range baseMetrics {
+		currentMetrics[driverID] = metrics
 	}
-	minStopsPerDriver := 1 // At minimum, every driver should have 1 stop
-	if totalParticipants < len(driverIDs) {
-		minStopsPerDriver = 0 // Not enough participants for all drivers
+	for driverID, stops := range changedStops {
+		stops = coalesceHouseholdStops(stops)
+		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, stops)
+		if err != nil {
+			return nil, nil, solutionScore{}, err
+		}
+		currentStops[driverID] = stops
+		currentMetrics[driverID] = metrics
 	}
 
-	for iteration < maxIterations {
-		iteration++
+	currentScore := scoreSolution(currentMetrics, driverIDs)
+	const maxOrderIterations = 50
+	for range maxOrderIterations {
+		bestDriverID := int64(0)
+		var bestStops []*models.Participant
+		var bestMetrics routeObjectiveMetrics
+		bestScore := currentScore
+		found := false
 
-		// Find routes sorted by duration (longest first)
-		type routeDuration struct {
-			id       int64
-			duration float64
-		}
-		routeDurationsByDriverID := make(map[int64]float64, len(driverIDs))
-		routesByDuration := make([]routeDuration, 0, len(driverIDs))
-		for _, id := range driverIDs {
-			route := routes[id]
-			duration, err := r.calculateRouteDuration(ctx, rc, route)
-			if err != nil {
-				return iteration
-			}
-			routeDurationsByDriverID[id] = duration
-			routesByDuration = append(routesByDuration, routeDuration{id, duration})
-		}
-		sort.Slice(routesByDuration, func(i, j int) bool {
-			return routesByDuration[i].duration > routesByDuration[j].duration
-		})
-
-		currentMaxDuration := routesByDuration[0].duration
-		if currentMaxDuration == 0 {
-			break
-		}
-
-		boundaryPositionsByDriver := make(map[int64][]int, len(driverIDs))
-		for _, id := range driverIDs {
-			boundaryPositionsByDriver[id] = householdBoundaryPositions(routes[id].stops)
-		}
-
-		// Try to reduce routes starting from longest
-		foundMove := false
-		for _, rd := range routesByDuration {
-			srcRoute := routes[rd.id]
-
-			// Skip if at minimum stops
-			if len(srcRoute.stops) <= minStopsPerDriver {
+		for _, driverID := range driverIDs {
+			stops, affected := currentStops[driverID]
+			if !affected {
 				continue
 			}
+			blocks := routeHouseholdBlocks(stops)
+			for i := 0; i < len(blocks)-1; i++ {
+				for j := i + 2; j <= len(blocks); j++ {
+					candidateBlocks := append([]*participantGroup(nil), blocks...)
+					reverseParticipantGroups(candidateBlocks, i, j-1)
+					candidateStops := flattenParticipantGroups(candidateBlocks)
+					candidateMetrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, candidateStops)
+					if err != nil {
+						return nil, nil, solutionScore{}, err
+					}
 
-			// Try moving each participant to a shorter route
-			var bestMove struct {
-				destID          int64
-				srcPos, destPos int
-				group           *participantGroup
-				newMaxDuration  float64
-			}
-			bestMove.newMaxDuration = currentMaxDuration
-
-			// Min-max treats an adjacent household block as an atomic unit so the
-			// balancing pass does not split riders who have already been grouped.
-			srcBlocks := routeHouseholdBlocks(srcRoute.stops)
-			srcPos := 0
-			for _, group := range srcBlocks {
-				groupSize := len(group.members)
-				if len(srcRoute.stops)-groupSize < minStopsPerDriver {
-					srcPos += groupSize
-					continue
-				}
-
-				for _, destID := range driverIDs {
-					if destID == rd.id {
+					previousMetrics := currentMetrics[driverID]
+					currentMetrics[driverID] = candidateMetrics
+					candidateScore := scoreSolution(currentMetrics, driverIDs)
+					currentMetrics[driverID] = previousMetrics
+					if !candidateScore.betterThan(currentScore) || found && !candidateScore.betterThan(bestScore) {
 						continue
 					}
-
-					destRoute := routes[destID]
-					if len(destRoute.stops)+groupSize > destRoute.driver.VehicleCapacity {
-						continue
-					}
-
-					for _, destPos := range boundaryPositionsByDriver[destID] {
-						newSrcStops := removeRange(srcRoute.stops, srcPos, srcPos+groupSize)
-						newDestStops := insertGroupAt(destRoute.stops, group, destPos)
-						newSrcStops = coalesceHouseholdStops(newSrcStops)
-						newDestStops = coalesceHouseholdStops(newDestStops)
-
-						newSrcDuration, err := r.calculateDurationFromStops(ctx, rc, srcRoute.driver, newSrcStops)
-						if err != nil {
-							continue
-						}
-						newDestDuration, err := r.calculateDurationFromStops(ctx, rc, destRoute.driver, newDestStops)
-						if err != nil {
-							continue
-						}
-						newMaxDuration := max(
-							newSrcDuration,
-							newDestDuration,
-							maxCachedRouteDuration(routeDurationsByDriverID, driverIDs, rd.id, destID),
-						)
-
-						// Accept if it reduces the maximum
-						if newMaxDuration < bestMove.newMaxDuration-10 { // 10 second threshold
-							bestMove.destID = destID
-							bestMove.srcPos = srcPos
-							bestMove.destPos = destPos
-							bestMove.group = group
-							bestMove.newMaxDuration = newMaxDuration
-						}
-					}
+					bestDriverID = driverID
+					bestStops = candidateStops
+					bestMetrics = candidateMetrics
+					bestScore = candidateScore
+					found = true
 				}
-
-				srcPos += groupSize
-			}
-
-			// Execute best move if found
-			if bestMove.group != nil {
-				destRoute := routes[bestMove.destID]
-
-				srcRoute.stops = removeRange(srcRoute.stops, bestMove.srcPos, bestMove.srcPos+len(bestMove.group.members))
-				destRoute.stops = insertGroupAt(destRoute.stops, bestMove.group, bestMove.destPos)
-
-				// Re-optimize affected routes with 2-opt
-				if optimized, err := r.twoOpt(ctx, rc, srcRoute, srcRoute.stops); err == nil {
-					srcRoute.stops = optimized
-				}
-				if optimized, err := r.twoOpt(ctx, rc, destRoute, destRoute.stops); err == nil {
-					destRoute.stops = optimized
-				}
-				srcRoute.stops = coalesceHouseholdStops(srcRoute.stops)
-				destRoute.stops = coalesceHouseholdStops(destRoute.stops)
-
-				if err := r.updateRouteDuration(ctx, rc, srcRoute); err != nil {
-					return iteration
-				}
-				if err := r.updateRouteDuration(ctx, rc, destRoute); err != nil {
-					return iteration
-				}
-				routeDurationsByDriverID[srcRoute.driver.ID] = srcRoute.totalDuration
-				routeDurationsByDriverID[destRoute.driver.ID] = destRoute.totalDuration
-
-				memberNames := make([]string, len(bestMove.group.members))
-				for i, member := range bestMove.group.members {
-					memberNames[i] = member.Name
-				}
-				if len(memberNames) == 1 {
-					log.Printf("[BALANCED] Moved %s from %s to %s (max: %.0fs -> %.0fs)",
-						memberNames[0], srcRoute.driver.Name, destRoute.driver.Name,
-						currentMaxDuration, bestMove.newMaxDuration)
-				} else {
-					log.Printf("[BALANCED] Moved household group [%v] from %s to %s (max: %.0fs -> %.0fs)",
-						memberNames, srcRoute.driver.Name, destRoute.driver.Name,
-						currentMaxDuration, bestMove.newMaxDuration)
-				}
-
-				foundMove = true
-				break // Restart from longest route
 			}
 		}
 
-		if !foundMove {
-			break // No improving moves found
+		if !found {
+			return currentStops, currentMetrics, currentScore, nil
 		}
+		currentStops[bestDriverID] = bestStops
+		currentMetrics[bestDriverID] = bestMetrics
+		currentScore = bestScore
 	}
 
-	return iteration
+	return currentStops, currentMetrics, currentScore, nil
 }
 
-// calculateRouteDuration computes duration from origin through all stops
-func (r *BalancedRouter) calculateRouteDuration(ctx context.Context, rc routeContext, route *balancedRoute) (float64, error) {
-	if len(route.stops) == 0 {
-		return 0, nil
-	}
-	return rc.routeDuration(ctx, route.driver, route.stops)
+type assignmentChange struct {
+	firstDriverID, secondDriverID int64
+	firstStops, secondStops       []*models.Participant
+	firstMetrics, secondMetrics   routeObjectiveMetrics
+	score                         solutionScore
+	found                         bool
 }
 
-func (r *BalancedRouter) calculateDurationFromStops(ctx context.Context, rc routeContext, driver *models.Driver, stops []*models.Participant) (float64, error) {
-	if len(stops) == 0 {
-		return 0, nil
-	}
-	return rc.routeDuration(ctx, driver, stops)
-}
-
-func maxCachedRouteDuration(cached map[int64]float64, driverIDs []int64, exclude ...int64) float64 {
-	excludeSet := make(map[int64]struct{}, len(exclude))
-	for _, id := range exclude {
-		excludeSet[id] = struct{}{}
-	}
-
-	maxDuration := 0.0
-	for _, id := range driverIDs {
-		if _, skip := excludeSet[id]; skip {
-			continue
-		}
-		if duration := cached[id]; duration > maxDuration {
-			maxDuration = duration
-		}
-	}
-	return maxDuration
-}
-
-func (r *BalancedRouter) calculateRouteDurations(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) ([]float64, error) {
-	durations := make([]float64, 0, len(driverIDs))
-	for _, id := range driverIDs {
-		duration, err := r.calculateRouteDuration(ctx, rc, routes[id])
+// optimizeAssignments performs deterministic, bounded local search over whole
+// household relocations and pairwise swaps. Every candidate is judged against
+// the complete solution so route-local improvements cannot worsen a higher
+// priority objective on a peer route.
+func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
+	slices.Sort(driverIDs)
+	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
+	for _, driverID := range driverIDs {
+		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
-		durations = append(durations, duration)
+		routeMetrics[driverID] = metrics
 	}
-	return durations, nil
+
+	const maxIterations = 50
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		currentScore := scoreSolution(routeMetrics, driverIDs)
+		best := assignmentChange{}
+
+		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
+			optimizedStops, optimizedMetrics, candidateScore, err := r.optimizeStopsForSolution(
+				ctx,
+				rc,
+				routes,
+				routeMetrics,
+				map[int64][]*models.Participant{
+					firstDriverID:  firstStops,
+					secondDriverID: secondStops,
+				},
+				driverIDs,
+			)
+			if err != nil {
+				return err
+			}
+			if !candidateScore.betterThan(currentScore) || best.found && !candidateScore.betterThan(best.score) {
+				return nil
+			}
+
+			best = assignmentChange{
+				firstDriverID:  firstDriverID,
+				secondDriverID: secondDriverID,
+				firstStops:     optimizedStops[firstDriverID],
+				secondStops:    optimizedStops[secondDriverID],
+				firstMetrics:   optimizedMetrics[firstDriverID],
+				secondMetrics:  optimizedMetrics[secondDriverID],
+				score:          candidateScore,
+				found:          true,
+			}
+			return nil
+		}
+
+		for _, sourceDriverID := range driverIDs {
+			sourceRoute := routes[sourceDriverID]
+			sourceBlocks := routeHouseholdBlocks(sourceRoute.stops)
+			sourcePosition := 0
+			for _, sourceGroup := range sourceBlocks {
+				groupSize := len(sourceGroup.members)
+				for _, destinationDriverID := range driverIDs {
+					if destinationDriverID == sourceDriverID {
+						continue
+					}
+					destinationRoute := routes[destinationDriverID]
+					if len(destinationRoute.stops)+groupSize > destinationRoute.driver.VehicleCapacity {
+						continue
+					}
+
+					for _, destinationPosition := range householdBoundaryPositions(destinationRoute.stops) {
+						newSourceStops := removeRange(sourceRoute.stops, sourcePosition, sourcePosition+groupSize)
+						newDestinationStops := insertGroupAt(destinationRoute.stops, sourceGroup, destinationPosition)
+						if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops); err != nil {
+							return iteration, err
+						}
+					}
+				}
+				sourcePosition += groupSize
+			}
+		}
+
+		for firstIndex, firstDriverID := range driverIDs {
+			firstRoute := routes[firstDriverID]
+			firstPosition := 0
+			for _, firstGroup := range routeHouseholdBlocks(firstRoute.stops) {
+				firstSize := len(firstGroup.members)
+				for _, secondDriverID := range driverIDs[firstIndex+1:] {
+					secondRoute := routes[secondDriverID]
+					secondPosition := 0
+					for _, secondGroup := range routeHouseholdBlocks(secondRoute.stops) {
+						secondSize := len(secondGroup.members)
+						if len(firstRoute.stops)-firstSize+secondSize <= firstRoute.driver.VehicleCapacity &&
+							len(secondRoute.stops)-secondSize+firstSize <= secondRoute.driver.VehicleCapacity {
+							newFirstStops := replaceRangeWithGroup(firstRoute.stops, firstPosition, firstPosition+firstSize, secondGroup)
+							newSecondStops := replaceRangeWithGroup(secondRoute.stops, secondPosition, secondPosition+secondSize, firstGroup)
+							if err := consider(firstDriverID, secondDriverID, newFirstStops, newSecondStops); err != nil {
+								return iteration, err
+							}
+						}
+						secondPosition += secondSize
+					}
+				}
+				firstPosition += firstSize
+			}
+		}
+
+		if !best.found {
+			return iteration, nil
+		}
+
+		firstRoute := routes[best.firstDriverID]
+		secondRoute := routes[best.secondDriverID]
+		firstRoute.stops = best.firstStops
+		secondRoute.stops = best.secondStops
+		firstRoute.totalDuration = best.firstMetrics.driveDuration
+		secondRoute.totalDuration = best.secondMetrics.driveDuration
+		routeMetrics[best.firstDriverID] = best.firstMetrics
+		routeMetrics[best.secondDriverID] = best.secondMetrics
+	}
+
+	return maxIterations, nil
 }
 
-func shouldRunMinMaxOptimize(durations []float64) bool {
-	nonZero := make([]float64, 0, len(durations))
-	for _, duration := range durations {
-		if duration > 0 {
-			nonZero = append(nonZero, duration)
-		}
-	}
-	if len(nonZero) == 0 {
-		return false
-	}
-
-	sort.Float64s(nonZero)
-	maxDuration := nonZero[len(nonZero)-1]
-	if maxDuration > minMaxAbsoluteThresholdSecs {
-		return true
-	}
-	if len(nonZero) < 2 {
-		return false
-	}
-
-	median := nonZero[len(nonZero)/2]
-	if len(nonZero)%2 == 0 {
-		median = (nonZero[len(nonZero)/2-1] + nonZero[len(nonZero)/2]) / 2
-	}
-	if median <= 0 {
-		return false
-	}
-
-	return maxDuration > median*minMaxRelativeThreshold
+func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *participantGroup) []*models.Participant {
+	return insertGroupAt(removeRange(stops, start, end), group, start)
 }
 
 // updateRouteDuration recalculates and caches the total duration for a route

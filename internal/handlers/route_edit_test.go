@@ -264,7 +264,7 @@ func TestRecalculateRoutePickupUsesModeAwareMetrics(t *testing.T) {
 	}
 }
 
-func TestHandleMoveParticipantOptimizesDestinationRoute(t *testing.T) {
+func TestHandleMoveParticipantOptimizesDestinationRouteForParticipantCompletion(t *testing.T) {
 	store := NewRouteSessionStore()
 	defer store.Close()
 
@@ -315,8 +315,8 @@ func TestHandleMoveParticipantOptimizesDestinationRoute(t *testing.T) {
 	if len(toRoute.Stops) != 2 {
 		t.Fatalf("destination stops = %d, want 2", len(toRoute.Stops))
 	}
-	if toRoute.Stops[0].Participant.Name != "Origin Detour" {
-		t.Fatalf("first destination stop = %q, want Origin Detour", toRoute.Stops[0].Participant.Name)
+	if toRoute.Stops[0].Participant.Name != "Destination Side" {
+		t.Fatalf("first destination stop = %q, want Destination Side", toRoute.Stops[0].Participant.Name)
 	}
 	if toRoute.Stops[0].Order != 0 || toRoute.Stops[1].Order != 1 {
 		t.Fatalf("destination orders = [%d %d], want [0 1]", toRoute.Stops[0].Order, toRoute.Stops[1].Order)

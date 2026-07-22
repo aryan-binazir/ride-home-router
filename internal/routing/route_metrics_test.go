@@ -247,8 +247,8 @@ func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
 	route := &models.CalculatedRoute{
 		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0},
 		Stops: []models.RouteStop{
-			{Participant: &models.Participant{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0}},
 			{Participant: &models.Participant{ID: 2, Name: "Origin Detour", Lat: 1, Lng: 100}},
+			{Participant: &models.Participant{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0}},
 		},
 	}
 
@@ -256,8 +256,8 @@ func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
 		t.Fatalf("OptimizeRouteOrder() error = %v", err)
 	}
 
-	if route.Stops[0].Participant.Name != "Origin Detour" {
-		t.Fatalf("first stop = %q, want Origin Detour", route.Stops[0].Participant.Name)
+	if route.Stops[0].Participant.Name != "Destination Side" {
+		t.Fatalf("first stop = %q, want Destination Side", route.Stops[0].Participant.Name)
 	}
 	if route.Stops[0].Order != 0 || route.Stops[1].Order != 1 {
 		t.Fatalf("orders = [%d %d], want [0 1]", route.Stops[0].Order, route.Stops[1].Order)
@@ -267,25 +267,72 @@ func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
 	}
 }
 
-func TestBalancedRouterCalculateRouteDuration_PickupIncludesActivityLeg(t *testing.T) {
-	calc := stableDistanceCalculator{}
-	router := &BalancedRouter{distanceCalc: calc}
-	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModePickup)
-	route := &balancedRoute{
-		driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 4},
-		stops: []*models.Participant{
-			{ID: 1, Name: "P1", Lat: 8, Lng: 0},
-			{ID: 2, Name: "P2", Lat: 3, Lng: 0},
+func TestOptimizeRouteOrder_DropoffPrioritizesLastParticipantOverDriverHomeLeg(t *testing.T) {
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	firstHome := models.Coordinates{Lat: 1, Lng: 0}
+	secondHome := models.Coordinates{Lat: 2, Lng: 0}
+	driverHome := models.Coordinates{Lat: 3, Lng: 0}
+	distances := newOverrideDistanceAdapter(50)
+	distances.setDuration(activity, firstHome, 1)
+	distances.setDuration(firstHome, secondHome, 1)
+	distances.setDuration(secondHome, driverHome, 100)
+	distances.setDuration(activity, secondHome, 10)
+	distances.setDuration(secondHome, firstHome, 1)
+	distances.setDuration(firstHome, driverHome, 1)
+
+	route := &models.CalculatedRoute{
+		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: driverHome.Lat, Lng: driverHome.Lng},
+		Stops: []models.RouteStop{
+			{Participant: &models.Participant{ID: 2, Name: "Second", Lat: secondHome.Lat, Lng: secondHome.Lng}},
+			{Participant: &models.Participant{ID: 1, Name: "First", Lat: firstHome.Lat, Lng: firstHome.Lng}},
 		},
 	}
 
-	duration, err := router.calculateRouteDuration(context.Background(), rc, route)
-	if err != nil {
-		t.Fatalf("calculateRouteDuration() error = %v", err)
+	if err := OptimizeRouteOrder(context.Background(), distances, activity, RouteModeDropoff, route); err != nil {
+		t.Fatalf("OptimizeRouteOrder() error = %v", err)
 	}
 
-	if duration != 10000 {
-		t.Fatalf("pickup route duration = %.0f, want 10000", duration)
+	if route.Stops[0].Participant.ID != 1 {
+		t.Fatalf("first participant = %d, want 1 so the last dropoff occurs after 2 seconds", route.Stops[0].Participant.ID)
+	}
+	if route.Stops[1].CumulativeDurationSecs != 2 {
+		t.Fatalf("last participant completion = %.0f, want 2", route.Stops[1].CumulativeDurationSecs)
+	}
+	if route.RouteDurationSecs != 102 {
+		t.Fatalf("full driver route = %.0f, want 102 as the lower-priority tradeoff", route.RouteDurationSecs)
+	}
+}
+
+func TestOptimizeRouteOrder_PickupIncludesFinalActivityLeg(t *testing.T) {
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	firstHome := models.Coordinates{Lat: 1, Lng: 0}
+	secondHome := models.Coordinates{Lat: 2, Lng: 0}
+	driverHome := models.Coordinates{Lat: 3, Lng: 0}
+	distances := newOverrideDistanceAdapter(50)
+	distances.setDuration(driverHome, firstHome, 1)
+	distances.setDuration(firstHome, secondHome, 1)
+	distances.setDuration(secondHome, activity, 100)
+	distances.setDuration(driverHome, secondHome, 10)
+	distances.setDuration(secondHome, firstHome, 1)
+	distances.setDuration(firstHome, activity, 1)
+
+	route := &models.CalculatedRoute{
+		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: driverHome.Lat, Lng: driverHome.Lng},
+		Stops: []models.RouteStop{
+			{Participant: &models.Participant{ID: 1, Name: "First", Lat: firstHome.Lat, Lng: firstHome.Lng}},
+			{Participant: &models.Participant{ID: 2, Name: "Second", Lat: secondHome.Lat, Lng: secondHome.Lng}},
+		},
+	}
+
+	if err := OptimizeRouteOrder(context.Background(), distances, activity, RouteModePickup, route); err != nil {
+		t.Fatalf("OptimizeRouteOrder() error = %v", err)
+	}
+
+	if route.Stops[0].Participant.ID != 2 {
+		t.Fatalf("first pickup = %d, want 2 so all participants reach the activity after 12 seconds", route.Stops[0].Participant.ID)
+	}
+	if route.RouteDurationSecs != 12 {
+		t.Fatalf("participant completion = %.0f, want 12 including the final activity leg", route.RouteDurationSecs)
 	}
 }
 
@@ -387,73 +434,6 @@ func TestTwoOptDistance_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
 	}
 }
 
-func TestTwoOptRouteDuration_UsesLocalEdgeDeltaEvaluation(t *testing.T) {
-	calc := &countingDistanceCalculator{}
-	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
-	stops := []*models.Participant{
-		{ID: 1, Name: "P1", Lat: 1, Lng: 0},
-		{ID: 2, Name: "P2", Lat: 2, Lng: 0},
-		{ID: 3, Name: "P3", Lat: 3, Lng: 0},
-		{ID: 4, Name: "P4", Lat: 4, Lng: 0},
-		{ID: 5, Name: "P5", Lat: 5, Lng: 0},
-		{ID: 6, Name: "P6", Lat: 6, Lng: 0},
-	}
-
-	optimized, err := rc.twoOptRouteDuration(context.Background(), driver, stops)
-	if err != nil {
-		t.Fatalf("twoOptRouteDuration() error = %v", err)
-	}
-	if len(optimized) != len(stops) {
-		t.Fatalf("optimized stop count = %d, want %d", len(optimized), len(stops))
-	}
-	if calc.calls > 100 {
-		t.Fatalf("twoOptRouteDuration() made %d distance calls, want <= 100 for local-edge evaluation", calc.calls)
-	}
-}
-
-func TestTwoOptRouteDurationMatchesLegacyFullScoreForDirectedDistances(t *testing.T) {
-	for _, mode := range []RouteMode{RouteModeDropoff, RouteModePickup} {
-		t.Run(string(mode), func(t *testing.T) {
-			calc := newOverrideDistanceAdapter(100)
-			institute := models.Coordinates{Lat: 0, Lng: 0}
-			driver := &models.Driver{ID: 1, Name: "Driver", Lat: 4, Lng: 0}
-			stops := []*models.Participant{
-				{ID: 1, Name: "A", Lat: 1, Lng: 0},
-				{ID: 2, Name: "B", Lat: 2, Lng: 0},
-				{ID: 3, Name: "C", Lat: 3, Lng: 0},
-			}
-			rc := newRouteContext(calc, institute, mode)
-			origin := rc.origin(driver)
-			destination := rc.destination(driver)
-
-			calc.setDuration(origin, stops[0].GetCoords(), 100)
-			calc.setDuration(stops[0].GetCoords(), stops[1].GetCoords(), 10)
-			calc.setDuration(stops[1].GetCoords(), stops[2].GetCoords(), 100)
-			calc.setDuration(stops[2].GetCoords(), destination, 100)
-			calc.setDuration(origin, stops[1].GetCoords(), 10)
-			calc.setDuration(stops[1].GetCoords(), stops[0].GetCoords(), 500)
-			calc.setDuration(stops[0].GetCoords(), stops[2].GetCoords(), 10)
-
-			want, err := legacyTwoOptRouteDurationForTest(context.Background(), rc, driver, stops)
-			if err != nil {
-				t.Fatalf("legacy two-opt error = %v", err)
-			}
-			got, err := rc.twoOptRouteDuration(context.Background(), driver, stops)
-			if err != nil {
-				t.Fatalf("twoOptRouteDuration() error = %v", err)
-			}
-
-			if gotIDs, wantIDs := participantIDs(got), participantIDs(want); gotIDs != wantIDs {
-				t.Fatalf("optimized order = %s, want legacy full-score order %s", gotIDs, wantIDs)
-			}
-			if gotIDs := participantIDs(got); gotIDs != "1,2,3" {
-				t.Fatalf("directed internal edge costs should keep original order, got %s", gotIDs)
-			}
-		})
-	}
-}
-
 func TestTwoOptByDeltaRequiresLegacyImprovementEpsilon(t *testing.T) {
 	stops := []*models.Participant{
 		{ID: 1, Name: "A"},
@@ -478,108 +458,10 @@ func TestTwoOptByDeltaRequiresLegacyImprovementEpsilon(t *testing.T) {
 	}
 }
 
-func TestTwoOptBlockDelta_UsesLastMemberOfPreviousBlock(t *testing.T) {
-	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	driver := &models.Driver{ID: 1, Lat: 10, Lng: 0}
-	memberFirst := &models.Participant{ID: 1, Lat: 1.000001, Lng: 0}
-	memberLast := &models.Participant{ID: 2, Lat: 1.000002, Lng: 0}
-	blockA := &participantGroup{members: []*models.Participant{memberFirst, memberLast}}
-	blockB := &participantGroup{members: []*models.Participant{{ID: 3, Lat: 3, Lng: 0}}}
-	blockC := &participantGroup{members: []*models.Participant{{ID: 4, Lat: 5, Lng: 0}}}
-	blocks := []*participantGroup{blockA, blockB, blockC}
-
-	blockDelta, err := rc.twoOptBlockDelta(context.Background(), driver, blocks, 1, 3, func(r *distance.DistanceResult) float64 {
-		return r.DurationSecs
-	}, true)
-	if err != nil {
-		t.Fatalf("twoOptBlockDelta() error = %v", err)
-	}
-
-	repStops := []*models.Participant{memberFirst, blockB.members[0], blockC.members[0]}
-	repDelta, err := rc.twoOptDelta(context.Background(), driver, repStops, 1, 3, func(r *distance.DistanceResult) float64 {
-		return r.DurationSecs
-	}, true)
-	if err != nil {
-		t.Fatalf("twoOptDelta() error = %v", err)
-	}
-
-	if blockDelta == repDelta {
-		t.Fatalf("block delta %.0f should differ from first-member rep delta %.0f", blockDelta, repDelta)
-	}
-}
-
-func legacyTwoOptRouteDurationForTest(ctx context.Context, rc routeContext, driver *models.Driver, stops []*models.Participant) ([]*models.Participant, error) {
-	blocks := routeHouseholdBlocks(stops)
-	if len(blocks) < 2 {
-		return stops, nil
-	}
-
-	currentBlocks := append([]*participantGroup(nil), blocks...)
-	currentStops := flattenParticipantGroups(currentBlocks)
-	currentScore, err := rc.totalDriveDuration(ctx, driver, currentStops)
-	if err != nil {
-		return nil, err
-	}
-
-	improved := true
-	for improved {
-		improved = false
-		for i := 0; i < len(currentBlocks)-1; i++ {
-			for j := i + 2; j <= len(currentBlocks); j++ {
-				candidateBlocks := append([]*participantGroup(nil), currentBlocks...)
-				reverseParticipantGroups(candidateBlocks, i, j-1)
-				candidateStops := flattenParticipantGroups(candidateBlocks)
-				candidateScore, err := rc.totalDriveDuration(ctx, driver, candidateStops)
-				if err != nil {
-					return nil, err
-				}
-				if candidateScore < currentScore-scoreImprovementEpsilon {
-					currentBlocks = candidateBlocks
-					currentStops = candidateStops
-					currentScore = candidateScore
-					improved = true
-				}
-			}
-		}
-	}
-
-	return currentStops, nil
-}
-
 func participantIDs(stops []*models.Participant) string {
 	ids := make([]string, len(stops))
 	for i, stop := range stops {
 		ids[i] = strconv.FormatInt(stop.ID, 10)
 	}
 	return strings.Join(ids, ",")
-}
-
-func TestTwoOptRouteDuration_SplitHouseholdBlocksPreservesAllParticipants(t *testing.T) {
-	calc := &countingDistanceCalculator{}
-	rc := newRouteContext(calc, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0}
-	householdLat, householdLng := 1.0, 0.0
-	stops := []*models.Participant{
-		{ID: 1, Name: "H1", Lat: householdLat, Lng: householdLng},
-		{ID: 2, Name: "Other", Lat: 5, Lng: 0},
-		{ID: 3, Name: "H2", Lat: householdLat, Lng: householdLng},
-	}
-
-	optimized, err := rc.twoOptRouteDuration(context.Background(), driver, stops)
-	if err != nil {
-		t.Fatalf("twoOptRouteDuration() error = %v", err)
-	}
-	if len(optimized) != len(stops) {
-		t.Fatalf("optimized stop count = %d, want %d", len(optimized), len(stops))
-	}
-
-	seen := make(map[int64]struct{}, len(stops))
-	for _, stop := range optimized {
-		seen[stop.ID] = struct{}{}
-	}
-	for _, stop := range stops {
-		if _, ok := seen[stop.ID]; !ok {
-			t.Fatalf("optimized route lost participant %d", stop.ID)
-		}
-	}
 }
