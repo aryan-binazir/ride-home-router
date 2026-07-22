@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
 	"time"
@@ -117,119 +116,70 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d mode=%s", len(req.ParticipantIDs), len(req.DriverIDs), mode)
 
-	settings, err := h.DB.Settings().Get(r.Context())
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
-	}
-
 	activityLocationID := req.ActivityLocationID
 	if activityLocationID == 0 {
 		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent)
 		return
 	}
-
-	// Get the selected activity location
-	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
-	if err != nil {
-		if h.checkNotFound(err) {
-			log.Printf("[HTTP] POST /api/v1/routes/calculate: activity location id=%d not found", activityLocationID)
-			h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
-			return
-		}
-		h.handleInternalError(w, err)
-		return
-	}
-
-	participants, err := h.DB.Participants().GetByIDs(r.Context(), req.ParticipantIDs)
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
-	}
-
-	if len(participants) != len(req.ParticipantIDs) {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: participants mismatch requested=%d found=%d", len(req.ParticipantIDs), len(participants))
-		h.handleValidationError(w, "Some participants not found")
-		return
-	}
-
-	drivers, err := h.DB.Drivers().GetByIDs(r.Context(), req.DriverIDs)
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
-	}
-
-	if len(drivers) != len(req.DriverIDs) {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: drivers mismatch requested=%d found=%d", len(req.DriverIDs), len(drivers))
-		h.handleValidationError(w, "Some drivers not found")
-		return
-	}
-
-	orgVehicleMap, err := h.loadAssignedOrgVehicles(r.Context(), orgVehicleAssignments)
-	if err != nil {
-		if errors.Is(err, errSelectedVanNotFound) {
-			h.handleValidationErrorHTMX(w, r, err.Error())
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
+		ParticipantIDs:        req.ParticipantIDs,
+		DriverIDs:             req.DriverIDs,
+		ActivityLocationID:    activityLocationID,
+		RouteTime:             routeTime,
+		Mode:                  mode,
+		OrgVehicleAssignments: orgVehicleAssignments,
+	})
+	if outcome.Kind == routeCalculationValidationFailure {
+		message := routeCalculationValidationMessage(outcome.Err)
+		if errors.Is(outcome.Err, errSomeParticipantsNotFound) || errors.Is(outcome.Err, errSomeDriversNotFound) {
+			h.handleValidationError(w, message)
 		} else {
-			h.handleInternalError(w, err)
+			h.handleValidationErrorHTMX(w, r, message)
 		}
 		return
 	}
-	modifiedDrivers, driverOrgVehicle := applyOrgVehicleAssignments(drivers, orgVehicleAssignments, orgVehicleMap)
-
-	routingReq := &routing.RoutingRequest{
-		InstituteCoords: activityLocation.GetCoords(),
-		Participants:    participants,
-		Drivers:         modifiedDrivers,
-		Mode:            mode,
+	if outcome.Kind == routeCalculationInternalFailure {
+		h.handleInternalError(w, outcome.Err)
+		return
 	}
-
-	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
-	if err != nil {
-		if rerr, ok := err.(*routing.ErrRoutingFailed); ok {
-			log.Printf("[ERROR] Routing failed: participants=%d unassigned=%d capacity=%d reason=%s", rerr.TotalParticipants, rerr.UnassignedCount, rerr.TotalCapacity, rerr.Reason)
-
-			// For HTMX requests, show the capacity shortage UI with org vehicle assignment options
-			if h.isHTMX(r) {
-				orgVehicles, _ := h.DB.OrganizationVehicles().List(r.Context())
-
-				h.setHTMXToast(w, messageNotEnoughCapacity(rerr.TotalParticipants-rerr.TotalCapacity), toastTypeWarning)
-
-				h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
-					rerr,
-					drivers,
-					orgVehicles,
-					req.ParticipantIDs,
-					req.DriverIDs,
-					activityLocation,
-					string(mode),
-					settings.UseMiles,
-					routeTime,
-					orgVehicleAssignments,
-					driverOrgVehicle,
-				))
-				return
-			}
-
-			h.handleRoutingError(w, err)
+	if outcome.Kind == routeCalculationRouteFailure {
+		log.Printf("[ERROR] Route calculation failed: err=%v", outcome.Err)
+		h.handleRouteCalculationError(w, r, outcome.Err)
+		return
+	}
+	if outcome.Kind == routeCalculationShortage {
+		shortage := outcome.Shortage
+		log.Printf("[ERROR] Routing failed: participants=%d unassigned=%d capacity=%d reason=%s", shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, shortage.RoutingError.Reason)
+		if h.isHTMX(r) {
+			h.setHTMXToast(w, messageNotEnoughCapacity(shortage.RoutingError.TotalParticipants-shortage.RoutingError.TotalCapacity), toastTypeWarning)
+			h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
+				shortage.RoutingError,
+				shortage.Drivers,
+				shortage.AvailableOrgVehicles,
+				shortage.ParticipantIDs,
+				shortage.DriverIDs,
+				shortage.ActivityLocation,
+				string(shortage.Mode),
+				shortage.UseMiles,
+				shortage.RouteTime,
+				shortage.OrgVehicleAssignments,
+				shortage.DriverOrgVehicles,
+			))
 			return
 		}
-		log.Printf("[ERROR] Route calculation failed: err=%v", err)
-		h.handleRouteCalculationError(w, r, err)
+		h.handleRoutingError(w, shortage.RoutingError)
 		return
 	}
 
+	result := outcome.Result
+	session := outcome.Session
+	activityLocation := outcome.ActivityLocation
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
-
-	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicle)
-	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
-
-	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, routeTime, mode, driverOrgVehicle)
 
 	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
+		h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, outcome.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
 		return
 	}
 
@@ -308,101 +258,70 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	settings, err := h.DB.Settings().Get(r.Context())
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
-	}
-
 	if activityLocationID == 0 {
 		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent)
 		return
 	}
-
-	activityLocation, err := h.DB.ActivityLocations().GetByID(r.Context(), activityLocationID)
-	if err != nil {
-		if h.checkNotFound(err) {
-			h.handleValidationErrorHTMX(w, r, messageSelectedActivityLocationNotFoundChooseAnother)
-			return
-		}
-		h.handleInternalError(w, err)
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
+		ParticipantIDs:        participantIDs,
+		DriverIDs:             driverIDs,
+		ActivityLocationID:    activityLocationID,
+		RouteTime:             routeTime,
+		Mode:                  mode,
+		OrgVehicleAssignments: orgVehicleAssignments,
+	})
+	if outcome.Kind == routeCalculationValidationFailure {
+		h.handleValidationErrorHTMX(w, r, routeCalculationValidationMessage(outcome.Err))
+		return
+	}
+	if outcome.Kind == routeCalculationInternalFailure {
+		h.handleInternalError(w, outcome.Err)
+		return
+	}
+	if outcome.Kind == routeCalculationRouteFailure {
+		h.handleRouteCalculationError(w, r, outcome.Err)
+		return
+	}
+	if outcome.Kind == routeCalculationShortage {
+		shortage := outcome.Shortage
+		h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
+			shortage.RoutingError,
+			shortage.Drivers,
+			shortage.AvailableOrgVehicles,
+			shortage.ParticipantIDs,
+			shortage.DriverIDs,
+			shortage.ActivityLocation,
+			string(shortage.Mode),
+			shortage.UseMiles,
+			shortage.RouteTime,
+			shortage.OrgVehicleAssignments,
+			shortage.DriverOrgVehicles,
+		))
 		return
 	}
 
-	participants, err := h.DB.Participants().GetByIDs(r.Context(), participantIDs)
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
-	}
-
-	drivers, err := h.DB.Drivers().GetByIDs(r.Context(), driverIDs)
-	if err != nil {
-		h.handleInternalError(w, err)
-		return
-	}
-
-	orgVehicleMap, err := h.loadAssignedOrgVehicles(r.Context(), orgVehicleAssignments)
-	if err != nil {
-		if errors.Is(err, errSelectedVanNotFound) {
-			h.handleValidationErrorHTMX(w, r, err.Error())
-		} else {
-			h.handleInternalError(w, err)
-		}
-		return
-	}
-	modifiedDrivers, driverOrgVehicle := applyOrgVehicleAssignments(drivers, orgVehicleAssignments, orgVehicleMap)
-	for _, driver := range drivers {
-		if vehicle, ok := driverOrgVehicle[driver.ID]; ok && vehicle != nil {
-			log.Printf("[ROUTING] Driver %s assigned org vehicle %s (capacity %d -> %d)",
-				driver.Name, vehicle.Name, driver.VehicleCapacity, vehicle.Capacity)
-		}
-	}
-
-	routingReq := &routing.RoutingRequest{
-		InstituteCoords: activityLocation.GetCoords(),
-		Participants:    participants,
-		Drivers:         modifiedDrivers,
-		Mode:            mode,
-	}
-
-	result, err := h.Router.CalculateRoutes(r.Context(), routingReq)
-	if err != nil {
-		if rerr, ok := err.(*routing.ErrRoutingFailed); ok {
-			// Still not enough capacity - show the UI again
-			allOrgVehicles, _ := h.DB.OrganizationVehicles().List(r.Context())
-
-			h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
-				rerr,
-				drivers,
-				allOrgVehicles,
-				participantIDs,
-				driverIDs,
-				activityLocation,
-				string(mode),
-				settings.UseMiles,
-				routeTime,
-				orgVehicleAssignments,
-				driverOrgVehicle,
-			))
-			return
-		}
-		h.handleRouteCalculationError(w, r, err)
-		return
-	}
-
-	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicle)
-
-	// Count org vehicles used in summary
-	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
+	result := outcome.Result
+	session := outcome.Session
+	activityLocation := outcome.ActivityLocation
 
 	log.Printf("[HTTP] Routes calculated with org vehicles: drivers=%d org_vehicles=%d total_distance=%.0f",
 		result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
-	// Create a session for route editing
-	session := h.RouteSession.Create(result.Routes, modifiedDrivers, activityLocation, settings.UseMiles, routeTime, mode, driverOrgVehicle)
-
 	h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, settings.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
+	h.renderTemplate(w, "route_results", buildRouteResultsView(result.Routes, result.Summary, activityLocation, outcome.UseMiles, routeTime, session.ID, false, getUnusedDrivers(session), mode))
+}
+
+func routeCalculationValidationMessage(err error) string {
+	switch {
+	case errors.Is(err, errActivityLocationNotFound):
+		return messageSelectedActivityLocationNotFoundChooseAnother
+	case errors.Is(err, errSomeParticipantsNotFound):
+		return "Some participants not found"
+	case errors.Is(err, errSomeDriversNotFound):
+		return "Some drivers not found"
+	default:
+		return err.Error()
+	}
 }
 
 func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Request, err error) {
