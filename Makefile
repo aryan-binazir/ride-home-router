@@ -72,6 +72,7 @@ clean:
 
 test:
 	@echo "Running tests..."
+	@node --test web/static/js/*.test.js
 	@$(GO) test -v -race -coverprofile=coverage.out ./...
 	@echo "✓ Tests complete"
 
