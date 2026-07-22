@@ -11,6 +11,7 @@ import (
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
 )
@@ -22,7 +23,7 @@ type Handler struct {
 	DistanceCalc distance.DistanceCalculator
 	Router       routing.Router
 	Renderer     *templates.Renderer
-	RouteSession *RouteSessionStore
+	RouteSession *routesession.Store
 }
 
 // ErrorResponse represents an API error

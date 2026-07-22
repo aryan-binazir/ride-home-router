@@ -71,17 +71,14 @@ func TestRouteCalculation_AssignedVehicleSuccessCreatesRestorableSession(t *test
 		t.Fatalf("organization vehicles used = %d, want 1", got)
 	}
 
-	session := handler.RouteSession.Get(outcome.Session.ID)
-	if session == nil {
+	session, ok := handler.RouteSession.Snapshot(outcome.Session.ID)
+	if !ok {
 		t.Fatal("expected route session to be restorable")
 	}
-	if got := session.SelectedDrivers[0].VehicleCapacity; got != van.Capacity {
-		t.Fatalf("session driver capacity = %d, want %d", got, van.Capacity)
+	if got := session.Routes[0].EffectiveCapacity; got != van.Capacity {
+		t.Fatalf("session route capacity = %d, want %d", got, van.Capacity)
 	}
-	if got := session.DriverOrgVehicles[driver.ID]; got == nil || got.ID != van.ID {
-		t.Fatalf("session organization vehicle = %#v, want ID %d", got, van.ID)
-	}
-	if got := session.CurrentRoutes[0].OrgVehicleID; got != van.ID {
+	if got := session.Routes[0].OrgVehicleID; got != van.ID {
 		t.Fatalf("session route organization vehicle ID = %d, want %d", got, van.ID)
 	}
 }

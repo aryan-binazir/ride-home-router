@@ -15,6 +15,7 @@ import (
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templates"
@@ -88,7 +89,7 @@ func New(cfg Config) (*Server, error) {
 		return config.GoogleMapsAPIKey, nil
 	})
 	router := routing.NewBalancedRouter(distanceCalc)
-	routeSession := handlers.NewRouteSessionStore()
+	routeSession := routesession.NewStore(distanceCalc)
 
 	handler := &handlers.Handler{
 		DB:           db,
