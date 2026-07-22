@@ -185,6 +185,7 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 // HandleCreateEvent handles POST /api/v1/events.
 func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
+	var formRoutesJSON string
 
 	contentType := r.Header.Get(httpx.HeaderContentType)
 	if httpx.HasFormContentType(contentType) {
@@ -197,16 +198,14 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		req.EventDate = r.FormValue("event_date")
 		req.Notes = r.FormValue("notes")
 		req.SessionID = r.FormValue("session_id")
+		formRoutesJSON = r.FormValue("routes_json")
 
-		routesJSON := r.FormValue("routes_json")
-		if routesJSON != "" {
-			var routingResult models.RoutingResult
-			if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
-				log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
-				h.handleValidationError(w, messageInvalidRoutesData)
+		if req.SessionID == "" {
+			routes, ok := h.parsePostedRoutesJSON(w, formRoutesJSON)
+			if !ok {
 				return
 			}
-			req.Routes = &routingResult
+			req.Routes = routes
 		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -221,23 +220,40 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageEventDateRequired)
 		return
 	}
-	if req.Routes == nil {
-		log.Printf("[HTTP] POST /api/v1/events: missing routes")
-		h.handleValidationError(w, messageRoutesRequired)
-		return
-	}
 	if req.SessionID != "" {
 		session := h.RouteSession.Get(req.SessionID)
-		if session != nil {
+		if session == nil {
+			if req.Routes == nil && formRoutesJSON != "" {
+				routes, ok := h.parsePostedRoutesJSON(w, formRoutesJSON)
+				if !ok {
+					return
+				}
+				req.Routes = routes
+			}
+			if req.Routes == nil {
+				log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", req.SessionID)
+				h.handleNotFound(w, messageSessionNotFound)
+				return
+			}
+			log.Printf("[HTTP] POST /api/v1/events: session_not_found using posted routes fallback session_id=%s", req.SessionID)
+		} else {
 			session.mu.Lock()
 			_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
-			session.mu.Unlock()
 			if isOutOfBalance {
+				session.mu.Unlock()
 				log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
 				h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
 				return
 			}
+			summary := h.calculateSummary(session.CurrentRoutes)
+			routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
+			session.mu.Unlock()
+			req.Routes = &routes
 		}
+	} else if req.Routes == nil {
+		log.Printf("[HTTP] POST /api/v1/events: missing routes")
+		h.handleValidationError(w, messageRoutesRequired)
+		return
 	}
 
 	eventDate, err := time.Parse("2006-01-02", req.EventDate)
@@ -283,6 +299,19 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, event)
 }
 
+func (h *Handler) parsePostedRoutesJSON(w http.ResponseWriter, routesJSON string) (*models.RoutingResult, bool) {
+	if routesJSON == "" {
+		return nil, true
+	}
+	var routingResult models.RoutingResult
+	if err := json.Unmarshal([]byte(routesJSON), &routingResult); err != nil {
+		log.Printf("[HTTP] POST /api/v1/events: invalid_routes_json err=%v", err)
+		h.handleValidationError(w, messageInvalidRoutesData)
+		return nil, false
+	}
+	return &routingResult, true
+}
+
 // HandleDeleteEvent handles DELETE /api/v1/events/{id}.
 func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
@@ -315,7 +344,6 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 				limit = l
 			}
 		}
-
 		view, err := h.buildEventListView(r.Context(), limit, 0)
 		if err != nil {
 			h.renderError(w, r, err)

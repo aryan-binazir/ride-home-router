@@ -60,16 +60,9 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}
 	}
 
-	// Prewarm distance cache
+	// Prewarm distance cache with only the directed pairs needed for this solve.
 	prewarmStart := time.Now()
-	allPoints := []models.Coordinates{req.InstituteCoords}
-	for _, p := range req.Participants {
-		allPoints = append(allPoints, p.GetCoords())
-	}
-	for _, d := range req.Drivers {
-		allPoints = append(allPoints, d.GetCoords())
-	}
-	if err := r.distanceCalc.PrewarmCache(ctx, allPoints); err != nil {
+	if err := prewarmRoutingDistances(ctx, r.distanceCalc, req, rc.mode); err != nil {
 		return nil, err
 	}
 	log.Printf("[TIMING] Prewarm cache: %v", time.Since(prewarmStart))
@@ -390,6 +383,7 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 			id       int64
 			duration float64
 		}
+		routeDurationsByDriverID := make(map[int64]float64, len(driverIDs))
 		routesByDuration := make([]routeDuration, 0, len(driverIDs))
 		for _, id := range driverIDs {
 			route := routes[id]
@@ -397,6 +391,7 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 			if err != nil {
 				return iteration
 			}
+			routeDurationsByDriverID[id] = duration
 			routesByDuration = append(routesByDuration, routeDuration{id, duration})
 		}
 		sort.Slice(routesByDuration, func(i, j int) bool {
@@ -454,33 +449,24 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 					}
 
 					for _, destPos := range boundaryPositionsByDriver[destID] {
-						// Simulate the move
 						newSrcStops := removeRange(srcRoute.stops, srcPos, srcPos+groupSize)
 						newDestStops := insertGroupAt(destRoute.stops, group, destPos)
 						newSrcStops = coalesceHouseholdStops(newSrcStops)
 						newDestStops = coalesceHouseholdStops(newDestStops)
 
-						oldSrcStops := srcRoute.stops
-						oldDestStops := destRoute.stops
-						srcRoute.stops = newSrcStops
-						destRoute.stops = newDestStops
-
-						// Calculate new max duration
-						newMaxDuration := 0.0
-						for _, id := range driverIDs {
-							duration, err := r.calculateRouteDuration(ctx, rc, routes[id])
-							if err != nil {
-								newMaxDuration = currentMaxDuration
-								break
-							}
-							if duration > newMaxDuration {
-								newMaxDuration = duration
-							}
+						newSrcDuration, err := r.calculateDurationFromStops(ctx, rc, srcRoute.driver, newSrcStops)
+						if err != nil {
+							continue
 						}
-
-						// Restore
-						srcRoute.stops = oldSrcStops
-						destRoute.stops = oldDestStops
+						newDestDuration, err := r.calculateDurationFromStops(ctx, rc, destRoute.driver, newDestStops)
+						if err != nil {
+							continue
+						}
+						newMaxDuration := max(
+							newSrcDuration,
+							newDestDuration,
+							maxCachedRouteDuration(routeDurationsByDriverID, driverIDs, rd.id, destID),
+						)
 
 						// Accept if it reduces the maximum
 						if newMaxDuration < bestMove.newMaxDuration-10 { // 10 second threshold
@@ -519,6 +505,8 @@ func (r *BalancedRouter) minMaxOptimize(ctx context.Context, rc routeContext, ro
 				if err := r.updateRouteDuration(ctx, rc, destRoute); err != nil {
 					return iteration
 				}
+				routeDurationsByDriverID[srcRoute.driver.ID] = srcRoute.totalDuration
+				routeDurationsByDriverID[destRoute.driver.ID] = destRoute.totalDuration
 
 				memberNames := make([]string, len(bestMove.group.members))
 				for i, member := range bestMove.group.members {
@@ -553,6 +541,31 @@ func (r *BalancedRouter) calculateRouteDuration(ctx context.Context, rc routeCon
 		return 0, nil
 	}
 	return rc.routeDuration(ctx, route.driver, route.stops)
+}
+
+func (r *BalancedRouter) calculateDurationFromStops(ctx context.Context, rc routeContext, driver *models.Driver, stops []*models.Participant) (float64, error) {
+	if len(stops) == 0 {
+		return 0, nil
+	}
+	return rc.routeDuration(ctx, driver, stops)
+}
+
+func maxCachedRouteDuration(cached map[int64]float64, driverIDs []int64, exclude ...int64) float64 {
+	excludeSet := make(map[int64]struct{}, len(exclude))
+	for _, id := range exclude {
+		excludeSet[id] = struct{}{}
+	}
+
+	maxDuration := 0.0
+	for _, id := range driverIDs {
+		if _, skip := excludeSet[id]; skip {
+			continue
+		}
+		if duration := cached[id]; duration > maxDuration {
+			maxDuration = duration
+		}
+	}
+	return maxDuration
 }
 
 func (r *BalancedRouter) calculateRouteDurations(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) ([]float64, error) {

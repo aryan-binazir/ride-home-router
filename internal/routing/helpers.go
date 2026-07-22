@@ -17,7 +17,7 @@ func reverse(stops []*models.Participant, i, j int) {
 	}
 }
 
-func reverseGroups(groups []*participantGroup, i, j int) {
+func reverseParticipantGroups(groups []*participantGroup, i, j int) {
 	for i < j {
 		groups[i], groups[j] = groups[j], groups[i]
 		i++
