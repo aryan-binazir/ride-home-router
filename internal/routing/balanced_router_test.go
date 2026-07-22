@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+type countingSolveDistanceCalculator struct {
+	stableDistanceCalculator
+	calls map[string]int
+}
+
+func (c *countingSolveDistanceCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	if c.calls == nil {
+		c.calls = make(map[string]int)
+	}
+	c.calls[distance.PairCacheKey(origin, dest)]++
+	return c.stableDistanceCalculator.GetDistance(ctx, origin, dest)
+}
+
 func TestGroupParticipantsByAddress(t *testing.T) {
 	participants := []*models.Participant{
 		// Household 1: Alice and Bob at the same address
@@ -314,6 +327,276 @@ func TestBalancedRouter_OversizedHouseholdMaySplitOnlyWhenNoVehicleFits(t *testi
 	}
 }
 
+func TestBalancedRouter_SwapsFullRoutesToMinimizeLatestDropoff(t *testing.T) {
+	router := NewBalancedRouter(stableDistanceCalculator{})
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "Near Positive", Lat: 1, Lng: 0},
+			{ID: 2, Name: "Far Positive", Lat: 2, Lng: 0},
+			{ID: 3, Name: "Near Negative", Lat: -10, Lng: 0},
+			{ID: 4, Name: "Far Negative", Lat: -11, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Positive Driver", Lat: 12, Lng: 0, VehicleCapacity: 2},
+			{ID: 2, Name: "Negative Driver", Lat: -12, Lng: 0, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	wantParticipantIDs := map[int64]map[int64]bool{
+		1: {1: true, 2: true},
+		2: {3: true, 4: true},
+	}
+	seenParticipants := make(map[int64]bool)
+	latestDropoff := 0.0
+	householdDriver := make(map[string]int64)
+	for _, route := range result.Routes {
+		if len(route.Stops) > route.Driver.VehicleCapacity {
+			t.Fatalf("driver %d has %d stops over capacity %d", route.Driver.ID, len(route.Stops), route.Driver.VehicleCapacity)
+		}
+		for _, stop := range route.Stops {
+			if !wantParticipantIDs[route.Driver.ID][stop.Participant.ID] {
+				t.Fatalf("participant %d assigned to driver %d, want geographic partition", stop.Participant.ID, route.Driver.ID)
+			}
+			if seenParticipants[stop.Participant.ID] {
+				t.Fatalf("participant %d assigned more than once", stop.Participant.ID)
+			}
+			seenParticipants[stop.Participant.ID] = true
+			key := householdKey(stop.Participant)
+			if driverID, ok := householdDriver[key]; ok && driverID != route.Driver.ID {
+				t.Fatalf("household %s split across drivers %d and %d", key, driverID, route.Driver.ID)
+			}
+			householdDriver[key] = route.Driver.ID
+			latestDropoff = max(latestDropoff, stop.CumulativeDurationSecs)
+		}
+	}
+
+	if len(seenParticipants) != 4 {
+		t.Fatalf("assigned participant count = %d, want 4", len(seenParticipants))
+	}
+	if latestDropoff > 11000 {
+		t.Fatalf("latest dropoff = %.0f, want at most 11000", latestDropoff)
+	}
+}
+
+func TestBalancedRouter_MemoizesDistancePairsForOneSolve(t *testing.T) {
+	calc := &countingSolveDistanceCalculator{}
+	router := NewBalancedRouter(calc)
+
+	_, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "P1", Lat: 1, Lng: 0},
+			{ID: 2, Name: "P2", Lat: 2, Lng: 0},
+			{ID: 3, Name: "P3", Lat: -1, Lng: 0},
+			{ID: 4, Name: "P4", Lat: -2, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "D1", Lat: 3, Lng: 0, VehicleCapacity: 2},
+			{ID: 2, Name: "D2", Lat: -3, Lng: 0, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	for pair, calls := range calc.calls {
+		if calls > 1 {
+			t.Fatalf("distance pair %s loaded %d times in one solve, want at most once", pair, calls)
+		}
+	}
+}
+
+func TestBalancedRouter_OrdersRoutesAgainstTheFullSolutionObjective(t *testing.T) {
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	first := models.Coordinates{Lat: 1, Lng: 0}
+	peerFirst := models.Coordinates{Lat: 2, Lng: 0}
+	second := models.Coordinates{Lat: 3, Lng: 0}
+	peerSecond := models.Coordinates{Lat: 4, Lng: 0}
+	firstDriverHome := models.Coordinates{Lat: 5, Lng: 0}
+	peerDriverHome := models.Coordinates{Lat: 6, Lng: 0}
+	distances := newOverrideDistanceAdapter(1000)
+
+	distances.setDuration(activity, first, 1)
+	distances.setDuration(activity, peerFirst, 2)
+	distances.setDuration(activity, second, 3)
+	distances.setDuration(activity, peerSecond, 4)
+	distances.setDuration(first, second, 1)
+	distances.setDuration(second, first, 1)
+	distances.setDuration(second, firstDriverHome, 200)
+	distances.setDuration(first, firstDriverHome, 1)
+	distances.setDuration(activity, firstDriverHome, 2)
+	distances.setDuration(peerFirst, peerSecond, 10)
+	distances.setDuration(peerSecond, peerFirst, 100)
+	distances.setDuration(peerSecond, peerDriverHome, 1)
+	distances.setDuration(activity, peerDriverHome, 13)
+
+	router := NewBalancedRouter(distances)
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: activity,
+		Participants: []models.Participant{
+			{ID: 1, Name: "First", Lat: first.Lat, Lng: first.Lng},
+			{ID: 2, Name: "Peer First", Lat: peerFirst.Lat, Lng: peerFirst.Lng},
+			{ID: 3, Name: "Second", Lat: second.Lat, Lng: second.Lng},
+			{ID: 4, Name: "Peer Second", Lat: peerSecond.Lat, Lng: peerSecond.Lng},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "First Driver", Lat: firstDriverHome.Lat, Lng: firstDriverHome.Lng, VehicleCapacity: 2},
+			{ID: 2, Name: "Peer Driver", Lat: peerDriverHome.Lat, Lng: peerDriverHome.Lng, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	var firstRoute *models.CalculatedRoute
+	latestDropoff := 0.0
+	for i := range result.Routes {
+		route := &result.Routes[i]
+		for _, stop := range route.Stops {
+			latestDropoff = max(latestDropoff, stop.CumulativeDurationSecs)
+		}
+		if route.Driver.ID == 1 {
+			firstRoute = route
+		}
+	}
+	if firstRoute == nil {
+		t.Fatal("first driver route is missing")
+	}
+	if firstRoute.Stops[0].Participant.ID != 3 {
+		t.Fatalf("first driver starts with participant %d, want 3 to reduce the global detour tie-breaker", firstRoute.Stops[0].Participant.ID)
+	}
+	if firstRoute.DetourSecs != 3 {
+		t.Fatalf("first driver detour = %.0f, want 3", firstRoute.DetourSecs)
+	}
+	if latestDropoff != 12 {
+		t.Fatalf("latest dropoff = %.0f, want peer-route maximum 12", latestDropoff)
+	}
+}
+
+func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *testing.T) {
+	ctx := context.Background()
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	x1 := &models.Participant{ID: 1, Name: "X1", Lat: 1, Lng: 0}
+	y1 := &models.Participant{ID: 2, Name: "Y1", Lat: 2, Lng: 0}
+	x2 := &models.Participant{ID: 3, Name: "X2", Lat: 3, Lng: 0}
+	y2 := &models.Participant{ID: 4, Name: "Y2", Lat: 4, Lng: 0}
+	c1 := &models.Participant{ID: 5, Name: "C1", Lat: 5, Lng: 0}
+	c2 := &models.Participant{ID: 6, Name: "C2", Lat: 6, Lng: 0}
+	driver1 := &models.Driver{ID: 1, Name: "Driver 1", Lat: 11, Lng: 0, VehicleCapacity: 2}
+	driver2 := &models.Driver{ID: 2, Name: "Driver 2", Lat: 12, Lng: 0, VehicleCapacity: 2}
+	driver3 := &models.Driver{ID: 3, Name: "Driver 3", Lat: 13, Lng: 0, VehicleCapacity: 2}
+
+	distances := newOverrideDistanceAdapter(1000)
+	for _, participant := range []*models.Participant{x1, y1, x2, y2, c1, c2} {
+		distances.setDuration(activity, participant.GetCoords(), 10)
+	}
+	distances.setDuration(x1.GetCoords(), y1.GetCoords(), 90)
+	distances.setDuration(y1.GetCoords(), x1.GetCoords(), 90)
+	distances.setDuration(x2.GetCoords(), y2.GetCoords(), 90)
+	distances.setDuration(y2.GetCoords(), x2.GetCoords(), 90)
+	distances.setDuration(x1.GetCoords(), x2.GetCoords(), 10)
+	distances.setDuration(x2.GetCoords(), x1.GetCoords(), 10)
+	distances.setDuration(y1.GetCoords(), y2.GetCoords(), 10)
+	distances.setDuration(y2.GetCoords(), y1.GetCoords(), 10)
+	distances.setDuration(c1.GetCoords(), c2.GetCoords(), 30)
+	distances.setDuration(c2.GetCoords(), c1.GetCoords(), 20)
+
+	for _, driver := range []*models.Driver{driver1, driver2} {
+		distances.setDuration(activity, driver.GetCoords(), 100)
+		for _, participant := range []*models.Participant{x1, y1, x2, y2} {
+			distances.setDuration(participant.GetCoords(), driver.GetCoords(), 80)
+		}
+	}
+	distances.setDuration(activity, driver3.GetCoords(), 40)
+	distances.setDuration(c2.GetCoords(), driver3.GetCoords(), 0)
+	distances.setDuration(c1.GetCoords(), driver3.GetCoords(), 100)
+
+	router := &BalancedRouter{distanceCalc: distances}
+	routes := map[int64]*balancedRoute{
+		driver1.ID: {driver: driver1, stops: []*models.Participant{x1, y1}},
+		driver2.ID: {driver: driver2, stops: []*models.Participant{x2, y2}},
+		driver3.ID: {driver: driver3, stops: []*models.Participant{c1, c2}},
+	}
+	driverIDs := []int64{driver1.ID, driver2.ID, driver3.ID}
+	rc := newRouteContext(distances, activity, RouteModeDropoff)
+
+	if err := router.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+		t.Fatalf("optimizeRouteOrders() error = %v", err)
+	}
+	if routes[driver3.ID].stops[0].ID != c1.ID {
+		t.Fatalf("peer route changed before the global maximum dropped")
+	}
+
+	if _, err := router.optimizeAssignments(ctx, rc, routes, driverIDs); err != nil {
+		t.Fatalf("optimizeAssignments() error = %v", err)
+	}
+	if routes[driver3.ID].stops[0].ID != c2.ID {
+		t.Fatalf("peer route starts with participant %d, want %d after the assignment lowered the global maximum", routes[driver3.ID].stops[0].ID, c2.ID)
+	}
+}
+
+func TestBalancedRouter_CanLeaveASelectedDriverUnusedForAHigherPriorityObjective(t *testing.T) {
+	router := NewBalancedRouter(stableDistanceCalculator{})
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "First", Lat: 1, Lng: 0},
+			{ID: 2, Name: "Second", Lat: 2, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Nearby Driver", Lat: 2, Lng: 0, VehicleCapacity: 2},
+			{ID: 2, Name: "Opposite Driver", Lat: -100, Lng: 0, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if result.Summary.TotalDriversUsed != 1 {
+		t.Fatalf("drivers used = %d, want 1 because an empty route removes the higher-priority detour", result.Summary.TotalDriversUsed)
+	}
+	if len(result.Routes) != 1 || result.Routes[0].Driver.ID != 1 {
+		t.Fatalf("routes = %+v, want only nearby driver 1", result.Routes)
+	}
+	if len(result.Routes[0].Stops) != 2 {
+		t.Fatalf("nearby driver stops = %d, want 2", len(result.Routes[0].Stops))
+	}
+}
+
+func TestBalancedRouter_PrefersUsingMoreDriversOnlyAfterObjectiveTies(t *testing.T) {
+	router := NewBalancedRouter(newOverrideDistanceAdapter(0))
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 1, Name: "First", Lat: 1, Lng: 0},
+			{ID: 2, Name: "Second", Lat: 2, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "First Driver", Lat: 10, Lng: 0, VehicleCapacity: 2},
+			{ID: 2, Name: "Second Driver", Lat: 20, Lng: 0, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if result.Summary.TotalDriversUsed != 2 {
+		t.Fatalf("drivers used = %d, want 2 when every higher-priority objective ties", result.Summary.TotalDriversUsed)
+	}
+}
+
 func TestInsertGroupAt(t *testing.T) {
 	existing := []*models.Participant{
 		{ID: 1, Name: "Alice"},
@@ -453,37 +736,6 @@ func (a *overrideDistanceAdapter) PrewarmCache(ctx context.Context, points []mod
 	return nil
 }
 
-type trackingDistanceAdapter struct {
-	*overrideDistanceAdapter
-	tracked      map[string]struct{}
-	trackedCalls int
-	trackedEdges []string
-}
-
-func newTrackingDistanceAdapter(defaultDuration float64) *trackingDistanceAdapter {
-	return &trackingDistanceAdapter{
-		overrideDistanceAdapter: newOverrideDistanceAdapter(defaultDuration),
-		tracked:                 make(map[string]struct{}),
-	}
-}
-
-func (a *trackingDistanceAdapter) track(coord models.Coordinates) {
-	a.tracked[coordinateKey(models.RoundCoordinate(coord.Lat), models.RoundCoordinate(coord.Lng))] = struct{}{}
-}
-
-func (a *trackingDistanceAdapter) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
-	if a.isTracked(origin) || a.isTracked(dest) {
-		a.trackedCalls++
-		a.trackedEdges = append(a.trackedEdges, distance.PairCacheKey(origin, dest))
-	}
-	return a.overrideDistanceAdapter.GetDistance(ctx, origin, dest)
-}
-
-func (a *trackingDistanceAdapter) isTracked(coord models.Coordinates) bool {
-	_, ok := a.tracked[coordinateKey(models.RoundCoordinate(coord.Lat), models.RoundCoordinate(coord.Lng))]
-	return ok
-}
-
 func TestRoundRobinInsertion_KeepsPickupHouseholdsIntact(t *testing.T) {
 	driverHome := models.Coordinates{Lat: 10, Lng: 10}
 	activity := models.Coordinates{Lat: 0, Lng: 0}
@@ -581,166 +833,6 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 	}
 
 	t.Fatalf("single-participant fallback split existing household: got order %q, %q, %q", stops[0].Name, stops[1].Name, stops[2].Name)
-}
-
-func TestOptimizeAllRoutes_CoalescesHouseholdsForBothModes(t *testing.T) {
-	for _, mode := range []RouteMode{RouteModeDropoff, RouteModePickup} {
-		t.Run(string(mode), func(t *testing.T) {
-			distances := newOverrideDistanceAdapter(10)
-			router := &BalancedRouter{distanceCalc: distances}
-			driver := &models.Driver{ID: 1, Name: "Driver", Lat: 9, Lng: 9, VehicleCapacity: 4}
-			sharedLat, sharedLng := 1.0, 1.0
-			otherLat, otherLng := 2.0, 2.0
-			routes := map[int64]*balancedRoute{
-				driver.ID: {
-					driver: driver,
-					stops: []*models.Participant{
-						{ID: 1, Name: "Sibling A", Lat: sharedLat, Lng: sharedLng},
-						{ID: 2, Name: "Other", Lat: otherLat, Lng: otherLng},
-						{ID: 3, Name: "Sibling B", Lat: sharedLat, Lng: sharedLng},
-					},
-				},
-			}
-
-			if err := router.optimizeAllRoutes(context.Background(), newRouteContext(distances, models.Coordinates{Lat: 0, Lng: 0}, mode), routes); err != nil {
-				t.Fatalf("optimizeAllRoutes() error = %v", err)
-			}
-
-			stops := routes[driver.ID].stops
-			if len(stops) != 3 {
-				t.Fatalf("optimized stop count = %d, want 3", len(stops))
-			}
-			if !hasAdjacentHouseholdPair(stops) {
-				t.Fatalf("%s optimization left household split: got order %q, %q, %q", mode, stops[0].Name, stops[1].Name, stops[2].Name)
-			}
-		})
-	}
-}
-
-func TestOptimizeAllRoutes_FinalOrderingMinimizesTotalDriveTime(t *testing.T) {
-	distances := stableDistanceCalculator{}
-	router := &BalancedRouter{distanceCalc: distances}
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2}
-	rc := newRouteContext(distances, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	routes := map[int64]*balancedRoute{
-		driver.ID: {
-			driver: driver,
-			stops: []*models.Participant{
-				{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0},
-				{ID: 2, Name: "Origin Detour", Lat: 1, Lng: 100},
-			},
-		},
-	}
-
-	before, err := rc.totalDriveDuration(context.Background(), driver, routes[driver.ID].stops)
-	if err != nil {
-		t.Fatalf("before duration error = %v", err)
-	}
-	if err := router.optimizeAllRoutes(context.Background(), rc, routes); err != nil {
-		t.Fatalf("optimizeAllRoutes() error = %v", err)
-	}
-	after, err := rc.totalDriveDuration(context.Background(), driver, routes[driver.ID].stops)
-	if err != nil {
-		t.Fatalf("after duration error = %v", err)
-	}
-
-	if after >= before {
-		t.Fatalf("duration after optimize = %.0f, want less than before %.0f", after, before)
-	}
-	if routes[driver.ID].stops[0].Name != "Origin Detour" {
-		t.Fatalf("first stop = %q, want Origin Detour", routes[driver.ID].stops[0].Name)
-	}
-}
-
-func TestMaxCachedRouteDuration_ExcludesProvidedDrivers(t *testing.T) {
-	cached := map[int64]float64{
-		1: 100,
-		2: 500,
-		3: 300,
-	}
-	driverIDs := []int64{1, 2, 3}
-
-	got := maxCachedRouteDuration(cached, driverIDs, 2, 3)
-	if got != 100 {
-		t.Fatalf("maxCachedRouteDuration() = %.0f, want 100", got)
-	}
-}
-
-func TestMinMaxOptimizeDoesNotRecalculateUnaffectedRoutesForCandidates(t *testing.T) {
-	distances := newTrackingDistanceAdapter(100)
-	router := &BalancedRouter{distanceCalc: distances}
-	rc := newRouteContext(distances, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-
-	sourceDriver := &models.Driver{ID: 1, Name: "Source", Lat: 50, Lng: 0, VehicleCapacity: 6}
-	destDriver := &models.Driver{ID: 2, Name: "Dest", Lat: 60, Lng: 0, VehicleCapacity: 6}
-	unaffectedDriverA := &models.Driver{ID: 3, Name: "Unaffected A", Lat: 70, Lng: 0, VehicleCapacity: 1}
-	unaffectedDriverB := &models.Driver{ID: 4, Name: "Unaffected B", Lat: 80, Lng: 0, VehicleCapacity: 1}
-	destStop := &models.Participant{ID: 20, Name: "Dest Stop", Lat: 20, Lng: 0}
-	unaffectedStopA := &models.Participant{ID: 30, Name: "Unaffected Stop A", Lat: 30, Lng: 0}
-	unaffectedStopB := &models.Participant{ID: 40, Name: "Unaffected Stop B", Lat: 40, Lng: 0}
-	sourceStops := []*models.Participant{
-		{ID: 10, Name: "Source 1", Lat: 10, Lng: 0},
-		{ID: 11, Name: "Source 2", Lat: 11, Lng: 0},
-		{ID: 12, Name: "Source 3", Lat: 12, Lng: 0},
-		{ID: 13, Name: "Source 4", Lat: 13, Lng: 0},
-	}
-	for _, stop := range sourceStops {
-		distances.setDuration(stop.GetCoords(), destStop.GetCoords(), 1000)
-		distances.setDuration(destStop.GetCoords(), stop.GetCoords(), 1000)
-		distances.setDuration(stop.GetCoords(), destDriver.GetCoords(), 1000)
-	}
-	distances.track(unaffectedDriverA.GetCoords())
-	distances.track(unaffectedStopA.GetCoords())
-	distances.track(unaffectedDriverB.GetCoords())
-	distances.track(unaffectedStopB.GetCoords())
-
-	routes := map[int64]*balancedRoute{
-		sourceDriver.ID: {
-			driver: sourceDriver,
-			stops:  sourceStops,
-		},
-		destDriver.ID: {
-			driver: destDriver,
-			stops:  []*models.Participant{destStop},
-		},
-		unaffectedDriverA.ID: {
-			driver: unaffectedDriverA,
-			stops:  []*models.Participant{unaffectedStopA},
-		},
-		unaffectedDriverB.ID: {
-			driver: unaffectedDriverB,
-			stops:  []*models.Participant{unaffectedStopB},
-		},
-	}
-
-	iterations := router.minMaxOptimize(context.Background(), rc, routes, []int64{
-		sourceDriver.ID,
-		destDriver.ID,
-		unaffectedDriverA.ID,
-		unaffectedDriverB.ID,
-	})
-
-	if iterations != 1 {
-		t.Fatalf("minMaxOptimize() iterations = %d, want exactly one no-move pass", iterations)
-	}
-	if distances.trackedCalls != 6 {
-		t.Fatalf("unaffected route distance calls = %d, want only initial route-duration calls (6): %v", distances.trackedCalls, distances.trackedEdges)
-	}
-}
-
-func TestShouldRunMinMaxOptimizeUsesGuardrailThresholds(t *testing.T) {
-	if shouldRunMinMaxOptimize([]float64{600, 600, 900}) {
-		t.Fatal("should not run min-max below relative and absolute thresholds")
-	}
-	if !shouldRunMinMaxOptimize([]float64{600, 600, 1000}) {
-		t.Fatal("should run min-max above relative threshold")
-	}
-	if !shouldRunMinMaxOptimize([]float64{100, 3700}) {
-		t.Fatal("should run min-max above absolute threshold")
-	}
-	if !shouldRunMinMaxOptimize([]float64{3700, 0}) {
-		t.Fatal("should run min-max above absolute threshold with a single non-empty route")
-	}
 }
 
 func hasAdjacentHouseholdPair(stops []*models.Participant) bool {

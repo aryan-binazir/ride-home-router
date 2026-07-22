@@ -135,6 +135,55 @@ func TestApplyMovesRequiresClaimedSourceOnlyWhenRequested(t *testing.T) {
 	}
 }
 
+func TestApplyMovesOptimizesDestinationRouteForParticipantCompletion(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{
+			{
+				Driver:            &models.Driver{ID: 1, Name: "From", Lat: 10, Lng: 0, VehicleCapacity: 2},
+				EffectiveCapacity: 2,
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 2, Name: "Origin Detour", Lat: 1, Lng: 100}},
+				},
+			},
+			{
+				Driver:            &models.Driver{ID: 2, Name: "To", Lat: 10, Lng: 0, VehicleCapacity: 3},
+				EffectiveCapacity: 3,
+				Stops: []models.RouteStop{
+					{Participant: &models.Participant{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0}},
+				},
+			},
+		},
+		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Lat: 0, Lng: 0},
+		RouteTime:        "18:30",
+		Mode:             models.RouteModeDropoff,
+	})
+
+	updated, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
+		ParticipantID:    2,
+		ToRouteIndex:     1,
+		InsertAtPosition: -1,
+	}}, routesession.ApplyMovesOptions{})
+	if err != nil {
+		t.Fatalf("ApplyMoves() error = %v", err)
+	}
+
+	destination := updated.Routes[1]
+	if len(destination.Stops) != 2 {
+		t.Fatalf("destination stops = %d, want 2", len(destination.Stops))
+	}
+	if destination.Stops[0].Participant.Name != "Destination Side" {
+		t.Fatalf("first destination stop = %q, want Destination Side", destination.Stops[0].Participant.Name)
+	}
+	if destination.Stops[0].Order != 0 || destination.Stops[1].Order != 1 {
+		t.Fatalf("destination orders = [%d %d], want [0 1]", destination.Stops[0].Order, destination.Stops[1].Order)
+	}
+	if destination.RouteDurationSecs == 0 {
+		t.Fatal("destination route metrics were not refreshed")
+	}
+}
+
 func TestApplyMovesRollsBackWholeBatchOnValidationFailure(t *testing.T) {
 	store := routesession.NewStore(calculator{})
 	t.Cleanup(store.Close)

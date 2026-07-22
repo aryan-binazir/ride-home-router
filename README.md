@@ -180,15 +180,15 @@ The key is stored in `~/.ride-home-router/config.json` as `google_maps_api_key`.
 
 ### How the Algorithm Works
 
-**Goal:** Get all participants home as fast as possible—minimize the time until the last person is dropped off.
+**Goal:** Minimize when the last participant reaches their destination. For dropoffs, that excludes the driver's final trip home; for pickups, it includes the final trip to the activity.
 
 The router uses a three-phase optimization approach:
 
-1. **Round-Robin Assignment**: Distributes participants evenly across all drivers. Participants from the same address are grouped together and assigned as a unit, keeping households in the same vehicle when possible.
-2. **2-Opt Local Optimization**: Refines each driver's route by iteratively swapping edge pairs to find faster paths.
-3. **Min-Max Balancing**: Moves participants from the longest route to shorter routes, reducing the maximum route time until no improvement is possible.
+1. **Feasible Seed Assignment**: Builds a deterministic round-robin assignment. Participants from the same address stay in one vehicle unless the household is larger than every selected vehicle.
+2. **Context-Aware Route Ordering**: Applies household-block reversals and accepts an order only when it improves the complete solution.
+3. **Assignment Search**: Repeatedly evaluates whole-household relocations and pairwise swaps, including swaps between full vehicles. Routes may become empty when that improves a higher-priority objective.
 
-This is a heuristic solution to the Capacitated Vehicle Routing Problem (CVRP) optimized for fairness. It ensures all drivers are used and no single driver gets stuck with a much longer route than others.
+Candidates are compared lexicographically: latest participant completion, worst driver detour, aggregate participant completion, and aggregate driving time. Using more selected drivers is only a final tie preference. This is a bounded local-search heuristic for the Capacitated Vehicle Routing Problem (CVRP), so it improves practical results without claiming a globally optimal solution.
 
 ### Project Structure
 

@@ -9,14 +9,6 @@ func removeRange(stops []*models.Participant, start, end int) []*models.Particip
 	return result
 }
 
-func reverse(stops []*models.Participant, i, j int) {
-	for i < j {
-		stops[i], stops[j] = stops[j], stops[i]
-		i++
-		j--
-	}
-}
-
 func reverseParticipantGroups(groups []*participantGroup, i, j int) {
 	for i < j {
 		groups[i], groups[j] = groups[j], groups[i]
