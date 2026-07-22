@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/sqlite"
 	"strings"
 	"testing"
@@ -350,8 +351,8 @@ func newTestPageHandler(t *testing.T) (*Handler, *sqlite.Store) {
 
 	handler := &Handler{
 		DB:           store,
-		Templates:    loadEmbeddedTemplates(t),
-		RouteSession: NewRouteSessionStore(),
+		Renderer:     loadEmbeddedTemplates(t),
+		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
 	}
 
 	t.Cleanup(func() {

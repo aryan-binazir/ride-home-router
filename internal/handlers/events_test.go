@@ -12,11 +12,14 @@ import (
 	"net/url"
 	"path/filepath"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/sqlite"
+	"ride-home-router/internal/templates"
 	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -68,8 +71,8 @@ func TestHandleCreateEvent_MissingRoutesReturnsBadRequest(t *testing.T) {
 func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(
-		[]models.CalculatedRoute{
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{
 			{
 				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
 				EffectiveCapacity:   2,
@@ -78,13 +81,11 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 				Mode:                "dropoff",
 			},
 		},
-		[]models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
-		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
-		false,
-		"18:30",
-		"dropoff",
-		nil,
-	)
+		SelectedDrivers:  []models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
+		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		RouteTime:        "18:30",
+		Mode:             "dropoff",
+	})
 
 	form := "event_date=2026-03-14&session_id=" + session.ID
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
@@ -176,8 +177,8 @@ func TestHandleCreateEvent_ExpiredSessionFallsBackToPostedRoutesJSON(t *testing.
 func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(
-		[]models.CalculatedRoute{
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{
 			{
 				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
 				EffectiveCapacity:   2,
@@ -186,13 +187,11 @@ func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) 
 				Mode:                "dropoff",
 			},
 		},
-		[]models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
-		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
-		false,
-		"18:30",
-		"dropoff",
-		nil,
-	)
+		SelectedDrivers:  []models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
+		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		RouteTime:        "18:30",
+		Mode:             "dropoff",
+	})
 
 	body := map[string]any{
 		"event_date": "2026-03-14",
@@ -248,8 +247,8 @@ func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) 
 func TestHandleCreateEvent_SessionSaveIgnoresMalformedRoutesJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(
-		[]models.CalculatedRoute{
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{
 			{
 				Driver:            &models.Driver{ID: 1, Name: "Session Driver", VehicleCapacity: 2},
 				EffectiveCapacity: 2,
@@ -257,13 +256,11 @@ func TestHandleCreateEvent_SessionSaveIgnoresMalformedRoutesJSON(t *testing.T) {
 				Mode:              "dropoff",
 			},
 		},
-		[]models.Driver{{ID: 1, Name: "Session Driver", VehicleCapacity: 2}},
-		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
-		false,
-		"18:30",
-		"dropoff",
-		nil,
-	)
+		SelectedDrivers:  []models.Driver{{ID: 1, Name: "Session Driver", VehicleCapacity: 2}},
+		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		RouteTime:        "18:30",
+		Mode:             "dropoff",
+	})
 
 	form := "event_date=2026-03-14&session_id=" + url.QueryEscape(session.ID) + "&routes_json=%7Bnot-json"
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
@@ -294,8 +291,8 @@ func TestHandleCreateEvent_SessionSaveIgnoresMalformedRoutesJSON(t *testing.T) {
 func TestHandleCreateEvent_OutOfBalanceSessionReturnsBadRequest(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(
-		[]models.CalculatedRoute{
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{
 			{
 				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 1},
 				EffectiveCapacity:   1,
@@ -303,16 +300,14 @@ func TestHandleCreateEvent_OutOfBalanceSessionReturnsBadRequest(t *testing.T) {
 				TotalDistanceMeters: 5000,
 			},
 		},
-		[]models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 1}},
-		&models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
-		false,
-		"18:30",
-		"dropoff",
-		nil,
-	)
+		SelectedDrivers:  []models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 1}},
+		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
+		RouteTime:        "18:30",
+		Mode:             "dropoff",
+	})
 
 	routingPayload := models.RoutingResult{
-		Routes: session.CurrentRoutes,
+		Routes: session.Routes,
 		Summary: models.RoutingSummary{
 			TotalParticipants:   2,
 			TotalDriversUsed:    1,
@@ -671,8 +666,8 @@ func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlit
 
 	handler := &Handler{
 		DB:           store,
-		Templates:    newTestTemplates(t),
-		RouteSession: NewRouteSessionStore(),
+		Renderer:     newTestTemplates(t),
+		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
 	}
 
 	t.Cleanup(func() {
@@ -685,18 +680,26 @@ func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlit
 	return handler, store
 }
 
-func newTestTemplates(t *testing.T) *TemplateSet {
+func newTestTemplates(t *testing.T) *templates.Renderer {
 	t.Helper()
 
-	base, err := template.New("test").Parse(testEventTemplates)
+	templatesFS := fstest.MapFS{
+		"templates/layout.html":             {Data: []byte(`{{template "content" .}}`)},
+		"templates/partials/events.html":    {Data: []byte(testEventTemplates)},
+		"templates/index.html":              {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/participants.html":       {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/drivers.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/labels.html":             {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/activity_locations.html": {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/vans.html":               {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/settings.html":           {Data: []byte(`{{define "content"}}test{{end}}`)},
+		"templates/history.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},
+	}
+	renderer, err := templates.New(templatesFS)
 	if err != nil {
-		t.Fatalf("parse test templates: %v", err)
+		t.Fatalf("load test templates: %v", err)
 	}
-
-	return &TemplateSet{
-		Base:  base,
-		Pages: map[string]string{},
-	}
+	return renderer
 }
 
 func createTestEvent(t *testing.T, store *sqlite.Store, eventDate, notes string) *models.Event {

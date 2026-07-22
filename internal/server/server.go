@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io/fs"
 	"log"
 	"net"
@@ -16,9 +15,10 @@ import (
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/sqlite"
-	"ride-home-router/internal/templateutil"
+	"ride-home-router/internal/templates"
 	"ride-home-router/web"
 	"strings"
 	"time"
@@ -74,7 +74,7 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	log.Printf("Loading templates...")
-	templates, err := loadTemplates(web.Templates)
+	renderer, err := templates.New(web.Templates)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to load templates: %w", err)
@@ -89,14 +89,14 @@ func New(cfg Config) (*Server, error) {
 		return config.GoogleMapsAPIKey, nil
 	})
 	router := routing.NewBalancedRouter(distanceCalc)
-	routeSession := handlers.NewRouteSessionStore()
+	routeSession := routesession.NewStore(distanceCalc)
 
 	handler := &handlers.Handler{
 		DB:           db,
 		Geocoder:     geocoder,
 		DistanceCalc: distanceCalc,
 		Router:       router,
-		Templates:    templates,
+		Renderer:     renderer,
 		RouteSession: routeSession,
 	}
 
@@ -154,58 +154,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return err
 	}
 	return s.db.Close()
-}
-
-// loadTemplates loads all templates from the embedded filesystem
-func loadTemplates(templatesFS fs.FS) (*handlers.TemplateSet, error) {
-	funcs := templateutil.FuncMap()
-	base := template.New("").Funcs(funcs)
-
-	// Load layout.html
-	layoutContent, err := fs.ReadFile(templatesFS, "templates/layout.html")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read layout: %w", err)
-	}
-	_, err = base.New("layout.html").Parse(string(layoutContent))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse layout: %w", err)
-	}
-
-	// Load partials
-	partialFiles, err := fs.Glob(templatesFS, "templates/partials/*.html")
-	if err != nil {
-		return nil, fmt.Errorf("failed to glob partials: %w", err)
-	}
-
-	for _, file := range partialFiles {
-		content, err := fs.ReadFile(templatesFS, file)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read partial %s: %w", file, err)
-		}
-		// Extract just the filename from the path
-		name := file[len("templates/partials/"):]
-		_, err = base.New(name).Parse(string(content))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse partial %s: %w", file, err)
-		}
-	}
-
-	// Load page templates as strings (don't parse into base)
-	pages := make(map[string]string)
-	pageFiles := []string{"index.html", "participants.html", "drivers.html", "labels.html", "activity_locations.html", "vans.html", "settings.html", "history.html"}
-	for _, name := range pageFiles {
-		content, err := fs.ReadFile(templatesFS, "templates/"+name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read page %s: %w", name, err)
-		}
-		pages[name] = string(content)
-	}
-
-	return &handlers.TemplateSet{
-		Base:  base,
-		Pages: pages,
-		Funcs: funcs,
-	}, nil
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {

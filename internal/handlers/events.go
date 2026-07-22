@@ -3,11 +3,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
 	"time"
@@ -221,8 +223,8 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.SessionID != "" {
-		session := h.RouteSession.Get(req.SessionID)
-		if session == nil {
+		routes, sessionErr := h.RouteSession.SaveSnapshot(req.SessionID)
+		if errors.Is(sessionErr, routesession.ErrNotFound) {
 			if req.Routes == nil && formRoutesJSON != "" {
 				routes, ok := h.parsePostedRoutesJSON(w, formRoutesJSON)
 				if !ok {
@@ -236,18 +238,14 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Printf("[HTTP] POST /api/v1/events: session_not_found using posted routes fallback session_id=%s", req.SessionID)
+		} else if errors.Is(sessionErr, routesession.ErrUnbalanced) {
+			log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
+			h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
+			return
+		} else if sessionErr != nil {
+			h.handleInternalError(w, sessionErr)
+			return
 		} else {
-			session.mu.Lock()
-			_, isOutOfBalance := calculateOverCapacity(session.CurrentRoutes)
-			if isOutOfBalance {
-				session.mu.Unlock()
-				log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
-				h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
-				return
-			}
-			summary := h.calculateSummary(session.CurrentRoutes)
-			routes := buildRoutingPayload(deepCopyRoutes(session.CurrentRoutes), summary, session.Mode)
-			session.mu.Unlock()
 			req.Routes = &routes
 		}
 	} else if req.Routes == nil {
