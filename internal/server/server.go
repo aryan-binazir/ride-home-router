@@ -147,7 +147,7 @@ func (s *Server) Start() (string, error) {
 	}
 	s.httpServer.Handler = loggingMiddleware(requestSecurityMiddleware(
 		allowlist,
-		corsMiddleware(allowlist, s.httpServer.Handler),
+		corsMiddleware(s.httpServer.Handler),
 	))
 	log.Printf("Starting server on %s", actualAddr)
 
@@ -361,13 +361,18 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 }
 
 type requestAllowlist struct {
-	port    string
-	anyHost bool
-	hosts   map[string]struct{}
-	origins map[string]struct{}
+	hosts        map[string]struct{}
+	fallbackPort string
 }
 
 func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
+	return newRequestAllowlistWithInterfaceAddrs(actualAddr, net.InterfaceAddrs)
+}
+
+func newRequestAllowlistWithInterfaceAddrs(
+	actualAddr string,
+	interfaceAddrs func() ([]net.Addr, error),
+) (requestAllowlist, error) {
 	bindHost, port, err := net.SplitHostPort(actualAddr)
 	if err != nil {
 		return requestAllowlist{}, fmt.Errorf("failed to determine listener address from %q: %w", actualAddr, err)
@@ -375,22 +380,34 @@ func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
 
 	bindHost = strings.ToLower(strings.Trim(bindHost, "[]"))
 	bindIP := net.ParseIP(bindHost)
-	// A wildcard or non-loopback bind (explicit SERVER_ALLOW_NONLOCAL opt-in)
-	// serves clients that name this machine in ways we cannot enumerate, so
-	// only the port can be matched there.
+	// A wildcard or non-loopback bind is the explicit SERVER_ALLOW_NONLOCAL
+	// opt-in. Clients must address it by interface IP; hostnames and mDNS names
+	// are intentionally rejected because this unauthenticated server cannot
+	// safely allow arbitrary Host values.
 	anyHost := bindHost == "" || (bindIP != nil && (bindIP.IsUnspecified() || !bindIP.IsLoopback()))
 
 	names := []string{"localhost", "127.0.0.1", "::1"}
-	if !anyHost && bindHost != "" {
+	fallbackPort := ""
+	if anyHost {
+		addrs, err := interfaceAddrs()
+		if err != nil {
+			log.Printf("WARNING: failed to enumerate interface addresses for request Host allowlist; falling back to port-only Host matching: %v", err)
+			fallbackPort = port
+		} else {
+			for _, addr := range addrs {
+				if ip := interfaceAddrIP(addr); ip != nil {
+					names = append(names, ip.String())
+				}
+			}
+		}
+	} else if bindHost != "" {
 		names = append(names, bindHost)
 	}
 
 	hosts := make(map[string]struct{})
-	origins := make(map[string]struct{})
 	for _, name := range names {
 		hostPort := net.JoinHostPort(name, port)
-		hosts[hostPort] = struct{}{}
-		origins["http://"+hostPort] = struct{}{}
+		hosts[strings.ToLower(hostPort)] = struct{}{}
 		// Browsers omit the port from Host and Origin only on the scheme
 		// default, so the port-less forms are valid solely on port 80.
 		if port == "80" {
@@ -398,47 +415,46 @@ func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
 			if strings.Contains(name, ":") {
 				bare = "[" + name + "]"
 			}
-			hosts[bare] = struct{}{}
-			origins["http://"+bare] = struct{}{}
+			hosts[strings.ToLower(bare)] = struct{}{}
 		}
 	}
 
-	return requestAllowlist{port: port, anyHost: anyHost, hosts: hosts, origins: origins}, nil
+	return requestAllowlist{hosts: hosts, fallbackPort: fallbackPort}, nil
 }
 
 func (a requestAllowlist) allowsHost(host string) bool {
 	host = strings.ToLower(host)
-	if a.anyHost {
-		return hostPortEquals(host, a.port)
-	}
 	_, ok := a.hosts[host]
-	return ok
-}
-
-func (a requestAllowlist) allowsOrigin(origin string) bool {
-	if origin == "" {
+	if ok {
 		return true
 	}
-	origin = strings.ToLower(origin)
-	if a.anyHost {
-		hostPort, ok := strings.CutPrefix(origin, "http://")
-		if !ok {
-			return false
-		}
-		return hostPortEquals(hostPort, a.port)
+	if a.fallbackPort == "" {
+		return false
 	}
-	_, ok := a.origins[origin]
-	return ok
+	return hostUsesPort(host, a.fallbackPort)
 }
 
-// hostPortEquals reports whether hostPort carries the given port, treating a
-// missing port as the http default of 80.
-func hostPortEquals(hostPort, port string) bool {
-	_, gotPort, err := net.SplitHostPort(hostPort)
-	if err != nil {
-		gotPort = "80"
+func interfaceAddrIP(addr net.Addr) net.IP {
+	switch addr := addr.(type) {
+	case *net.IPAddr:
+		return addr.IP
+	case *net.IPNet:
+		return addr.IP
+	default:
+		ip, _, err := net.ParseCIDR(addr.String())
+		if err != nil {
+			return nil
+		}
+		return ip
 	}
-	return gotPort == port
+}
+
+func hostUsesPort(host, port string) bool {
+	hostName, gotPort, err := net.SplitHostPort(host)
+	if err == nil {
+		return hostName != "" && gotPort == port
+	}
+	return port == "80" && host != "" && !strings.Contains(host, ":")
 }
 
 func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {
@@ -449,7 +465,7 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 		}
 
 		if isStateChangingMethod(r.Method) {
-			if !allowlist.allowsOrigin(r.Header.Get("Origin")) {
+			if !hasSameOrigin(r) {
 				http.Error(w, serverMessageForbidden, http.StatusForbidden)
 				return
 			}
@@ -481,6 +497,11 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 	})
 }
 
+func hasSameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
+}
+
 func isStateChangingMethod(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -490,11 +511,11 @@ func isStateChangingMethod(method string) bool {
 	}
 }
 
-func corsMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {
+func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		if allowlist.allowsOrigin(origin) {
+		if hasSameOrigin(r) {
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
