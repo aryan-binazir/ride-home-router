@@ -430,6 +430,11 @@ func geocodeGroups(rows []Row) []geocodeGroup {
 
 func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
 	defer s.jobs.Done()
+	defer func() {
+		state.mu.Lock()
+		state.progress.Running = false
+		state.mu.Unlock()
+	}()
 	started := time.Now()
 	failures := 0
 	for _, group := range groups {
@@ -465,9 +470,6 @@ func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
 		state.progress.Done++
 		state.mu.Unlock()
 	}
-	state.mu.Lock()
-	state.progress.Running = false
-	state.mu.Unlock()
 	log.Printf("[IMPORT] Geocoding complete: total=%d failures=%d duration=%s", len(groups), failures, time.Since(started).Round(time.Millisecond))
 }
 
@@ -512,7 +514,7 @@ func (s *Store) evictOldestLocked() bool {
 	for _, state := range s.sessions {
 		state.mu.Lock()
 		eligible := !state.deleted && state.status != StatusCommitting
-		if eligible && (oldest == nil || state.createdAt.Before(oldest.createdAt)) {
+		if eligible && (oldest == nil || state.lastAccessedAt.Before(oldest.lastAccessedAt)) {
 			if oldest != nil {
 				oldest.mu.Unlock()
 			}

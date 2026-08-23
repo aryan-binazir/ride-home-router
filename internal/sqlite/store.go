@@ -15,7 +15,7 @@ import (
 
 const (
 	DefaultDBFileName   = "data.db"
-	schemaVersion       = 5
+	schemaVersion       = 6
 	sqliteCacheSizeKB   = -64000 // 64MB cache (negative = KiB)
 	sqliteBusyTimeoutMS = 5000
 )
@@ -213,6 +213,7 @@ func (s *Store) createSchema() error {
 		driver_id INTEGER NOT NULL,
 		driver_name TEXT NOT NULL,
 		driver_address TEXT NOT NULL,
+		driver_address_name TEXT,
 		effective_capacity INTEGER NOT NULL DEFAULT 0,
 		org_vehicle_id INTEGER,
 		org_vehicle_name TEXT,
@@ -236,6 +237,7 @@ func (s *Store) createSchema() error {
 		participant_id INTEGER NOT NULL,
 		participant_name TEXT NOT NULL,
 		participant_address TEXT NOT NULL,
+		participant_address_name TEXT,
 		distance_from_prev_meters REAL NOT NULL DEFAULT 0,
 		cumulative_distance_meters REAL NOT NULL DEFAULT 0,
 		duration_from_prev_secs REAL NOT NULL DEFAULT 0,
@@ -444,6 +446,25 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 		if err := ensureColumn(tx, "drivers", "address_name", "TEXT"); err != nil {
 			return err
+		}
+	}
+
+	if fromVersion < 6 {
+		for _, migration := range []struct {
+			table, column, definition string
+		}{
+			{"event_routes", "driver_address_name", "TEXT"},
+			{"event_route_stops", "participant_address_name", "TEXT"},
+		} {
+			exists, err := tableExists(tx, migration.table)
+			if err != nil {
+				return err
+			}
+			if exists {
+				if err := ensureColumn(tx, migration.table, migration.column, migration.definition); err != nil {
+					return err
+				}
+			}
 		}
 	}
 

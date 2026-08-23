@@ -7,6 +7,27 @@ import (
 	"time"
 )
 
+const (
+	MaxAddressNameLength = 200
+	MinVehicleCapacity   = 1
+	MaxVehicleCapacity   = 50
+)
+
+// RosterKey returns the canonical exact-match key for a roster identity.
+// An empty key means either the name or address is blank.
+func RosterKey(name, address string) string {
+	name = normalizeRosterIdentity(name)
+	address = normalizeRosterIdentity(address)
+	if name == "" || address == "" {
+		return ""
+	}
+	return name + "\x00" + address
+}
+
+func normalizeRosterIdentity(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+}
+
 // Coordinates represents a geographic point
 type Coordinates struct {
 	Lat float64 `json:"lat"`

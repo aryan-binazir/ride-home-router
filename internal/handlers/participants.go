@@ -140,12 +140,12 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
-	if len([]rune(req.AddressName)) > 200 {
+	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong)
+		h.handleValidationError(w, messageAddressNameTooLong())
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
@@ -300,12 +300,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
-	if len([]rune(req.AddressName)) > 200 {
+	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong)
+		h.handleValidationError(w, messageAddressNameTooLong())
 		return
 	}
 	if shouldSetLabels {

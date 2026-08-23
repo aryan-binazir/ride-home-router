@@ -99,14 +99,34 @@ func TestValidateExistingHouseholdCoordinatesWin(t *testing.T) {
 	if !hasMessage(rows[0].Errors, "conflict with the existing") {
 		t.Fatalf("conflicting row errors = %#v", rows[0].Errors)
 	}
-	if rows[0].Lat != 40 || rows[0].Lng != -73 {
-		t.Fatalf("stored coordinates did not win: %#v", rows[0])
+	if rows[0].Lat != 41 || rows[0].Lng != -73 {
+		t.Fatalf("conflicting supplied coordinates were overwritten: %#v", rows[0])
 	}
 	if !rows[1].CoordinatesInherited || rows[1].Lat != 40 || rows[1].Lng != -73 {
 		t.Fatalf("missing row did not inherit existing coordinates: %#v", rows[1])
 	}
-	if len(rows[2].Errors) != 0 || rows[2].Lat != 40 || rows[2].Lng != -73 {
+	if len(rows[2].Errors) != 0 || rows[2].Lat != 40.0000005 || rows[2].Lng != -73 {
 		t.Fatalf("tolerance-matching row = %#v", rows[2])
+	}
+}
+
+func TestValidateAmbiguousExistingCoordinatesWarnAndDoNotInherit(t *testing.T) {
+	existing := []Existing{
+		{Name: "Existing One", Address: "1 Main St", Lat: 40, Lng: -73},
+		{Name: "Existing Two", Address: "1 MAIN ST", Lat: 41, Lng: -74},
+	}
+	grid := mustParseCSV(t, "name,address,lat,lng\nProvided,1 Main St,42,-75\nMissing,1 main st,,\n")
+	rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, existing)
+	for _, row := range rows {
+		if len(row.Errors) != 0 || !hasMessage(row.Warnings, "existing roster entries disagree") {
+			t.Fatalf("row = %#v, want warning without error", row)
+		}
+	}
+	if rows[0].Lat != 42 || rows[0].Lng != -75 || !rows[0].HasCoordinates {
+		t.Fatalf("provided row = %#v, want own coordinates", rows[0])
+	}
+	if !rows[1].NeedsGeocoding || rows[1].HasCoordinates || rows[1].CoordinatesInherited {
+		t.Fatalf("missing row = %#v, want geocoding without inheritance", rows[1])
 	}
 }
 

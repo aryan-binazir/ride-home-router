@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -156,6 +157,84 @@ func TestXLSXNormalizesRaggedWidths(t *testing.T) {
 	}
 }
 
+func TestXLSXSkipsBlankAndSyntheticRows(t *testing.T) {
+	t.Run("blank separator", func(t *testing.T) {
+		data := makeXLSX(t, func(f *excelize.File) {
+			setRows(t, f, "Sheet1", [][]any{
+				{"name", "address"},
+				{"Jane", "1 Main St"},
+				{" ", "\t"},
+				{"John", "2 Main St"},
+			})
+		})
+		grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+		if err != nil {
+			t.Fatalf("Parse() error = %v", err)
+		}
+		rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)
+		if len(rows) != 2 || rows[0].SourceRow != 2 || rows[1].SourceRow != 4 {
+			t.Fatalf("rows = %#v, want source rows 2 and 4", rows)
+		}
+	})
+
+	t.Run("large row gap", func(t *testing.T) {
+		data := makeXLSX(t, func(f *excelize.File) {
+			setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+			if err := f.SetCellValue("Sheet1", "A2500", "Stray"); err != nil {
+				t.Fatalf("SetCellValue() error = %v", err)
+			}
+		})
+		grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+		if err != nil {
+			t.Fatalf("Parse() error = %v", err)
+		}
+		rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)
+		if len(rows) != 2 {
+			t.Fatalf("len(rows) = %d, want 2", len(rows))
+		}
+		if rows[1].SourceRow != 2500 || rows[1].Name != "Stray" || !hasMessage(rows[1].Errors, "address is required") {
+			t.Fatalf("stray row = %#v, want row-level address error at source row 2500", rows[1])
+		}
+	})
+}
+
+func TestXLSXParseWithManyMergedCellsCompletesQuickly(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		header := make([]any, MaxColumns)
+		for column := range header {
+			header[column] = fmt.Sprintf("column%d", column)
+		}
+		setRows(t, f, "Sheet1", [][]any{header})
+		for row := 2; row <= MaxDataRows+1; row++ {
+			values := make([]any, MaxColumns)
+			for column := range values {
+				values[column] = fmt.Sprintf("r%dc%d", row, column)
+			}
+			cell, err := excelize.CoordinatesToCellName(1, row)
+			if err != nil {
+				t.Fatalf("CoordinatesToCellName() error = %v", err)
+			}
+			if err := f.SetSheetRow("Sheet1", cell, &values); err != nil {
+				t.Fatalf("SetSheetRow() error = %v", err)
+			}
+		}
+	})
+	data = addXLSXMergedCells(t, data, "xl/worksheets/sheet1.xml", 10_000)
+
+	started := time.Now()
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if grid.Len() != MaxDataRows {
+		t.Fatalf("Len() = %d, want %d", grid.Len(), MaxDataRows)
+	}
+	if elapsed >= 5*time.Second {
+		t.Fatalf("Parse() took %s, want under 5s", elapsed)
+	}
+}
+
 func makeXLSX(t *testing.T, setup func(*excelize.File)) []byte {
 	t.Helper()
 	f := excelize.NewFile()
@@ -240,4 +319,18 @@ func rewriteXLSXEntry(t *testing.T, data []byte, entryName string, rewrite func(
 		t.Fatalf("expected content was not found in %s", entryName)
 	}
 	return output.Bytes()
+}
+
+func addXLSXMergedCells(t *testing.T, data []byte, entryName string, count int) []byte {
+	t.Helper()
+	var merges strings.Builder
+	fmt.Fprintf(&merges, `<mergeCells count="%d">`, count)
+	for i := 0; i < count; i++ {
+		row := MaxDataRows + 1000 + i
+		fmt.Fprintf(&merges, `<mergeCell ref="A%d:B%d"/>`, row, row)
+	}
+	merges.WriteString(`</mergeCells>`)
+	return rewriteXLSXEntry(t, data, entryName, func(contents []byte) []byte {
+		return bytes.Replace(contents, []byte(`</worksheet>`), []byte(merges.String()+`</worksheet>`), 1)
+	})
 }

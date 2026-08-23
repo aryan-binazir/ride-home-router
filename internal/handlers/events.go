@@ -157,12 +157,6 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleInternalError(w, err)
 		return
 	}
-	if err := h.enrichEventRouteAddressNames(r.Context(), routes); err != nil {
-		log.Printf("[ERROR] Failed to load event address names: id=%d err=%v", id, err)
-		h.handleInternalError(w, err)
-		return
-	}
-
 	assignments := groupRoutesByDriver(routes)
 
 	if h.isHTMX(r) {
@@ -537,44 +531,6 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 	}
 
 	return grouped
-}
-
-func (h *Handler) enrichEventRouteAddressNames(ctx context.Context, routes []models.EventRoute) error {
-	driverIDs := make([]int64, 0, len(routes))
-	participantIDs := make([]int64, 0)
-	for _, route := range routes {
-		driverIDs = append(driverIDs, route.DriverID)
-		for _, stop := range route.Stops {
-			participantIDs = append(participantIDs, stop.ParticipantID)
-		}
-	}
-
-	drivers, err := h.DB.Drivers().GetByIDs(ctx, driverIDs)
-	if err != nil {
-		return fmt.Errorf("load event drivers: %w", err)
-	}
-	participants, err := h.DB.Participants().GetByIDs(ctx, participantIDs)
-	if err != nil {
-		return fmt.Errorf("load event participants: %w", err)
-	}
-
-	driverAddressNames := make(map[int64]string, len(drivers))
-	for _, driver := range drivers {
-		driverAddressNames[driver.ID] = driver.AddressName
-	}
-	participantAddressNames := make(map[int64]string, len(participants))
-	for _, participant := range participants {
-		participantAddressNames[participant.ID] = participant.AddressName
-	}
-
-	for routeIndex := range routes {
-		routes[routeIndex].DriverAddressName = driverAddressNames[routes[routeIndex].DriverID]
-		for stopIndex := range routes[routeIndex].Stops {
-			participantID := routes[routeIndex].Stops[stopIndex].ParticipantID
-			routes[routeIndex].Stops[stopIndex].ParticipantAddressName = participantAddressNames[participantID]
-		}
-	}
-	return nil
 }
 
 func routesNeedLegacyDetail(routes []models.EventRoute) bool {

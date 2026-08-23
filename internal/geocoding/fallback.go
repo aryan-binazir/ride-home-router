@@ -22,10 +22,10 @@ func (g *fallbackGeocoder) Geocode(ctx context.Context, address string) (*Geocod
 		return nil, err
 	}
 
-	log.Printf("[GEOCODING] Falling back to Census geocoder: address=%s", address)
+	log.Printf("[GEOCODING] Falling back to Census geocoder")
 	fallbackResult, fallbackErr := g.fallback.Geocode(ctx, address)
 	if fallbackErr != nil {
-		log.Printf("[GEOCODING] Census geocode fallback failed: address=%s err=%v", address, fallbackErr)
+		log.Printf("[GEOCODING] Census geocode fallback failed")
 		return nil, err
 	}
 
@@ -42,13 +42,13 @@ func (g *fallbackGeocoder) Search(ctx context.Context, query string, limit int) 
 		return results, err
 	}
 
-	log.Printf("[GEOCODING] Falling back to Census search: query=%s", query)
+	log.Printf("[GEOCODING] Falling back to Census search")
 	fallbackCtx, cancel := context.WithTimeout(ctx, censusSearchFallbackTimeout)
 	defer cancel()
 
 	fallbackResults, fallbackErr := g.fallback.Search(fallbackCtx, query, limit)
 	if fallbackErr != nil {
-		log.Printf("[GEOCODING] Census search fallback failed: query=%s err=%v", query, fallbackErr)
+		log.Printf("[GEOCODING] Census search fallback failed")
 		return results, nil
 	}
 

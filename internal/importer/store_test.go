@@ -38,7 +38,7 @@ func TestStoreSlidingTTLExpiry(t *testing.T) {
 	}
 }
 
-func TestStoreEvictsOldestNonCommittingSession(t *testing.T) {
+func TestStoreEvictsLeastRecentlyAccessedNonCommittingSession(t *testing.T) {
 	now := time.Unix(100, 0)
 	store := newStore(nil, newFakeDataStore(), time.Hour, time.Hour, func() time.Time { return now })
 	t.Cleanup(store.Close)
@@ -52,14 +52,18 @@ func TestStoreEvictsOldestNonCommittingSession(t *testing.T) {
 		ids = append(ids, created.ID)
 		now = now.Add(time.Second)
 	}
+	if _, ok := store.Snapshot(ids[0]); !ok {
+		t.Fatal("failed to touch oldest-created session")
+	}
+	now = now.Add(time.Second)
 	fifth, err := store.Create(KindParticipant, "fifth.csv", grid)
 	if err != nil {
 		t.Fatalf("fifth Create() error = %v", err)
 	}
-	if _, ok := store.Snapshot(ids[0]); ok {
-		t.Fatal("oldest session survived bounded-store eviction")
+	if _, ok := store.Snapshot(ids[1]); ok {
+		t.Fatal("least-recently-accessed session survived bounded-store eviction")
 	}
-	for _, id := range append(ids[1:], fifth.ID) {
+	for _, id := range append([]string{ids[0]}, append(ids[2:], fifth.ID)...) {
 		if _, ok := store.Snapshot(id); !ok {
 			t.Fatal("a non-evicted session was removed")
 		}
@@ -237,6 +241,23 @@ func TestGeocodeJobCancellation(t *testing.T) {
 	}
 	if _, ok := store.Snapshot(created.ID); ok {
 		t.Fatal("cancelled session retained staged data")
+	}
+}
+
+func TestRunGeocodeJobClearsRunningOnEarlyExit(t *testing.T) {
+	geocoder := &fakeGeocoder{result: func(context.Context, string, int) (*geocoding.GeocodingResult, error) {
+		return &geocoding.GeocodingResult{Coords: models.Coordinates{Lat: 40, Lng: -73}}, nil
+	}}
+	store := &Store{geocoder: geocoder}
+	state := &session{
+		ctx:      context.Background(),
+		status:   StatusCommitted,
+		progress: GeocodeProgress{Total: 1, Running: true},
+	}
+	store.jobs.Add(1)
+	store.runGeocodeJob(state, []geocodeGroup{{address: "1 Main St"}})
+	if state.progress.Running {
+		t.Fatal("early geocode-job exit left progress.Running true")
 	}
 }
 

@@ -885,8 +885,8 @@ func TestHandleCreateParticipantAndDriverRejectAddressNameOver200Characters(t *t
 			if rr.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
 			}
-			if !strings.Contains(rr.Body.String(), messageAddressNameTooLong) {
-				t.Fatalf("body = %q, want %q", rr.Body.String(), messageAddressNameTooLong)
+			if !strings.Contains(rr.Body.String(), messageAddressNameTooLong()) {
+				t.Fatalf("body = %q, want %q", rr.Body.String(), messageAddressNameTooLong())
 			}
 		})
 	}

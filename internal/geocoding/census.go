@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/models"
 	"strings"
+	"time"
 )
 
 type censusGeocoder struct {
@@ -70,15 +71,16 @@ func (g *censusGeocoder) GeocodeWithRetry(ctx context.Context, address string, m
 }
 
 func (g *censusGeocoder) Search(ctx context.Context, query string, limit int) ([]GeocodingResult, error) {
+	started := time.Now()
 	queryURL := fmt.Sprintf("%s/geocoder/locations/onelineaddress?address=%s&benchmark=Public_AR_Current&format=json",
 		strings.TrimRight(g.baseURL, "/"),
 		url.QueryEscape(query),
 	)
-	log.Printf("[GEOCODING] Census request: query=%s url=%s", query, queryURL)
+	log.Printf("[GEOCODING] Census request started: limit=%d", limit)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
-		log.Printf("[ERROR] Failed to create Census geocoding request: query=%s err=%v", query, err)
+		log.Printf("[ERROR] Census geocode outcome=request_creation_failed duration=%s", time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
 	}
 
@@ -86,14 +88,14 @@ func (g *censusGeocoder) Search(ctx context.Context, query string, limit int) ([
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[ERROR] Census geocoding request failed: query=%s err=%v", query, err)
+		log.Printf("[ERROR] Census geocode outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("[ERROR] Census geocoding API error: query=%s status=%d body=%s", query, resp.StatusCode, string(body))
+		log.Printf("[ERROR] Census geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{
 			Address: query,
 			Reason:  fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
@@ -102,7 +104,7 @@ func (g *censusGeocoder) Search(ctx context.Context, query string, limit int) ([
 
 	var results censusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		log.Printf("[ERROR] Failed to decode Census geocoding response: query=%s err=%v", query, err)
+		log.Printf("[ERROR] Census geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
 	}
 
@@ -122,7 +124,7 @@ func (g *censusGeocoder) Search(ctx context.Context, query string, limit int) ([
 		})
 	}
 
-	log.Printf("[GEOCODING] Census response: query=%s results_count=%d", query, len(geocodingResults))
+	log.Printf("[GEOCODING] Census geocode outcome=success status=%d results_count=%d duration=%s", resp.StatusCode, len(geocodingResults), time.Since(started).Round(time.Millisecond))
 	return geocodingResults, nil
 }
 

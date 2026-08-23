@@ -81,7 +81,7 @@
                 hx-target="#import-steps"
                 hx-swap="innerHTML"
                 {{if .Disabled}}disabled{{end}}>
-            Import {{.Selected}} rows
+            Import {{.Selected}} {{if eq .Selected 1}}row{{else}}rows{{end}}
         </button>
         {{template "import_cancel" .SessionID}}
     </div>

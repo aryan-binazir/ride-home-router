@@ -53,6 +53,19 @@ func TestParseCSVRaggedRowsAreRowErrors(t *testing.T) {
 	}
 }
 
+func TestParseCSVUsesPhysicalSourceLines(t *testing.T) {
+	grid := mustParseCSV(t, "name,address\n\n\"Jane\nDoe\",1 Main St\nJohn,2 Main St\n")
+	rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)
+	if got := []int{rows[0].SourceRow, rows[1].SourceRow}; !equalInts(got, []int{3, 5}) {
+		t.Fatalf("source rows = %v, want [3 5]", got)
+	}
+
+	_, err := Parse(strings.NewReader("name,address\n\n\"unterminated\nvalue"), FormatCSV, "")
+	if err == nil || !strings.Contains(err.Error(), "CSV row 3") {
+		t.Fatalf("Parse() error = %v, want physical start line 3", err)
+	}
+}
+
 func TestParseCSVRequiresHeaderAndData(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -106,6 +119,9 @@ func TestParseCSVLimitConstants(t *testing.T) {
 		boundary := strings.Repeat("é", MaxCellCharacters)
 		if _, err := Parse(strings.NewReader("name,address\n"+boundary+",Somewhere\n"), FormatCSV, ""); err != nil {
 			t.Fatalf("boundary Parse() error = %v", err)
+		}
+		if _, err := Parse(strings.NewReader("name,address\n "+boundary+" ,Somewhere\n"), FormatCSV, ""); err != nil {
+			t.Fatalf("trimmed boundary Parse() error = %v", err)
 		}
 		tooLong := strings.Repeat("x", MaxCellCharacters+1)
 		_, err := Parse(strings.NewReader("name,address\n"+tooLong+",Somewhere\n"), FormatCSV, "")

@@ -147,7 +147,7 @@ func TestStoreMigratesV4DatabaseToV5AddressNames(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	assertSchemaVersion(t, store.db, 5)
+	assertSchemaVersion(t, store.db, 6)
 	for _, tableName := range []string{"participants", "drivers"} {
 		exists, err := columnExists(store.db, tableName, "address_name")
 		if err != nil {

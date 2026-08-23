@@ -1,11 +1,16 @@
 package importer
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
 	"encoding/csv"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"path"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -43,7 +48,7 @@ func Sheets(r io.Reader) (names []string, err error) {
 	if r == nil {
 		return nil, errors.New("roster file is empty")
 	}
-	f, err := openXLSX(r)
+	f, _, err := openXLSX(r)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +97,9 @@ func parseCSV(r io.Reader) (*Grid, error) {
 			return nil, utf8CSVError()
 		}
 		if readErr != nil {
-			return nil, fmt.Errorf("read CSV row %d: %w", len(grid.rows)+2, readErr)
+			return nil, fmt.Errorf("read CSV row %d: %w", csvRecordLine(reader, record, readErr), readErr)
 		}
+		sourceRow := csvRecordLine(reader, record, nil)
 		if len(grid.rows) == MaxDataRows {
 			return nil, fmt.Errorf("file exceeds the limit of %d data rows", MaxDataRows)
 		}
@@ -101,10 +107,10 @@ func parseCSV(r io.Reader) (*Grid, error) {
 			return nil, fmt.Errorf("file exceeds the limit of %d columns", MaxColumns)
 		}
 		if err := normalizeAndCheckCells(record); err != nil {
-			return nil, fmt.Errorf("row %d: %w", len(grid.rows)+2, err)
+			return nil, fmt.Errorf("row %d: %w", sourceRow, err)
 		}
 
-		row := gridRow{sourceRow: len(grid.rows) + 2}
+		row := gridRow{sourceRow: sourceRow}
 		if len(record) != len(header) {
 			row.errors = append(row.errors, fmt.Sprintf("row has %d columns; header has %d", len(record), len(header)))
 		}
@@ -117,8 +123,20 @@ func parseCSV(r io.Reader) (*Grid, error) {
 	return grid, nil
 }
 
+func csvRecordLine(reader *csv.Reader, record []string, readErr error) int {
+	if len(record) > 0 {
+		line, _ := reader.FieldPos(0)
+		return line
+	}
+	var parseErr *csv.ParseError
+	if errors.As(readErr, &parseErr) {
+		return parseErr.StartLine
+	}
+	return 1
+}
+
 func parseXLSX(r io.Reader, requestedSheet string) (grid *Grid, err error) {
-	f, err := openXLSX(r)
+	f, data, err := openXLSX(r)
 	if err != nil {
 		return nil, err
 	}
@@ -146,19 +164,23 @@ func parseXLSX(r io.Reader, requestedSheet string) (grid *Grid, err error) {
 	} else if !contains(f.GetSheetList(), sheet) {
 		return nil, fmt.Errorf("worksheet %q does not exist", sheet)
 	}
-	return parseXLSXSheet(f, sheet)
+	return parseXLSXSheet(f, data, sheet)
 }
 
-func openXLSX(r io.Reader) (*excelize.File, error) {
-	f, err := excelize.OpenReader(r, excelize.Options{
+func openXLSX(r io.Reader) (*excelize.File, []byte, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read XLSX file: %w", err)
+	}
+	f, err := excelize.OpenReader(bytes.NewReader(data), excelize.Options{
 		RawCellValue:      true,
 		UnzipSizeLimit:    xlsxUnzipSizeLimit,
 		UnzipXMLSizeLimit: xlsxUnzipXMLSizeLimit,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("open XLSX file: %w", err)
+		return nil, nil, fmt.Errorf("open XLSX file: %w", err)
 	}
-	return f, nil
+	return f, data, nil
 }
 
 func nonEmptySheets(f *excelize.File) ([]string, error) {
@@ -193,14 +215,18 @@ func sheetHasVisibleContent(f *excelize.File, sheet string) (nonEmpty bool, err 
 		if columnsErr != nil {
 			return false, columnsErr
 		}
-		if len(cells) > 0 {
+		if cellsHaveContent(cells) {
 			return true, nil
 		}
 	}
 	return false, rows.Error()
 }
 
-func parseXLSXSheet(f *excelize.File, sheet string) (grid *Grid, err error) {
+func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, err error) {
+	formulaRows, err := xlsxFormulaRows(data, sheet)
+	if err != nil {
+		return nil, fmt.Errorf("inspect worksheet %q formulas: %w", sheet, err)
+	}
 	rows, err := f.Rows(sheet)
 	if err != nil {
 		return nil, fmt.Errorf("read worksheet %q: %w", sheet, err)
@@ -230,25 +256,24 @@ func parseXLSXSheet(f *excelize.File, sheet string) (grid *Grid, err error) {
 			return nil, fmt.Errorf("row %d: %w", rowNumber, err)
 		}
 		if !headerRead {
-			if len(cells) == 0 {
+			if !cellsHaveContent(cells) {
 				return nil, errors.New("XLSX first visible row is empty; the first row must contain headers")
 			}
 			grid = &Grid{Headers: cells}
 			headerRead = true
 			continue
 		}
+		if !cellsHaveContent(cells) {
+			continue
+		}
 		if len(grid.rows) == MaxDataRows {
 			return nil, fmt.Errorf("file exceeds the limit of %d data rows", MaxDataRows)
 		}
 		row := gridRow{sourceRow: rowNumber, cells: normalizeWidth(cells, len(grid.Headers))}
-		formula, cellErrors, metadataErr := xlsxRowMetadata(f, sheet, rowNumber, len(cells))
-		if metadataErr != nil {
-			return nil, metadataErr
-		}
-		if formula {
+		if _, formula := formulaRows[rowNumber]; formula {
 			row.warnings = append(row.warnings, "value comes from a formula; verify")
 		}
-		row.errors = append(row.errors, cellErrors...)
+		row.errors = append(row.errors, xlsxCellErrors(cells, rowNumber)...)
 		grid.rows = append(grid.rows, row)
 	}
 	if rows.Error() != nil {
@@ -263,40 +288,157 @@ func parseXLSXSheet(f *excelize.File, sheet string) (grid *Grid, err error) {
 	return grid, nil
 }
 
-func xlsxRowMetadata(f *excelize.File, sheet string, row, width int) (bool, []string, error) {
-	var formula bool
+func xlsxCellErrors(cells []string, row int) []string {
 	var rowErrors []string
-	for column := 1; column <= width; column++ {
-		cell, err := excelize.CoordinatesToCellName(column, row)
-		if err != nil {
-			return false, nil, fmt.Errorf("locate worksheet cell at row %d column %d: %w", row, column, err)
+	for column, value := range cells {
+		if !xlsxErrorValues[value] {
+			continue
 		}
-		formulaText, err := f.GetCellFormula(sheet, cell)
-		if err != nil {
-			return false, nil, fmt.Errorf("inspect formula in cell %s: %w", cell, err)
-		}
-		formula = formula || formulaText != ""
-		cellType, err := f.GetCellType(sheet, cell)
-		if err != nil {
-			return false, nil, fmt.Errorf("inspect type of cell %s: %w", cell, err)
-		}
-		if cellType == excelize.CellTypeError {
-			value, valueErr := f.GetCellValue(sheet, cell, excelize.Options{RawCellValue: true})
-			if valueErr != nil {
-				return false, nil, fmt.Errorf("read error cell %s: %w", cell, valueErr)
-			}
+		cell, err := excelize.CoordinatesToCellName(column+1, row)
+		if err == nil {
 			rowErrors = append(rowErrors, fmt.Sprintf("cell %s contains spreadsheet error %s", cell, value))
 		}
 	}
-	return formula, rowErrors, nil
+	return rowErrors
+}
+
+var xlsxErrorValues = map[string]bool{
+	"#NULL!": true, "#DIV/0!": true, "#VALUE!": true, "#REF!": true,
+	"#NAME?": true, "#NUM!": true, "#N/A": true, "#GETTING_DATA": true,
+	"#SPILL!": true, "#CALC!": true, "#FIELD!": true, "#BLOCKED!": true,
+	"#UNKNOWN!": true, "#CONNECT!": true, "#BUSY!": true,
+}
+
+type xlsxWorkbookDocument struct {
+	Sheets []struct {
+		Name           string `xml:"name,attr"`
+		RelationshipID string `xml:"id,attr"`
+	} `xml:"sheets>sheet"`
+}
+
+type xlsxRelationshipsDocument struct {
+	Relationships []struct {
+		ID     string `xml:"Id,attr"`
+		Target string `xml:"Target,attr"`
+	} `xml:"Relationship"`
+}
+
+func xlsxFormulaRows(data []byte, sheet string) (map[int]struct{}, error) {
+	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	entries := make(map[string]*zip.File, len(archive.File))
+	for _, entry := range archive.File {
+		entries[strings.ToLower(strings.ReplaceAll(entry.Name, "\\", "/"))] = entry
+	}
+
+	var workbook xlsxWorkbookDocument
+	if err := decodeXLSXEntry(entries["xl/workbook.xml"], &workbook); err != nil {
+		return nil, err
+	}
+	var relationships xlsxRelationshipsDocument
+	if err := decodeXLSXEntry(entries["xl/_rels/workbook.xml.rels"], &relationships); err != nil {
+		return nil, err
+	}
+
+	relationshipID := ""
+	for _, candidate := range workbook.Sheets {
+		if strings.EqualFold(candidate.Name, sheet) {
+			relationshipID = candidate.RelationshipID
+			break
+		}
+	}
+	if relationshipID == "" {
+		return nil, fmt.Errorf("worksheet %q is missing from workbook metadata", sheet)
+	}
+	target := ""
+	for _, relationship := range relationships.Relationships {
+		if relationship.ID == relationshipID {
+			target = strings.TrimPrefix(strings.ReplaceAll(relationship.Target, "\\", "/"), "/")
+			break
+		}
+	}
+	if !strings.HasPrefix(strings.ToLower(target), "xl/") {
+		target = path.Join("xl", target)
+	}
+	entry := entries[strings.ToLower(path.Clean(target))]
+	if entry == nil {
+		return nil, fmt.Errorf("worksheet %q XML is missing", sheet)
+	}
+
+	reader, err := entry.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = reader.Close() }()
+	decoder := xml.NewDecoder(reader)
+	formulaRows := make(map[int]struct{})
+	currentRow := 0
+	for {
+		token, tokenErr := decoder.Token()
+		if errors.Is(tokenErr, io.EOF) {
+			break
+		}
+		if tokenErr != nil {
+			return nil, tokenErr
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch start.Name.Local {
+		case "row":
+			currentRow++
+			for _, attr := range start.Attr {
+				if attr.Name.Local == "r" {
+					if parsed, parseErr := strconv.Atoi(attr.Value); parseErr == nil {
+						currentRow = parsed
+					}
+				}
+			}
+		case "c":
+			var cell struct {
+				Formula *struct{} `xml:"f"`
+			}
+			if err := decoder.DecodeElement(&cell, &start); err != nil {
+				return nil, err
+			}
+			if cell.Formula != nil {
+				formulaRows[currentRow] = struct{}{}
+			}
+		}
+	}
+	return formulaRows, nil
+}
+
+func decodeXLSXEntry(entry *zip.File, target any) error {
+	if entry == nil {
+		return errors.New("required XLSX metadata is missing")
+	}
+	reader, err := entry.Open()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = reader.Close() }()
+	return xml.NewDecoder(reader).Decode(target)
+}
+
+func cellsHaveContent(cells []string) bool {
+	for _, cell := range cells {
+		if strings.TrimSpace(cell) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeAndCheckCells(cells []string) error {
 	for i := range cells {
+		cells[i] = strings.TrimSpace(cells[i])
 		if utf8.RuneCountInString(cells[i]) > MaxCellCharacters {
 			return fmt.Errorf("cell %d exceeds the limit of %d characters", i+1, MaxCellCharacters)
 		}
-		cells[i] = strings.TrimSpace(cells[i])
 	}
 	return nil
 }

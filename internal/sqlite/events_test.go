@@ -23,7 +23,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 5)
+	assertSchemaVersion(t, store.db, 6)
 
 	for _, tableName := range []string{
 		"events_legacy",
@@ -111,7 +111,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 	assertRowCount(t, store.db, "event_summaries_legacy", 1)
 }
 
-func TestStoreFreshSchemaCreatesV5Tables(t *testing.T) {
+func TestStoreFreshSchemaCreatesV6Tables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fresh-schema.db")
 
 	store, err := New(dbPath)
@@ -124,13 +124,22 @@ func TestStoreFreshSchemaCreatesV5Tables(t *testing.T) {
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 5)
+	assertSchemaVersion(t, store.db, 6)
 
 	for _, tableName := range []string{"events", "event_routes", "event_route_stops", "event_summaries"} {
 		assertTableExists(t, store.db, tableName)
 	}
 	for _, tableName := range []string{"labels", "participant_labels", "driver_labels"} {
 		assertTableExists(t, store.db, tableName)
+	}
+	for _, test := range []struct{ table, column string }{
+		{"event_routes", "driver_address_name"},
+		{"event_route_stops", "participant_address_name"},
+	} {
+		exists, err := columnExists(store.db, test.table, test.column)
+		if err != nil || !exists {
+			t.Fatalf("columnExists(%s.%s) = %v, %v", test.table, test.column, exists, err)
+		}
 	}
 
 	assertTableMissing(t, store.db, "events_legacy")
@@ -249,6 +258,7 @@ func TestEventRepositoryPersistsFullRouteSummaryDistance(t *testing.T) {
 			DriverID:                   42,
 			DriverName:                 "Driver One",
 			DriverAddress:              "1 Driver Way",
+			DriverAddressName:          "North Lot",
 			EffectiveCapacity:          4,
 			TotalDropoffDistanceMeters: dropoffDistance,
 			DistanceToDriverHomeMeters: finalLegDistance,
@@ -263,6 +273,7 @@ func TestEventRepositoryPersistsFullRouteSummaryDistance(t *testing.T) {
 					ParticipantID:            7,
 					ParticipantName:          "Passenger One",
 					ParticipantAddress:       "7 Rider Road",
+					ParticipantAddressName:   "Rider Hall",
 					DistanceFromPrevMeters:   1000,
 					CumulativeDistanceMeters: 1000,
 					DurationFromPrevSecs:     600,
@@ -273,6 +284,7 @@ func TestEventRepositoryPersistsFullRouteSummaryDistance(t *testing.T) {
 					ParticipantID:            8,
 					ParticipantName:          "Passenger Two",
 					ParticipantAddress:       "8 Rider Road",
+					ParticipantAddressName:   "South Dorm",
 					DistanceFromPrevMeters:   700,
 					CumulativeDistanceMeters: dropoffDistance,
 					DurationFromPrevSecs:     300,
@@ -341,11 +353,61 @@ func TestEventRepositoryPersistsFullRouteSummaryDistance(t *testing.T) {
 	if gotRoutes[0].Mode != models.RouteModePickup {
 		t.Fatalf("GetByID() route mode = %q, want %q", gotRoutes[0].Mode, models.RouteModePickup)
 	}
+	if gotRoutes[0].DriverAddressName != "North Lot" || len(gotRoutes[0].Stops) != 2 ||
+		gotRoutes[0].Stops[0].ParticipantAddressName != "Rider Hall" || gotRoutes[0].Stops[1].ParticipantAddressName != "South Dorm" {
+		t.Fatalf("snapshot address names did not round-trip: %#v", gotRoutes[0])
+	}
 	if gotRoutes[0].SnapshotVersion != 2 {
 		t.Fatalf("GetByID() route SnapshotVersion = %d, want 2", gotRoutes[0].SnapshotVersion)
 	}
 	if !gotRoutes[0].MetricsComplete {
 		t.Fatal("expected new route snapshot to mark MetricsComplete=true")
+	}
+}
+
+func TestStoreMigratesV5EventAddressNameSnapshotColumns(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v5-event-address-name-migration.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+		INSERT INTO schema_version (version) VALUES (5);
+		CREATE TABLE event_routes (id INTEGER PRIMARY KEY, driver_address TEXT NOT NULL);
+		CREATE TABLE event_route_stops (id INTEGER PRIMARY KEY, participant_address TEXT NOT NULL);
+		INSERT INTO event_routes (id, driver_address) VALUES (1, '1 Driver Way');
+		INSERT INTO event_route_stops (id, participant_address) VALUES (1, '1 Rider Way');
+	`)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("create v5 schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close v5 schema: %v", err)
+	}
+
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	assertSchemaVersion(t, store.db, 6)
+	for _, test := range []struct{ table, column string }{
+		{"event_routes", "driver_address_name"},
+		{"event_route_stops", "participant_address_name"},
+	} {
+		exists, err := columnExists(store.db, test.table, test.column)
+		if err != nil || !exists {
+			t.Fatalf("columnExists(%s.%s) = %v, %v", test.table, test.column, exists, err)
+		}
+		var value sql.NullString
+		if err := store.db.QueryRowContext(context.Background(), "SELECT "+test.column+" FROM "+test.table+" WHERE id = 1").Scan(&value); err != nil {
+			t.Fatalf("query migrated %s.%s: %v", test.table, test.column, err)
+		}
+		if value.Valid {
+			t.Fatalf("pre-v6 %s.%s = %q, want empty NULL snapshot", test.table, test.column, value.String)
+		}
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"strings"
 	"time"
@@ -171,7 +170,7 @@ func (r *driverRepository) CreateBatch(ctx context.Context, drivers []*models.Dr
 		if driver == nil {
 			return database.BatchCreateResult{}, errors.New("driver batch contains a nil driver")
 		}
-		key := importer.DuplicateKey(driver.Name, driver.Address)
+		key := models.RosterKey(driver.Name, driver.Address)
 		_, duplicate := existing[key]
 		allowDuplicate := i < len(allowExistingDuplicate) && allowExistingDuplicate[i]
 		if key != "" && duplicate && !allowDuplicate {
@@ -218,7 +217,7 @@ func driverDuplicateKeys(ctx context.Context, tx *sql.Tx) (map[string]struct{}, 
 		if err := rows.Scan(&name, &address); err != nil {
 			return nil, fmt.Errorf("failed to scan driver duplicate: %w", err)
 		}
-		if key := importer.DuplicateKey(name, address); key != "" {
+		if key := models.RosterKey(name, address); key != "" {
 			keys[key] = struct{}{}
 		}
 	}

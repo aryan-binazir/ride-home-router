@@ -3,6 +3,7 @@ package importer
 import (
 	"fmt"
 	"math"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -216,7 +217,7 @@ func reconcileWithExisting(rows []Row, states []coordinateState, indices []int, 
 	for _, entry := range existing[1:] {
 		if !validCoordinatePair(entry.Lat, entry.Lng) || coordinatesConflict(winning.Lat, winning.Lng, entry.Lat, entry.Lng) {
 			for _, index := range indices {
-				rows[index].addError("existing roster entries have conflicting coordinates for this address")
+				rows[index].addWarning("existing roster entries disagree about this address's coordinates; this row will use its own")
 			}
 			return
 		}
@@ -228,8 +229,6 @@ func reconcileWithExisting(rows []Row, states []coordinateState, indices []int, 
 			if coordinatesConflict(rows[index].Lat, rows[index].Lng, winning.Lat, winning.Lng) {
 				rows[index].addError("coordinates conflict with the existing roster entry for this address")
 			}
-			rows[index].Lat = winning.Lat
-			rows[index].Lng = winning.Lng
 		case coordinatesMissing:
 			inheritCoordinates(&rows[index], winning.Lat, winning.Lng, "coordinates copied from an existing roster entry with the same address")
 		}
@@ -295,12 +294,7 @@ func mappedCell(cells []string, column int) string {
 // DuplicateKey returns the canonical exact-match key used for roster duplicate
 // detection. An empty key means either name or address is blank.
 func DuplicateKey(name, address string) string {
-	name = normalize(name)
-	address = normalize(address)
-	if name == "" || address == "" {
-		return ""
-	}
-	return name + "\x00" + address
+	return models.RosterKey(name, address)
 }
 
 func duplicateKey(name, address string) string { return DuplicateKey(name, address) }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -148,18 +147,18 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
-	if len([]rune(req.AddressName)) > 200 {
+	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong)
+		h.handleValidationError(w, messageAddressNameTooLong())
 		return
 	}
 
-	if req.VehicleCapacity < importer.MinCapacity || req.VehicleCapacity > importer.MaxCapacity {
+	if req.VehicleCapacity < models.MinVehicleCapacity || req.VehicleCapacity > models.MaxVehicleCapacity {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageVehicleCapacityOutOfRange()))
+			h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
 			return
 		}
 		h.handleValidationError(w, messageVehicleCapacityOutOfRange())
@@ -325,18 +324,18 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageNameAndAddressRequired)
 		return
 	}
-	if len([]rune(req.AddressName)) > 200 {
+	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong)
+		h.handleValidationError(w, messageAddressNameTooLong())
 		return
 	}
 
-	if req.VehicleCapacity < importer.MinCapacity || req.VehicleCapacity > importer.MaxCapacity {
+	if req.VehicleCapacity < models.MinVehicleCapacity || req.VehicleCapacity > models.MaxVehicleCapacity {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageVehicleCapacityOutOfRange()))
+			h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
 			return
 		}
 		h.handleValidationError(w, messageVehicleCapacityOutOfRange())

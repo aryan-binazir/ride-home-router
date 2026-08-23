@@ -370,7 +370,7 @@ func TestStoreMigratesV3DatabaseToCurrentLabelsSchema(t *testing.T) {
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 5)
+	assertSchemaVersion(t, store.db, 6)
 	for _, tableName := range []string{"labels", "participant_labels", "driver_labels"} {
 		assertTableExists(t, store.db, tableName)
 	}

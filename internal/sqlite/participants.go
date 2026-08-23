@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"strings"
 	"time"
@@ -172,7 +171,7 @@ func (r *participantRepository) CreateBatch(ctx context.Context, participants []
 		if participant == nil {
 			return database.BatchCreateResult{}, errors.New("participant batch contains a nil participant")
 		}
-		key := importer.DuplicateKey(participant.Name, participant.Address)
+		key := models.RosterKey(participant.Name, participant.Address)
 		_, duplicate := existing[key]
 		allowDuplicate := i < len(allowExistingDuplicate) && allowExistingDuplicate[i]
 		if key != "" && duplicate && !allowDuplicate {
@@ -219,7 +218,7 @@ func participantDuplicateKeys(ctx context.Context, tx *sql.Tx) (map[string]struc
 		if err := rows.Scan(&name, &address); err != nil {
 			return nil, fmt.Errorf("failed to scan participant duplicate: %w", err)
 		}
-		if key := importer.DuplicateKey(name, address); key != "" {
+		if key := models.RosterKey(name, address); key != "" {
 			keys[key] = struct{}{}
 		}
 	}

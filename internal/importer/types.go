@@ -1,15 +1,17 @@
 // Package importer parses and validates participant and driver roster files.
 package importer
 
+import "ride-home-router/internal/models"
+
 // Import limits shared with the HTTP layer.
 const (
 	MaxDataRows       = 2000
 	MaxColumns        = 64
 	MaxCellCharacters = 500
 
-	MaxAddressNameLength = 200
-	MinCapacity          = 1
-	MaxCapacity          = 50
+	MaxAddressNameLength = models.MaxAddressNameLength
+	MinCapacity          = models.MinVehicleCapacity
+	MaxCapacity          = models.MaxVehicleCapacity
 	DefaultCapacity      = 4
 
 	UnmappedColumn = -1

@@ -2,12 +2,11 @@ package handlers
 
 import (
 	"fmt"
-	"ride-home-router/internal/importer"
+	"ride-home-router/internal/models"
 )
 
 const (
 	messageAddressRequired                               = "Address is required"
-	messageAddressNameTooLong                            = "location name must be 200 characters or fewer"
 	messageChooseActivityLocationForEvent                = "Please choose an activity location for this event."
 	messageChooseRouteTime                               = "please choose a route time"
 	messageChooseValidActivityLocation                   = "Please choose a valid activity location."
@@ -85,8 +84,12 @@ func messageNotEnoughCapacity(shortage int) string {
 	return fmt.Sprintf("Not enough capacity - need %d more seats", shortage)
 }
 
+func messageAddressNameTooLong() string {
+	return fmt.Sprintf("location name must be %d characters or fewer", models.MaxAddressNameLength)
+}
+
 func messageVehicleCapacityOutOfRange() string {
-	return fmt.Sprintf("vehicle capacity must be between %d and %d", importer.MinCapacity, importer.MaxCapacity)
+	return fmt.Sprintf("vehicle capacity must be between %d and %d", models.MinVehicleCapacity, models.MaxVehicleCapacity)
 }
 
 func messageRoutesCalculated(driversAssigned int) string {

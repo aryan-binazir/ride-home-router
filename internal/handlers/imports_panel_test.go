@@ -61,7 +61,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	selectionRecorder := httptest.NewRecorder()
 	handler.HandleImportSession(selectionRecorder, selection)
 	assertPanelFragment(t, selectionRecorder)
-	if body := selectionRecorder.Body.String(); !strings.Contains(body, "1 of 2 rows selected") || !strings.Contains(body, "Import 1 rows") {
+	if body := selectionRecorder.Body.String(); !strings.Contains(body, "1 of 2 rows selected") || !strings.Contains(body, "Import 1 row") {
 		t.Fatalf("commit bar = %s", body)
 	}
 
@@ -392,6 +392,7 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				`hx-post="/api/v1/imports?view=panel"`,
 				`hx-encoding="multipart/form-data"`,
 				`accept=".csv,.xlsx"`,
+				`hx-on:change="document.getElementById('import-sheet')?.remove()"`,
 				`value="` + string(tt.kind) + `"`,
 				`id="import-steps"`,
 				tt.heading,
