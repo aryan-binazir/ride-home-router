@@ -20,6 +20,7 @@ const (
 
 var (
 	ErrNotFound               = errors.New("route session not found")
+	ErrAlreadyCommitted       = errors.New("route session already committed")
 	ErrInvalidRouteIndex      = errors.New("invalid route index")
 	ErrParticipantNotFound    = errors.New("participant not found")
 	ErrParticipantNotInSource = errors.New("participant not found in source route")
@@ -84,6 +85,7 @@ type session struct {
 type Store struct {
 	distanceCalc    distance.DistanceCalculator
 	sessions        map[string]*session
+	committed       map[string]time.Time
 	mu              sync.Mutex
 	ttl             time.Duration
 	cleanupInterval time.Duration
@@ -99,7 +101,7 @@ func NewStore(distanceCalc distance.DistanceCalculator) *Store {
 
 func newStore(distanceCalc distance.DistanceCalculator, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
 	store := &Store{
-		distanceCalc: distanceCalc, sessions: make(map[string]*session), ttl: ttl,
+		distanceCalc: distanceCalc, sessions: make(map[string]*session), committed: make(map[string]time.Time), ttl: ttl,
 		cleanupInterval: cleanupInterval, now: now,
 		stopCleanup: make(chan struct{}), cleanupDone: make(chan struct{}),
 	}
@@ -256,11 +258,15 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, models.RoutingResult) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) && s.wasCommitted(id) {
+			return ErrAlreadyCommitted
+		}
 		return err
 	}
 	unlocked := false
 	defer func() {
 		if !unlocked {
+			state.lastAccessedAt = s.now()
 			state.mu.Unlock()
 		}
 	}()
@@ -277,9 +283,14 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 		return err
 	}
 	state.deleted = true
+	s.mu.Lock()
+	s.committed[id] = s.now()
+	if s.sessions[id] == state {
+		delete(s.sessions, id)
+	}
+	s.mu.Unlock()
 	state.mu.Unlock()
 	unlocked = true
-	s.remove(id, state)
 	log.Printf("[SESSION] Deleted route session: id=%s", id)
 	return nil
 }
@@ -330,6 +341,17 @@ func (s *Store) remove(id string, state *session) {
 	s.mu.Unlock()
 }
 
+func (s *Store) wasCommitted(id string) bool {
+	s.mu.Lock()
+	committedAt, ok := s.committed[id]
+	if ok && s.now().Sub(committedAt) > s.ttl {
+		delete(s.committed, id)
+		ok = false
+	}
+	s.mu.Unlock()
+	return ok
+}
+
 func (s *Store) cleanupLoop() {
 	defer close(s.cleanupDone)
 	ticker := time.NewTicker(s.cleanupInterval)
@@ -353,6 +375,11 @@ func (s *Store) deleteExpired(now time.Time) {
 	states := make([]candidate, 0, len(s.sessions))
 	for id, state := range s.sessions {
 		states = append(states, candidate{id: id, state: state})
+	}
+	for id, committedAt := range s.committed {
+		if now.Sub(committedAt) > s.ttl {
+			delete(s.committed, id)
+		}
 	}
 	s.mu.Unlock()
 	for _, candidate := range states {

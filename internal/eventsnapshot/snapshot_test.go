@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+func TestValidationSentinelText(t *testing.T) {
+	tests := []struct {
+		err  error
+		want string
+	}{
+		{eventsnapshot.ErrRoutesRequired, "routes are required"},
+		{eventsnapshot.ErrDriverRequired, "each route must include a driver"},
+		{eventsnapshot.ErrParticipantRequired, "each route stop must include a participant"},
+		{eventsnapshot.ErrMixedModes, "all routes must use the same mode"},
+	}
+	for _, test := range tests {
+		if got := test.err.Error(); got != test.want {
+			t.Errorf("sentinel text = %q, want %q", got, test.want)
+		}
+	}
+}
+
 func TestBuildRequiresAtLeastOneNonEmptyRoute(t *testing.T) {
 	result := models.RoutingResult{
 		Mode: models.RouteModeDropoff,

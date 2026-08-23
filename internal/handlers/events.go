@@ -281,7 +281,11 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		if h.handleEventValidationError(w, sessionErr) {
 			return
 		}
-		if errors.Is(sessionErr, routesession.ErrNotFound) {
+		if errors.Is(sessionErr, routesession.ErrAlreadyCommitted) {
+			log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", req.SessionID)
+			h.handleNotFound(w, messageSessionNotFound)
+			return
+		} else if errors.Is(sessionErr, routesession.ErrNotFound) {
 			if req.Routes == nil && formRoutesJSON != "" {
 				routes, ok := h.parsePostedRoutesJSON(w, formRoutesJSON)
 				if !ok {

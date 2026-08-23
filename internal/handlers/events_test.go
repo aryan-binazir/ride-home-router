@@ -20,6 +20,7 @@ import (
 	"ride-home-router/web"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -51,6 +52,19 @@ func (r failingEventRepository) Create(context.Context, *models.Event, []models.
 type eventRepositoryDataStore struct {
 	database.DataStore
 	events database.EventRepository
+}
+
+type blockingEventRepository struct {
+	database.EventRepository
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingEventRepository) Create(ctx context.Context, event *models.Event, routes []models.EventRoute, summary *models.EventSummary) (*models.Event, error) {
+	r.once.Do(func() { close(r.started) })
+	<-r.release
+	return r.EventRepository.Create(ctx, event, routes, summary)
 }
 
 func (s eventRepositoryDataStore) Events() database.EventRepository {
@@ -127,6 +141,59 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	}
 	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
 		t.Fatal("session remains available after successful event persistence")
+	}
+}
+
+func TestHandleCreateEvent_ConcurrentRetryWithFallbackDoesNotCreateDuplicate(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+	result := models.RoutingResult{
+		Mode: models.RouteModeDropoff,
+		Routes: []models.CalculatedRoute{{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+			Mode:              models.RouteModeDropoff,
+		}},
+	}
+	session := handler.RouteSession.Create(routesession.CreateInput{Routes: result.Routes, Mode: result.Mode})
+	started := make(chan struct{})
+	release := make(chan struct{})
+	blockingRepo := &blockingEventRepository{EventRepository: store.Events(), started: started, release: release}
+	handler.DB = eventRepositoryDataStore{DataStore: store, events: blockingRepo}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal routing payload: %v", err)
+	}
+	form := "event_date=2026-03-14&session_id=" + session.ID + "&routes_json=" + url.QueryEscape(string(payload))
+
+	save := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+		handler.HandleCreateEvent(rr, req)
+		return rr
+	}
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { firstDone <- save() }()
+	<-started
+	secondDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { secondDone <- save() }()
+	close(release)
+
+	first := <-firstDone
+	second := <-secondDone
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first status = %d, want 201; body=%s", first.Code, first.Body.String())
+	}
+	if second.Code != http.StatusNotFound {
+		t.Fatalf("retry status = %d, want 404; body=%s", second.Code, second.Body.String())
+	}
+	events, _, err := store.Events().List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("saved events = %d, want 1", len(events))
 	}
 }
 

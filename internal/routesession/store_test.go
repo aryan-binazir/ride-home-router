@@ -388,7 +388,7 @@ func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testin
 		return wantErr
 	})
 
-	if !errors.Is(err, wantErr) {
+	if err != wantErr {
 		t.Fatalf("Commit error = %v, want callback error", err)
 	}
 	got, ok := store.Snapshot(created.ID)
@@ -417,8 +417,8 @@ func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
 	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
 		t.Fatal("second Commit invoked persistence")
 		return nil
-	}); !errors.Is(err, routesession.ErrNotFound) {
-		t.Fatalf("second Commit error = %v, want ErrNotFound", err)
+	}); !errors.Is(err, routesession.ErrAlreadyCommitted) {
+		t.Fatalf("second Commit error = %v, want ErrAlreadyCommitted", err)
 	}
 }
 
