@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"ride-home-router/internal/database"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -46,25 +48,29 @@ func New(dbPath string) (*Store, error) {
 
 	log.Printf("Opening SQLite database at: %s", dbPath)
 
-	db, err := sql.Open("sqlite", dbPath)
+	absoluteDBPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve database path: %w", err)
+	}
+
+	// A rooted path renders as file:///... — a Windows drive path like C:/...
+	// would otherwise become file://C:/... with "C:" parsed as URI authority.
+	urlPath := filepath.ToSlash(absoluteDBPath)
+	if !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
+	}
+	dsn := url.URL{Scheme: "file", Path: urlPath}
+	query := url.Values{}
+	query.Add("_pragma", "foreign_keys(1)")
+	query.Add("_pragma", "journal_mode(WAL)")
+	query.Add("_pragma", "synchronous(NORMAL)")
+	query.Add("_pragma", fmt.Sprintf("cache_size(%d)", sqliteCacheSizeKB))
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMS))
+	dsn.RawQuery = query.Encode()
+
+	db, err := sql.Open("sqlite", dsn.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	// Enable foreign keys and WAL mode for better performance
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
-		fmt.Sprintf("PRAGMA cache_size = %d", sqliteCacheSizeKB),
-		fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeoutMS),
-	}
-
-	for _, pragma := range pragmas {
-		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("failed to set pragma %s: %w", pragma, err)
-		}
 	}
 
 	store := &Store{
