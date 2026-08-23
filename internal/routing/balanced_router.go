@@ -699,16 +699,12 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			return nil, err
 		}
 		for i, p := range route.stops {
-			routeStops[i] = models.RouteStop{
-				Participant: p,
-			}
+			routeStops[i].Participant = p
 		}
 
 		totalDropoff += metrics.TotalStopDistanceMeters
 		totalDist += metrics.TotalDistanceMeters
-		if metrics.DetourSecs > maxDetour {
-			maxDetour = metrics.DetourSecs
-		}
+		maxDetour = max(maxDetour, metrics.DetourSecs)
 		sumDetour += metrics.DetourSecs
 
 		calculatedRoute := models.CalculatedRoute{

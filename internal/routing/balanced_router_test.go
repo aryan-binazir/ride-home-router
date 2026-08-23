@@ -563,17 +563,33 @@ func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *t
 }
 
 func TestBalancedRouter_CanLeaveASelectedDriverUnusedForAHigherPriorityObjective(t *testing.T) {
-	router := NewBalancedRouter(stableDistanceCalculator{})
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	first := models.Coordinates{Lat: 1, Lng: 0}
+	second := models.Coordinates{Lat: 2, Lng: 0}
+	nearbyHome := models.Coordinates{Lat: 3, Lng: 0}
+	oppositeHome := models.Coordinates{Lat: -100, Lng: 0}
+	distances := newOverrideDistanceAdapter(1000)
+	distances.setDuration(activity, first, 1)
+	distances.setDuration(activity, second, 2)
+	distances.setDuration(first, second, 1)
+	distances.setDuration(second, first, 1)
+	distances.setDuration(first, nearbyHome, 1)
+	distances.setDuration(second, nearbyHome, 2)
+	distances.setDuration(activity, nearbyHome, 2)
+	distances.setDuration(first, oppositeHome, 101)
+	distances.setDuration(second, oppositeHome, 102)
+	distances.setDuration(activity, oppositeHome, 100)
+	router := NewBalancedRouter(distances)
 
 	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
-		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		InstituteCoords: activity,
 		Participants: []models.Participant{
-			{ID: 1, Name: "First", Lat: 1, Lng: 0},
-			{ID: 2, Name: "Second", Lat: 2, Lng: 0},
+			{ID: 1, Name: "First", Lat: first.Lat, Lng: first.Lng},
+			{ID: 2, Name: "Second", Lat: second.Lat, Lng: second.Lng},
 		},
 		Drivers: []models.Driver{
-			{ID: 1, Name: "Nearby Driver", Lat: 2, Lng: 0, VehicleCapacity: 2},
-			{ID: 2, Name: "Opposite Driver", Lat: -100, Lng: 0, VehicleCapacity: 2},
+			{ID: 1, Name: "Nearby Driver", Lat: nearbyHome.Lat, Lng: nearbyHome.Lng, VehicleCapacity: 2},
+			{ID: 2, Name: "Opposite Driver", Lat: oppositeHome.Lat, Lng: oppositeHome.Lng, VehicleCapacity: 2},
 		},
 		Mode: RouteModeDropoff,
 	})
@@ -590,8 +606,11 @@ func TestBalancedRouter_CanLeaveASelectedDriverUnusedForAHigherPriorityObjective
 	if len(result.Routes[0].Stops) != 2 {
 		t.Fatalf("nearby driver stops = %d, want 2", len(result.Routes[0].Stops))
 	}
-	if result.Summary.MaxDetourSecs != 0 || result.Summary.SumDetourSecs != 0 || result.Summary.AverageDetourSecs != 0 {
-		t.Fatalf("unused driver affected detour summary: %+v", result.Summary)
+	if result.Summary.SumDetourSecs <= 0 {
+		t.Fatalf("sum detour = %.1f, want a nonzero fixture", result.Summary.SumDetourSecs)
+	}
+	if result.Summary.MaxDetourSecs != result.Summary.SumDetourSecs || result.Summary.AverageDetourSecs != result.Summary.SumDetourSecs {
+		t.Fatalf("unused driver affected detour summary divisor: %+v", result.Summary)
 	}
 }
 
