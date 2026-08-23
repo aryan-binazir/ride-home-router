@@ -63,8 +63,7 @@ func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculato
 func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error) {
 	// Quick check: same point to same point = 0 (with rounding tolerance)
 	// Round to 5 decimal places (~1m precision) to match cache key rounding
-	if models.RoundCoordinate(origin.Lat) == models.RoundCoordinate(dest.Lat) &&
-		models.RoundCoordinate(origin.Lng) == models.RoundCoordinate(dest.Lng) {
+	if SamePoint(origin, dest) {
 		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
 	}
 
