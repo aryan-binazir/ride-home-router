@@ -392,7 +392,7 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				`hx-post="/api/v1/imports?view=panel"`,
 				`hx-encoding="multipart/form-data"`,
 				`accept=".csv,.xlsx"`,
-				`hx-on:change="document.getElementById('import-sheet')?.remove()"`,
+				`hx-on:change="document.getElementById('import-steps').innerHTML = ''"`,
 				`value="` + string(tt.kind) + `"`,
 				`id="import-steps"`,
 				tt.heading,

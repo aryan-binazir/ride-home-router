@@ -584,7 +584,11 @@ func clearSessionData(state *session) {
 func copyGrid(grid Grid) Grid {
 	copy := Grid{Headers: append([]string(nil), grid.Headers...), rows: make([]gridRow, len(grid.rows))}
 	for i := range grid.rows {
-		copy.rows[i] = gridRow{sourceRow: grid.rows[i].sourceRow, cells: append([]string(nil), grid.rows[i].cells...), errors: append([]string(nil), grid.rows[i].errors...), warnings: append([]string(nil), grid.rows[i].warnings...)}
+		row := grid.rows[i]
+		row.cells = append([]string(nil), row.cells...)
+		row.errors = append([]string(nil), row.errors...)
+		row.warnings = append([]string(nil), row.warnings...)
+		copy.rows[i] = row
 	}
 	return copy
 }

@@ -80,6 +80,7 @@ type gridRow struct {
 	cells     []string
 	errors    []string
 	warnings  []string
+	xlsx      bool
 }
 
 // Existing is the duplicate and household-coordinate information for one

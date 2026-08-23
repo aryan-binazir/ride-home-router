@@ -16,7 +16,7 @@
                        name="file"
                        class="form-input"
                        accept=".csv,.xlsx"
-                       hx-on:change="document.getElementById('import-sheet')?.remove()"
+                       hx-on:change="document.getElementById('import-steps').innerHTML = ''"
                        required>
                 <div class="form-help">CSV or Excel (.xlsx) with a header row and one {{.Noun}} per row.</div>
             </div>

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/xuri/excelize/v2"
 )
 
 const coordinateTolerance = 1e-6
@@ -48,6 +50,9 @@ func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 		}
 		row.AddressName = mappedCell(source.cells, m.AddressNameColumn)
 		row.Errors = append(row.Errors, mappingErrors...)
+		if source.xlsx {
+			row.Errors = append(row.Errors, xlsxCellErrors(source.cells, source.sourceRow, m)...)
+		}
 
 		if row.Name == "" {
 			row.addError("name is required")
@@ -77,6 +82,30 @@ func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 
 	reconcileHouseholdCoordinates(rows, coordinateStates, existing)
 	return rows
+}
+
+func xlsxCellErrors(cells []string, row int, mapping Mapping) []string {
+	var rowErrors []string
+	mapped := make(map[int]struct{}, len(mapping.columns()))
+	for _, binding := range mapping.columns() {
+		column := binding.column
+		if column < 0 || column >= len(cells) {
+			continue
+		}
+		if _, exists := mapped[column]; exists {
+			continue
+		}
+		mapped[column] = struct{}{}
+		value := cells[column]
+		if !xlsxErrorValues[value] {
+			continue
+		}
+		cell, err := excelize.CoordinatesToCellName(column+1, row)
+		if err == nil {
+			rowErrors = append(rowErrors, fmt.Sprintf("cell %s contains spreadsheet error %s", cell, value))
+		}
+	}
+	return rowErrors
 }
 
 func validateMapping(m Mapping, kind Kind, width int) []string {

@@ -99,6 +99,30 @@ func TestXLSXUsesRawFormulaCacheAndWarns(t *testing.T) {
 	}
 }
 
+func TestXLSXFormulaMetadataFailureDoesNotAbortParsing(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+	})
+	f, _, err := openXLSX(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("openXLSX() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	grid, err := parseXLSXSheet(f, []byte("unresolvable formula metadata"), "Sheet1")
+	if err != nil {
+		t.Fatalf("parseXLSXSheet() error = %v", err)
+	}
+	row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
+	if len(row.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want no formula warning without metadata", row.Warnings)
+	}
+}
+
 func TestXLSXUsesRawNumericValuesAndRejectsErrorCells(t *testing.T) {
 	t.Run("formatted numeric value", func(t *testing.T) {
 		data := makeXLSX(t, func(f *excelize.File) {
@@ -141,6 +165,33 @@ func TestXLSXUsesRawNumericValuesAndRejectsErrorCells(t *testing.T) {
 			t.Fatalf("errors = %#v", row.Errors)
 		}
 	})
+}
+
+func TestXLSXErrorTextIsCheckedOnlyInMappedColumns(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{
+			{"name", "address", "notes"},
+			{"Jane", "1 Main St", "#N/A"},
+		})
+	})
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	mapping := AutoMap(grid.Headers)
+	row := Validate(grid, mapping, KindParticipant, nil)[0]
+	if hasMessage(row.Errors, "spreadsheet error #N/A") {
+		t.Fatalf("ignored notes column errors = %#v", row.Errors)
+	}
+
+	// Streaming XLSX reads cannot cheaply distinguish an actual error cell from
+	// literal error text, so mapped columns deliberately treat both as errors.
+	mapping.AddressNameColumn = 2
+	row = Validate(grid, mapping, KindParticipant, nil)[0]
+	if !hasMessage(row.Errors, "cell C2 contains spreadsheet error #N/A") {
+		t.Fatalf("mapped notes column errors = %#v", row.Errors)
+	}
 }
 
 func TestXLSXNormalizesRaggedWidths(t *testing.T) {

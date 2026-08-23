@@ -225,7 +225,7 @@ func sheetHasVisibleContent(f *excelize.File, sheet string) (nonEmpty bool, err 
 func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, err error) {
 	formulaRows, err := xlsxFormulaRows(data, sheet)
 	if err != nil {
-		return nil, fmt.Errorf("inspect worksheet %q formulas: %w", sheet, err)
+		formulaRows = map[int]struct{}{}
 	}
 	rows, err := f.Rows(sheet)
 	if err != nil {
@@ -269,11 +269,10 @@ func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, er
 		if len(grid.rows) == MaxDataRows {
 			return nil, fmt.Errorf("file exceeds the limit of %d data rows", MaxDataRows)
 		}
-		row := gridRow{sourceRow: rowNumber, cells: normalizeWidth(cells, len(grid.Headers))}
+		row := gridRow{sourceRow: rowNumber, cells: normalizeWidth(cells, len(grid.Headers)), xlsx: true}
 		if _, formula := formulaRows[rowNumber]; formula {
 			row.warnings = append(row.warnings, "value comes from a formula; verify")
 		}
-		row.errors = append(row.errors, xlsxCellErrors(cells, rowNumber)...)
 		grid.rows = append(grid.rows, row)
 	}
 	if rows.Error() != nil {
@@ -286,20 +285,6 @@ func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, er
 		return nil, errors.New("roster file has no data rows after the header")
 	}
 	return grid, nil
-}
-
-func xlsxCellErrors(cells []string, row int) []string {
-	var rowErrors []string
-	for column, value := range cells {
-		if !xlsxErrorValues[value] {
-			continue
-		}
-		cell, err := excelize.CoordinatesToCellName(column+1, row)
-		if err == nil {
-			rowErrors = append(rowErrors, fmt.Sprintf("cell %s contains spreadsheet error %s", cell, value))
-		}
-	}
-	return rowErrors
 }
 
 var xlsxErrorValues = map[string]bool{
