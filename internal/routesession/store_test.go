@@ -20,6 +20,10 @@ func (calculator) GetDistance(_ context.Context, origin, dest models.Coordinates
 	return &distance.DistanceResult{DistanceMeters: d, DurationSecs: d}, nil
 }
 
+func (calculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
+	return nil
+}
+
 type failingCalculator struct{ err error }
 
 func (c failingCalculator) GetDistance(context.Context, models.Coordinates, models.Coordinates) (*distance.DistanceResult, error) {
