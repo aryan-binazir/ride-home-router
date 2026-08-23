@@ -14,20 +14,6 @@ import (
 	"time"
 )
 
-// DistanceResult contains the result of a distance calculation
-type DistanceResult struct {
-	DistanceMeters float64
-	DurationSecs   float64
-}
-
-// DistanceCalculator provides distance calculations between coordinates
-type DistanceCalculator interface {
-	GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error)
-	GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error)
-	GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]DistanceResult, error)
-	PrewarmCache(ctx context.Context, points []models.Coordinates) error
-}
-
 // ErrDistanceCalculationFailed is returned when OSRM API fails
 type ErrDistanceCalculationFailed struct {
 	Origin models.Coordinates
@@ -274,11 +260,6 @@ func (c *osrmCalculator) GetDistancesFromPoint(ctx context.Context, origin model
 	}
 
 	return results, nil
-}
-
-func (c *osrmCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
-	_, err := c.GetDistanceMatrix(ctx, points)
-	return err
 }
 
 func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {

@@ -176,7 +176,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	var missingIndexes []int
 	for pairIndex, pair := range cachePairs {
 		resultIndex := cacheIndexes[pairIndex]
-		entry := cached[googleCacheKey(pair.Origin, pair.Dest)]
+		entry := cached[PairCacheKey(pair.Origin, pair.Dest)]
 		if entry != nil {
 			results[resultIndex] = DistanceResult{
 				DistanceMeters: entry.DistanceMeters,
@@ -226,11 +226,6 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	return results, nil
 }
 
-func (c *googleCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
-	_, err := c.GetDistanceMatrix(ctx, points)
-	return err
-}
-
 func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {
 	if len(pairs) == 0 {
 		return nil
@@ -250,7 +245,8 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		}
 		seen[key] = struct{}{}
 
-		originKey := fmt.Sprintf("%.5f,%.5f",
+		originKey := fmt.Sprintf(
+			"%.5f,%.5f",
 			models.RoundCoordinate(pair.Origin.Lat),
 			models.RoundCoordinate(pair.Origin.Lng),
 		)
@@ -272,7 +268,8 @@ func uniqueCoordinates(points []models.Coordinates) []models.Coordinates {
 	seen := make(map[string]struct{}, len(points))
 	unique := make([]models.Coordinates, 0, len(points))
 	for _, point := range points {
-		key := fmt.Sprintf("%.5f,%.5f",
+		key := fmt.Sprintf(
+			"%.5f,%.5f",
 			models.RoundCoordinate(point.Lat),
 			models.RoundCoordinate(point.Lng),
 		)
@@ -311,7 +308,7 @@ func (c *googleCalculator) hydrateMatrixFromCache(ctx context.Context, points []
 	missing := make(map[matrixIndex]struct{})
 	for i, pair := range cachePairs {
 		index := indexes[i]
-		entry := cached[googleCacheKey(pair.Origin, pair.Dest)]
+		entry := cached[PairCacheKey(pair.Origin, pair.Dest)]
 		if entry == nil {
 			missing[index] = struct{}{}
 			continue
@@ -355,15 +352,6 @@ func coordinatesForIndexes(points []models.Coordinates, indexes []int) []models.
 		coordinates[i] = points[index]
 	}
 	return coordinates
-}
-
-func googleCacheKey(origin, dest models.Coordinates) string {
-	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
-		models.RoundCoordinate(origin.Lat),
-		models.RoundCoordinate(origin.Lng),
-		models.RoundCoordinate(dest.Lat),
-		models.RoundCoordinate(dest.Lng),
-	)
 }
 
 func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destinations []models.Coordinates) (map[matrixIndex]DistanceResult, error) {

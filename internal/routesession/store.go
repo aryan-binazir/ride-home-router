@@ -82,7 +82,7 @@ type session struct {
 }
 
 type Store struct {
-	distanceCalc    distance.DistanceCalculator
+	distanceCalc    distance.Lookup
 	sessions        map[string]*session
 	mu              sync.Mutex
 	ttl             time.Duration
@@ -93,11 +93,11 @@ type Store struct {
 	closeOnce       sync.Once
 }
 
-func NewStore(distanceCalc distance.DistanceCalculator) *Store {
+func NewStore(distanceCalc distance.Lookup) *Store {
 	return newStore(distanceCalc, defaultTTL, defaultCleanupInterval, time.Now)
 }
 
-func newStore(distanceCalc distance.DistanceCalculator, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
+func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
 	store := &Store{
 		distanceCalc: distanceCalc, sessions: make(map[string]*session), ttl: ttl,
 		cleanupInterval: cleanupInterval, now: now,

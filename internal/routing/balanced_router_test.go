@@ -256,7 +256,6 @@ func TestBalancedRouter_LargeHouseholdStaysTogetherWhenAnyVehicleFits(t *testing
 
 func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T) {
 	distances := stableDistanceCalculator{}
-	router := &BalancedRouter{distanceCalc: distances}
 	institute := models.Coordinates{Lat: 0, Lng: 0}
 	household := models.Coordinates{Lat: 10, Lng: 0}
 	solo := models.Coordinates{Lat: 0.1, Lng: 0}
@@ -275,7 +274,7 @@ func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T
 		{ID: 5, Name: "Solo", Lat: solo.Lat, Lng: solo.Lng},
 	}
 
-	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, institute, RouteModeDropoff), routes, []int64{largeDriver.ID, smallDriver.ID}, participants)
+	remaining, err := roundRobinInsertion(context.Background(), newRouteContext(distances, institute, RouteModeDropoff), routes, []int64{largeDriver.ID, smallDriver.ID}, participants)
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}
@@ -538,7 +537,6 @@ func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *t
 	distances.setDuration(c2.GetCoords(), driver3.GetCoords(), 0)
 	distances.setDuration(c1.GetCoords(), driver3.GetCoords(), 100)
 
-	router := &BalancedRouter{distanceCalc: distances}
 	routes := map[int64]*balancedRoute{
 		driver1.ID: {driver: driver1, stops: []*models.Participant{x1, y1}},
 		driver2.ID: {driver: driver2, stops: []*models.Participant{x2, y2}},
@@ -554,7 +552,7 @@ func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *t
 		t.Fatalf("peer route changed before the global maximum dropped")
 	}
 
-	if _, err := router.optimizeAssignments(ctx, rc, routes, driverIDs); err != nil {
+	if _, err := optimizeAssignments(ctx, rc, routes, driverIDs); err != nil {
 		t.Fatalf("optimizeAssignments() error = %v", err)
 	}
 	if routes[driver3.ID].stops[0].ID != c2.ID {
@@ -746,34 +744,7 @@ func (a *overrideDistanceAdapter) GetDistance(ctx context.Context, origin, dest 
 	return &distance.DistanceResult{DistanceMeters: duration, DurationSecs: duration}, nil
 }
 
-func (a *overrideDistanceAdapter) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	matrix := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		matrix[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			result, err := a.GetDistance(ctx, points[i], points[j])
-			if err != nil {
-				return nil, err
-			}
-			matrix[i][j] = *result
-		}
-	}
-	return matrix, nil
-}
-
-func (a *overrideDistanceAdapter) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	results := make([]distance.DistanceResult, len(destinations))
-	for i, destination := range destinations {
-		result, err := a.GetDistance(ctx, origin, destination)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = *result
-	}
-	return results, nil
-}
-
-func (a *overrideDistanceAdapter) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
+func (a *overrideDistanceAdapter) PrewarmPairs(context.Context, []distance.DistancePair) error {
 	return nil
 }
 
@@ -792,7 +763,6 @@ func TestRoundRobinInsertion_KeepsPickupHouseholdsIntact(t *testing.T) {
 	distances.setDuration(household, activity, 1)
 	distances.setDuration(otherStop, activity, 100)
 
-	router := &BalancedRouter{distanceCalc: distances}
 	driver := &models.Driver{ID: 1, Name: "Driver", Lat: driverHome.Lat, Lng: driverHome.Lng, VehicleCapacity: 3}
 	routes := map[int64]*balancedRoute{
 		driver.ID: {
@@ -806,7 +776,7 @@ func TestRoundRobinInsertion_KeepsPickupHouseholdsIntact(t *testing.T) {
 		{ID: 3, Name: "Neighbor", Lat: otherStop.Lat, Lng: otherStop.Lng},
 	}
 
-	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModePickup), routes, []int64{driver.ID}, participants)
+	remaining, err := roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModePickup), routes, []int64{driver.ID}, participants)
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}
@@ -838,7 +808,6 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 	distances.setDuration(splitHome, otherStop, 90)
 	distances.setDuration(otherStop, splitHome, 100)
 
-	router := &BalancedRouter{distanceCalc: distances}
 	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 9, Lng: 9, VehicleCapacity: 4}
 	routes := map[int64]*balancedRoute{
 		driver.ID: {
@@ -855,7 +824,7 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 		{ID: 5, Name: "Large Household 2", Lat: splitHome.Lat, Lng: splitHome.Lng},
 	}
 
-	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModeDropoff), routes, []int64{driver.ID}, participants)
+	remaining, err := roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModeDropoff), routes, []int64{driver.ID}, participants)
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}

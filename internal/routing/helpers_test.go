@@ -7,7 +7,7 @@ import (
 	"ride-home-router/internal/testutil"
 )
 
-// mockDistanceAdapter adapts testutil.MockDistanceCalculator to distance.DistanceCalculator
+// mockDistanceAdapter adapts testutil.MockDistanceCalculator to distance.SolveSource.
 type mockDistanceAdapter struct {
 	mock *testutil.MockDistanceCalculator
 }
@@ -22,37 +22,6 @@ func (a *mockDistanceAdapter) GetDistance(ctx context.Context, origin, dest mode
 		return nil, err
 	}
 	return &distance.DistanceResult{DistanceMeters: r.DistanceMeters, DurationSecs: r.DurationSecs}, nil
-}
-
-func (a *mockDistanceAdapter) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	r, err := a.mock.GetDistanceMatrix(ctx, points)
-	if err != nil {
-		return nil, err
-	}
-	result := make([][]distance.DistanceResult, len(r))
-	for i := range r {
-		result[i] = make([]distance.DistanceResult, len(r[i]))
-		for j := range r[i] {
-			result[i][j] = distance.DistanceResult{DistanceMeters: r[i][j].DistanceMeters, DurationSecs: r[i][j].DurationSecs}
-		}
-	}
-	return result, nil
-}
-
-func (a *mockDistanceAdapter) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	r, err := a.mock.GetDistancesFromPoint(ctx, origin, destinations)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]distance.DistanceResult, len(r))
-	for i := range r {
-		result[i] = distance.DistanceResult{DistanceMeters: r[i].DistanceMeters, DurationSecs: r[i].DurationSecs}
-	}
-	return result, nil
-}
-
-func (a *mockDistanceAdapter) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
-	return a.mock.PrewarmCache(ctx, points)
 }
 
 func (a *mockDistanceAdapter) PrewarmPairs(ctx context.Context, pairs []distance.DistancePair) error {

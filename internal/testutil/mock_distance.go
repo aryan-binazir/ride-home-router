@@ -85,44 +85,6 @@ func (m *MockDistanceCalculator) GetDistance(ctx context.Context, origin, dest m
 	}, nil
 }
 
-// GetDistanceMatrix returns a matrix of distances between all pairs of points
-func (m *MockDistanceCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error) {
-	n := len(points)
-	if n == 0 {
-		return [][]DistanceResult{}, nil
-	}
-
-	matrix := make([][]DistanceResult, n)
-	for i := range matrix {
-		matrix[i] = make([]DistanceResult, n)
-		for j := range matrix[i] {
-			if i == j {
-				matrix[i][j] = DistanceResult{DistanceMeters: 0, DurationSecs: 0}
-			} else {
-				result, _ := m.GetDistance(ctx, points[i], points[j])
-				matrix[i][j] = *result
-			}
-		}
-	}
-
-	return matrix, nil
-}
-
-// GetDistancesFromPoint returns distances from a single origin to multiple destinations
-func (m *MockDistanceCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]DistanceResult, error) {
-	results := make([]DistanceResult, len(destinations))
-	for i, dest := range destinations {
-		result, _ := m.GetDistance(ctx, origin, dest)
-		results[i] = *result
-	}
-	return results, nil
-}
-
-// PrewarmCache is a no-op for the mock
-func (m *MockDistanceCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
-	return nil
-}
-
 // PrewarmPairs is a no-op for the mock
 func (m *MockDistanceCalculator) PrewarmPairs(ctx context.Context, pairs []distance.DistancePair) error {
 	return nil

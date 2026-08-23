@@ -20,34 +20,7 @@ func (stableDistanceCalculator) GetDistance(ctx context.Context, origin, dest mo
 	}, nil
 }
 
-func (calc stableDistanceCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	matrix := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		matrix[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			dist, err := calc.GetDistance(ctx, points[i], points[j])
-			if err != nil {
-				return nil, err
-			}
-			matrix[i][j] = *dist
-		}
-	}
-	return matrix, nil
-}
-
-func (calc stableDistanceCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	results := make([]distance.DistanceResult, len(destinations))
-	for i, dest := range destinations {
-		dist, err := calc.GetDistance(ctx, origin, dest)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = *dist
-	}
-	return results, nil
-}
-
-func (stableDistanceCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
+func (stableDistanceCalculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
 	return nil
 }
 
