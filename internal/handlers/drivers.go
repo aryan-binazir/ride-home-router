@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -156,12 +157,12 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.VehicleCapacity <= 0 {
+	if req.VehicleCapacity < importer.MinCapacity || req.VehicleCapacity > importer.MaxCapacity {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageVehicleCapacityMustBeGreaterThanZero))
+			h.renderError(w, r, errors.New(messageVehicleCapacityOutOfRange()))
 			return
 		}
-		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
+		h.handleValidationError(w, messageVehicleCapacityOutOfRange())
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
@@ -333,12 +334,12 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.VehicleCapacity <= 0 {
+	if req.VehicleCapacity < importer.MinCapacity || req.VehicleCapacity > importer.MaxCapacity {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageVehicleCapacityMustBeGreaterThanZero))
+			h.renderError(w, r, errors.New(messageVehicleCapacityOutOfRange()))
 			return
 		}
-		h.handleValidationError(w, messageVehicleCapacityMustBeGreaterThanZero)
+		h.handleValidationError(w, messageVehicleCapacityOutOfRange())
 		return
 	}
 	if shouldSetLabels {
