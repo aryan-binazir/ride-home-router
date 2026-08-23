@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
+	"ride-home-router/internal/routing"
 	"sync"
 	"testing"
 	"time"
@@ -114,6 +115,41 @@ func TestCreateReturnsIndependentFreshSnapshot(t *testing.T) {
 	}
 	if got.Routes[0].Driver.Name != "Driver" || got.ActivityLocation.Name != "HQ" {
 		t.Fatalf("snapshot aliases caller state: %#v", got)
+	}
+}
+
+func TestCreateSummaryMatchesCalculatedRoutingSummary(t *testing.T) {
+	calc := calculator{}
+	request := &routing.RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 10, Name: "Rider", Lat: 1, Lng: 1},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver", Lat: 2, Lng: 0, VehicleCapacity: 1},
+		},
+		Mode: routing.RouteModeDropoff,
+	}
+	result, err := routing.NewBalancedRouter(calc).CalculateRoutes(context.Background(), request)
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+	if result.Summary.MaxDetourSecs <= 0 {
+		t.Fatalf("calculated max detour = %.1f, want nonzero fixture", result.Summary.MaxDetourSecs)
+	}
+
+	store := routesession.NewStore(calc)
+	t.Cleanup(store.Close)
+	snapshot := store.Create(routesession.CreateInput{
+		Routes:          result.Routes,
+		SelectedDrivers: request.Drivers,
+		Mode:            result.Mode,
+	})
+
+	if snapshot.Summary.MaxDetourSecs != result.Summary.MaxDetourSecs ||
+		snapshot.Summary.SumDetourSecs != result.Summary.SumDetourSecs ||
+		snapshot.Summary.AverageDetourSecs != result.Summary.AverageDetourSecs {
+		t.Fatalf("session detour summary = %+v, want calculation summary %+v", snapshot.Summary, result.Summary)
 	}
 }
 
