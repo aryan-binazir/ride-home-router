@@ -14,6 +14,119 @@
         writeDraft();
     }
 
+    const SAVE_EVENT_ENDPOINT = '/api/v1/events';
+
+    function createRouteSessionOrchestrator({ document, htmx, moves, reportError, refreshEtas }) {
+        const savesInFlight = new Set();
+
+        function getActiveSessionId() {
+            const container = document.querySelector('.routes-container');
+            return container ? container.dataset.sessionId : null;
+        }
+
+        function renderResults(html) {
+            const resultsSection = document.getElementById('results-section');
+            if (!resultsSection) return;
+
+            resultsSection.innerHTML = html;
+            htmx.process(resultsSection);
+            refreshEtas();
+        }
+
+        function applyEditResult({ requestedSessionId, ok, html }) {
+            if (!ok) {
+                reportError(html);
+                return false;
+            }
+            if (getActiveSessionId() !== requestedSessionId) {
+                // The request succeeded, but its HTML no longer owns the view.
+                return true;
+            }
+
+            renderResults(html);
+            return true;
+        }
+
+        function getSaveFormSessionId(form) {
+            return form.elements.namedItem('session_id')?.value || null;
+        }
+
+        function hasQueuedMoves(form) {
+            const sessionId = getSaveFormSessionId(form);
+            return Boolean(sessionId)
+                && getActiveSessionId() === sessionId
+                && moves.hasPending(sessionId);
+        }
+
+        function snapshotSaveForm(form) {
+            return {
+                event_date: form.elements.namedItem('event_date')?.value || '',
+                notes: form.elements.namedItem('notes')?.value || '',
+            };
+        }
+
+        function findLiveSaveForm() {
+            const sessionInput = document.querySelector('#results-section form input[name="session_id"]');
+            return sessionInput ? sessionInput.closest('form') : null;
+        }
+
+        function restoreSaveForm(form, values) {
+            const eventDate = form.elements.namedItem('event_date');
+            const notes = form.elements.namedItem('notes');
+            if (eventDate) eventDate.value = values.event_date;
+            if (notes) notes.value = values.notes;
+        }
+
+        function canSubmitSaveForm(form) {
+            const submitButton = form.querySelector('button[type="submit"]');
+            return form.getAttribute('hx-post') === SAVE_EVENT_ENDPOINT
+                && Boolean(submitButton)
+                && !submitButton.disabled;
+        }
+
+        function submitSaveForm(form) {
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+                return;
+            }
+
+            const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+            if (form.dispatchEvent(submitEvent)) form.submit();
+        }
+
+        async function submitSaveWithQueuedMoves(form) {
+            const requestedSessionId = getSaveFormSessionId(form);
+            if (!requestedSessionId || getActiveSessionId() !== requestedSessionId) return false;
+            if (savesInFlight.has(requestedSessionId)) return true;
+            if (!moves.hasPending(requestedSessionId)) return false;
+
+            const values = snapshotSaveForm(form);
+            savesInFlight.add(requestedSessionId);
+            let flushed = false;
+            let liveForm = null;
+            try {
+                flushed = await moves.flush(requestedSessionId);
+            } finally {
+                if (getActiveSessionId() === requestedSessionId) {
+                    const candidate = findLiveSaveForm();
+                    if (candidate && getSaveFormSessionId(candidate) === requestedSessionId) {
+                        liveForm = candidate;
+                        restoreSaveForm(liveForm, values);
+                    }
+                }
+                // requestSubmit re-enters the capture listener, so unlock first.
+                savesInFlight.delete(requestedSessionId);
+            }
+
+            if (flushed && liveForm && canSubmitSaveForm(liveForm)) {
+                submitSaveForm(liveForm);
+            }
+            return true;
+        }
+
+        return { applyEditResult, hasQueuedMoves, submitSaveWithQueuedMoves };
+    }
+
     const DROPOFF_ETA_SLACK_SECS = 2 * 60;
 
     function formatClockTime(value) {
@@ -153,6 +266,7 @@
         const queue = [];
         let timeout = null;
         let flushPromise = null;
+        let activeSessionId = null;
 
         function scheduleFlush() {
             if (timeout !== null) cancel(timeout);
@@ -192,23 +306,29 @@
         }
 
         async function run() {
+            const sessionOutcomes = new Map();
             while (queue.length > 0) {
                 const moves = takeBatch();
-                if (moves.length === 0) return false;
+                if (moves.length === 0) return { succeeded: false, sessionOutcomes };
 
+                const sessionId = moves[0].session_id;
+                activeSessionId = sessionId;
                 let succeeded;
                 try {
                     succeeded = await sendBatch(toPayload(moves));
                 } catch (error) {
                     queue.unshift(...moves);
                     throw error;
+                } finally {
+                    activeSessionId = null;
                 }
-                if (!succeeded) return false;
+                sessionOutcomes.set(sessionId, (sessionOutcomes.get(sessionId) ?? true) && succeeded);
+                if (!succeeded) return { succeeded: false, sessionOutcomes };
             }
-            return true;
+            return { succeeded: true, sessionOutcomes };
         }
 
-        async function flush() {
+        async function flushDetailed() {
             if (timeout !== null) {
                 cancel(timeout);
                 timeout = null;
@@ -224,11 +344,29 @@
             }
         }
 
+        async function flush() {
+            const result = await flushDetailed();
+            return result.succeeded;
+        }
+
         function hasPending() {
             return queue.length > 0 || timeout !== null || flushPromise !== null;
         }
 
-        return { enqueue, flush, hasPending };
+        function hasPendingFor(sessionId) {
+            return activeSessionId === sessionId || queue.some(move => move.session_id === sessionId);
+        }
+
+        async function flushFor(sessionId) {
+            let succeeded = true;
+            while (hasPendingFor(sessionId)) {
+                const result = await flushDetailed();
+                if (result.sessionOutcomes.get(sessionId) === false) succeeded = false;
+            }
+            return succeeded;
+        }
+
+        return { enqueue, flush, flushFor, hasPending, hasPendingFor };
     }
 
     function bootBrowser() {
@@ -355,10 +493,26 @@
             return container ? container.dataset.sessionId : null;
         }
 
+        let participantMoveBatcher;
+        const routeSessionOrchestrator = createRouteSessionOrchestrator({
+            document,
+            htmx,
+            moves: {
+                hasPending: function(sessionId) {
+                    return participantMoveBatcher.hasPendingFor(sessionId);
+                },
+                flush: function(sessionId) {
+                    return participantMoveBatcher.flushFor(sessionId);
+                },
+            },
+            reportError: showRouteError,
+            refreshEtas: populateStopEtas,
+        });
+
         /**
          * Moves a participant from one route to another
          */
-        const participantMoveBatcher = createParticipantMoveBatcher({
+        participantMoveBatcher = createParticipantMoveBatcher({
             sendBatch: async function(payload) {
                 try {
                     const response = await fetch('/api/v1/routes/edit/move-participant', {
@@ -371,17 +525,11 @@
                     });
 
                     const html = await response.text();
-                    if (!response.ok) {
-                        showRouteError(html);
-                        return false;
-                    }
-
-                    const routeResults = document.getElementById('results-section');
-                    if (routeResults && getSessionId() === payload.session_id) {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                    return true;
+                    return routeSessionOrchestrator.applyEditResult({
+                        requestedSessionId: payload.session_id,
+                        ok: response.ok,
+                        html,
+                    });
                 } catch (err) {
                     console.error('Failed to move participant:', err);
                     showRouteError('Failed to move participant: ' + err.message);
@@ -408,42 +556,19 @@
             });
         }
 
-        function hasQueuedParticipantMoves() {
-            return participantMoveBatcher.hasPending();
-        }
-
-        async function flushQueuedParticipantMoves() {
-            return participantMoveBatcher.flush();
-        }
-
         function isSaveEventForm(form) {
-            return form instanceof HTMLFormElement && form.getAttribute('hx-post') === '/api/v1/events';
+            return form instanceof HTMLFormElement && form.getAttribute('hx-post') === SAVE_EVENT_ENDPOINT;
         }
 
         document.addEventListener('submit', async function(evt) {
             const form = evt.target;
-            if (!isSaveEventForm(form) || !hasQueuedParticipantMoves() || form.dataset.pendingMoveFlush === 'true') {
+            if (!isSaveEventForm(form) || !routeSessionOrchestrator.hasQueuedMoves(form)) {
                 return;
             }
 
             evt.preventDefault();
             evt.stopImmediatePropagation();
-            form.dataset.pendingMoveFlush = 'true';
-
-            const flushed = await flushQueuedParticipantMoves();
-            delete form.dataset.pendingMoveFlush;
-            if (!flushed) {
-                return;
-            }
-
-            if (typeof form.requestSubmit === 'function') {
-                form.requestSubmit(evt.submitter || undefined);
-            } else {
-                const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                if (form.dispatchEvent(submitEvent)) {
-                    form.submit();
-                }
-            }
+            await routeSessionOrchestrator.submitSaveWithQueuedMoves(form);
         }, true);
 
         /**
@@ -479,15 +604,11 @@
                 });
 
                 const html = await response.text();
-                const routeResults = document.getElementById('results-section');
-                if (routeResults) {
-                    if (!response.ok) {
-                        showRouteError(html);
-                    } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                }
+                routeSessionOrchestrator.applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    html,
+                });
             } catch (err) {
                 console.error('Failed to swap drivers:', err);
                 showRouteError('Failed to swap drivers: ' + err.message);
@@ -513,15 +634,11 @@
                 });
 
                 const html = await response.text();
-                const routeResults = document.getElementById('results-section');
-                if (routeResults) {
-                    if (!response.ok) {
-                        showRouteError(html);
-                    } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                }
+                routeSessionOrchestrator.applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    html,
+                });
             } catch (err) {
                 console.error('Failed to reset routes:', err);
                 showRouteError('Failed to reset routes: ' + err.message);
@@ -552,15 +669,11 @@
                 });
 
                 const html = await response.text();
-                const routeResults = document.getElementById('results-section');
-                if (routeResults) {
-                    if (!response.ok) {
-                        showRouteError(html);
-                    } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                }
+                routeSessionOrchestrator.applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    html,
+                });
             } catch (err) {
                 console.error('Failed to add driver:', err);
                 showRouteError('Failed to add driver: ' + err.message);
@@ -1489,6 +1602,7 @@
 
     return {
         createParticipantMoveBatcher,
+        createRouteSessionOrchestrator,
         formatRouteText,
         generateMapsUrl,
         getStopEta,
