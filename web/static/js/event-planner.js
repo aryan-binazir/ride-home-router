@@ -105,7 +105,7 @@
             let flushed = false;
             let liveForm = null;
             try {
-                flushed = await moves.flush();
+                flushed = await moves.flush(requestedSessionId);
             } finally {
                 if (getActiveSessionId() === requestedSessionId) {
                     const candidate = findLiveSaveForm();
@@ -349,7 +349,15 @@
             return activeSessionId === sessionId || queue.some(move => move.session_id === sessionId);
         }
 
-        return { enqueue, flush, hasPending, hasPendingFor };
+        async function flushFor(sessionId) {
+            let succeeded = true;
+            while (hasPendingFor(sessionId)) {
+                succeeded = await flush();
+            }
+            return succeeded;
+        }
+
+        return { enqueue, flush, flushFor, hasPending, hasPendingFor };
     }
 
     function bootBrowser() {
@@ -484,8 +492,8 @@
                 hasPending: function(sessionId) {
                     return participantMoveBatcher.hasPendingFor(sessionId);
                 },
-                flush: function() {
-                    return participantMoveBatcher.flush();
+                flush: function(sessionId) {
+                    return participantMoveBatcher.flushFor(sessionId);
                 },
             },
             reportError: showRouteError,

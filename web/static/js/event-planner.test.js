@@ -199,31 +199,48 @@ test('a second save attempt during the same move flush does not submit twice', a
     assert.equal(form.submitCount, 1);
 });
 
-test('a queued save never restores or submits a replacement session form', async () => {
-    let finishFlush;
-    const flush = new Promise(resolve => { finishFlush = resolve; });
+test('a queued save waits for its own session when an earlier session fails', async () => {
+    let finishSessionA;
+    const sessionAGate = new Promise(resolve => { finishSessionA = resolve; });
+    const sent = [];
+    const batcher = createParticipantMoveBatcher({
+        schedule: () => 1,
+        cancel: () => {},
+        sendBatch: async payload => {
+            sent.push(payload.session_id);
+            if (payload.session_id === 'session-a') {
+                await sessionAGate;
+                return false;
+            }
+            return true;
+        },
+    });
     const sessionAForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Session A', sessionId: 'session-a' });
     const sessionBForm = createSaveForm({ eventDate: '2026-08-24', notes: 'Session B', sessionId: 'session-b' });
     let liveForm = sessionAForm;
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
-        hasPending: () => true,
-        flush: () => flush,
+        hasPending: sessionId => batcher.hasPendingFor(sessionId),
+        flush: sessionId => batcher.flushFor(sessionId),
     });
 
+    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
     const sessionASave = harness.orchestrator.submitSaveWithQueuedMoves(sessionAForm);
     harness.setActiveSessionId('session-b');
     liveForm = sessionBForm;
+    batcher.enqueue({ session_id: 'session-b', participant_id: 2 });
     const sessionBSave = harness.orchestrator.submitSaveWithQueuedMoves(sessionBForm);
-    finishFlush(true);
+    finishSessionA();
     await Promise.all([sessionASave, sessionBSave]);
 
     assert.deepEqual({
+        sent,
         eventDate: sessionBForm.value('event_date'),
         notes: sessionBForm.value('notes'),
         sessionASubmits: sessionAForm.submitCount,
         sessionBSubmits: sessionBForm.submitCount,
     }, {
+        sent: ['session-a', 'session-b'],
         eventDate: '2026-08-24',
         notes: 'Session B',
         sessionASubmits: 0,
