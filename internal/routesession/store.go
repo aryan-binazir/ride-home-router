@@ -249,17 +249,34 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 	return snapshotOf(state), nil
 }
 
-func (s *Store) SaveSnapshot(id string) (models.RoutingResult, error) {
+// Commit persists a balanced session and removes it after persistence succeeds.
+// The persist callback receives the persistence context and runs while the target
+// session is locked. It must not call any Store method. Calls waiting on the same
+// session cannot be canceled.
+func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, models.RoutingResult) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {
-		return models.RoutingResult{}, err
+		return err
 	}
-	defer state.mu.Unlock()
 	_, unbalanced := capacityState(state.currentRoutes)
 	if unbalanced {
-		return models.RoutingResult{}, ErrUnbalanced
+		state.mu.Unlock()
+		return ErrUnbalanced
 	}
-	return models.RoutingResult{Routes: copyRoutes(state.currentRoutes), Summary: calculateSummary(state.currentRoutes), Mode: state.mode}, nil
+	payload := models.RoutingResult{
+		Routes:  copyRoutes(state.currentRoutes),
+		Summary: calculateSummary(state.currentRoutes),
+		Mode:    state.mode,
+	}
+	if err := persist(ctx, payload); err != nil {
+		state.mu.Unlock()
+		return err
+	}
+	state.deleted = true
+	state.mu.Unlock()
+	s.remove(id, state)
+	log.Printf("[SESSION] Deleted route session: id=%s", id)
+	return nil
 }
 
 func (s *Store) Delete(id string) {

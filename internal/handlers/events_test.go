@@ -5,12 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/sqlite"
@@ -36,6 +38,24 @@ PAGE|{{.DisplayedCount}}/{{.Total}}{{range .Events}}<div class="event-item">{{.I
 {{if .UseLegacyAssignments}}Legacy Detail{{range .Assignments}}|{{.DriverName}}{{range .Stops}}|{{.ParticipantName}}|{{printf "%.0f" .DistanceFromPrevMeters}}{{end}}{{end}}{{else}}Native Detail{{range .Routes}}|{{.DriverName}}|Final Leg {{printf "%.0f" .DistanceToDriverHomeMeters}}|Detour {{printf "%.0f" .DetourSecs}}{{end}}{{end}}
 {{end}}
 `
+
+type failingEventRepository struct {
+	database.EventRepository
+	err error
+}
+
+func (r failingEventRepository) Create(context.Context, *models.Event, []models.EventRoute, *models.EventSummary) (*models.Event, error) {
+	return nil, r.err
+}
+
+type eventRepositoryDataStore struct {
+	database.DataStore
+	events database.EventRepository
+}
+
+func (s eventRepositoryDataStore) Events() database.EventRepository {
+	return s.events
+}
 
 func TestHandleCreateEvent_MissingRoutesReturnsBadRequest(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
@@ -107,6 +127,71 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	}
 }
 
+func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+			Mode:              models.RouteModeDropoff,
+		}},
+		Mode: models.RouteModeDropoff,
+	})
+	wantErr := errors.New("event persistence failed")
+	handler.DB = eventRepositoryDataStore{
+		DataStore: store,
+		events: failingEventRepository{
+			EventRepository: store.Events(),
+			err:             wantErr,
+		},
+	}
+
+	form := "event_date=2026-03-14&session_id=" + session.ID
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rr.Code, rr.Body.String())
+	}
+	if _, ok := handler.RouteSession.Snapshot(session.ID); !ok {
+		t.Fatal("session was removed after event persistence failed")
+	}
+}
+
+func TestHandleCreateEvent_AllEmptyRoutesReturnsLowercaseMessage(t *testing.T) {
+	handler, _ := newTestEventHandler(t, false)
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Mode:              models.RouteModeDropoff,
+		}},
+		Mode: models.RouteModeDropoff,
+	})
+
+	form := "event_date=2026-03-14&session_id=" + session.ID
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Message != "routes are required" {
+		t.Fatalf("message = %q, want %q", response.Error.Message, "routes are required")
+	}
+}
+
 func TestHandleCreateEvent_ExpiredSessionReturnsNotFound(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
 
@@ -171,6 +256,38 @@ func TestHandleCreateEvent_ExpiredSessionFallsBackToPostedRoutesJSON(t *testing.
 	}
 	if routes[0].DriverName != "Fallback Driver" {
 		t.Fatalf("saved driver = %q, want fallback posted route driver", routes[0].DriverName)
+	}
+}
+
+func TestHandleCreateEvent_InvalidFallbackModeReturnsFriendlyMessage(t *testing.T) {
+	handler, _ := newTestEventHandler(t, false)
+	routingPayload := models.RoutingResult{
+		Mode: models.RouteMode("invalid"),
+		Routes: []models.CalculatedRoute{{
+			Driver: &models.Driver{ID: 7, Name: "Fallback Driver", VehicleCapacity: 2},
+			Stops:  []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+		}},
+	}
+	payloadBytes, err := json.Marshal(routingPayload)
+	if err != nil {
+		t.Fatalf("marshal routing payload: %v", err)
+	}
+	form := "event_date=2026-03-14&session_id=expired-session-id&routes_json=" + url.QueryEscape(string(payloadBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Message != messageInvalidRouteMode {
+		t.Fatalf("message = %q, want %q", response.Error.Message, messageInvalidRouteMode)
 	}
 }
 
@@ -602,52 +719,6 @@ func TestHandleDeleteEvent_HTMXRerendersEventList(t *testing.T) {
 	}
 	if !strings.Contains(body, "keep me") {
 		t.Fatalf("expected remaining event to be rendered, got %q", body)
-	}
-}
-
-func TestBuildEventSnapshots_RejectsMixedRouteModes(t *testing.T) {
-	result := &models.RoutingResult{
-		Mode: models.RouteModeDropoff,
-		Routes: []models.CalculatedRoute{
-			{
-				Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 4},
-				Mode:   models.RouteModeDropoff,
-				Stops: []models.RouteStop{
-					{Participant: &models.Participant{ID: 1, Name: "Passenger One"}},
-				},
-			},
-			{
-				Driver: &models.Driver{ID: 2, Name: "Driver Two", VehicleCapacity: 4},
-				Mode:   models.RouteModePickup,
-				Stops: []models.RouteStop{
-					{Participant: &models.Participant{ID: 2, Name: "Passenger Two"}},
-				},
-			},
-		},
-	}
-
-	_, _, _, err := buildEventSnapshots(result)
-	if err == nil || err.Error() != "all routes must use the same mode" {
-		t.Fatalf("expected mixed-mode validation error, got %v", err)
-	}
-}
-
-func TestBuildEventSnapshots_RejectsInvalidMode(t *testing.T) {
-	result := &models.RoutingResult{
-		Mode: "sideways",
-		Routes: []models.CalculatedRoute{
-			{
-				Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 4},
-				Stops: []models.RouteStop{
-					{Participant: &models.Participant{ID: 1, Name: "Passenger One"}},
-				},
-			},
-		},
-	}
-
-	_, _, _, err := buildEventSnapshots(result)
-	if err == nil || err.Error() != messageInvalidRouteMode {
-		t.Fatalf("expected invalid mode error %q, got %v", messageInvalidRouteMode, err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/eventsnapshot"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
@@ -52,6 +53,14 @@ type CreateEventRequest struct {
 	Notes     string                `json:"notes"`
 	Routes    *models.RoutingResult `json:"routes"`
 	SessionID string                `json:"session_id"`
+}
+
+type eventValidationError struct {
+	message string
+}
+
+func (e eventValidationError) Error() string {
+	return e.message
 }
 
 // EventDetailResponse represents the detailed event response.
@@ -222,8 +231,44 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageEventDateRequired)
 		return
 	}
+
+	var createdEvent *models.Event
+	var savedRouteCount int
+	persist := func(ctx context.Context, result models.RoutingResult) error {
+		eventDate, err := time.Parse("2006-01-02", req.EventDate)
+		if err != nil {
+			log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", req.EventDate, err)
+			return eventValidationError{message: messageInvalidEventDateFormat}
+		}
+
+		snapshot, err := eventsnapshot.Build(result)
+		if err != nil {
+			log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
+			message := err.Error()
+			if errors.Is(err, models.ErrInvalidRouteMode) {
+				message = messageInvalidRouteMode
+			}
+			return eventValidationError{message: message}
+		}
+
+		event := &models.Event{EventDate: eventDate, Notes: req.Notes, Mode: snapshot.Mode}
+		created, err := h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
+		if err != nil {
+			log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%v", req.EventDate, len(snapshot.Routes), err)
+			return err
+		}
+		createdEvent = created
+		savedRouteCount = len(snapshot.Routes)
+		return nil
+	}
+
 	if req.SessionID != "" {
-		routes, sessionErr := h.RouteSession.SaveSnapshot(req.SessionID)
+		sessionErr := h.RouteSession.Commit(r.Context(), req.SessionID, persist)
+		var validationErr eventValidationError
+		if errors.As(sessionErr, &validationErr) {
+			h.handleValidationError(w, validationErr.message)
+			return
+		}
 		if errors.Is(sessionErr, routesession.ErrNotFound) {
 			if req.Routes == nil && formRoutesJSON != "" {
 				routes, ok := h.parsePostedRoutesJSON(w, formRoutesJSON)
@@ -238,6 +283,15 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Printf("[HTTP] POST /api/v1/events: session_not_found using posted routes fallback session_id=%s", req.SessionID)
+			if err := persist(r.Context(), *req.Routes); err != nil {
+				var fallbackValidationErr eventValidationError
+				if errors.As(err, &fallbackValidationErr) {
+					h.handleValidationError(w, fallbackValidationErr.message)
+				} else {
+					h.handleInternalError(w, err)
+				}
+				return
+			}
 		} else if errors.Is(sessionErr, routesession.ErrUnbalanced) {
 			log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
 			h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
@@ -245,47 +299,22 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		} else if sessionErr != nil {
 			h.handleInternalError(w, sessionErr)
 			return
-		} else {
-			req.Routes = &routes
 		}
 	} else if req.Routes == nil {
 		log.Printf("[HTTP] POST /api/v1/events: missing routes")
 		h.handleValidationError(w, messageRoutesRequired)
 		return
-	}
-
-	eventDate, err := time.Parse("2006-01-02", req.EventDate)
-	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", req.EventDate, err)
-		h.handleValidationError(w, messageInvalidEventDateFormat)
+	} else if err := persist(r.Context(), *req.Routes); err != nil {
+		var validationErr eventValidationError
+		if errors.As(err, &validationErr) {
+			h.handleValidationError(w, validationErr.message)
+		} else {
+			h.handleInternalError(w, err)
+		}
 		return
 	}
 
-	mode, routes, summary, err := buildEventSnapshots(req.Routes)
-	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
-		h.handleValidationError(w, err.Error())
-		return
-	}
-
-	event := &models.Event{
-		EventDate: eventDate,
-		Notes:     req.Notes,
-		Mode:      mode,
-	}
-
-	event, err = h.DB.Events().Create(r.Context(), event, routes, summary)
-	if err != nil {
-		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%v", req.EventDate, len(routes), err)
-		h.handleInternalError(w, err)
-		return
-	}
-
-	if req.SessionID != "" {
-		h.RouteSession.Delete(req.SessionID)
-	}
-
-	log.Printf("[HTTP] Created event: id=%d date=%s routes=%d", event.ID, event.EventDate.Format("2006-01-02"), len(routes))
+	log.Printf("[HTTP] Created event: id=%d date=%s routes=%d", createdEvent.ID, createdEvent.EventDate.Format("2006-01-02"), savedRouteCount)
 
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
@@ -294,7 +323,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusCreated, event)
+	h.writeJSON(w, http.StatusCreated, createdEvent)
 }
 
 func (h *Handler) parsePostedRoutesJSON(w http.ResponseWriter, routesJSON string) (*models.RoutingResult, bool) {
@@ -397,103 +426,6 @@ func (h *Handler) buildEventListView(ctx context.Context, limit, offset int) (*E
 		NextOffset:     displayedCount,
 		PageSize:       defaultEventListPageSize,
 		UseMiles:       settings.UseMiles,
-	}, nil
-}
-
-func buildEventSnapshots(result *models.RoutingResult) (models.RouteMode, []models.EventRoute, *models.EventSummary, error) {
-	if result == nil {
-		return "", nil, nil, fmt.Errorf("routes are required")
-	}
-
-	mode, err := normalizeRouteMode(string(result.Mode))
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	routes := make([]models.EventRoute, 0, len(result.Routes))
-	totalParticipants := 0
-	totalDrivers := 0
-	totalDistance := 0.0
-	orgVehiclesUsed := 0
-
-	for _, route := range result.Routes {
-		if route.Driver == nil {
-			return "", nil, nil, fmt.Errorf("each route must include a driver")
-		}
-		if len(route.Stops) == 0 {
-			continue
-		}
-
-		routeMode := route.Mode
-		if routeMode == "" {
-			routeMode = mode
-		}
-		routeMode, err = normalizeRouteMode(string(routeMode))
-		if err != nil {
-			return "", nil, nil, err
-		}
-		if routeMode != mode {
-			return "", nil, nil, fmt.Errorf("all routes must use the same mode")
-		}
-
-		snapshot := models.EventRoute{
-			RouteOrder:                 len(routes),
-			DriverID:                   route.Driver.ID,
-			DriverName:                 route.Driver.Name,
-			DriverAddress:              route.Driver.Address,
-			EffectiveCapacity:          route.EffectiveCapacity,
-			OrgVehicleID:               route.OrgVehicleID,
-			OrgVehicleName:             route.OrgVehicleName,
-			TotalDropoffDistanceMeters: route.TotalDropoffDistanceMeters,
-			DistanceToDriverHomeMeters: route.DistanceToDriverHomeMeters,
-			TotalDistanceMeters:        route.TotalDistanceMeters,
-			BaselineDurationSecs:       route.BaselineDurationSecs,
-			RouteDurationSecs:          route.RouteDurationSecs,
-			DetourSecs:                 route.DetourSecs,
-			Mode:                       routeMode,
-			SnapshotVersion:            2,
-			MetricsComplete:            true,
-			Stops:                      make([]models.EventRouteStop, 0, len(route.Stops)),
-		}
-		if snapshot.EffectiveCapacity == 0 {
-			snapshot.EffectiveCapacity = route.Driver.VehicleCapacity
-		}
-
-		for stopIndex, stop := range route.Stops {
-			if stop.Participant == nil {
-				return "", nil, nil, fmt.Errorf("each route stop must include a participant")
-			}
-			snapshot.Stops = append(snapshot.Stops, models.EventRouteStop{
-				Order:                    stopIndex,
-				ParticipantID:            stop.Participant.ID,
-				ParticipantName:          stop.Participant.Name,
-				ParticipantAddress:       stop.Participant.Address,
-				DistanceFromPrevMeters:   stop.DistanceFromPrevMeters,
-				CumulativeDistanceMeters: stop.CumulativeDistanceMeters,
-				DurationFromPrevSecs:     stop.DurationFromPrevSecs,
-				CumulativeDurationSecs:   stop.CumulativeDurationSecs,
-			})
-			totalParticipants++
-		}
-
-		totalDrivers++
-		totalDistance += route.TotalDistanceMeters
-		if route.OrgVehicleID > 0 {
-			orgVehiclesUsed++
-		}
-		routes = append(routes, snapshot)
-	}
-
-	if len(routes) == 0 {
-		return "", nil, nil, fmt.Errorf("routes are required")
-	}
-
-	return mode, routes, &models.EventSummary{
-		TotalParticipants:   totalParticipants,
-		TotalDrivers:        totalDrivers,
-		TotalDistanceMeters: totalDistance,
-		OrgVehiclesUsed:     orgVehiclesUsed,
-		Mode:                mode,
 	}, nil
 }
 

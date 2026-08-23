@@ -130,6 +130,12 @@ func TestHandleGetRouteSessionReturnsHTMXFragment(t *testing.T) {
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`data-session-id="`+created.ID+`"`)) {
 		t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
 	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`name="session_id" value="`+created.ID+`"`)) {
+		t.Fatalf("body does not contain the session save field: %q", w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte(`name="routes_json"`)) {
+		t.Fatalf("body contains unreachable routes_json fallback field: %q", w.Body.String())
+	}
 }
 
 func TestHandleMoveParticipantPreservesBatchRequestValidation(t *testing.T) {
