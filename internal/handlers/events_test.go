@@ -125,6 +125,9 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 saved event, got %d", len(events))
 	}
+	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
+		t.Fatal("session remains available after successful event persistence")
+	}
 }
 
 func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {

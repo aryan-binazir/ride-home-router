@@ -544,6 +544,36 @@ func TestCommitDoesNotBlockOtherSessions(t *testing.T) {
 	}
 }
 
+func TestCommitUnlocksSessionWhenPersistencePanics(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+	panicDone := make(chan any, 1)
+	go func() {
+		defer func() { panicDone <- recover() }()
+		_ = store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+			panic("persistence panic")
+		})
+	}()
+	if recovered := <-panicDone; recovered != "persistence panic" {
+		t.Fatalf("recovered panic = %v, want persistence panic", recovered)
+	}
+
+	snapshotDone := make(chan bool, 1)
+	go func() {
+		_, ok := store.Snapshot(created.ID)
+		snapshotDone <- ok
+	}()
+	select {
+	case ok := <-snapshotDone:
+		if !ok {
+			t.Fatal("session disappeared after persistence panic")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session remained locked after persistence panic")
+	}
+}
+
 func TestStoreSupportsConcurrentSnapshotsAndResets(t *testing.T) {
 	store := routesession.NewStore(calculator{})
 	t.Cleanup(store.Close)

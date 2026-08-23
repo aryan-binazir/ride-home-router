@@ -258,9 +258,14 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 	if err != nil {
 		return err
 	}
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			state.mu.Unlock()
+		}
+	}()
 	_, unbalanced := capacityState(state.currentRoutes)
 	if unbalanced {
-		state.mu.Unlock()
 		return ErrUnbalanced
 	}
 	payload := models.RoutingResult{
@@ -269,11 +274,11 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 		Mode:    state.mode,
 	}
 	if err := persist(ctx, payload); err != nil {
-		state.mu.Unlock()
 		return err
 	}
 	state.deleted = true
 	state.mu.Unlock()
+	unlocked = true
 	s.remove(id, state)
 	log.Printf("[SESSION] Deleted route session: id=%s", id)
 	return nil

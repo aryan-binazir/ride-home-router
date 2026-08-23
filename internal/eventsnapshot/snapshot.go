@@ -49,11 +49,6 @@ func Build(result models.RoutingResult) (Snapshot, error) {
 		if routeMode != mode {
 			return Snapshot{}, ErrMixedModes
 		}
-		for _, stop := range route.Stops {
-			if stop.Participant == nil {
-				return Snapshot{}, ErrParticipantRequired
-			}
-		}
 		eventRoute := models.EventRoute{
 			RouteOrder:                 len(snapshot.Routes),
 			DriverID:                   route.Driver.ID,
@@ -77,6 +72,9 @@ func Build(result models.RoutingResult) (Snapshot, error) {
 			eventRoute.EffectiveCapacity = route.Driver.VehicleCapacity
 		}
 		for stopIndex, stop := range route.Stops {
+			if stop.Participant == nil {
+				return Snapshot{}, ErrParticipantRequired
+			}
 			eventRoute.Stops = append(eventRoute.Stops, models.EventRouteStop{
 				Order:                    stopIndex,
 				ParticipantID:            stop.Participant.ID,

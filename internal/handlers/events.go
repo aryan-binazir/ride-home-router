@@ -57,10 +57,24 @@ type CreateEventRequest struct {
 
 type eventValidationError struct {
 	message string
+	cause   error
 }
 
 func (e eventValidationError) Error() string {
 	return e.message
+}
+
+func (e eventValidationError) Unwrap() error {
+	return e.cause
+}
+
+func (h *Handler) handleEventValidationError(w http.ResponseWriter, err error) bool {
+	var validationErr eventValidationError
+	if !errors.As(err, &validationErr) {
+		return false
+	}
+	h.handleValidationError(w, validationErr.message)
+	return true
 }
 
 // EventDetailResponse represents the detailed event response.
@@ -238,7 +252,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		eventDate, err := time.Parse("2006-01-02", req.EventDate)
 		if err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", req.EventDate, err)
-			return eventValidationError{message: messageInvalidEventDateFormat}
+			return eventValidationError{message: messageInvalidEventDateFormat, cause: err}
 		}
 
 		snapshot, err := eventsnapshot.Build(result)
@@ -248,7 +262,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, models.ErrInvalidRouteMode) {
 				message = messageInvalidRouteMode
 			}
-			return eventValidationError{message: message}
+			return eventValidationError{message: message, cause: err}
 		}
 
 		event := &models.Event{EventDate: eventDate, Notes: req.Notes, Mode: snapshot.Mode}
@@ -264,9 +278,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	if req.SessionID != "" {
 		sessionErr := h.RouteSession.Commit(r.Context(), req.SessionID, persist)
-		var validationErr eventValidationError
-		if errors.As(sessionErr, &validationErr) {
-			h.handleValidationError(w, validationErr.message)
+		if h.handleEventValidationError(w, sessionErr) {
 			return
 		}
 		if errors.Is(sessionErr, routesession.ErrNotFound) {
@@ -284,10 +296,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("[HTTP] POST /api/v1/events: session_not_found using posted routes fallback session_id=%s", req.SessionID)
 			if err := persist(r.Context(), *req.Routes); err != nil {
-				var fallbackValidationErr eventValidationError
-				if errors.As(err, &fallbackValidationErr) {
-					h.handleValidationError(w, fallbackValidationErr.message)
-				} else {
+				if !h.handleEventValidationError(w, err) {
 					h.handleInternalError(w, err)
 				}
 				return
@@ -305,10 +314,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationError(w, messageRoutesRequired)
 		return
 	} else if err := persist(r.Context(), *req.Routes); err != nil {
-		var validationErr eventValidationError
-		if errors.As(err, &validationErr) {
-			h.handleValidationError(w, validationErr.message)
-		} else {
+		if !h.handleEventValidationError(w, err) {
 			h.handleInternalError(w, err)
 		}
 		return
