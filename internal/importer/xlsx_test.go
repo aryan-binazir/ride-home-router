@@ -117,9 +117,22 @@ func TestXLSXFormulaMetadataFailureDoesNotAbortParsing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseXLSXSheet() error = %v", err)
 	}
-	row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
-	if len(row.Warnings) != 0 {
-		t.Fatalf("warnings = %#v, want no formula warning without metadata", row.Warnings)
+	if !hasMessage(grid.Warnings, formulaMetadataWarning) {
+		t.Fatalf("file warnings = %#v", grid.Warnings)
+	}
+}
+
+func TestXLSXFormulaBackedHeaderWarnsAtFileLevel(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+	})
+	data = patchXLSXCell(t, data, "xl/worksheets/sheet1.xml", "A1", `<c r="A1" t="str"><f>&quot;name&quot;</f><v>name</v></c>`)
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !hasMessage(grid.Warnings, formulaMetadataWarning) {
+		t.Fatalf("file warnings = %#v", grid.Warnings)
 	}
 }
 

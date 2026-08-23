@@ -16,15 +16,17 @@ const (
 // RosterKey returns the canonical exact-match key for a roster identity.
 // An empty key means either the name or address is blank.
 func RosterKey(name, address string) string {
-	name = normalizeRosterIdentity(name)
-	address = normalizeRosterIdentity(address)
+	name = NormalizeRosterField(name)
+	address = NormalizeRosterField(address)
 	if name == "" || address == "" {
 		return ""
 	}
 	return name + "\x00" + address
 }
 
-func normalizeRosterIdentity(value string) string {
+// NormalizeRosterField canonicalizes a roster identity field for exact-match
+// comparisons.
+func NormalizeRosterField(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
 

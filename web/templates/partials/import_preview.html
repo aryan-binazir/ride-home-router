@@ -3,6 +3,14 @@
     <h4 class="import-step-title">Review rows</h4>
     <p class="import-step-subtitle">{{.Filename}}</p>
 
+    {{if .Warnings}}
+    <div class="alert alert-warning">
+        <ul>
+            {{range .Warnings}}<li>{{.}}</li>{{end}}
+        </ul>
+    </div>
+    {{end}}
+
     {{if .Geocoding}}
     <div class="import-progress"
          hx-get="/api/v1/imports/{{.SessionID}}?view=panel"

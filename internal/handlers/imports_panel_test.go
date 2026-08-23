@@ -177,6 +177,21 @@ func TestImportPanelAmbiguousMappingWarns(t *testing.T) {
 	}
 }
 
+func TestImportPreviewRendersFileWarnings(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	const warning = "file-level formula warning"
+	recorder := httptest.NewRecorder()
+
+	handler.renderTemplate(recorder, "import_preview", newImportPreviewView(importer.Snapshot{
+		Grid:   importer.Grid{Warnings: []string{warning}},
+		Status: importer.StatusPreviewing,
+	}))
+
+	if body := recorder.Body.String(); !strings.Contains(body, warning) || !strings.Contains(body, "alert-warning") {
+		t.Fatalf("preview did not render file warning: %s", body)
+	}
+}
+
 func TestImportPanelWorksheetPicker(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 
@@ -392,7 +407,9 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				`hx-post="/api/v1/imports?view=panel"`,
 				`hx-encoding="multipart/form-data"`,
 				`accept=".csv,.xlsx"`,
-				`hx-on:change="document.getElementById('import-steps').innerHTML = ''"`,
+				`steps.querySelector('.import-cancel')`,
+				`cancel.click()`,
+				`steps.innerHTML = ''`,
 				`value="` + string(tt.kind) + `"`,
 				`id="import-steps"`,
 				tt.heading,
@@ -400,6 +417,9 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				if !strings.Contains(body, want) {
 					t.Fatalf("%s page missing %q", tt.name, want)
 				}
+			}
+			if strings.Index(body, `cancel.click()`) > strings.Index(body, `steps.innerHTML = ''`) {
+				t.Fatalf("%s page must cancel the prior session before clearing import steps", tt.name)
 			}
 			if strings.Index(body, `id="import-file"`) > strings.Index(body, `id="import-steps"`) {
 				t.Fatalf("%s page must keep the file input outside the swapped step container", tt.name)

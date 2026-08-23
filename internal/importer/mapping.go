@@ -1,6 +1,6 @@
 package importer
 
-import "strings"
+import "ride-home-router/internal/models"
 
 var fieldAliases = map[Field]map[string]struct{}{
 	FieldName:        aliasSet("name", "full name", "participant", "participant name", "driver", "driver name", "person"),
@@ -110,7 +110,7 @@ func aliasSet(values ...string) map[string]struct{} {
 // comparisons. Persistence uses the same normalization when re-checking
 // duplicates at commit time.
 func NormalizeRosterText(value string) string {
-	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+	return models.NormalizeRosterField(value)
 }
 
-func normalize(value string) string { return NormalizeRosterText(value) }
+func normalize(value string) string { return models.NormalizeRosterField(value) }

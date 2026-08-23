@@ -182,6 +182,32 @@ func TestImportHTTPUploadTooLarge(t *testing.T) {
 	}
 }
 
+func TestImportHTTPSelectionBodyTooLarge(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	id := createCoordinateCompleteImport(t, handler)
+	body := "[" + strings.Repeat("false,", int(MaxImportJSONBytes/6)+1) + "false]"
+	request := newImportRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection", bytes.NewReader([]byte(body)))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.HandleImportSession(recorder, request)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d body=%q", recorder.Code, http.StatusRequestEntityTooLarge, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), fmt.Sprintf("%d", MaxImportJSONBytes)) {
+		t.Fatalf("response does not include byte limit: %q", recorder.Body.String())
+	}
+}
+
+func TestImportSnapshotIncludesFileWarnings(t *testing.T) {
+	const warning = "file-level warning"
+	snapshot := newImportSnapshotJSON(importer.Snapshot{Grid: importer.Grid{Warnings: []string{warning}}})
+	if len(snapshot.Warnings) != 1 || snapshot.Warnings[0] != warning {
+		t.Fatalf("snapshot warnings = %#v", snapshot.Warnings)
+	}
+}
+
 func TestImportHTTPWrongID(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	request := newImportRequest(http.MethodGet, "/api/v1/imports/00000000000000000000000000000000", nil)

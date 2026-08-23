@@ -125,8 +125,16 @@ func TestValidateAmbiguousExistingCoordinatesWarnAndDoNotInherit(t *testing.T) {
 	if rows[0].Lat != 42 || rows[0].Lng != -75 || !rows[0].HasCoordinates {
 		t.Fatalf("provided row = %#v, want own coordinates", rows[0])
 	}
-	if !rows[1].NeedsGeocoding || rows[1].HasCoordinates || rows[1].CoordinatesInherited {
-		t.Fatalf("missing row = %#v, want geocoding without inheritance", rows[1])
+	if rows[1].NeedsGeocoding || !rows[1].HasCoordinates || !rows[1].CoordinatesInherited || rows[1].Lat != 42 || rows[1].Lng != -75 {
+		t.Fatalf("missing row = %#v, want within-file inheritance", rows[1])
+	}
+
+	conflictingGrid := mustParseCSV(t, "name,address,lat,lng\nFirst,1 Main St,42,-75\nSecond,1 main st,43,-75\n")
+	conflictingRows := Validate(conflictingGrid, AutoMap(conflictingGrid.Headers), KindParticipant, existing)
+	for _, row := range conflictingRows {
+		if !hasMessage(row.Warnings, "existing roster entries disagree") || !hasMessage(row.Errors, "rows with this address have conflicting coordinates") {
+			t.Errorf("conflicting row = %#v, want existing warning and within-file error", row)
+		}
 	}
 }
 

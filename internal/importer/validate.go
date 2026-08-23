@@ -248,6 +248,7 @@ func reconcileWithExisting(rows []Row, states []coordinateState, indices []int, 
 			for _, index := range indices {
 				rows[index].addWarning("existing roster entries disagree about this address's coordinates; this row will use its own")
 			}
+			reconcileWithinFile(rows, states, indices)
 			return
 		}
 	}

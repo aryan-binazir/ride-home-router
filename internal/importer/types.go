@@ -63,8 +63,9 @@ type Mapping struct {
 // Grid is the normalized contents of a parsed roster file. Its data rows stay
 // private so callers must pass them through Validate before use.
 type Grid struct {
-	Headers []string
-	rows    []gridRow
+	Headers  []string
+	Warnings []string
+	rows     []gridRow
 }
 
 // Len returns the number of data rows in the grid.

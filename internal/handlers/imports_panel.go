@@ -73,6 +73,7 @@ type importPreviewView struct {
 	SessionID    string
 	Filename     string
 	IsDriver     bool
+	Warnings     []string
 	Rows         []importRowView
 	Geocoding    bool
 	GeocodeDone  int
@@ -295,6 +296,7 @@ func newImportPreviewView(snapshot importer.Snapshot) importPreviewView {
 		SessionID:    snapshot.ID,
 		Filename:     snapshot.Filename,
 		IsDriver:     isDriver,
+		Warnings:     append([]string(nil), snapshot.Grid.Warnings...),
 		Rows:         rows,
 		Geocoding:    geocoding,
 		GeocodeDone:  snapshot.GeocodeProgress.Done,

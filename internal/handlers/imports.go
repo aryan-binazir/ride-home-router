@@ -15,8 +15,12 @@ import (
 	"time"
 )
 
-// MaxImportUploadBytes is the maximum size of a complete multipart import request.
-const MaxImportUploadBytes int64 = 10 << 20
+const (
+	// MaxImportUploadBytes is the maximum size of a complete multipart import request.
+	MaxImportUploadBytes int64 = 10 << 20
+	// MaxImportJSONBytes is the maximum size of an import JSON request body.
+	MaxImportJSONBytes int64 = 1 << 20
+)
 
 const importMultipartMemory = 1 << 20
 
@@ -79,6 +83,7 @@ type importSnapshotJSON struct {
 	Filename        string                    `json:"filename"`
 	Status          importer.Status           `json:"status"`
 	Headers         []string                  `json:"headers"`
+	Warnings        []string                  `json:"warnings"`
 	Mapping         importMappingJSON         `json:"mapping"`
 	GeocodeProgress importGeocodeProgressJSON `json:"geocode_progress"`
 	Rows            []importRowJSON           `json:"rows"`
@@ -223,6 +228,9 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	panel := h.wantsImportPanel(r)
+	if !panel && (action == "mapping" || action == "selection" || action == "commit") {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxImportJSONBytes)
+	}
 	switch action {
 	case "":
 		switch {
@@ -291,8 +299,7 @@ func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id
 	}
 	var request importMappingRequest
 	if err := decodeImportJSON(r, &request); err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body", nil)
-		return http.StatusBadRequest, -1
+		return h.writeImportJSONBodyError(w, r, id, err), -1
 	}
 	mapping := mergeImportMapping(snapshot, request)
 	updated, err := h.ImportSession.ApplyMapping(id, mapping)
@@ -306,8 +313,7 @@ func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id
 func (h *Handler) updateImportSelection(w http.ResponseWriter, r *http.Request, id string) (int, int) {
 	var selected []bool
 	if err := decodeImportJSON(r, &selected); err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body", nil)
-		return http.StatusBadRequest, -1
+		return h.writeImportJSONBodyError(w, r, id, err), -1
 	}
 	snapshot, err := h.ImportSession.SelectRows(id, selected)
 	if err != nil {
@@ -318,6 +324,9 @@ func (h *Handler) updateImportSelection(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) commitImportSession(w http.ResponseWriter, r *http.Request, id string) int {
+	if _, err := io.Copy(io.Discard, r.Body); err != nil {
+		return h.writeImportJSONBodyError(w, r, id, err)
+	}
 	snapshot, ok := h.ImportSession.Snapshot(id)
 	if !ok {
 		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
@@ -329,6 +338,15 @@ func (h *Handler) commitImportSession(w http.ResponseWriter, r *http.Request, id
 	}
 	h.writeJSON(w, http.StatusOK, newImportCommitResultJSON(result))
 	return http.StatusOK
+}
+
+func (h *Handler) writeImportJSONBodyError(w http.ResponseWriter, r *http.Request, id string, err error) int {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return h.writeImportError(w, r, id, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import JSON bodies are limited to %d bytes", MaxImportJSONBytes), nil)
+	}
+	h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body", nil)
+	return http.StatusBadRequest
 }
 
 func (h *Handler) cancelImportSession(w http.ResponseWriter, id string) int {
@@ -379,7 +397,8 @@ func newImportSnapshotJSON(snapshot importer.Snapshot) importSnapshotJSON {
 	}
 	return importSnapshotJSON{
 		ID: snapshot.ID, Kind: snapshot.Kind, Filename: snapshot.Filename, Status: snapshot.Status,
-		Headers: append([]string{}, snapshot.Grid.Headers...), Mapping: newImportMappingJSON(snapshot.Mapping),
+		Headers: append([]string{}, snapshot.Grid.Headers...), Warnings: append([]string{}, snapshot.Grid.Warnings...),
+		Mapping: newImportMappingJSON(snapshot.Mapping),
 		GeocodeProgress: importGeocodeProgressJSON{
 			Done: snapshot.GeocodeProgress.Done, Total: snapshot.GeocodeProgress.Total, Running: snapshot.GeocodeProgress.Running,
 		},

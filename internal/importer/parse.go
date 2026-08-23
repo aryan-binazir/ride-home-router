@@ -20,6 +20,8 @@ import (
 const (
 	xlsxUnzipSizeLimit    = 64 << 20
 	xlsxUnzipXMLSizeLimit = 8 << 20
+
+	formulaMetadataWarning = "Formula information could not be read from this workbook; values calculated by formulas may not be flagged."
 )
 
 var errInvalidUTF8 = errors.New("invalid UTF-8")
@@ -74,6 +76,9 @@ func parseCSV(r io.Reader) (*Grid, error) {
 		}
 		return nil, fmt.Errorf("read CSV header: %w", err)
 	}
+	if cellsContainControlCharacters(header) {
+		return nil, errors.New("header row: cell contains control characters")
+	}
 	if err := normalizeAndCheckCells(header); err != nil {
 		return nil, fmt.Errorf("header row: %w", err)
 	}
@@ -106,11 +111,15 @@ func parseCSV(r io.Reader) (*Grid, error) {
 		if len(record) > MaxColumns {
 			return nil, fmt.Errorf("file exceeds the limit of %d columns", MaxColumns)
 		}
+		containsControlCharacters := cellsContainControlCharacters(record)
 		if err := normalizeAndCheckCells(record); err != nil {
 			return nil, fmt.Errorf("row %d: %w", sourceRow, err)
 		}
 
 		row := gridRow{sourceRow: sourceRow}
+		if containsControlCharacters {
+			row.errors = append(row.errors, "cell contains control characters")
+		}
 		if len(record) != len(header) {
 			row.errors = append(row.errors, fmt.Sprintf("row has %d columns; header has %d", len(record), len(header)))
 		}
@@ -224,6 +233,7 @@ func sheetHasVisibleContent(f *excelize.File, sheet string) (nonEmpty bool, err 
 
 func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, err error) {
 	formulaRows, err := xlsxFormulaRows(data, sheet)
+	formulaMetadataUnavailable := err != nil
 	if err != nil {
 		formulaRows = map[int]struct{}{}
 	}
@@ -252,14 +262,23 @@ func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, er
 		if len(cells) > MaxColumns {
 			return nil, fmt.Errorf("file exceeds the limit of %d columns", MaxColumns)
 		}
+		containsControlCharacters := cellsContainControlCharacters(cells)
 		if err := normalizeAndCheckCells(cells); err != nil {
 			return nil, fmt.Errorf("row %d: %w", rowNumber, err)
 		}
 		if !headerRead {
+			if containsControlCharacters {
+				return nil, errors.New("header row: cell contains control characters")
+			}
 			if !cellsHaveContent(cells) {
 				return nil, errors.New("XLSX first visible row is empty; the first row must contain headers")
 			}
 			grid = &Grid{Headers: cells}
+			if formulaMetadataUnavailable {
+				grid.Warnings = append(grid.Warnings, formulaMetadataWarning)
+			} else if _, formula := formulaRows[rowNumber]; formula {
+				grid.Warnings = append(grid.Warnings, formulaMetadataWarning)
+			}
 			headerRead = true
 			continue
 		}
@@ -270,6 +289,9 @@ func parseXLSXSheet(f *excelize.File, data []byte, sheet string) (grid *Grid, er
 			return nil, fmt.Errorf("file exceeds the limit of %d data rows", MaxDataRows)
 		}
 		row := gridRow{sourceRow: rowNumber, cells: normalizeWidth(cells, len(grid.Headers)), xlsx: true}
+		if containsControlCharacters {
+			row.errors = append(row.errors, "cell contains control characters")
+		}
 		if _, formula := formulaRows[rowNumber]; formula {
 			row.warnings = append(row.warnings, "value comes from a formula; verify")
 		}
@@ -426,6 +448,17 @@ func normalizeAndCheckCells(cells []string) error {
 		}
 	}
 	return nil
+}
+
+func cellsContainControlCharacters(cells []string) bool {
+	for _, cell := range cells {
+		for _, character := range cell {
+			if character < ' ' && character != '\t' {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func normalizeWidth(cells []string, width int) []string {

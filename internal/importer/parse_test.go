@@ -53,6 +53,17 @@ func TestParseCSVRaggedRowsAreRowErrors(t *testing.T) {
 	}
 }
 
+func TestParseCSVRejectsControlCharactersAsRowErrors(t *testing.T) {
+	grid := mustParseCSV(t, "name,address\nJane,1 Main\x00St\nJohn,2\tMain St\n")
+	rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)
+	if !hasMessage(rows[0].Errors, "cell contains control characters") {
+		t.Fatalf("NUL row errors = %#v", rows[0].Errors)
+	}
+	if hasMessage(rows[1].Errors, "cell contains control characters") {
+		t.Fatalf("tab row errors = %#v", rows[1].Errors)
+	}
+}
+
 func TestParseCSVUsesPhysicalSourceLines(t *testing.T) {
 	grid := mustParseCSV(t, "name,address\n\n\"Jane\nDoe\",1 Main St\nJohn,2 Main St\n")
 	rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)
