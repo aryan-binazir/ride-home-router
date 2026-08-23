@@ -14,45 +14,103 @@
         writeDraft();
     }
 
-    function createRouteSessionOrchestrator({ getActiveSessionId, results, moves, saveForm }) {
+    const SAVE_EVENT_ENDPOINT = '/api/v1/events';
+
+    function createRouteSessionOrchestrator({ document, htmx, moves, reportError, refreshEtas }) {
         let saveInFlight = false;
+
+        function getActiveSessionId() {
+            const container = document.querySelector('.routes-container');
+            return container ? container.dataset.sessionId : null;
+        }
+
+        function renderResults(html) {
+            const resultsSection = document.getElementById('results-section');
+            if (!resultsSection) return;
+
+            resultsSection.innerHTML = html;
+            htmx.process(resultsSection);
+            refreshEtas();
+        }
 
         function applyEditResult({ requestedSessionId, ok, html }) {
             if (!ok) {
-                results.reportError(html);
+                reportError(html);
                 return false;
             }
             if (getActiveSessionId() !== requestedSessionId) {
+                // The request succeeded, but its HTML no longer owns the view.
                 return true;
             }
 
-            results.render(html);
+            renderResults(html);
             return true;
+        }
+
+        function hasQueuedMoves() {
+            return moves.hasPending();
+        }
+
+        function snapshotSaveForm(form) {
+            return {
+                event_date: form.elements.namedItem('event_date')?.value || '',
+                notes: form.elements.namedItem('notes')?.value || '',
+            };
+        }
+
+        function findLiveSaveForm() {
+            const sessionInput = document.querySelector('#results-section form input[name="session_id"]');
+            return sessionInput ? sessionInput.closest('form') : null;
+        }
+
+        function restoreSaveForm(form, values) {
+            const eventDate = form.elements.namedItem('event_date');
+            const notes = form.elements.namedItem('notes');
+            if (eventDate) eventDate.value = values.event_date;
+            if (notes) notes.value = values.notes;
+        }
+
+        function canSubmitSaveForm(form) {
+            const submitButton = form.querySelector('button[type="submit"]');
+            return form.getAttribute('hx-post') === SAVE_EVENT_ENDPOINT
+                && Boolean(submitButton)
+                && !submitButton.disabled;
+        }
+
+        function submitSaveForm(form) {
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+                return;
+            }
+
+            const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+            if (form.dispatchEvent(submitEvent)) form.submit();
         }
 
         async function submitSaveWithQueuedMoves(form) {
             if (saveInFlight) return true;
             if (!moves.hasPending()) return false;
 
+            const values = snapshotSaveForm(form);
             saveInFlight = true;
-            const values = saveForm.snapshot(form);
             let flushed = false;
             let liveForm = null;
             try {
                 flushed = await moves.flush();
             } finally {
-                liveForm = saveForm.findLive();
-                if (liveForm) saveForm.restore(liveForm, values);
+                liveForm = findLiveSaveForm();
+                if (liveForm) restoreSaveForm(liveForm, values);
+                // requestSubmit re-enters the capture listener, so unlock first.
                 saveInFlight = false;
             }
 
-            if (flushed && liveForm && saveForm.canSubmit(liveForm)) {
-                saveForm.submit(liveForm);
+            if (flushed && liveForm && canSubmitSaveForm(liveForm)) {
+                submitSaveForm(liveForm);
             }
             return true;
         }
 
-        return { applyEditResult, submitSaveWithQueuedMoves };
+        return { applyEditResult, hasQueuedMoves, submitSaveWithQueuedMoves };
     }
 
     const DROPOFF_ETA_SLACK_SECS = 2 * 60;
@@ -398,18 +456,8 @@
 
         let participantMoveBatcher;
         const routeSessionOrchestrator = createRouteSessionOrchestrator({
-            getActiveSessionId: getSessionId,
-            results: {
-                render: function(html) {
-                    const routeResults = document.getElementById('results-section');
-                    if (!routeResults) return;
-
-                    routeResults.innerHTML = html;
-                    htmx.process(routeResults);
-                    populateStopEtas();
-                },
-                reportError: showRouteError,
-            },
+            document,
+            htmx,
             moves: {
                 hasPending: function() {
                     return participantMoveBatcher.hasPending();
@@ -418,37 +466,8 @@
                     return participantMoveBatcher.flush();
                 },
             },
-            saveForm: {
-                snapshot: function(form) {
-                    return {
-                        event_date: form.elements.namedItem('event_date')?.value || '',
-                        notes: form.elements.namedItem('notes')?.value || '',
-                    };
-                },
-                findLive: function() {
-                    const sessionInput = document.querySelector('#results-section form input[name="session_id"]');
-                    return sessionInput ? sessionInput.closest('form') : null;
-                },
-                canSubmit: function(form) {
-                    const submitButton = form.querySelector('button[type="submit"]');
-                    return form.getAttribute('hx-post') === '/api/v1/events' && !submitButton?.disabled;
-                },
-                restore: function(form, values) {
-                    const eventDate = form.elements.namedItem('event_date');
-                    const notes = form.elements.namedItem('notes');
-                    if (eventDate) eventDate.value = values.event_date;
-                    if (notes) notes.value = values.notes;
-                },
-                submit: function(form) {
-                    if (typeof form.requestSubmit === 'function') {
-                        form.requestSubmit();
-                        return;
-                    }
-
-                    const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                    if (form.dispatchEvent(submitEvent)) form.submit();
-                },
-            },
+            reportError: showRouteError,
+            refreshEtas: populateStopEtas,
         });
 
         /**
@@ -499,12 +518,12 @@
         }
 
         function isSaveEventForm(form) {
-            return form instanceof HTMLFormElement && form.getAttribute('hx-post') === '/api/v1/events';
+            return form instanceof HTMLFormElement && form.getAttribute('hx-post') === SAVE_EVENT_ENDPOINT;
         }
 
         document.addEventListener('submit', async function(evt) {
             const form = evt.target;
-            if (!isSaveEventForm(form) || !participantMoveBatcher.hasPending()) {
+            if (!isSaveEventForm(form) || !routeSessionOrchestrator.hasQueuedMoves()) {
                 return;
             }
 
