@@ -306,11 +306,13 @@
         }
 
         async function run() {
+            const sessionOutcomes = new Map();
             while (queue.length > 0) {
                 const moves = takeBatch();
-                if (moves.length === 0) return false;
+                if (moves.length === 0) return { succeeded: false, sessionOutcomes };
 
-                activeSessionId = moves[0].session_id;
+                const sessionId = moves[0].session_id;
+                activeSessionId = sessionId;
                 let succeeded;
                 try {
                     succeeded = await sendBatch(toPayload(moves));
@@ -320,12 +322,13 @@
                 } finally {
                     activeSessionId = null;
                 }
-                if (!succeeded) return false;
+                sessionOutcomes.set(sessionId, (sessionOutcomes.get(sessionId) ?? true) && succeeded);
+                if (!succeeded) return { succeeded: false, sessionOutcomes };
             }
-            return true;
+            return { succeeded: true, sessionOutcomes };
         }
 
-        async function flush() {
+        async function flushDetailed() {
             if (timeout !== null) {
                 cancel(timeout);
                 timeout = null;
@@ -341,6 +344,11 @@
             }
         }
 
+        async function flush() {
+            const result = await flushDetailed();
+            return result.succeeded;
+        }
+
         function hasPending() {
             return queue.length > 0 || timeout !== null || flushPromise !== null;
         }
@@ -352,7 +360,8 @@
         async function flushFor(sessionId) {
             let succeeded = true;
             while (hasPendingFor(sessionId)) {
-                succeeded = await flush();
+                const result = await flushDetailed();
+                if (result.sessionOutcomes.get(sessionId) === false) succeeded = false;
             }
             return succeeded;
         }

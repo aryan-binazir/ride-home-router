@@ -352,3 +352,23 @@ test('participant moves flush sequentially in same-session batches with the exis
         { session_id: 'session-b', participant_id: 3, from_route_index: 0, to_route_index: 2, insert_at_position: -1 },
     ]);
 });
+
+test('flushing a session preserves an earlier failure across later successful batches', async () => {
+    let calls = 0;
+    const batcher = createParticipantMoveBatcher({
+        batchLimit: 1,
+        schedule: () => 1,
+        cancel: () => {},
+        sendBatch: async () => {
+            calls += 1;
+            return calls !== 1;
+        },
+    });
+    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
+    batcher.enqueue({ session_id: 'session-a', participant_id: 2 });
+    batcher.enqueue({ session_id: 'session-a', participant_id: 3 });
+
+    assert.equal(await batcher.flushFor('session-a'), false);
+    assert.equal(calls, 3);
+    assert.equal(batcher.hasPendingFor('session-a'), false);
+});
