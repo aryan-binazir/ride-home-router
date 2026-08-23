@@ -168,22 +168,9 @@ func (rc routeContext) groupInsertionDeltaRiderScoreFrom(ctx context.Context, dr
 	return after - before, nil
 }
 
-func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
-	if route == nil {
-		return fmt.Errorf("route is required")
-	}
-
-	rc := newRouteContext(distanceCalc, instituteCoords, mode)
-	participants := make([]*models.Participant, len(route.Stops))
-	for i := range route.Stops {
-		participants[i] = route.Stops[i].Participant
-	}
-
-	metrics, err := rc.evaluateParticipants(ctx, route.Driver, participants)
-	if err != nil {
-		return err
-	}
-
+// applyMetrics updates route display fields from metrics evaluated for the
+// participants in route.Stops, in the same order.
+func (rc routeContext) applyMetrics(route *models.CalculatedRoute, metrics *routeMetrics) {
 	for i := range route.Stops {
 		route.Stops[i].Order = i
 		route.Stops[i].DistanceFromPrevMeters = metrics.Stops[i].DistanceFromPrevMeters
@@ -202,6 +189,25 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCal
 	if route.EffectiveCapacity == 0 && route.Driver != nil {
 		route.EffectiveCapacity = route.Driver.VehicleCapacity
 	}
+}
+
+func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
+	if route == nil {
+		return fmt.Errorf("route is required")
+	}
+
+	rc := newRouteContext(distanceCalc, instituteCoords, mode)
+	participants := make([]*models.Participant, len(route.Stops))
+	for i := range route.Stops {
+		participants[i] = route.Stops[i].Participant
+	}
+
+	metrics, err := rc.evaluateParticipants(ctx, route.Driver, participants)
+	if err != nil {
+		return err
+	}
+
+	rc.applyMetrics(route, metrics)
 
 	return nil
 }
@@ -229,8 +235,7 @@ func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.DistanceCalcu
 			stops:  participants,
 		},
 	}
-	router := &BalancedRouter{distanceCalc: distanceCalc}
-	if err := router.optimizeRouteOrders(ctx, rc, routes, []int64{driverID}); err != nil {
+	if err := rc.optimizeRouteOrders(ctx, routes, []int64{driverID}); err != nil {
 		return err
 	}
 	optimized := routes[driverID].stops

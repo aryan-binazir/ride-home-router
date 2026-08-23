@@ -95,7 +95,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 
 	// Phase 2: Improve route order in the context of the complete solution.
 	phase2Start := time.Now()
-	if err := r.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+	if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
 		return nil, err
 	}
 	log.Printf("[TIMING] Phase 2 (route ordering): %v", time.Since(phase2Start))
@@ -407,7 +407,7 @@ func scoreSolution(routeMetrics map[int64]routeObjectiveMetrics, driverIDs []int
 	return result
 }
 
-func (r *BalancedRouter) optimizeRouteOrders(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) error {
+func (rc routeContext) optimizeRouteOrders(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) error {
 	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
 	candidateStops := make(map[int64][]*models.Participant, len(driverIDs))
 	for _, driverID := range driverIDs {
@@ -421,7 +421,7 @@ func (r *BalancedRouter) optimizeRouteOrders(ctx context.Context, rc routeContex
 		candidateStops[driverID] = stops
 	}
 
-	optimizedStops, _, _, err := r.optimizeStopsForSolution(ctx, rc, routes, routeMetrics, candidateStops, driverIDs)
+	optimizedStops, _, _, err := rc.optimizeStopsForSolution(ctx, routes, routeMetrics, candidateStops, driverIDs)
 	if err != nil {
 		return err
 	}
@@ -433,9 +433,8 @@ func (r *BalancedRouter) optimizeRouteOrders(ctx context.Context, rc routeContex
 
 // optimizeStopsForSolution reorders only the supplied routes, but evaluates
 // every reversal against the complete solution including unchanged peer routes.
-func (r *BalancedRouter) optimizeStopsForSolution(
+func (rc routeContext) optimizeStopsForSolution(
 	ctx context.Context,
-	rc routeContext,
 	routes map[int64]*balancedRoute,
 	baseMetrics map[int64]routeObjectiveMetrics,
 	changedStops map[int64][]*models.Participant,
@@ -542,9 +541,8 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 			}
 			candidateEvaluations++
 
-			optimizedStops, _, candidateScore, err := r.optimizeStopsForSolution(
+			optimizedStops, _, candidateScore, err := rc.optimizeStopsForSolution(
 				ctx,
-				rc,
 				routes,
 				routeMetrics,
 				map[int64][]*models.Participant{
@@ -647,7 +645,7 @@ func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContex
 		// untouched peer route by changing which route sets the global maximum.
 		// Re-establish a full-solution ordering fixed point before evaluating the
 		// next assignment neighborhood.
-		if err := r.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+		if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
 			return iteration, err
 		}
 		for _, driverID := range driverIDs {
@@ -674,6 +672,8 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 	calculatedRoutes := make([]models.CalculatedRoute, 0)
 	totalDropoff := 0.0
 	totalDist := 0.0
+	maxDetour := 0.0
+	sumDetour := 0.0
 	driversUsed := 0
 
 	driverIDs := make([]int64, 0, len(routes))
@@ -699,31 +699,24 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			return nil, err
 		}
 		for i, p := range route.stops {
-			routeStops[i] = models.RouteStop{
-				Order:                    i,
-				Participant:              p,
-				DistanceFromPrevMeters:   metrics.Stops[i].DistanceFromPrevMeters,
-				CumulativeDistanceMeters: metrics.Stops[i].CumulativeDistanceMeters,
-				DurationFromPrevSecs:     metrics.Stops[i].DurationFromPrevSecs,
-				CumulativeDurationSecs:   metrics.Stops[i].CumulativeDurationSecs,
-			}
+			routeStops[i].Participant = p
 		}
 
 		totalDropoff += metrics.TotalStopDistanceMeters
 		totalDist += metrics.TotalDistanceMeters
+		maxDetour = max(maxDetour, metrics.DetourSecs)
+		sumDetour += metrics.DetourSecs
 
-		calculatedRoutes = append(calculatedRoutes, models.CalculatedRoute{
-			Driver:                     route.driver,
-			Stops:                      routeStops,
-			TotalDropoffDistanceMeters: metrics.TotalStopDistanceMeters,
-			DistanceToDriverHomeMeters: metrics.FinalLegDistanceMeters,
-			TotalDistanceMeters:        metrics.TotalDistanceMeters,
-			EffectiveCapacity:          route.driver.VehicleCapacity,
-			BaselineDurationSecs:       metrics.BaselineDurationSecs,
-			RouteDurationSecs:          metrics.RouteDurationSecs,
-			DetourSecs:                 metrics.DetourSecs,
-			Mode:                       rc.mode,
-		})
+		calculatedRoute := models.CalculatedRoute{
+			Driver: route.driver,
+			Stops:  routeStops,
+		}
+		rc.applyMetrics(&calculatedRoute, metrics)
+		calculatedRoutes = append(calculatedRoutes, calculatedRoute)
+	}
+	averageDetour := 0.0
+	if driversUsed > 0 {
+		averageDetour = sumDetour / float64(driversUsed)
 	}
 
 	return &models.RoutingResult{
@@ -733,6 +726,9 @@ func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, route
 			TotalDriversUsed:           driversUsed,
 			TotalDropoffDistanceMeters: totalDropoff,
 			TotalDistanceMeters:        totalDist,
+			MaxDetourSecs:              maxDetour,
+			SumDetourSecs:              sumDetour,
+			AverageDetourSecs:          averageDetour,
 			UnassignedParticipants:     []int64{},
 		},
 		Mode: rc.mode,
