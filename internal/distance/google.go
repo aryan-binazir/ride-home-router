@@ -45,7 +45,7 @@ func NewGoogleCalculator(cache database.DistanceCacheRepository, apiKey APIKeyPr
 }
 
 func (c *googleCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error) {
-	if sameRoundedPoint(origin, dest) {
+	if SamePoint(origin, dest) {
 		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
 	}
 	if _, err := c.currentAPIKey(); err != nil {
@@ -160,7 +160,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(destinations))
 	cacheIndexes := make([]int, 0, len(destinations))
 	for i, dest := range destinations {
-		if sameRoundedPoint(origin, dest) {
+		if SamePoint(origin, dest) {
 			continue
 		}
 		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: origin, Dest: dest})
@@ -236,7 +236,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 	seen := make(map[string]struct{}, len(pairs))
 
 	for _, pair := range pairs {
-		if sameRoundedPoint(pair.Origin, pair.Destination) {
+		if SamePoint(pair.Origin, pair.Destination) {
 			continue
 		}
 		key := PairCacheKey(pair.Origin, pair.Destination)
@@ -245,11 +245,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		}
 		seen[key] = struct{}{}
 
-		originKey := fmt.Sprintf(
-			"%.5f,%.5f",
-			models.RoundCoordinate(pair.Origin.Lat),
-			models.RoundCoordinate(pair.Origin.Lng),
-		)
+		originKey := coordinatePointKey(pair.Origin)
 		originCoords[originKey] = pair.Origin
 		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
 	}
@@ -268,11 +264,7 @@ func uniqueCoordinates(points []models.Coordinates) []models.Coordinates {
 	seen := make(map[string]struct{}, len(points))
 	unique := make([]models.Coordinates, 0, len(points))
 	for _, point := range points {
-		key := fmt.Sprintf(
-			"%.5f,%.5f",
-			models.RoundCoordinate(point.Lat),
-			models.RoundCoordinate(point.Lng),
-		)
+		key := coordinatePointKey(point)
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -292,7 +284,7 @@ func (c *googleCalculator) hydrateMatrixFromCache(ctx context.Context, points []
 	var indexes []matrixIndex
 	for originIndex, origin := range points {
 		for destIndex, dest := range points {
-			if originIndex == destIndex || sameRoundedPoint(origin, dest) {
+			if originIndex == destIndex || SamePoint(origin, dest) {
 				continue
 			}
 			cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: origin, Dest: dest})
@@ -451,15 +443,10 @@ func (c *googleCalculator) currentAPIKey() (string, error) {
 	return apiKey, nil
 }
 
-func sameRoundedPoint(a, b models.Coordinates) bool {
-	return models.RoundCoordinate(a.Lat) == models.RoundCoordinate(b.Lat) &&
-		models.RoundCoordinate(a.Lng) == models.RoundCoordinate(b.Lng)
-}
-
 func matrixNeedsProvider(points []models.Coordinates) bool {
 	for i, origin := range points {
 		for j, dest := range points {
-			if i != j && !sameRoundedPoint(origin, dest) {
+			if i != j && !SamePoint(origin, dest) {
 				return true
 			}
 		}
@@ -469,7 +456,7 @@ func matrixNeedsProvider(points []models.Coordinates) bool {
 
 func destinationsNeedProvider(origin models.Coordinates, destinations []models.Coordinates) bool {
 	for _, dest := range destinations {
-		if !sameRoundedPoint(origin, dest) {
+		if !SamePoint(origin, dest) {
 			return true
 		}
 	}

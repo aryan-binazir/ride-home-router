@@ -14,6 +14,13 @@ const (
 	RouteModePickup  RouteMode = models.RouteModePickup  // Driver Home → Participants → Activity Location
 )
 
+func normalizeRouteMode(mode RouteMode) RouteMode {
+	if mode == "" {
+		return RouteModeDropoff
+	}
+	return mode
+}
+
 // RoutingRequest contains the input for route calculation
 type RoutingRequest struct {
 	InstituteCoords models.Coordinates

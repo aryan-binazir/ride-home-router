@@ -33,14 +33,10 @@ type routeMetrics struct {
 }
 
 func newRouteContext(distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode) routeContext {
-	if mode == "" {
-		mode = RouteModeDropoff
-	}
-
 	return routeContext{
 		distanceCalc:    distanceCalc,
 		instituteCoords: instituteCoords,
-		mode:            mode,
+		mode:            normalizeRouteMode(mode),
 	}
 }
 

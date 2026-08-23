@@ -34,10 +34,7 @@ func NewBalancedRouter(distanceCalc distance.SolveSource) Router {
 func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest) (*models.RoutingResult, error) {
 	totalStart := time.Now()
 
-	mode := req.Mode
-	if mode == "" {
-		mode = RouteModeDropoff
-	}
+	mode := normalizeRouteMode(req.Mode)
 
 	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s",
 		len(req.Participants), len(req.Drivers), mode)
@@ -63,7 +60,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 
 	// Prewarm distance cache with only the directed pairs needed for this solve.
 	prewarmStart := time.Now()
-	distanceLookup, err := prepareSolveDistances(ctx, r.distanceCalc, req, mode)
+	distanceLookup, err := prepareSolveDistances(ctx, r.distanceCalc, req)
 	if err != nil {
 		return nil, err
 	}

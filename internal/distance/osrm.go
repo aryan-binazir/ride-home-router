@@ -270,7 +270,7 @@ func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair)
 	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
 	seen := make(map[string]struct{}, len(pairs))
 	for _, pair := range pairs {
-		if sameRoundedPoint(pair.Origin, pair.Destination) {
+		if SamePoint(pair.Origin, pair.Destination) {
 			continue
 		}
 		key := PairCacheKey(pair.Origin, pair.Destination)
