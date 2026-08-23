@@ -3,13 +3,384 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const planner = require('./event-planner.js');
 const {
     createParticipantMoveBatcher,
-    formatRouteText,
-    generateMapsUrl,
-    getStopEta,
+    createRouteHandoff,
     saveDraft,
-} = require('./event-planner.js');
+} = planner;
+
+test('planner exposes the route handoff instead of its internal helpers', () => {
+    assert.deepEqual(Object.keys(planner), [
+        'createParticipantMoveBatcher',
+        'createRouteHandoff',
+        'saveDraft',
+    ]);
+});
+
+function createRouteFixture({ mode = 'dropoff' } = {}) {
+    const stopEta = { textContent: '' };
+    const stop = {
+        dataset: {
+            participantName: 'Sam Rider',
+            participantAddress: '5 Rider Street',
+            participantLat: '40.2',
+            participantLng: '-74.2',
+            stopCumulativeDurationSecs: '900',
+        },
+        querySelector: selector => selector === '.stop-eta' ? stopEta : null,
+    };
+    let container;
+    const routeCard = {
+        dataset: {
+            driverName: 'Jordan Driver',
+            driverAddress: '9 Driver Lane',
+            driverLat: '40.1',
+            driverLng: '-74.1',
+            routeDurationSecs: '1800',
+        },
+        querySelectorAll: selector => selector === '.stop-item' ? [stop] : [],
+        closest: selector => selector === '.routes-container' ? container : null,
+    };
+    container = {
+        dataset: {
+            activityLocationName: 'Wednesday Night Church',
+            activityLocationAddress: '1 Church Road',
+            activityLocationLat: '40.4',
+            activityLocationLng: '-74.4',
+            routeMode: mode,
+            routeTime: '12:00',
+        },
+        querySelectorAll: selector => {
+            if (selector === '.route-card') return [routeCard];
+            if (selector === '.stop-eta') return [stopEta];
+            return [];
+        },
+    };
+
+    return { container, routeCard, stop, stopEta };
+}
+
+test('driver copy defaults to the driver audience and copies the complete route', async () => {
+    const copied = [];
+    const { container, routeCard } = createRouteFixture();
+    delete container.dataset.routeMode;
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+        formatTime: value => value.toTimeString().slice(0, 5),
+    });
+
+    assert.equal(await handoff.copyRoute(routeCard), true);
+    assert.deepEqual(copied, [
+        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
+        'Driver: Jordan Driver\n9 Driver Lane\n' +
+        '1. 12:17 - Sam Rider - 5 Rider Street\n\n' +
+        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&dir_action=navigate&waypoints=40.2%2C-74.2\n',
+    ]);
+});
+
+test('driver copy omits the ETA prefix when the route time is invalid', async () => {
+    const copied = [];
+    const { container, routeCard } = createRouteFixture();
+    container.dataset.routeTime = 'not-a-time';
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+    });
+
+    assert.equal(await handoff.copyRoute(routeCard), true);
+    assert.deepEqual(copied, [
+        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
+        'Driver: Jordan Driver\n9 Driver Lane\n' +
+        '1. Sam Rider - 5 Rider Street\n\n' +
+        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&dir_action=navigate&waypoints=40.2%2C-74.2\n',
+    ]);
+});
+
+test('parent copy keeps the manifest and ETAs while omitting private route details', async () => {
+    const copied = [];
+    const { routeCard } = createRouteFixture();
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+        formatTime: value => value.toTimeString().slice(0, 5),
+    });
+
+    assert.equal(await handoff.copyRoute(routeCard, 'parent'), true);
+    assert.deepEqual(copied, [
+        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
+        'Driver: Jordan Driver\n' +
+        '1. 12:17 - Sam Rider\n',
+    ]);
+});
+
+test('copy all routes shares route formatting and omits the address separator when no address exists', async () => {
+    const copied = [];
+    const { container, routeCard } = createRouteFixture();
+    const secondStop = {
+        dataset: {
+            participantName: 'Taylor Rider',
+            participantAddress: '',
+            participantLat: '40.5',
+            participantLng: '-74.5',
+            stopCumulativeDurationSecs: '1200',
+        },
+        querySelector: () => null,
+    };
+    const secondRouteCard = {
+        dataset: {
+            driverName: 'Casey Driver',
+            driverAddress: '10 Driver Lane',
+            driverLat: '40.6',
+            driverLng: '-74.6',
+            routeDurationSecs: '2400',
+        },
+        querySelectorAll: selector => selector === '.stop-item' ? [secondStop] : [],
+        closest: selector => selector === '.routes-container' ? container : null,
+    };
+    container.querySelectorAll = selector => selector === '.route-card' ? [routeCard, secondRouteCard] : [];
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+        formatTime: value => value.toTimeString().slice(0, 5),
+    });
+
+    assert.equal(await handoff.copyAllRoutes(container), true);
+    assert.deepEqual(copied, [
+        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
+        'Driver: Jordan Driver\n9 Driver Lane\n' +
+        '1. 12:17 - Sam Rider - 5 Rider Street\n\n' +
+        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&dir_action=navigate&waypoints=40.2%2C-74.2\n\n' +
+        'Driver: Casey Driver\n10 Driver Lane\n' +
+        '1. 12:22 - Taylor Rider\n\n' +
+        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.6%2C-74.6&dir_action=navigate&waypoints=40.5%2C-74.5\n',
+    ]);
+});
+
+test('copy all routes does nothing when there are no route cards', async () => {
+    const copied = [];
+    const { container } = createRouteFixture();
+    container.querySelectorAll = () => [];
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+    });
+
+    assert.equal(await handoff.copyAllRoutes(container), false);
+    assert.deepEqual(copied, []);
+});
+
+test('copy all routes preserves an empty Maps line when a route has no stops', async () => {
+    const copied = [];
+    const { container, routeCard } = createRouteFixture();
+    routeCard.querySelectorAll = () => [];
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+    });
+
+    assert.equal(await handoff.copyAllRoutes(container), true);
+    assert.deepEqual(copied, [
+        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
+        'Driver: Jordan Driver\n9 Driver Lane\n\nMaps: \n',
+    ]);
+});
+
+test('single-route clipboard failure returns false and reports an error', async () => {
+    const notifications = [];
+    const { routeCard } = createRouteFixture();
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => { throw new Error('clipboard unavailable'); },
+            openUrl: async () => {},
+            notify: (message, type) => notifications.push([message, type]),
+        },
+    });
+
+    assert.equal(await handoff.copyRoute(routeCard), false);
+    assert.deepEqual(notifications, [['Failed to copy to clipboard', 'error']]);
+});
+
+test('copy-all clipboard failure returns false and reports an error', async () => {
+    const notifications = [];
+    const { container } = createRouteFixture();
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => { throw new Error('clipboard unavailable'); },
+            openUrl: async () => {},
+            notify: (message, type) => notifications.push([message, type]),
+        },
+    });
+
+    assert.equal(await handoff.copyAllRoutes(container), false);
+    assert.deepEqual(notifications, [['Failed to copy to clipboard', 'error']]);
+});
+
+test('preview opens a deduplicated pickup route without navigation mode', async () => {
+    const opened = [];
+    const { routeCard, stop } = createRouteFixture({ mode: 'pickup' });
+    const duplicateStop = {
+        dataset: {
+            ...stop.dataset,
+            participantName: 'Duplicate Rider',
+            participantAddress: 'Another Label',
+            participantLat: '40.2000001',
+            participantLng: '-74.2000001',
+        },
+        querySelector: () => null,
+    };
+    routeCard.querySelectorAll = selector => selector === '.stop-item' ? [stop, duplicateStop] : [];
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async url => opened.push(url),
+            notify: () => {},
+        },
+    });
+
+    assert.equal(await handoff.previewRoute(routeCard), true);
+    assert.deepEqual(opened, [
+        'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.4%2C-74.4&origin=40.1%2C-74.1&waypoints=40.2%2C-74.2',
+    ]);
+});
+
+test('preview reports a warning when no valid route can be built', async () => {
+    const opened = [];
+    const notifications = [];
+    const { routeCard } = createRouteFixture();
+    routeCard.querySelectorAll = () => [];
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async url => opened.push(url),
+            notify: (message, type) => notifications.push([message, type]),
+        },
+    });
+
+    assert.equal(await handoff.previewRoute(routeCard), false);
+    assert.deepEqual(opened, []);
+    assert.deepEqual(notifications, [[
+        'Could not build a valid Google Maps route for this trip.',
+        'warning',
+    ]]);
+});
+
+test('preview open failure returns false and reports an error', async () => {
+    const notifications = [];
+    const { routeCard } = createRouteFixture();
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async () => { throw new Error('browser unavailable'); },
+            notify: (message, type) => notifications.push([message, type]),
+        },
+    });
+
+    assert.equal(await handoff.previewRoute(routeCard), false);
+    assert.deepEqual(notifications, [['Failed to open browser', 'error']]);
+});
+
+test('preview preserves resolved non-success responses from the open endpoint', async () => {
+    const notifications = [];
+    const { routeCard } = createRouteFixture();
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async () => ({ ok: false }),
+            notify: (message, type) => notifications.push([message, type]),
+        },
+    });
+
+    assert.equal(await handoff.previewRoute(routeCard), true);
+    assert.deepEqual(notifications, []);
+});
+
+test('ETA population applies dropoff slack through the route handoff', () => {
+    const { container, stopEta } = createRouteFixture();
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async () => {},
+            notify: () => {},
+        },
+        formatTime: value => value.toTimeString().slice(0, 5),
+    });
+
+    handoff.populateEtas(container);
+
+    assert.equal(stopEta.textContent, '12:17');
+});
+
+test('ETA population counts backward for pickup routes', () => {
+    const { container, stopEta } = createRouteFixture({ mode: 'pickup' });
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async () => {},
+            notify: () => {},
+        },
+        formatTime: value => value.toTimeString().slice(0, 5),
+    });
+
+    handoff.populateEtas(container);
+
+    assert.equal(stopEta.textContent, '11:45');
+});
+
+test('ETA population clears stale values when the route time is invalid', () => {
+    const { container, stopEta } = createRouteFixture();
+    container.dataset.routeTime = 'not-a-time';
+    stopEta.textContent = 'stale';
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async () => {},
+            notify: () => {},
+        },
+    });
+
+    handoff.populateEtas(container);
+
+    assert.equal(stopEta.textContent, '');
+});
+
+test('route handoff ignores missing route and container elements', async () => {
+    const { routeCard } = createRouteFixture();
+    routeCard.closest = () => null;
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => { throw new Error('should not copy'); },
+            openUrl: async () => { throw new Error('should not open'); },
+            notify: () => { throw new Error('should not notify'); },
+        },
+    });
+
+    assert.equal(await handoff.copyRoute(null), false);
+    assert.equal(await handoff.copyRoute(routeCard), false);
+    assert.equal(await handoff.copyAllRoutes(null), false);
+    assert.equal(await handoff.previewRoute(null), false);
+    assert.equal(await handoff.previewRoute(routeCard), false);
+    assert.equal(handoff.populateEtas(null), undefined);
+});
 
 test('saving a draft aborts an in-flight restore before clearing the active session', () => {
     const actions = [];
@@ -25,62 +396,6 @@ test('saving a draft aborts an in-flight restore before clearing the active sess
         'clear active session',
         'write draft',
     ]);
-});
-
-test('dropoff ETA includes two minutes of arrival slack', () => {
-    const departure = new Date('2026-07-22T12:00:00.000Z');
-
-    const eta = getStopEta(departure, 15 * 60, 30 * 60, 'dropoff', value => value.toISOString());
-
-    assert.equal(eta, '2026-07-22T12:17:00.000Z');
-});
-
-test('pickup ETA counts backward from the required arrival time', () => {
-    const arrival = new Date('2026-07-22T13:00:00.000Z');
-
-    const eta = getStopEta(arrival, 10 * 60, 40 * 60, 'pickup', value => value.toISOString());
-
-    assert.equal(eta, '2026-07-22T12:30:00.000Z');
-});
-
-test('pickup Maps URL starts at the driver, deduplicates stops, and ends at the activity', () => {
-    const url = generateMapsUrl(
-        { address: 'Church', lat: '40.4', lng: '-74.4' },
-        { address: 'Driver', lat: '40.1', lng: '-74.1' },
-        [
-            { address: 'One', lat: '40.2', lng: '-74.2' },
-            { address: 'Duplicate One', lat: '40.2000001', lng: '-74.2000001' },
-            { address: 'Two', lat: '40.3', lng: '-74.3' },
-        ],
-        'pickup',
-        { navigation: true },
-    );
-
-    assert.equal(
-        url,
-        'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.4%2C-74.4&dir_action=navigate&waypoints=40.2%2C-74.2%7C40.3%2C-74.3',
-    );
-});
-
-test('parent copy text omits private addresses and the Maps link', () => {
-    const text = formatRouteText(
-        'Wednesday Night Church',
-        { address: '1 Church Road', lat: '40.4', lng: '-74.4' },
-        'Jordan Driver',
-        { address: '9 Driver Lane', lat: '40.1', lng: '-74.1' },
-        [{ name: 'Sam Rider', address: '5 Rider Street', time: '8:15 PM', lat: '40.2', lng: '-74.2' }],
-        'dropoff',
-        {
-            includeParticipantAddresses: false,
-            includeDriverAddress: false,
-            includeMapsLink: false,
-        },
-    );
-
-    assert.equal(
-        text,
-        'Activity Location: Wednesday Night Church\n1 Church Road\n\nDriver: Jordan Driver\n1. 8:15 PM - Sam Rider\n',
-    );
 });
 
 test('participant moves flush sequentially in same-session batches with the existing payload contracts', async () => {
