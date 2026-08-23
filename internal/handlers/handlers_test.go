@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"ride-home-router/internal/geocoding"
@@ -11,16 +12,18 @@ import (
 	"testing"
 )
 
+var errAddressSearchGeocodeUnused = errors.New("address search geocoder does not implement geocoding")
+
 type addressSearchGeocoder struct {
 	results []geocoding.GeocodingResult
 }
 
 func (g addressSearchGeocoder) Geocode(context.Context, string) (*geocoding.GeocodingResult, error) {
-	return nil, nil
+	return nil, errAddressSearchGeocodeUnused
 }
 
 func (g addressSearchGeocoder) GeocodeWithRetry(context.Context, string, int) (*geocoding.GeocodingResult, error) {
-	return nil, nil
+	return nil, errAddressSearchGeocodeUnused
 }
 
 func (g addressSearchGeocoder) Search(context.Context, string, int) ([]geocoding.GeocodingResult, error) {
