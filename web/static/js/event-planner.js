@@ -27,7 +27,7 @@
         }).format(value);
     }
 
-    function getStopEta(baseTime, cumulativeDurationSecs, routeDurationSecs, mode, formatTime = formatClockTime) {
+    function getStopEta(baseTime, cumulativeDurationSecs, routeDurationSecs, mode, formatTime) {
         if (!(baseTime instanceof Date) || Number.isNaN(baseTime.getTime())) {
             return '';
         }
@@ -48,14 +48,14 @@
         return formatTime(new Date(baseTime.getTime() + (offsetSecs * 1000)));
     }
 
-    function parseCoordinate(value) {
+    function parseNumber(value) {
         const num = Number.parseFloat(value);
         return Number.isFinite(num) ? num : null;
     }
 
     function getLocationValue(location) {
-        const lat = parseCoordinate(location?.lat);
-        const lng = parseCoordinate(location?.lng);
+        const lat = parseNumber(location?.lat);
+        const lng = parseNumber(location?.lng);
         if (lat !== null && lng !== null) {
             return `${lat},${lng}`;
         }
@@ -65,8 +65,8 @@
     }
 
     function getLocationDedupKey(location) {
-        const lat = parseCoordinate(location?.lat);
-        const lng = parseCoordinate(location?.lng);
+        const lat = parseNumber(location?.lat);
+        const lng = parseNumber(location?.lng);
         if (lat !== null && lng !== null) {
             return `${lat.toFixed(5)},${lng.toFixed(5)}`;
         }
@@ -118,11 +118,6 @@
     }
 
     function createRouteHandoff({ platform, formatTime = formatClockTime }) {
-        function parseDurationSeconds(value) {
-            const num = Number.parseFloat(value);
-            return Number.isFinite(num) ? num : null;
-        }
-
         function parseRouteTime(value) {
             if (typeof value !== 'string') return null;
 
@@ -134,25 +129,25 @@
             return baseTime;
         }
 
-        function getStops(routeCard, routeTime, mode) {
-            const routeDurationSecs = parseDurationSeconds(routeCard.dataset.routeDurationSecs);
-            const baseTime = parseRouteTime(routeTime);
+        function readStops(routeCard, context, includeEtas = true) {
+            const routeDurationSecs = parseNumber(routeCard.dataset.routeDurationSecs);
             return Array.from(routeCard.querySelectorAll('.stop-item')).map(item => ({
+                element: item,
                 name: item.dataset.participantName,
                 address: item.dataset.participantAddress,
                 lat: item.dataset.participantLat,
                 lng: item.dataset.participantLng,
-                time: getStopEta(
-                    baseTime,
-                    parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
+                time: includeEtas ? getStopEta(
+                    context.baseTime,
+                    parseNumber(item.dataset.stopCumulativeDurationSecs),
                     routeDurationSecs,
-                    mode,
+                    context.mode,
                     formatTime,
-                ),
+                ) : '',
             }));
         }
 
-        function getContext(container) {
+        function readContainerContext(container) {
             return {
                 activityLocationName: container.dataset.activityLocationName,
                 activityLocation: {
@@ -160,12 +155,12 @@
                     lat: container.dataset.activityLocationLat,
                     lng: container.dataset.activityLocationLng,
                 },
+                baseTime: parseRouteTime(container.dataset.routeTime),
                 mode: container.dataset.routeMode || 'dropoff',
-                routeTime: container.dataset.routeTime || '',
             };
         }
 
-        function getRoute(routeCard, context) {
+        function readRouteCard(routeCard, context, includeEtas = true) {
             return {
                 driverName: routeCard.dataset.driverName,
                 driverLocation: {
@@ -173,7 +168,7 @@
                     lat: routeCard.dataset.driverLat,
                     lng: routeCard.dataset.driverLng,
                 },
-                stops: getStops(routeCard, context.routeTime, context.mode),
+                stops: readStops(routeCard, context, includeEtas),
             };
         }
 
@@ -214,11 +209,11 @@
                 .join('\n');
         }
 
-        async function copyText(text) {
+        async function copyToClipboard(text) {
             try {
                 await platform.copyText(text);
                 return true;
-            } catch (error) {
+            } catch {
                 platform.notify('Failed to copy to clipboard', 'error');
                 return false;
             }
@@ -230,10 +225,10 @@
             const container = routeCard.closest('.routes-container');
             if (!container) return false;
 
-            const context = getContext(container);
-            const text = formatHandoffText(context, [getRoute(routeCard, context)], audience);
+            const context = readContainerContext(container);
+            const text = formatHandoffText(context, [readRouteCard(routeCard, context)], audience);
 
-            return copyText(text);
+            return copyToClipboard(text);
         }
 
         async function copyAllRoutes(container) {
@@ -242,9 +237,9 @@
             const routeCards = Array.from(container.querySelectorAll('.route-card'));
             if (routeCards.length === 0) return false;
 
-            const context = getContext(container);
-            const routes = routeCards.map(routeCard => getRoute(routeCard, context));
-            return copyText(formatHandoffText(context, routes, 'driver'));
+            const context = readContainerContext(container);
+            const routes = routeCards.map(routeCard => readRouteCard(routeCard, context));
+            return copyToClipboard(formatHandoffText(context, routes, 'driver'));
         }
 
         async function previewRoute(routeCard) {
@@ -253,8 +248,8 @@
             const container = routeCard.closest('.routes-container');
             if (!container) return false;
 
-            const context = getContext(container);
-            const route = getRoute(routeCard, context);
+            const context = readContainerContext(container);
+            const route = readRouteCard(routeCard, context, false);
             const mapsUrl = generateMapsUrl(
                 context.activityLocation,
                 route.driverLocation,
@@ -269,7 +264,7 @@
             try {
                 await platform.openUrl(mapsUrl);
                 return true;
-            } catch (error) {
+            } catch {
                 platform.notify('Failed to open browser', 'error');
                 return false;
             }
@@ -278,27 +273,18 @@
         function populateEtas(container) {
             if (!container) return;
 
-            const baseTime = parseRouteTime(container.dataset.routeTime);
-            if (!baseTime) {
+            const context = readContainerContext(container);
+            if (!context.baseTime) {
                 container.querySelectorAll('.stop-eta').forEach(element => {
                     element.textContent = '';
                 });
                 return;
             }
 
-            const mode = container.dataset.routeMode || 'dropoff';
             container.querySelectorAll('.route-card').forEach(routeCard => {
-                const routeDurationSecs = parseDurationSeconds(routeCard.dataset.routeDurationSecs);
-                routeCard.querySelectorAll('.stop-item').forEach(item => {
-                    const eta = getStopEta(
-                        baseTime,
-                        parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
-                        routeDurationSecs,
-                        mode,
-                        formatTime,
-                    );
-                    const etaElement = item.querySelector('.stop-eta');
-                    if (etaElement) etaElement.textContent = eta || '';
+                readStops(routeCard, context).forEach(stop => {
+                    const etaElement = stop.element.querySelector('.stop-eta');
+                    if (etaElement) etaElement.textContent = stop.time || '';
                 });
             });
         }
@@ -507,12 +493,26 @@
 
         const routeHandoff = createRouteHandoff({
             platform: {
-                copyText: text => navigator.clipboard.writeText(text),
-                openUrl: url => fetch('/api/v1/open-url', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url }),
-                }),
+                copyText: async text => {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                    } catch (error) {
+                        console.error('Failed to copy to clipboard:', error);
+                        throw error;
+                    }
+                },
+                openUrl: async url => {
+                    try {
+                        return await fetch('/api/v1/open-url', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url }),
+                        });
+                    } catch (error) {
+                        console.error('Failed to open URL:', error);
+                        throw error;
+                    }
+                },
                 notify: showToast,
             },
         });
@@ -765,7 +765,7 @@
             }, 2000);
         }
 
-        async function copyRoute(button, audience = 'driver') {
+        async function copyRoute(button, audience) {
             const copied = await routeHandoff.copyRoute(button?.closest('.route-card'), audience);
             if (copied) showCopied(button, 'btn-outline');
             return copied;

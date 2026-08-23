@@ -11,12 +11,24 @@ const {
 } = planner;
 
 test('planner exposes the route handoff instead of its internal helpers', () => {
-    assert.deepEqual(Object.keys(planner), [
+    assert.deepEqual(Object.keys(planner).sort(), [
         'createParticipantMoveBatcher',
         'createRouteHandoff',
         'saveDraft',
     ]);
 });
+
+function nodeList(items) {
+    const list = {
+        length: items.length,
+        forEach: callback => items.forEach(callback),
+        [Symbol.iterator]: () => items[Symbol.iterator](),
+    };
+    items.forEach((item, index) => {
+        list[index] = item;
+    });
+    return list;
+}
 
 function createRouteFixture({ mode = 'dropoff' } = {}) {
     const stopEta = { textContent: '' };
@@ -39,7 +51,7 @@ function createRouteFixture({ mode = 'dropoff' } = {}) {
             driverLng: '-74.1',
             routeDurationSecs: '1800',
         },
-        querySelectorAll: selector => selector === '.stop-item' ? [stop] : [],
+        querySelectorAll: selector => selector === '.stop-item' ? nodeList([stop]) : nodeList([]),
         closest: selector => selector === '.routes-container' ? container : null,
     };
     container = {
@@ -52,9 +64,9 @@ function createRouteFixture({ mode = 'dropoff' } = {}) {
             routeTime: '12:00',
         },
         querySelectorAll: selector => {
-            if (selector === '.route-card') return [routeCard];
-            if (selector === '.stop-eta') return [stopEta];
-            return [];
+            if (selector === '.route-card') return nodeList([routeCard]);
+            if (selector === '.stop-eta') return nodeList([stopEta]);
+            return nodeList([]);
         },
     };
 
@@ -63,8 +75,31 @@ function createRouteFixture({ mode = 'dropoff' } = {}) {
 
 test('driver copy defaults to the driver audience and copies the complete route', async () => {
     const copied = [];
-    const { container, routeCard } = createRouteFixture();
+    const { container, routeCard, stop } = createRouteFixture();
     delete container.dataset.routeMode;
+    const secondStop = {
+        dataset: {
+            participantName: 'Riley Rider',
+            participantAddress: '6 Rider Street',
+            participantLat: '40.3',
+            participantLng: '-74.3',
+            stopCumulativeDurationSecs: '1200',
+        },
+        querySelector: () => null,
+    };
+    const thirdStop = {
+        dataset: {
+            participantName: 'Morgan Rider',
+            participantAddress: '7 Rider Street',
+            participantLat: '40.35',
+            participantLng: '-74.35',
+            stopCumulativeDurationSecs: '1500',
+        },
+        querySelector: () => null,
+    };
+    routeCard.querySelectorAll = selector => selector === '.stop-item'
+        ? nodeList([stop, secondStop, thirdStop])
+        : nodeList([]);
     const handoff = createRouteHandoff({
         platform: {
             copyText: async text => copied.push(text),
@@ -78,8 +113,10 @@ test('driver copy defaults to the driver audience and copies the complete route'
     assert.deepEqual(copied, [
         'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
         'Driver: Jordan Driver\n9 Driver Lane\n' +
-        '1. 12:17 - Sam Rider - 5 Rider Street\n\n' +
-        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&dir_action=navigate&waypoints=40.2%2C-74.2\n',
+        '1. 12:17 - Sam Rider - 5 Rider Street\n' +
+        '2. 12:22 - Riley Rider - 6 Rider Street\n' +
+        '3. 12:27 - Morgan Rider - 7 Rider Street\n\n' +
+        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&dir_action=navigate&waypoints=40.2%2C-74.2%7C40.3%2C-74.3%7C40.35%2C-74.35\n',
     ]);
 });
 
@@ -145,10 +182,12 @@ test('copy all routes shares route formatting and omits the address separator wh
             driverLng: '-74.6',
             routeDurationSecs: '2400',
         },
-        querySelectorAll: selector => selector === '.stop-item' ? [secondStop] : [],
+        querySelectorAll: selector => selector === '.stop-item' ? nodeList([secondStop]) : nodeList([]),
         closest: selector => selector === '.routes-container' ? container : null,
     };
-    container.querySelectorAll = selector => selector === '.route-card' ? [routeCard, secondRouteCard] : [];
+    container.querySelectorAll = selector => selector === '.route-card'
+        ? nodeList([routeCard, secondRouteCard])
+        : nodeList([]);
     const handoff = createRouteHandoff({
         platform: {
             copyText: async text => copied.push(text),
@@ -173,7 +212,7 @@ test('copy all routes shares route formatting and omits the address separator wh
 test('copy all routes does nothing when there are no route cards', async () => {
     const copied = [];
     const { container } = createRouteFixture();
-    container.querySelectorAll = () => [];
+    container.querySelectorAll = () => nodeList([]);
     const handoff = createRouteHandoff({
         platform: {
             copyText: async text => copied.push(text),
@@ -189,7 +228,7 @@ test('copy all routes does nothing when there are no route cards', async () => {
 test('copy all routes preserves an empty Maps line when a route has no stops', async () => {
     const copied = [];
     const { container, routeCard } = createRouteFixture();
-    routeCard.querySelectorAll = () => [];
+    routeCard.querySelectorAll = () => nodeList([]);
     const handoff = createRouteHandoff({
         platform: {
             copyText: async text => copied.push(text),
@@ -248,7 +287,9 @@ test('preview opens a deduplicated pickup route without navigation mode', async 
         },
         querySelector: () => null,
     };
-    routeCard.querySelectorAll = selector => selector === '.stop-item' ? [stop, duplicateStop] : [];
+    routeCard.querySelectorAll = selector => selector === '.stop-item'
+        ? nodeList([stop, duplicateStop])
+        : nodeList([]);
     const handoff = createRouteHandoff({
         platform: {
             copyText: async () => {},
@@ -267,7 +308,7 @@ test('preview reports a warning when no valid route can be built', async () => {
     const opened = [];
     const notifications = [];
     const { routeCard } = createRouteFixture();
-    routeCard.querySelectorAll = () => [];
+    routeCard.querySelectorAll = () => nodeList([]);
     const handoff = createRouteHandoff({
         platform: {
             copyText: async () => {},
@@ -379,7 +420,7 @@ test('route handoff ignores missing route and container elements', async () => {
     assert.equal(await handoff.copyAllRoutes(null), false);
     assert.equal(await handoff.previewRoute(null), false);
     assert.equal(await handoff.previewRoute(routeCard), false);
-    assert.equal(handoff.populateEtas(null), undefined);
+    assert.doesNotThrow(() => handoff.populateEtas(null));
 });
 
 test('saving a draft aborts an in-flight restore before clearing the active session', () => {
