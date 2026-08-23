@@ -44,7 +44,7 @@ func TestStoreEvictsLeastRecentlyAccessedNonCommittingSession(t *testing.T) {
 	t.Cleanup(store.Close)
 	grid := testGrid(t, coordinateCSV("Rider", "1 Main St"))
 	var ids []string
-	for i := 0; i < MaxConcurrentSessions; i++ {
+	for i := range MaxConcurrentSessions {
 		created, err := store.Create(KindParticipant, fmt.Sprintf("%d.csv", i), grid)
 		if err != nil {
 			t.Fatalf("Create(%d) error = %v", i, err)
@@ -192,7 +192,7 @@ func TestGeocodeJobDeduplicatesAndMarksFailures(t *testing.T) {
 	if finished.GeocodeProgress != (GeocodeProgress{Done: 2, Total: 2, Running: false}) {
 		t.Fatalf("progress = %#v", finished.GeocodeProgress)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if !finished.Rows[i].HasCoordinates || finished.Rows[i].Lat != 40.5 || finished.Rows[i].Lng != -73.5 {
 			t.Errorf("row %d coordinates = %#v", i, finished.Rows[i])
 		}
@@ -412,7 +412,7 @@ func (r *fakeParticipantRepository) CreateBatch(_ context.Context, batch []*mode
 	result := database.BatchCreateResult{}
 	for i, participant := range batch {
 		key := DuplicateKey(participant.Name, participant.Address)
-		if _, duplicate := keys[key]; duplicate && !(i < len(allowExistingDuplicate) && allowExistingDuplicate[i]) {
+		if _, duplicate := keys[key]; duplicate && (i >= len(allowExistingDuplicate) || !allowExistingDuplicate[i]) {
 			result.SkippedDuplicate++
 			continue
 		}
@@ -461,7 +461,7 @@ func (r *fakeDriverRepository) CreateBatch(_ context.Context, batch []*models.Dr
 	result := database.BatchCreateResult{}
 	for i, driver := range batch {
 		key := DuplicateKey(driver.Name, driver.Address)
-		if _, duplicate := keys[key]; duplicate && !(i < len(allowExistingDuplicate) && allowExistingDuplicate[i]) {
+		if _, duplicate := keys[key]; duplicate && (i >= len(allowExistingDuplicate) || !allowExistingDuplicate[i]) {
 			result.SkippedDuplicate++
 			continue
 		}

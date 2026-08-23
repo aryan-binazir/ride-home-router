@@ -336,11 +336,10 @@ func startImportPanelSession(t *testing.T, handler *Handler, contents string, ki
 func importPanelSessionID(t *testing.T, fragment string) string {
 	t.Helper()
 	const prefix = "/api/v1/imports/"
-	index := strings.Index(fragment, prefix)
-	if index < 0 {
+	_, id, ok := strings.Cut(fragment, prefix)
+	if !ok {
 		t.Fatalf("fragment has no session URL: %s", fragment)
 	}
-	id := fragment[index+len(prefix):]
 	if cut := strings.IndexAny(id, `/?"`); cut >= 0 {
 		id = id[:cut]
 	}

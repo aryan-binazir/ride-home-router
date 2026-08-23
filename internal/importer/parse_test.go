@@ -99,7 +99,7 @@ func TestParseCSVLimitConstants(t *testing.T) {
 	t.Run("data rows", func(t *testing.T) {
 		var csv strings.Builder
 		csv.WriteString("name,address\n")
-		for i := 0; i < MaxDataRows; i++ {
+		for i := range MaxDataRows {
 			fmt.Fprintf(&csv, "Person %d,%d Main St\n", i, i)
 		}
 		grid, err := Parse(strings.NewReader(csv.String()), FormatCSV, "")

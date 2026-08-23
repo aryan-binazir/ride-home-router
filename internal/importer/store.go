@@ -95,6 +95,10 @@ type session struct {
 	mu             sync.Mutex
 }
 
+func (s *session) afterCancel(f func()) func() bool {
+	return context.AfterFunc(s.ctx, f)
+}
+
 // Store owns short-lived import staging sessions and their background jobs.
 type Store struct {
 	geocoder        geocoding.Geocoder
@@ -258,11 +262,10 @@ func (s *Store) Commit(ctx context.Context, id string, selected []bool) (CommitR
 	state.commitStarted = true
 	rows := copyRows(state.rows)
 	kind := state.kind
-	sessionCtx := state.ctx
 	state.mu.Unlock()
 
 	commitCtx, cancel := context.WithCancel(ctx)
-	stopCancel := context.AfterFunc(sessionCtx, cancel)
+	stopCancel := state.afterCancel(cancel)
 	defer func() {
 		stopCancel()
 		cancel()

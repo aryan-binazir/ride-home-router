@@ -261,6 +261,8 @@ func reconcileWithExisting(rows []Row, states []coordinateState, indices []int, 
 			}
 		case coordinatesMissing:
 			inheritCoordinates(&rows[index], winning.Lat, winning.Lng, "coordinates copied from an existing roster entry with the same address")
+		case coordinatesInvalid:
+			// The coordinate parser already attached the row-level validation error.
 		}
 	}
 }
