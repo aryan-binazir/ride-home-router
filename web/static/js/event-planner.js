@@ -140,7 +140,7 @@
         }).format(value);
     }
 
-    function getStopEta(baseTime, cumulativeDurationSecs, routeDurationSecs, mode, formatTime = formatClockTime) {
+    function getStopEta(baseTime, cumulativeDurationSecs, routeDurationSecs, mode, formatTime) {
         if (!(baseTime instanceof Date) || Number.isNaN(baseTime.getTime())) {
             return '';
         }
@@ -161,14 +161,14 @@
         return formatTime(new Date(baseTime.getTime() + (offsetSecs * 1000)));
     }
 
-    function parseCoordinate(value) {
+    function parseNumber(value) {
         const num = Number.parseFloat(value);
         return Number.isFinite(num) ? num : null;
     }
 
     function getLocationValue(location) {
-        const lat = parseCoordinate(location?.lat);
-        const lng = parseCoordinate(location?.lng);
+        const lat = parseNumber(location?.lat);
+        const lng = parseNumber(location?.lng);
         if (lat !== null && lng !== null) {
             return `${lat},${lng}`;
         }
@@ -178,8 +178,8 @@
     }
 
     function getLocationDedupKey(location) {
-        const lat = parseCoordinate(location?.lat);
-        const lng = parseCoordinate(location?.lng);
+        const lat = parseNumber(location?.lat);
+        const lng = parseNumber(location?.lng);
         if (lat !== null && lng !== null) {
             return `${lat.toFixed(5)},${lng.toFixed(5)}`;
         }
@@ -230,31 +230,179 @@
         return `https://www.google.com/maps/dir/?${params.toString()}`;
     }
 
-    function formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode = 'dropoff', options = {}) {
-        const includeParticipantAddresses = options.includeParticipantAddresses !== false;
-        const includeDriverAddress = options.includeDriverAddress !== false;
-        const includeMapsLink = options.includeMapsLink !== false;
-        let text = `Activity Location: ${activityLocationName}\n${activityLocation?.address || ''}\n\n`;
-        text += `Driver: ${driverName}\n`;
-        if (includeDriverAddress) {
-            text += `${driverLocation?.address || ''}\n`;
+    function createRouteHandoff({ platform, formatTime = formatClockTime }) {
+        function parseRouteTime(value) {
+            if (typeof value !== 'string') return null;
+
+            const match = value.trim().match(/^(\d{2}):(\d{2})$/);
+            if (!match) return null;
+
+            const baseTime = new Date();
+            baseTime.setHours(Number.parseInt(match[1], 10), Number.parseInt(match[2], 10), 0, 0);
+            return baseTime;
         }
 
-        stops.forEach((stop, index) => {
-            const prefix = stop.time ? `${stop.time} - ` : '';
-            text += `${index + 1}. ${prefix}${stop.name}`;
-            if (includeParticipantAddresses && stop.address) {
-                text += ` - ${stop.address}`;
+        function readStops(routeCard, context, includeEtas = true) {
+            const routeDurationSecs = parseNumber(routeCard.dataset.routeDurationSecs);
+            return Array.from(routeCard.querySelectorAll('.stop-item')).map(item => ({
+                element: item,
+                name: item.dataset.participantName,
+                address: item.dataset.participantAddress,
+                lat: item.dataset.participantLat,
+                lng: item.dataset.participantLng,
+                time: includeEtas ? getStopEta(
+                    context.baseTime,
+                    parseNumber(item.dataset.stopCumulativeDurationSecs),
+                    routeDurationSecs,
+                    context.mode,
+                    formatTime,
+                ) : '',
+            }));
+        }
+
+        function readContainerContext(container) {
+            return {
+                activityLocationName: container.dataset.activityLocationName,
+                activityLocation: {
+                    address: container.dataset.activityLocationAddress,
+                    lat: container.dataset.activityLocationLat,
+                    lng: container.dataset.activityLocationLng,
+                },
+                baseTime: parseRouteTime(container.dataset.routeTime),
+                mode: container.dataset.routeMode || 'dropoff',
+            };
+        }
+
+        function readRouteCard(routeCard, context, includeEtas = true) {
+            return {
+                driverName: routeCard.dataset.driverName,
+                driverLocation: {
+                    address: routeCard.dataset.driverAddress,
+                    lat: routeCard.dataset.driverLat,
+                    lng: routeCard.dataset.driverLng,
+                },
+                stops: readStops(routeCard, context, includeEtas),
+            };
+        }
+
+        function formatRouteSection(context, route, audience) {
+            const isParentCopy = audience === 'parent';
+            let text = `Driver: ${route.driverName}\n`;
+            if (!isParentCopy) {
+                text += `${route.driverLocation.address || ''}\n`;
             }
-            text += '\n';
-        });
 
-        if (includeMapsLink) {
-            const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode, { navigation: true });
-            text += `\nMaps: ${mapsUrl}\n`;
+            route.stops.forEach((stop, index) => {
+                const prefix = stop.time ? `${stop.time} - ` : '';
+                text += `${index + 1}. ${prefix}${stop.name}`;
+                if (!isParentCopy && stop.address) {
+                    text += ` - ${stop.address}`;
+                }
+                text += '\n';
+            });
+
+            if (!isParentCopy) {
+                const mapsUrl = generateMapsUrl(
+                    context.activityLocation,
+                    route.driverLocation,
+                    route.stops,
+                    context.mode,
+                    { navigation: true },
+                );
+                text += `\nMaps: ${mapsUrl}\n`;
+            }
+
+            return text;
         }
 
-        return text;
+        function formatHandoffText(context, routes, audience) {
+            const header = `Activity Location: ${context.activityLocationName}\n${context.activityLocation.address || ''}\n\n`;
+            return header + routes
+                .map(route => formatRouteSection(context, route, audience))
+                .join('\n');
+        }
+
+        async function copyToClipboard(text) {
+            try {
+                await platform.copyText(text);
+                return true;
+            } catch {
+                platform.notify('Failed to copy to clipboard', 'error');
+                return false;
+            }
+        }
+
+        async function copyRoute(routeCard, audience = 'driver') {
+            if (!routeCard) return false;
+
+            const container = routeCard.closest('.routes-container');
+            if (!container) return false;
+
+            const context = readContainerContext(container);
+            const text = formatHandoffText(context, [readRouteCard(routeCard, context)], audience);
+
+            return copyToClipboard(text);
+        }
+
+        async function copyAllRoutes(container) {
+            if (!container) return false;
+
+            const routeCards = Array.from(container.querySelectorAll('.route-card'));
+            if (routeCards.length === 0) return false;
+
+            const context = readContainerContext(container);
+            const routes = routeCards.map(routeCard => readRouteCard(routeCard, context));
+            return copyToClipboard(formatHandoffText(context, routes, 'driver'));
+        }
+
+        async function previewRoute(routeCard) {
+            if (!routeCard) return false;
+
+            const container = routeCard.closest('.routes-container');
+            if (!container) return false;
+
+            const context = readContainerContext(container);
+            const route = readRouteCard(routeCard, context, false);
+            const mapsUrl = generateMapsUrl(
+                context.activityLocation,
+                route.driverLocation,
+                route.stops,
+                context.mode,
+            );
+            if (!mapsUrl) {
+                platform.notify('Could not build a valid Google Maps route for this trip.', 'warning');
+                return false;
+            }
+
+            try {
+                await platform.openUrl(mapsUrl);
+                return true;
+            } catch {
+                platform.notify('Failed to open browser', 'error');
+                return false;
+            }
+        }
+
+        function populateEtas(container) {
+            if (!container) return;
+
+            const context = readContainerContext(container);
+            if (!context.baseTime) {
+                container.querySelectorAll('.stop-eta').forEach(element => {
+                    element.textContent = '';
+                });
+                return;
+            }
+
+            container.querySelectorAll('.route-card').forEach(routeCard => {
+                readStops(routeCard, context).forEach(stop => {
+                    const etaElement = stop.element.querySelector('.stop-eta');
+                    if (etaElement) etaElement.textContent = stop.time || '';
+                });
+            });
+        }
+
+        return { copyAllRoutes, copyRoute, populateEtas, previewRoute };
     }
 
     function createParticipantMoveBatcher({
@@ -481,6 +629,36 @@
             showToast(message, 'error');
         }
 
+        const routeHandoff = createRouteHandoff({
+            platform: {
+                copyText: async text => {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                    } catch (error) {
+                        console.error('Failed to copy to clipboard:', error);
+                        throw error;
+                    }
+                },
+                openUrl: async url => {
+                    try {
+                        return await fetch('/api/v1/open-url', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url }),
+                        });
+                    } catch (error) {
+                        console.error('Failed to open URL:', error);
+                        throw error;
+                    }
+                },
+                notify: showToast,
+            },
+        });
+
+        function refreshEtas() {
+            routeHandoff.populateEtas(document.querySelector('.routes-container'));
+        }
+
         // ============= Helper Functions =============
 
         // ============= Route Editing Functions =============
@@ -506,7 +684,7 @@
                 },
             },
             reportError: showRouteError,
-            refreshEtas: populateStopEtas,
+            refreshEtas,
         });
 
         /**
@@ -682,238 +860,45 @@
 
         // ============= Route Copy Functions =============
 
-        function parseDurationSeconds(value) {
-            const num = Number.parseFloat(value);
-            return Number.isFinite(num) ? num : null;
+        function showCopied(button, baseClass) {
+            if (!button) return;
+
+            const originalText = button.textContent;
+            const originalWidth = button.style.width;
+            button.style.width = `${button.offsetWidth}px`;
+            button.textContent = 'Copied!';
+            button.classList.add('btn-success');
+            button.classList.remove(baseClass);
+
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.classList.remove('btn-success');
+                button.classList.add(baseClass);
+                button.style.width = originalWidth;
+            }, 2000);
         }
 
-        function parseRouteTime(value) {
-            if (typeof value !== 'string') {
-                return null;
-            }
-
-            const match = value.trim().match(/^(\d{2}):(\d{2})$/);
-            if (!match) {
-                return null;
-            }
-
-            const hours = Number.parseInt(match[1], 10);
-            const minutes = Number.parseInt(match[2], 10);
-            if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
-                return null;
-            }
-
-            const baseTime = new Date();
-            baseTime.setHours(hours, minutes, 0, 0);
-            return baseTime;
+        async function copyRoute(button, audience) {
+            const copied = await routeHandoff.copyRoute(button?.closest('.route-card'), audience);
+            if (copied) showCopied(button, 'btn-outline');
+            return copied;
         }
 
-        /**
-         * Extracts stop data from a route card
-         */
-        function getStopsFromRouteCard(routeCard, routeTime, mode = 'dropoff') {
-            const stopItems = routeCard.querySelectorAll('.stop-item');
-            const routeDurationSecs = parseDurationSeconds(routeCard.dataset.routeDurationSecs);
-            const baseTime = parseRouteTime(routeTime);
-            return Array.from(stopItems).map(item => ({
-                name: item.dataset.participantName,
-                address: item.dataset.participantAddress,
-                lat: item.dataset.participantLat,
-                lng: item.dataset.participantLng,
-                cumulativeDurationSecs: parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
-                time: getStopEta(
-                    baseTime,
-                    parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
-                    routeDurationSecs,
-                    mode
-                ),
-            }));
-        }
-
-        /**
-         * Copies a single route to clipboard
-         */
-        async function copyRoute(button, audience = 'driver') {
-            const routeCard = button.closest('.route-card');
-            const container = routeCard.closest('.routes-container');
-            const activityLocationName = container.dataset.activityLocationName;
-            const activityLocation = {
-                address: container.dataset.activityLocationAddress,
-                lat: container.dataset.activityLocationLat,
-                lng: container.dataset.activityLocationLng
-            };
-            const mode = container.dataset.routeMode || 'dropoff';
-            const routeTime = container.dataset.routeTime || '';
-            const driverName = routeCard.dataset.driverName;
-            const driverLocation = {
-                address: routeCard.dataset.driverAddress,
-                lat: routeCard.dataset.driverLat,
-                lng: routeCard.dataset.driverLng
-            };
-            const stops = getStopsFromRouteCard(routeCard, routeTime, mode);
-
-            const isParentCopy = audience === 'parent';
-            const text = formatRouteText(activityLocationName, activityLocation, driverName, driverLocation, stops, mode, {
-                includeParticipantAddresses: !isParentCopy,
-                includeDriverAddress: !isParentCopy,
-                includeMapsLink: !isParentCopy,
-            });
-
-            try {
-                await navigator.clipboard.writeText(text);
-
-                // Show feedback
-                const originalText = button.textContent;
-                const originalWidth = button.style.width;
-                button.style.width = `${button.offsetWidth}px`;
-                button.textContent = 'Copied!';
-                button.classList.add('btn-success');
-                button.classList.remove('btn-outline');
-
-                setTimeout(() => {
-                    button.textContent = originalText;
-                    button.classList.remove('btn-success');
-                    button.classList.add('btn-outline');
-                    button.style.width = originalWidth;
-                }, 2000);
-            } catch (err) {
-                console.error('Failed to copy route:', err);
-                showToast('Failed to copy to clipboard', 'error');
-            }
-        }
-
-        /**
-         * Copies all routes to clipboard
-         */
         async function copyAllRoutes() {
-            const container = document.querySelector('.routes-container');
-            const routeCards = container.querySelectorAll('.route-card');
-            if (routeCards.length === 0) {
-                return;
-            }
-
-            const activityLocationName = container.dataset.activityLocationName;
-            const activityLocation = {
-                address: container.dataset.activityLocationAddress,
-                lat: container.dataset.activityLocationLat,
-                lng: container.dataset.activityLocationLng
-            };
-            const mode = container.dataset.routeMode || 'dropoff';
-            const routeTime = container.dataset.routeTime || '';
-            let allText = `Activity Location: ${activityLocationName}\n${activityLocation.address}\n\n`;
-
-            routeCards.forEach((routeCard, cardIndex) => {
-                const driverName = routeCard.dataset.driverName;
-                const driverLocation = {
-                    address: routeCard.dataset.driverAddress,
-                    lat: routeCard.dataset.driverLat,
-                    lng: routeCard.dataset.driverLng
-                };
-                const stops = getStopsFromRouteCard(routeCard, routeTime, mode);
-
-                if (cardIndex > 0) {
-                    allText += '\n';
-                }
-
-                allText += `Driver: ${driverName}\n${driverLocation.address}\n`;
-                stops.forEach((stop, index) => {
-                    const prefix = stop.time ? `${stop.time} - ` : '';
-                    allText += `${index + 1}. ${prefix}${stop.name} - ${stop.address}\n`;
-                });
-
-                const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode, { navigation: true });
-                allText += `Maps: ${mapsUrl}\n`;
-            });
-
-            try {
-                await navigator.clipboard.writeText(allText);
-
-                // Show feedback
-                const button = document.getElementById('copy-all-btn');
-                const originalText = button.textContent;
-                const originalWidth = button.style.width;
-                button.style.width = `${button.offsetWidth}px`;
-                button.textContent = 'Copied!';
-                button.classList.add('btn-success');
-                button.classList.remove('btn-secondary');
-
-                setTimeout(() => {
-                    button.textContent = originalText;
-                    button.classList.remove('btn-success');
-                    button.classList.add('btn-secondary');
-                    button.style.width = originalWidth;
-                }, 2000);
-            } catch (err) {
-                console.error('Failed to copy all routes:', err);
-                showToast('Failed to copy to clipboard', 'error');
-            }
+            const copied = await routeHandoff.copyAllRoutes(document.querySelector('.routes-container'));
+            if (copied) showCopied(document.getElementById('copy-all-btn'), 'btn-secondary');
+            return copied;
         }
 
-        /**
-         * Opens a single route in Google Maps
-         */
         function previewRoute(button) {
-            const routeCard = button.closest('.route-card');
-            const container = routeCard.closest('.routes-container');
-            const activityLocation = {
-                address: container.dataset.activityLocationAddress,
-                lat: container.dataset.activityLocationLat,
-                lng: container.dataset.activityLocationLng
-            };
-            const mode = container.dataset.routeMode || 'dropoff';
-            const driverLocation = {
-                address: routeCard.dataset.driverAddress,
-                lat: routeCard.dataset.driverLat,
-                lng: routeCard.dataset.driverLng
-            };
-            const stops = getStopsFromRouteCard(routeCard);
-
-            const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode);
-            if (mapsUrl) {
-                fetch('/api/v1/open-url', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: mapsUrl })
-                }).catch(err => {
-                    console.error('Failed to open URL:', err);
-                    showToast('Failed to open browser', 'error');
-                });
-            } else {
-                showToast('Could not build a valid Google Maps route for this trip.', 'warning');
-            }
+            return routeHandoff.previewRoute(button?.closest('.route-card'));
         }
 
-        function populateStopEtas() {
-            const container = document.querySelector('.routes-container');
-            if (!container) return;
-
-            const baseTime = parseRouteTime(container.dataset.routeTime);
-            if (!baseTime) {
-                document.querySelectorAll('.stop-eta').forEach(el => el.textContent = '');
-                return;
-            }
-
-            const mode = container.dataset.routeMode || 'dropoff';
-
-            container.querySelectorAll('.route-card').forEach(routeCard => {
-                const routeDurationSecs = parseDurationSeconds(routeCard.dataset.routeDurationSecs);
-
-                routeCard.querySelectorAll('.stop-item').forEach(item => {
-                    const cumulativeSecs = parseDurationSeconds(item.dataset.stopCumulativeDurationSecs);
-                    const eta = getStopEta(baseTime, cumulativeSecs, routeDurationSecs, mode);
-                    const etaSpan = item.querySelector('.stop-eta');
-                    if (etaSpan) {
-                        etaSpan.textContent = eta ? eta : '';
-                    }
-                });
-            });
-        }
-
-        populateStopEtas();
+        refreshEtas();
 
         document.addEventListener('htmx:afterSwap', function(event) {
             if (event.detail && event.detail.target && event.detail.target.id === 'results-section') {
-                populateStopEtas();
+                refreshEtas();
             }
         });
 
@@ -1493,7 +1478,7 @@
                 if (html) {
                     resultsSection.innerHTML = html;
                     htmx.process(resultsSection);
-                    populateStopEtas();
+                    refreshEtas();
                 }
             })
             .catch(function(err) {
@@ -1559,7 +1544,7 @@
                     scrollResultsIntoView(target);
                     var sid = getSessionId();
                     if (sid) saveActiveSessionId(sid);
-                    populateStopEtas();
+                    refreshEtas();
                     return;
                 }
 
@@ -1602,10 +1587,8 @@
 
     return {
         createParticipantMoveBatcher,
+        createRouteHandoff,
         createRouteSessionOrchestrator,
-        formatRouteText,
-        generateMapsUrl,
-        getStopEta,
         saveDraft,
     };
 });
