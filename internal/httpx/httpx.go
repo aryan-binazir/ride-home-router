@@ -1,9 +1,13 @@
 package httpx
 
 import (
+	"encoding/json"
+	"errors"
+	"mime"
 	"net/http"
-	"strings"
 )
+
+var ErrJSONContentTypeRequired = errors.New("Content-Type must be application/json")
 
 const (
 	HeaderContentType  = "Content-Type"
@@ -27,5 +31,17 @@ func IsHTMX(r *http.Request) bool {
 }
 
 func HasFormContentType(contentType string) bool {
-	return strings.Contains(contentType, MediaTypeForm) || strings.Contains(contentType, MediaTypeMultipart)
+	return HasMediaType(contentType, MediaTypeForm) || HasMediaType(contentType, MediaTypeMultipart)
+}
+
+func HasMediaType(contentType, expected string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && mediaType == expected
+}
+
+func DecodeJSON(r *http.Request, dst any) error {
+	if !HasMediaType(r.Header.Get(HeaderContentType), MediaTypeJSON) {
+		return ErrJSONContentTypeRequired
+	}
+	return json.NewDecoder(r.Body).Decode(dst)
 }

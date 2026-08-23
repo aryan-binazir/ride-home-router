@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -56,7 +55,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		req.Address = r.FormValue("address")
 	} else {
 		// Handle JSON
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: invalid_json err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
@@ -197,7 +196,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: invalid_json err=%v", id, err)
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return

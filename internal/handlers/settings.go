@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -53,7 +53,7 @@ func (h *Handler) HandleUpdateRoutingProviderConfig(w http.ResponseWriter, r *ht
 			return
 		}
 		req.GoogleMapsAPIKey = r.FormValue("google_maps_api_key")
-	} else if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	} else if err := httpx.DecodeJSON(r, &req); err != nil {
 		h.handleValidationError(w, messageInvalidRequestBody)
 		return
 	}
@@ -134,7 +134,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/settings: invalid_body err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
@@ -255,7 +255,7 @@ func (h *Handler) HandleUpdateDatabaseConfig(w http.ResponseWriter, r *http.Requ
 		}
 		req.DatabasePath = r.FormValue("database_path")
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/config/database: invalid_body err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return

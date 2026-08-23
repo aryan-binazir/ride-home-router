@@ -1,9 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -45,13 +46,16 @@ const (
 	serverWriteTimeout = 60 * time.Second
 	serverIdleTimeout  = 120 * time.Second
 
-	serverMessageInvalidRequestBody       = "Invalid request body"
-	serverMessageMethodNotAllowed         = "Method not allowed"
-	serverMessageNotFound                 = "Not found"
-	serverMessageOnlyHTTPHTTPSURLsAllowed = "Only HTTP/HTTPS URLs are allowed"
-	serverMessageURLRequired              = "URL is required"
-	serverMessageUnsupportedPlatform      = "Unsupported platform"
-	serverMessageFailedToOpenURL          = "Failed to open URL"
+	serverMessageInvalidRequestBody             = "Invalid request body"
+	serverMessageForbidden                      = "Forbidden"
+	serverMessageMethodNotAllowed               = "Method not allowed"
+	serverMessageNotFound                       = "Not found"
+	serverMessageRequestBodyTooLarge            = "Request body too large"
+	serverMessageOnlyHTTPHTTPSURLsAllowed       = "Only HTTP/HTTPS URLs are allowed"
+	serverMessageURLRequired                    = "URL is required"
+	serverMessageUnsupportedPlatform            = "Unsupported platform"
+	serverMessageFailedToOpenURL                = "Failed to open URL"
+	maxRequestBodyBytes                   int64 = 1 << 20
 )
 
 // New creates and initializes a new server (does not start it)
@@ -104,7 +108,7 @@ func New(cfg Config) (*Server, error) {
 
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      loggingMiddleware(corsMiddleware(mux)),
+		Handler:      mux,
 		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: serverWriteTimeout,
 		IdleTimeout:  serverIdleTimeout,
@@ -134,6 +138,15 @@ func (s *Server) Start() (string, error) {
 
 	s.listener = listener
 	actualAddr := listener.Addr().String()
+	allowlist, err := newRequestAllowlist(actualAddr)
+	if err != nil {
+		_ = listener.Close()
+		return "", err
+	}
+	s.httpServer.Handler = requestSecurityMiddleware(
+		allowlist,
+		loggingMiddleware(corsMiddleware(allowlist, s.httpServer.Handler)),
+	)
 	log.Printf("Starting server on %s", actualAddr)
 
 	go func() {
@@ -289,7 +302,7 @@ func handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
 		return
 	}
@@ -345,15 +358,103 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+type requestAllowlist struct {
+	hosts   map[string]struct{}
+	origins map[string]struct{}
+}
+
+func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
+	_, port, err := net.SplitHostPort(actualAddr)
+	if err != nil {
+		return requestAllowlist{}, fmt.Errorf("failed to determine listener port from %q: %w", actualAddr, err)
+	}
+
+	hosts := map[string]struct{}{
+		"localhost": {},
+		"127.0.0.1": {},
+		"[::1]":     {},
+	}
+	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
+		hosts[net.JoinHostPort(host, port)] = struct{}{}
+	}
+
+	origins := make(map[string]struct{}, len(hosts))
+	for host := range hosts {
+		origins["http://"+host] = struct{}{}
+	}
+
+	return requestAllowlist{hosts: hosts, origins: origins}, nil
+}
+
+func (a requestAllowlist) allowsHost(host string) bool {
+	_, ok := a.hosts[strings.ToLower(host)]
+	return ok
+}
+
+func (a requestAllowlist) allowsOrigin(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	if strings.HasPrefix(origin, "wails://") {
+		return true
+	}
+	_, ok := a.origins[strings.ToLower(origin)]
+	return ok
+}
+
+func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowlist.allowsHost(r.Host) {
+			http.Error(w, serverMessageForbidden, http.StatusForbidden)
+			return
+		}
+
+		if isStateChangingMethod(r.Method) {
+			if !allowlist.allowsOrigin(r.Header.Get("Origin")) {
+				http.Error(w, serverMessageForbidden, http.StatusForbidden)
+				return
+			}
+			contentType := r.Header.Get(httpx.HeaderContentType)
+			if !httpx.IsHTMX(r) &&
+				!httpx.HasMediaType(contentType, httpx.MediaTypeJSON) &&
+				!httpx.HasMediaType(contentType, httpx.MediaTypeForm) {
+				http.Error(w, serverMessageForbidden, http.StatusForbidden)
+				return
+			}
+		}
+
+		limitedBody := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		body, err := io.ReadAll(limitedBody)
+		_ = limitedBody.Close()
+		if err != nil {
+			if _, ok := err.(*http.MaxBytesError); ok {
+				http.Error(w, serverMessageRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isStateChangingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func corsMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		// Only allow localhost origins (Wails webview and local development)
-		if origin == "" ||
-			strings.HasPrefix(origin, "http://localhost:") ||
-			strings.HasPrefix(origin, "http://127.0.0.1:") ||
-			strings.HasPrefix(origin, "wails://") {
+		if allowlist.allowsOrigin(origin) {
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
