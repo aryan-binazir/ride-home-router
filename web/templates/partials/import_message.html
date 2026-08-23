@@ -1,0 +1,8 @@
+{{define "import_message"}}
+<div class="import-step">
+    <div class="alert alert-warning">{{.Message}}</div>
+    <div class="import-actions">
+        {{template "import_cancel" .SessionID}}
+    </div>
+</div>
+{{end}}

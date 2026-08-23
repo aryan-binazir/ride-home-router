@@ -1,0 +1,48 @@
+{{define "import_panel"}}
+<details class="import-panel" id="import-panel">
+    <summary class="import-panel-toggle">Import from spreadsheet</summary>
+    <div class="import-panel-body">
+        <form id="import-upload-form"
+              class="import-upload-form"
+              hx-post="/api/v1/imports?view=panel"
+              hx-encoding="multipart/form-data"
+              hx-target="#import-steps"
+              hx-swap="innerHTML">
+            <input type="hidden" name="kind" value="{{.Kind}}">
+            <div class="form-group">
+                <label class="form-label" for="import-file">Spreadsheet file</label>
+                <input type="file"
+                       id="import-file"
+                       name="file"
+                       class="form-input"
+                       accept=".csv,.xlsx"
+                       required>
+                <div class="form-help">CSV or Excel (.xlsx) with a header row and one {{.Noun}} per row.</div>
+            </div>
+            <button type="submit" class="btn btn-primary">Upload</button>
+        </form>
+
+        <div id="import-steps" class="import-steps"></div>
+    </div>
+</details>
+{{end}}
+
+{{/* import_cancel takes the session ID, or an empty string when no session exists yet. */}}
+{{define "import_cancel"}}
+{{if .}}
+<button type="button"
+        class="btn btn-outline"
+        hx-delete="/api/v1/imports/{{.}}?view=panel"
+        hx-target="#import-steps"
+        hx-swap="innerHTML"
+        onclick="document.getElementById('import-upload-form').reset(); document.getElementById('import-panel').removeAttribute('open');">
+    Cancel
+</button>
+{{else}}
+<button type="button"
+        class="btn btn-outline"
+        onclick="document.getElementById('import-steps').innerHTML = ''; document.getElementById('import-upload-form').reset(); document.getElementById('import-panel').removeAttribute('open');">
+    Cancel
+</button>
+{{end}}
+{{end}}

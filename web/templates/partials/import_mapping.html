@@ -1,0 +1,51 @@
+{{define "import_mapping"}}
+<form class="import-step"
+      hx-put="/api/v1/imports/{{.SessionID}}/mapping?view=panel"
+      hx-target="#import-steps"
+      hx-swap="innerHTML">
+    <h4 class="import-step-title">Match your columns</h4>
+    <p class="import-step-subtitle">{{.Filename}}</p>
+
+    {{if .Errors}}
+    <div class="alert alert-warning">
+        <ul>
+            {{range .Errors}}<li>{{.}}</li>{{end}}
+        </ul>
+    </div>
+    {{end}}
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Column in your file</th>
+                    <th style="width: 320px;">Import as</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Columns}}
+                <tr>
+                    <td>
+                        <span class="import-column-header">{{if .Header}}{{.Header}}{{else}}Column {{add .Index 1}}{{end}}</span>
+                        {{if .Warning}}<div class="import-column-warning">{{.Warning}}</div>{{end}}
+                    </td>
+                    <td>
+                        {{$selected := .Selected}}
+                        <select name="column_{{.Index}}" class="form-select" aria-label="Import {{if .Header}}{{.Header}}{{else}}column {{add .Index 1}}{{end}} as">
+                            {{range $.Fields}}
+                            <option value="{{.Value}}"{{if eq .Value $selected}} selected{{end}}>{{.Label}}</option>
+                            {{end}}
+                        </select>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="import-actions">
+        <button type="submit" class="btn btn-primary">Continue</button>
+        {{template "import_cancel" .SessionID}}
+    </div>
+</form>
+{{end}}

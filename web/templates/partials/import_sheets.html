@@ -1,0 +1,18 @@
+{{define "import_sheets"}}
+<div class="import-step">
+    <h4 class="import-step-title">Choose a worksheet</h4>
+    <p class="import-step-subtitle">This workbook has more than one worksheet. Pick the one holding your roster.</p>
+    <div class="form-group">
+        <label class="form-label" for="import-sheet">Worksheet</label>
+        <select id="import-sheet" name="sheet" class="form-select" form="import-upload-form">
+            {{range .Sheets}}
+            <option value="{{.}}">{{.}}</option>
+            {{end}}
+        </select>
+    </div>
+    <div class="import-actions">
+        <button type="submit" class="btn btn-primary" form="import-upload-form">Use this sheet</button>
+        {{template "import_cancel" ""}}
+    </div>
+</div>
+{{end}}

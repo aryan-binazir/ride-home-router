@@ -126,40 +126,34 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	if parseErr != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(parseErr, &tooLarge) {
-			status = http.StatusRequestEntityTooLarge
-			h.writeError(w, status, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import uploads are limited to %d bytes", MaxImportUploadBytes), nil)
+			status = h.writeImportError(w, r, "", http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import uploads are limited to %d bytes", MaxImportUploadBytes), nil)
 			return
 		}
-		status = http.StatusBadRequest
-		h.writeError(w, status, "INVALID_MULTIPART_FORM", "Invalid multipart import request", nil)
+		status = h.writeImportError(w, r, "", http.StatusBadRequest, "INVALID_MULTIPART_FORM", "Invalid multipart import request", nil)
 		return
 	}
 
 	kind := importer.Kind(r.FormValue("kind"))
 	if kind != importer.KindParticipant && kind != importer.KindDriver {
-		status = http.StatusUnprocessableEntity
-		h.writeError(w, status, "VALIDATION_ERROR", "Import kind must be participant or driver", nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Import kind must be participant or driver", nil)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		status = http.StatusUnprocessableEntity
-		h.writeError(w, status, "VALIDATION_ERROR", "Import file is required", nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Import file is required", nil)
 		return
 	}
 	defer func() { _ = file.Close() }()
 
 	format, ok := importFormat(header.Filename)
 	if !ok {
-		status = http.StatusUnprocessableEntity
-		h.writeError(w, status, "VALIDATION_ERROR", "Import file must have a .csv or .xlsx extension", nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Import file must have a .csv or .xlsx extension", nil)
 		return
 	}
 	contents, err := io.ReadAll(file)
 	if err != nil {
-		status = http.StatusBadRequest
-		h.writeError(w, status, "INVALID_IMPORT_FILE", "Import file could not be read", nil)
+		status = h.writeImportError(w, r, "", http.StatusBadRequest, "INVALID_IMPORT_FILE", "Import file could not be read", nil)
 		return
 	}
 
@@ -167,11 +161,15 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	if format == importer.FormatXLSX && sheet == "" {
 		sheets, sheetsErr := importer.Sheets(bytes.NewReader(contents))
 		if sheetsErr != nil {
-			status = http.StatusUnprocessableEntity
-			h.writeError(w, status, "VALIDATION_ERROR", sheetsErr.Error(), nil)
+			status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", sheetsErr.Error(), nil)
 			return
 		}
 		if len(sheets) > 1 {
+			if h.wantsImportPanel(r) {
+				h.renderTemplate(w, "import_sheets", importSheetsView{Sheets: sheets})
+				status = http.StatusOK
+				return
+			}
 			status = http.StatusUnprocessableEntity
 			h.writeError(w, status, "WORKSHEET_REQUIRED", "XLSX file has multiple non-empty worksheets; choose a worksheet explicitly", map[string]any{"sheets": sheets})
 			return
@@ -180,17 +178,21 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 
 	grid, err := importer.Parse(bytes.NewReader(contents), format, sheet)
 	if err != nil {
-		status = http.StatusUnprocessableEntity
-		h.writeError(w, status, "VALIDATION_ERROR", err.Error(), nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error(), nil)
 		return
 	}
 	rowCount = grid.Len()
 	snapshot, err := h.ImportSession.Create(kind, header.Filename, grid)
 	if err != nil {
-		status = h.writeImportStoreError(w, err)
+		status = h.writeImportStoreError(w, r, "", err)
 		return
 	}
 
+	if h.wantsImportPanel(r) {
+		h.renderTemplate(w, "import_mapping", newImportMappingView(snapshot, nil))
+		status = http.StatusOK
+		return
+	}
 	status = http.StatusCreated
 	h.writeJSON(w, status, newImportSnapshotJSON(snapshot))
 }
@@ -220,12 +222,17 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	panel := h.wantsImportPanel(r)
 	switch action {
 	case "":
-		switch r.Method {
-		case http.MethodGet:
+		switch {
+		case r.Method == http.MethodGet && panel:
+			status, rowCount = h.renderImportPanelSnapshot(w, r, id)
+		case r.Method == http.MethodGet:
 			status, rowCount = h.getImportSession(w, id)
-		case http.MethodDelete:
+		case r.Method == http.MethodDelete && panel:
+			status = h.cancelImportPanel(w, id)
+		case r.Method == http.MethodDelete:
 			status = h.cancelImportSession(w, id)
 		default:
 			status = writeImportMethodNotAllowed(h, w)
@@ -235,16 +242,28 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 			status = writeImportMethodNotAllowed(h, w)
 			return
 		}
+		if panel {
+			status, rowCount = h.applyImportPanelMapping(w, r, id)
+			return
+		}
 		status, rowCount = h.updateImportMapping(w, r, id)
 	case "selection":
 		if r.Method != http.MethodPut {
 			status = writeImportMethodNotAllowed(h, w)
 			return
 		}
+		if panel {
+			status, rowCount = h.applyImportPanelSelection(w, r, id)
+			return
+		}
 		status, rowCount = h.updateImportSelection(w, r, id)
 	case "commit":
 		if r.Method != http.MethodPost {
 			status = writeImportMethodNotAllowed(h, w)
+			return
+		}
+		if panel {
+			status = h.commitImportPanel(w, r, id)
 			return
 		}
 		status = h.commitImportSession(w, r, id)
@@ -278,7 +297,7 @@ func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id
 	mapping := mergeImportMapping(snapshot, request)
 	updated, err := h.ImportSession.ApplyMapping(id, mapping)
 	if err != nil {
-		return h.writeImportStoreError(w, err), len(updated.Rows)
+		return h.writeImportStoreError(w, r, id, err), len(updated.Rows)
 	}
 	h.writeJSON(w, http.StatusOK, newImportSnapshotJSON(updated))
 	return http.StatusOK, len(updated.Rows)
@@ -292,7 +311,7 @@ func (h *Handler) updateImportSelection(w http.ResponseWriter, r *http.Request, 
 	}
 	snapshot, err := h.ImportSession.SelectRows(id, selected)
 	if err != nil {
-		return h.writeImportStoreError(w, err), -1
+		return h.writeImportStoreError(w, r, id, err), -1
 	}
 	h.writeJSON(w, http.StatusOK, newImportSnapshotJSON(snapshot))
 	return http.StatusOK, len(snapshot.Rows)
@@ -306,7 +325,7 @@ func (h *Handler) commitImportSession(w http.ResponseWriter, r *http.Request, id
 	}
 	result, err := h.ImportSession.Commit(r.Context(), id, snapshot.Selected)
 	if err != nil {
-		return h.writeImportStoreError(w, err)
+		return h.writeImportStoreError(w, r, id, err)
 	}
 	h.writeJSON(w, http.StatusOK, newImportCommitResultJSON(result))
 	return http.StatusOK
@@ -321,35 +340,27 @@ func (h *Handler) cancelImportSession(w http.ResponseWriter, id string) int {
 	return http.StatusNoContent
 }
 
-func (h *Handler) writeImportStoreError(w http.ResponseWriter, err error) int {
+func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, sessionID string, err error) int {
 	switch {
 	case errors.Is(err, importer.ErrSessionNotFound):
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
-		return http.StatusNotFound
+		return h.writeImportError(w, r, sessionID, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 	case errors.Is(err, importer.ErrCommitConsumed):
-		h.writeError(w, http.StatusConflict, "COMMIT_CONSUMED", err.Error(), nil)
-		return http.StatusConflict
+		return h.writeImportError(w, r, sessionID, http.StatusConflict, "COMMIT_CONSUMED", err.Error(), nil)
 	case errors.Is(err, importer.ErrInvalidSessionState):
-		h.writeError(w, http.StatusConflict, "INVALID_SESSION_STATE", err.Error(), nil)
-		return http.StatusConflict
+		return h.writeImportError(w, r, sessionID, http.StatusConflict, "INVALID_SESSION_STATE", err.Error(), nil)
 	case errors.Is(err, importer.ErrGeocodingInProgress):
-		h.writeError(w, http.StatusConflict, "GEOCODING_IN_PROGRESS", err.Error(), nil)
-		return http.StatusConflict
+		return h.writeImportError(w, r, sessionID, http.StatusConflict, "GEOCODING_IN_PROGRESS", err.Error(), nil)
 	case errors.Is(err, importer.ErrInvalidSelection):
-		h.writeError(w, http.StatusUnprocessableEntity, "INVALID_SELECTION", err.Error(), nil)
-		return http.StatusUnprocessableEntity
+		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "INVALID_SELECTION", err.Error(), nil)
 	case errors.Is(err, importer.ErrTooManyGeocodeAddresses):
-		h.writeError(w, http.StatusUnprocessableEntity, "GEOCODE_LIMIT_EXCEEDED", fmt.Sprintf("Import needs more than the limit of %d unique addresses requiring geocoding", importer.MaxGeocodeAddresses), nil)
-		return http.StatusUnprocessableEntity
+		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "GEOCODE_LIMIT_EXCEEDED", fmt.Sprintf("Import needs more than the limit of %d unique addresses requiring geocoding", importer.MaxGeocodeAddresses), nil)
 	case errors.Is(err, importer.ErrStoreFull):
-		h.writeError(w, http.StatusTooManyRequests, "IMPORT_STORE_FULL", fmt.Sprintf("At most %d import sessions can be active", importer.MaxConcurrentSessions), nil)
-		return http.StatusTooManyRequests
+		return h.writeImportError(w, r, sessionID, http.StatusTooManyRequests, "IMPORT_STORE_FULL", fmt.Sprintf("At most %d import sessions can be active", importer.MaxConcurrentSessions), nil)
 	case errors.Is(err, importer.ErrStoreClosed):
-		h.writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Import sessions are unavailable", nil)
-		return http.StatusServiceUnavailable
+		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Import sessions are unavailable", nil)
 	default:
-		h.handleInternalError(w, err)
-		return http.StatusInternalServerError
+		log.Printf("[ERROR] Internal error: %v", err)
+		return h.writeImportError(w, r, sessionID, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError, nil)
 	}
 }
 

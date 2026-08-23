@@ -304,7 +304,8 @@ func TestWriteImportStoreErrorStatuses(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			if got := handler.writeImportStoreError(recorder, fmt.Errorf("context: %w", tt.err)); got != tt.status {
+			request := newImportRequest(http.MethodGet, "/api/v1/imports/"+strings.Repeat("a", 32), nil)
+			if got := handler.writeImportStoreError(recorder, request, "", fmt.Errorf("context: %w", tt.err)); got != tt.status {
 				t.Fatalf("returned status = %d, want %d", got, tt.status)
 			}
 			if recorder.Code != tt.status {
@@ -354,7 +355,7 @@ func newImportTestHandler(t *testing.T, geocoder geocoding.Geocoder) (*Handler, 
 		t.Fatalf("open sqlite store: %v", err)
 	}
 	importStore := importer.NewStore(geocoder, db)
-	handler := &Handler{DB: db, Geocoder: geocoder, ImportSession: importStore}
+	handler := &Handler{DB: db, Geocoder: geocoder, ImportSession: importStore, Renderer: loadEmbeddedTemplates(t)}
 	t.Cleanup(func() {
 		importStore.Close()
 		if err := db.Close(); err != nil {
