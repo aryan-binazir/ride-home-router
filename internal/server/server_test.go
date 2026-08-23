@@ -2,10 +2,34 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"ride-home-router/internal/importer"
+	"strings"
 	"testing"
 )
+
+func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
+	server, err := New(Config{Addr: "127.0.0.1:0", DBPath: filepath.Join(t.TempDir(), "server.db")})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if server.handler == nil || server.handler.ImportSession == nil {
+		t.Fatal("New() did not wire the import session store")
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	grid, err := importer.Parse(strings.NewReader("name,address\nRider,1 Main St\n"), importer.FormatCSV, "")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if _, err := server.handler.ImportSession.Create(importer.KindParticipant, "closed.csv", grid); !errors.Is(err, importer.ErrStoreClosed) {
+		t.Fatalf("Create() after Shutdown error = %v, want ErrStoreClosed", err)
+	}
+}
 
 func TestHandleMethods_RejectsUnsupportedMethod(t *testing.T) {
 	handler := handleMethods(func(w http.ResponseWriter, _ *http.Request) {

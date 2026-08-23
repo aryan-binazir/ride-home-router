@@ -14,6 +14,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/importer"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
@@ -90,14 +91,16 @@ func New(cfg Config) (*Server, error) {
 	})
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewStore(distanceCalc)
+	importSession := importer.NewStore(geocoder, db)
 
 	handler := &handlers.Handler{
-		DB:           db,
-		Geocoder:     geocoder,
-		DistanceCalc: distanceCalc,
-		Router:       router,
-		Renderer:     renderer,
-		RouteSession: routeSession,
+		DB:            db,
+		Geocoder:      geocoder,
+		DistanceCalc:  distanceCalc,
+		Router:        router,
+		Renderer:      renderer,
+		RouteSession:  routeSession,
+		ImportSession: importSession,
 	}
 
 	mux := setupRoutes(handler, web.Static)
@@ -149,6 +152,9 @@ func (s *Server) Start() (string, error) {
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.handler != nil && s.handler.RouteSession != nil {
 		s.handler.RouteSession.Close()
+	}
+	if s.handler != nil && s.handler.ImportSession != nil {
+		s.handler.ImportSession.Close()
 	}
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return err

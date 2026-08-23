@@ -292,7 +292,9 @@ func mappedCell(cells []string, column int) string {
 	return cells[column]
 }
 
-func duplicateKey(name, address string) string {
+// DuplicateKey returns the canonical exact-match key used for roster duplicate
+// detection. An empty key means either name or address is blank.
+func DuplicateKey(name, address string) string {
 	name = normalize(name)
 	address = normalize(address)
 	if name == "" || address == "" {
@@ -300,6 +302,8 @@ func duplicateKey(name, address string) string {
 	}
 	return name + "\x00" + address
 }
+
+func duplicateKey(name, address string) string { return DuplicateKey(name, address) }
 
 func (r *Row) addError(message string) {
 	if message != "" && !containsString(r.Errors, message) {

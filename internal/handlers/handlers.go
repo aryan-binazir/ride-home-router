@@ -11,6 +11,7 @@ import (
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/importer"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
@@ -18,12 +19,13 @@ import (
 
 // Handler provides common handler utilities and dependencies
 type Handler struct {
-	DB           database.DataStore
-	Geocoder     geocoding.Geocoder
-	DistanceCalc distance.DistanceCalculator
-	Router       routing.Router
-	Renderer     *templates.Renderer
-	RouteSession *routesession.Store
+	DB            database.DataStore
+	Geocoder      geocoding.Geocoder
+	DistanceCalc  distance.DistanceCalculator
+	Router        routing.Router
+	Renderer      *templates.Renderer
+	RouteSession  *routesession.Store
+	ImportSession *importer.Store
 }
 
 // ErrorResponse represents an API error

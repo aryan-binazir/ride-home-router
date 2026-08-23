@@ -106,6 +106,11 @@ func aliasSet(values ...string) map[string]struct{} {
 	return set
 }
 
-func normalize(value string) string {
+// NormalizeRosterText canonicalizes user-entered roster text for exact-match
+// comparisons. Persistence uses the same normalization when re-checking
+// duplicates at commit time.
+func NormalizeRosterText(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
+
+func normalize(value string) string { return NormalizeRosterText(value) }

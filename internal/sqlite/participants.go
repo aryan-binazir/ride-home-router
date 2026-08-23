@@ -3,8 +3,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"strings"
 	"time"
@@ -142,6 +144,89 @@ func (r *participantRepository) Create(ctx context.Context, p *models.Participan
 	p.ID = id
 
 	return p, nil
+}
+
+func (r *participantRepository) CreateBatch(ctx context.Context, participants []*models.Participant, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return database.BatchCreateResult{}, fmt.Errorf("failed to begin participant batch transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	existing, err := participantDuplicateKeys(ctx, tx)
+	if err != nil {
+		return database.BatchCreateResult{}, err
+	}
+	batchResult := database.BatchCreateResult{}
+
+	type createdParticipant struct {
+		participant *models.Participant
+		id          int64
+		createdAt   time.Time
+	}
+	created := make([]createdParticipant, 0, len(participants))
+	for i, participant := range participants {
+		if participant == nil {
+			return database.BatchCreateResult{}, errors.New("participant batch contains a nil participant")
+		}
+		key := importer.DuplicateKey(participant.Name, participant.Address)
+		_, duplicate := existing[key]
+		allowDuplicate := i < len(allowExistingDuplicate) && allowExistingDuplicate[i]
+		if key != "" && duplicate && !allowDuplicate {
+			batchResult.SkippedDuplicate++
+			continue
+		}
+		now := time.Now()
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at)
+			VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)
+		`, participant.Name, participant.Address, participant.AddressName, participant.Lat, participant.Lng, now, now)
+		if err != nil {
+			return database.BatchCreateResult{}, fmt.Errorf("failed to create participant in batch: %w", err)
+		}
+		id, err := result.LastInsertId()
+		if err != nil {
+			return database.BatchCreateResult{}, fmt.Errorf("failed to get participant batch insert id: %w", err)
+		}
+		created = append(created, createdParticipant{participant: participant, id: id, createdAt: now})
+		batchResult.Created++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return database.BatchCreateResult{}, fmt.Errorf("failed to commit participant batch transaction: %w", err)
+	}
+	for _, item := range created {
+		item.participant.ID = item.id
+		item.participant.CreatedAt = item.createdAt
+		item.participant.UpdatedAt = item.createdAt
+	}
+	return batchResult, nil
+}
+
+func participantDuplicateKeys(ctx context.Context, tx *sql.Tx) (map[string]struct{}, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name, address FROM participants`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query participant duplicates: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	keys := make(map[string]struct{})
+	for rows.Next() {
+		var name, address string
+		if err := rows.Scan(&name, &address); err != nil {
+			return nil, fmt.Errorf("failed to scan participant duplicate: %w", err)
+		}
+		if key := importer.DuplicateKey(name, address); key != "" {
+			keys[key] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate participant duplicates: %w", err)
+	}
+	return keys, nil
 }
 
 func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error) {
