@@ -26,9 +26,12 @@ func TestNewRepairsMultipleSchemaVersionRows(t *testing.T) {
 		t.Fatalf("seed New() error = %v", err)
 	}
 	if _, err := seedStore.db.ExecContext(context.Background(), `
+		DROP TABLE participant_labels;
+		DROP TABLE driver_labels;
+		DROP TABLE labels;
 		INSERT INTO schema_version (version) VALUES (2)
 	`); err != nil {
-		t.Fatalf("seed schema_version: %v", err)
+		t.Fatalf("seed poisoned pre-v4 schema: %v", err)
 	}
 	if err := seedStore.Close(); err != nil {
 		t.Fatalf("seed Close() error = %v", err)
@@ -41,6 +44,16 @@ func TestNewRepairsMultipleSchemaVersionRows(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	assertSchemaVersionState(t, store.db, schemaVersion, 1)
+	for _, tableName := range []string{"labels", "participant_labels", "driver_labels"} {
+		assertTableExists(t, store.db, tableName)
+	}
+	for _, indexName := range []string{
+		"idx_labels_name",
+		"idx_participant_labels_participant",
+		"idx_driver_labels_driver",
+	} {
+		assertSchemaObjectExists(t, store.db, "index", indexName)
+	}
 }
 
 func TestNewReopensCurrentSchemaWithSingleVersionRow(t *testing.T) {
@@ -94,6 +107,20 @@ func assertSchemaVersionState(t *testing.T, db *sql.DB, wantVersion, wantRows in
 	}
 	if rows != wantRows {
 		t.Errorf("schema_version rows = %d, want %d", rows, wantRows)
+	}
+}
+
+func assertSchemaObjectExists(t *testing.T, db *sql.DB, objectType, name string) {
+	t.Helper()
+
+	var count int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?
+	`, objectType, name).Scan(&count); err != nil {
+		t.Fatalf("query %s %q: %v", objectType, name, err)
+	}
+	if count != 1 {
+		t.Fatalf("%s %q count = %d, want 1", objectType, name, count)
 	}
 }
 

@@ -361,8 +361,7 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 }
 
 type requestAllowlist struct {
-	hosts        map[string]struct{}
-	fallbackPort string
+	hosts map[string]struct{}
 }
 
 func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
@@ -387,18 +386,20 @@ func newRequestAllowlistWithInterfaceAddrs(
 	anyHost := bindHost == "" || (bindIP != nil && (bindIP.IsUnspecified() || !bindIP.IsLoopback()))
 
 	names := []string{"localhost", "127.0.0.1", "::1"}
-	fallbackPort := ""
 	if anyHost {
 		addrs, err := interfaceAddrs()
 		if err != nil {
-			log.Printf("WARNING: failed to enumerate interface addresses for request Host allowlist; falling back to port-only Host matching: %v", err)
-			fallbackPort = port
-		} else {
-			for _, addr := range addrs {
-				if ip := interfaceAddrIP(addr); ip != nil {
-					names = append(names, ip.String())
-				}
+			return requestAllowlist{}, fmt.Errorf("failed to enumerate interface addresses for request Host allowlist: %w", err)
+		}
+		interfaceIPs := 0
+		for _, addr := range addrs {
+			if ip := interfaceAddrIP(addr); ip != nil {
+				names = append(names, ip.String())
+				interfaceIPs++
 			}
+		}
+		if interfaceIPs == 0 {
+			return requestAllowlist{}, errors.New("interface enumeration returned no usable IP addresses for request Host allowlist")
 		}
 	} else if bindHost != "" {
 		names = append(names, bindHost)
@@ -419,19 +420,12 @@ func newRequestAllowlistWithInterfaceAddrs(
 		}
 	}
 
-	return requestAllowlist{hosts: hosts, fallbackPort: fallbackPort}, nil
+	return requestAllowlist{hosts: hosts}, nil
 }
 
 func (a requestAllowlist) allowsHost(host string) bool {
-	host = strings.ToLower(host)
-	_, ok := a.hosts[host]
-	if ok {
-		return true
-	}
-	if a.fallbackPort == "" {
-		return false
-	}
-	return hostUsesPort(host, a.fallbackPort)
+	_, ok := a.hosts[strings.ToLower(host)]
+	return ok
 }
 
 func interfaceAddrIP(addr net.Addr) net.IP {
@@ -447,14 +441,6 @@ func interfaceAddrIP(addr net.Addr) net.IP {
 		}
 		return ip
 	}
-}
-
-func hostUsesPort(host, port string) bool {
-	hostName, gotPort, err := net.SplitHostPort(host)
-	if err == nil {
-		return hostName != "" && gotPort == port
-	}
-	return port == "80" && host != "" && !strings.Contains(host, ":")
 }
 
 func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {

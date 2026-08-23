@@ -288,6 +288,30 @@ func TestNewRequestAllowlistBindHostVariants(t *testing.T) {
 			t.Error("bare interface IP must be allowed for a wildcard bind on port 80")
 		}
 	})
+
+	t.Run("wildcard bind fails when interface enumeration fails", func(t *testing.T) {
+		_, err := newRequestAllowlistWithInterfaceAddrs("0.0.0.0:8080", func() ([]net.Addr, error) {
+			return nil, errors.New("interface enumeration failed")
+		})
+		if err == nil {
+			t.Fatal("newRequestAllowlistWithInterfaceAddrs() error = nil, want interface enumeration error")
+		}
+		if !strings.Contains(err.Error(), "failed to enumerate interface addresses") {
+			t.Fatalf("error = %q, want interface enumeration context", err)
+		}
+	})
+
+	t.Run("wildcard bind fails when interface enumeration returns no IPs", func(t *testing.T) {
+		_, err := newRequestAllowlistWithInterfaceAddrs("0.0.0.0:8080", func() ([]net.Addr, error) {
+			return nil, nil
+		})
+		if err == nil {
+			t.Fatal("newRequestAllowlistWithInterfaceAddrs() error = nil, want no usable IP addresses error")
+		}
+		if !strings.Contains(err.Error(), "no usable IP addresses") {
+			t.Fatalf("error = %q, want no usable IP addresses context", err)
+		}
+	})
 }
 
 func TestRequestSecurityMiddlewareAnyHostSameOrigin(t *testing.T) {
@@ -332,10 +356,6 @@ func TestRequestAllowlistRejectsMalformedHostInEveryMode(t *testing.T) {
 			&net.IPNet{IP: net.ParseIP("192.0.2.10"), Mask: net.CIDRMask(24, 32)},
 		}, nil
 	}
-	interfaceAddrsError := func() ([]net.Addr, error) {
-		return nil, errors.New("interface enumeration failed")
-	}
-
 	for _, tt := range []struct {
 		name           string
 		addr           string
@@ -343,7 +363,6 @@ func TestRequestAllowlistRejectsMalformedHostInEveryMode(t *testing.T) {
 	}{
 		{name: "loopback", addr: "127.0.0.1:8080", interfaceAddrs: interfaceAddrs},
 		{name: "any host", addr: "0.0.0.0:8080", interfaceAddrs: interfaceAddrs},
-		{name: "any host fallback", addr: "0.0.0.0:8080", interfaceAddrs: interfaceAddrsError},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			allowlist, err := newRequestAllowlistWithInterfaceAddrs(tt.addr, tt.interfaceAddrs)
