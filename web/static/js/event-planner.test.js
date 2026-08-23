@@ -116,7 +116,7 @@ test('saving with queued moves restores typed fields and submits the replacement
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
         flush: async () => {
-            liveForm = createSaveForm({ sessionId: 'session-a-fresh' });
+            liveForm = createSaveForm({ sessionId: 'session-a' });
             return true;
         },
     });
@@ -134,7 +134,7 @@ test('saving with queued moves restores typed fields and submits the replacement
         handled: true,
         eventDate: '2026-08-23',
         notes: 'Bring snacks',
-        sessionId: 'session-a-fresh',
+        sessionId: 'session-a',
         originalSubmits: 0,
         liveSubmits: 1,
     });
@@ -197,6 +197,38 @@ test('a second save attempt during the same move flush does not submit twice', a
     await Promise.all([firstSave, secondSave]);
 
     assert.equal(form.submitCount, 1);
+});
+
+test('a queued save never restores or submits a replacement session form', async () => {
+    let finishFlush;
+    const flush = new Promise(resolve => { finishFlush = resolve; });
+    const sessionAForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Session A', sessionId: 'session-a' });
+    const sessionBForm = createSaveForm({ eventDate: '2026-08-24', notes: 'Session B', sessionId: 'session-b' });
+    let liveForm = sessionAForm;
+    const harness = createRouteSessionHarness({
+        getLiveForm: () => liveForm,
+        hasPending: () => true,
+        flush: () => flush,
+    });
+
+    const sessionASave = harness.orchestrator.submitSaveWithQueuedMoves(sessionAForm);
+    harness.setActiveSessionId('session-b');
+    liveForm = sessionBForm;
+    const sessionBSave = harness.orchestrator.submitSaveWithQueuedMoves(sessionBForm);
+    finishFlush(true);
+    await Promise.all([sessionASave, sessionBSave]);
+
+    assert.deepEqual({
+        eventDate: sessionBForm.value('event_date'),
+        notes: sessionBForm.value('notes'),
+        sessionASubmits: sessionAForm.submitCount,
+        sessionBSubmits: sessionBForm.submitCount,
+    }, {
+        eventDate: '2026-08-24',
+        notes: 'Session B',
+        sessionASubmits: 0,
+        sessionBSubmits: 1,
+    });
 });
 
 test('saving a draft aborts an in-flight restore before clearing the active session', () => {
@@ -286,7 +318,12 @@ test('participant moves flush sequentially in same-session batches with the exis
     batcher.enqueue({ session_id: 'session-a', participant_id: 2, from_route_index: 1, to_route_index: 0, insert_at_position: -1 });
     batcher.enqueue({ session_id: 'session-b', participant_id: 3, from_route_index: 0, to_route_index: 2, insert_at_position: -1 });
 
+    assert.equal(batcher.hasPendingFor('session-a'), true);
+    assert.equal(batcher.hasPendingFor('session-b'), true);
+    assert.equal(batcher.hasPendingFor('session-c'), false);
     assert.equal(await batcher.flush(), true);
+    assert.equal(batcher.hasPendingFor('session-a'), false);
+    assert.equal(batcher.hasPendingFor('session-b'), false);
     assert.deepEqual(sent, [
         {
             session_id: 'session-a',

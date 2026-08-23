@@ -17,7 +17,7 @@
     const SAVE_EVENT_ENDPOINT = '/api/v1/events';
 
     function createRouteSessionOrchestrator({ document, htmx, moves, reportError, refreshEtas }) {
-        let saveInFlight = false;
+        const savesInFlight = new Set();
 
         function getActiveSessionId() {
             const container = document.querySelector('.routes-container');
@@ -47,8 +47,15 @@
             return true;
         }
 
-        function hasQueuedMoves() {
-            return moves.hasPending();
+        function getSaveFormSessionId(form) {
+            return form.elements.namedItem('session_id')?.value || null;
+        }
+
+        function hasQueuedMoves(form) {
+            const sessionId = getSaveFormSessionId(form);
+            return Boolean(sessionId)
+                && getActiveSessionId() === sessionId
+                && moves.hasPending(sessionId);
         }
 
         function snapshotSaveForm(form) {
@@ -88,20 +95,27 @@
         }
 
         async function submitSaveWithQueuedMoves(form) {
-            if (saveInFlight) return true;
-            if (!moves.hasPending()) return false;
+            const requestedSessionId = getSaveFormSessionId(form);
+            if (!requestedSessionId || getActiveSessionId() !== requestedSessionId) return false;
+            if (savesInFlight.has(requestedSessionId)) return true;
+            if (!moves.hasPending(requestedSessionId)) return false;
 
             const values = snapshotSaveForm(form);
-            saveInFlight = true;
+            savesInFlight.add(requestedSessionId);
             let flushed = false;
             let liveForm = null;
             try {
                 flushed = await moves.flush();
             } finally {
-                liveForm = findLiveSaveForm();
-                if (liveForm) restoreSaveForm(liveForm, values);
+                if (getActiveSessionId() === requestedSessionId) {
+                    const candidate = findLiveSaveForm();
+                    if (candidate && getSaveFormSessionId(candidate) === requestedSessionId) {
+                        liveForm = candidate;
+                        restoreSaveForm(liveForm, values);
+                    }
+                }
                 // requestSubmit re-enters the capture listener, so unlock first.
-                saveInFlight = false;
+                savesInFlight.delete(requestedSessionId);
             }
 
             if (flushed && liveForm && canSubmitSaveForm(liveForm)) {
@@ -252,6 +266,7 @@
         const queue = [];
         let timeout = null;
         let flushPromise = null;
+        let activeSessionId = null;
 
         function scheduleFlush() {
             if (timeout !== null) cancel(timeout);
@@ -295,12 +310,15 @@
                 const moves = takeBatch();
                 if (moves.length === 0) return false;
 
+                activeSessionId = moves[0].session_id;
                 let succeeded;
                 try {
                     succeeded = await sendBatch(toPayload(moves));
                 } catch (error) {
                     queue.unshift(...moves);
                     throw error;
+                } finally {
+                    activeSessionId = null;
                 }
                 if (!succeeded) return false;
             }
@@ -327,7 +345,11 @@
             return queue.length > 0 || timeout !== null || flushPromise !== null;
         }
 
-        return { enqueue, flush, hasPending };
+        function hasPendingFor(sessionId) {
+            return activeSessionId === sessionId || queue.some(move => move.session_id === sessionId);
+        }
+
+        return { enqueue, flush, hasPending, hasPendingFor };
     }
 
     function bootBrowser() {
@@ -459,8 +481,8 @@
             document,
             htmx,
             moves: {
-                hasPending: function() {
-                    return participantMoveBatcher.hasPending();
+                hasPending: function(sessionId) {
+                    return participantMoveBatcher.hasPendingFor(sessionId);
                 },
                 flush: function() {
                     return participantMoveBatcher.flush();
@@ -523,7 +545,7 @@
 
         document.addEventListener('submit', async function(evt) {
             const form = evt.target;
-            if (!isSaveEventForm(form) || !routeSessionOrchestrator.hasQueuedMoves()) {
+            if (!isSaveEventForm(form) || !routeSessionOrchestrator.hasQueuedMoves(form)) {
                 return;
             }
 
