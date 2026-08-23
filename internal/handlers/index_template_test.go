@@ -23,6 +23,9 @@ func TestHandleIndexPage_LoadsEventPlannerScript(t *testing.T) {
 	if !strings.Contains(body, `<script src="/static/js/event-planner.js" defer></script>`) {
 		t.Fatal("rendered index page should defer event-planner.js")
 	}
+	if !strings.Contains(body, `<script src="/static/js/ui.js" defer></script>`) {
+		t.Fatal("rendered index page should defer ui.js so it runs after the DOM is parsed")
+	}
 	if strings.Contains(body, `/static/js/route-copy.js`) {
 		t.Fatal("rendered index page should not load the removed route-copy.js")
 	}
