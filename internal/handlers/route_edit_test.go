@@ -20,31 +20,6 @@ func (routeEditDistanceCalculator) GetDistance(_ context.Context, origin, dest m
 	return &distance.DistanceResult{DistanceMeters: d, DurationSecs: d}, nil
 }
 
-func (c routeEditDistanceCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	result := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		result[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			d, _ := c.GetDistance(ctx, points[i], points[j])
-			result[i][j] = *d
-		}
-	}
-	return result, nil
-}
-
-func (c routeEditDistanceCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	result := make([]distance.DistanceResult, len(destinations))
-	for i := range destinations {
-		d, _ := c.GetDistance(ctx, origin, destinations[i])
-		result[i] = *d
-	}
-	return result, nil
-}
-
-func (routeEditDistanceCalculator) PrewarmCache(context.Context, []models.Coordinates) error {
-	return nil
-}
-
 func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.T) {
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)

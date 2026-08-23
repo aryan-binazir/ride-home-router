@@ -14,20 +14,6 @@ import (
 	"time"
 )
 
-// DistanceResult contains the result of a distance calculation
-type DistanceResult struct {
-	DistanceMeters float64
-	DurationSecs   float64
-}
-
-// DistanceCalculator provides distance calculations between coordinates
-type DistanceCalculator interface {
-	GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error)
-	GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error)
-	GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]DistanceResult, error)
-	PrewarmCache(ctx context.Context, points []models.Coordinates) error
-}
-
 // ErrDistanceCalculationFailed is returned when OSRM API fails
 type ErrDistanceCalculationFailed struct {
 	Origin models.Coordinates
@@ -77,8 +63,7 @@ func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculato
 func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error) {
 	// Quick check: same point to same point = 0 (with rounding tolerance)
 	// Round to 5 decimal places (~1m precision) to match cache key rounding
-	if models.RoundCoordinate(origin.Lat) == models.RoundCoordinate(dest.Lat) &&
-		models.RoundCoordinate(origin.Lng) == models.RoundCoordinate(dest.Lng) {
+	if SamePoint(origin, dest) {
 		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
 	}
 
@@ -276,11 +261,6 @@ func (c *osrmCalculator) GetDistancesFromPoint(ctx context.Context, origin model
 	return results, nil
 }
 
-func (c *osrmCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
-	_, err := c.GetDistanceMatrix(ctx, points)
-	return err
-}
-
 func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {
 	if len(pairs) == 0 {
 		return nil
@@ -289,7 +269,7 @@ func (c *osrmCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair)
 	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
 	seen := make(map[string]struct{}, len(pairs))
 	for _, pair := range pairs {
-		if sameRoundedPoint(pair.Origin, pair.Destination) {
+		if SamePoint(pair.Origin, pair.Destination) {
 			continue
 		}
 		key := PairCacheKey(pair.Origin, pair.Destination)

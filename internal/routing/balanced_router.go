@@ -16,7 +16,7 @@ import (
 // BalancedRouter assigns participants under vehicle and household constraints,
 // then improves the complete solution using the participant-first objective.
 type BalancedRouter struct {
-	distanceCalc distance.DistanceCalculator
+	distanceCalc distance.SolveSource
 }
 
 const (
@@ -25,7 +25,7 @@ const (
 )
 
 // NewBalancedRouter creates a participant-first bounded-search router.
-func NewBalancedRouter(distanceCalc distance.DistanceCalculator) Router {
+func NewBalancedRouter(distanceCalc distance.SolveSource) Router {
 	return &BalancedRouter{
 		distanceCalc: distanceCalc,
 	}
@@ -34,17 +34,17 @@ func NewBalancedRouter(distanceCalc distance.DistanceCalculator) Router {
 func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingRequest) (*models.RoutingResult, error) {
 	totalStart := time.Now()
 
-	rc := newRouteContext(r.distanceCalc, req.InstituteCoords, req.Mode)
+	mode := normalizeRouteMode(req.Mode)
 
 	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s",
-		len(req.Participants), len(req.Drivers), rc.mode)
+		len(req.Participants), len(req.Drivers), mode)
 
 	// Handle empty participants
 	if len(req.Participants) == 0 {
 		return &models.RoutingResult{
 			Routes:  []models.CalculatedRoute{},
 			Summary: models.RoutingSummary{},
-			Mode:    rc.mode,
+			Mode:    mode,
 		}, nil
 	}
 
@@ -60,11 +60,12 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 
 	// Prewarm distance cache with only the directed pairs needed for this solve.
 	prewarmStart := time.Now()
-	if err := prewarmRoutingDistances(ctx, r.distanceCalc, req, rc.mode); err != nil {
+	distanceLookup, err := prepareSolveDistances(ctx, r.distanceCalc, req)
+	if err != nil {
 		return nil, err
 	}
 	log.Printf("[TIMING] Prewarm cache: %v", time.Since(prewarmStart))
-	rc.distanceCalc = newSolveDistanceCache(r.distanceCalc)
+	rc := newRouteContext(distanceLookup, req.InstituteCoords, mode)
 
 	// Initialize routes for each driver
 	routes := make(map[int64]*balancedRoute)
@@ -87,7 +88,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	// Phase 1: Build a feasible rider-score seed. The complete lexicographic
 	// objective is applied by the ordering and assignment phases below.
 	phase1Start := time.Now()
-	unassigned, err := r.roundRobinInsertion(ctx, rc, routes, driverIDs, unassigned)
+	unassigned, err = roundRobinInsertion(ctx, rc, routes, driverIDs, unassigned)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +104,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	// Phase 3: Always search relocations and household swaps, including swaps
 	// between saturated vehicles.
 	phase3Start := time.Now()
-	iterations, err := r.optimizeAssignments(ctx, rc, routes, driverIDs)
+	iterations, err := optimizeAssignments(ctx, rc, routes, driverIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +125,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 
 	// Build result
-	result, err := r.buildResult(ctx, rc, routes, len(req.Participants))
+	result, err := buildResult(ctx, rc, routes, len(req.Participants))
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ type balancedRoute struct {
 
 // roundRobinInsertion assigns participants by cycling through drivers
 // Groups participants from the same household and assigns them together
-func (r *BalancedRouter) roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
+func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
 	// Sort drivers by ID for consistent ordering
 	slices.Sort(driverIDs)
 
@@ -516,7 +517,7 @@ type assignmentChange struct {
 // household relocations and pairwise swaps. Every candidate is judged against
 // the complete solution so route-local improvements cannot worsen a higher
 // priority objective on a peer route.
-func (r *BalancedRouter) optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
+func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
 	slices.Sort(driverIDs)
 	candidateEvaluations := 0
 	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
@@ -668,7 +669,7 @@ func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *p
 }
 
 // buildResult creates the final routing result
-func (r *BalancedRouter) buildResult(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, totalParticipants int) (*models.RoutingResult, error) {
+func buildResult(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, totalParticipants int) (*models.RoutingResult, error) {
 	calculatedRoutes := make([]models.CalculatedRoute, 0)
 	totalDropoff := 0.0
 	totalDist := 0.0

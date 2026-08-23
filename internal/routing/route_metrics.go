@@ -8,7 +8,7 @@ import (
 )
 
 type routeContext struct {
-	distanceCalc    distance.DistanceCalculator
+	distanceCalc    distance.Lookup
 	instituteCoords models.Coordinates
 	mode            RouteMode
 }
@@ -32,15 +32,11 @@ type routeMetrics struct {
 	DetourSecs              float64
 }
 
-func newRouteContext(distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode) routeContext {
-	if mode == "" {
-		mode = RouteModeDropoff
-	}
-
+func newRouteContext(distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode) routeContext {
 	return routeContext{
 		distanceCalc:    distanceCalc,
 		instituteCoords: instituteCoords,
-		mode:            mode,
+		mode:            normalizeRouteMode(mode),
 	}
 }
 
@@ -191,7 +187,7 @@ func (rc routeContext) applyMetrics(route *models.CalculatedRoute, metrics *rout
 	}
 }
 
-func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
+func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
 	if route == nil {
 		return fmt.Errorf("route is required")
 	}
@@ -214,7 +210,7 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.DistanceCal
 
 // OptimizeRouteOrder reorders one calculated route using the participant-first
 // lexicographic objective, then refreshes its displayed metrics.
-func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.DistanceCalculator, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
+func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
 	if route == nil {
 		return fmt.Errorf("route is required")
 	}

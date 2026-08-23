@@ -20,44 +20,14 @@ func (calculator) GetDistance(_ context.Context, origin, dest models.Coordinates
 	return &distance.DistanceResult{DistanceMeters: d, DurationSecs: d}, nil
 }
 
-func (c calculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	result := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		result[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			d, _ := c.GetDistance(ctx, points[i], points[j])
-			result[i][j] = *d
-		}
-	}
-	return result, nil
+func (calculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
+	return nil
 }
-
-func (c calculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	result := make([]distance.DistanceResult, len(destinations))
-	for i := range destinations {
-		d, _ := c.GetDistance(ctx, origin, destinations[i])
-		result[i] = *d
-	}
-	return result, nil
-}
-func (calculator) PrewarmCache(context.Context, []models.Coordinates) error { return nil }
 
 type failingCalculator struct{ err error }
 
 func (c failingCalculator) GetDistance(context.Context, models.Coordinates, models.Coordinates) (*distance.DistanceResult, error) {
 	return nil, c.err
-}
-
-func (c failingCalculator) GetDistanceMatrix(context.Context, []models.Coordinates) ([][]distance.DistanceResult, error) {
-	return nil, c.err
-}
-
-func (c failingCalculator) GetDistancesFromPoint(context.Context, models.Coordinates, []models.Coordinates) ([]distance.DistanceResult, error) {
-	return nil, c.err
-}
-
-func (c failingCalculator) PrewarmCache(context.Context, []models.Coordinates) error {
-	return c.err
 }
 
 type blockingCalculator struct {
@@ -80,16 +50,6 @@ func (c *blockingCalculator) GetDistance(ctx context.Context, origin, dest model
 		return nil, ctx.Err()
 	}
 }
-
-func (c *blockingCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	return calculator{}.GetDistanceMatrix(ctx, points)
-}
-
-func (c *blockingCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	return calculator{}.GetDistancesFromPoint(ctx, origin, destinations)
-}
-
-func (c *blockingCalculator) PrewarmCache(context.Context, []models.Coordinates) error { return nil }
 
 func (c *blockingCalculator) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
 

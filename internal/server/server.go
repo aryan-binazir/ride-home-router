@@ -94,7 +94,6 @@ func New(cfg Config) (*Server, error) {
 	handler := &handlers.Handler{
 		DB:           db,
 		Geocoder:     geocoder,
-		DistanceCalc: distanceCalc,
 		Router:       router,
 		Renderer:     renderer,
 		RouteSession: routeSession,
@@ -326,7 +325,8 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 		//nolint:gosec // G706: method/path sanitized; local access log only.
-		log.Printf("%s %s %d %v",
+		log.Printf(
+			"%s %s %d %v",
 			logutil.SafeString(r.Method),
 			logutil.SafeString(r.URL.Path),
 			lrw.statusCode,
