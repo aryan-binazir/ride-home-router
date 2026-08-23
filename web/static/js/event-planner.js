@@ -356,6 +356,16 @@
         }
 
         /**
+         * Swaps server-rendered route results into the container, binding the
+         * htmx attributes in the new markup (e.g. the save-event form)
+         */
+        function applyRouteResultsHtml(container, html) {
+            container.innerHTML = html;
+            htmx.process(container);
+            populateStopEtas();
+        }
+
+        /**
          * Moves a participant from one route to another
          */
         const participantMoveBatcher = createParticipantMoveBatcher({
@@ -378,8 +388,7 @@
 
                     const routeResults = document.getElementById('results-section');
                     if (routeResults && getSessionId() === payload.session_id) {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
+                        applyRouteResultsHtml(routeResults, html);
                     }
                     return true;
                 } catch (err) {
@@ -484,8 +493,7 @@
                     if (!response.ok) {
                         showRouteError(html);
                     } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
+                        applyRouteResultsHtml(routeResults, html);
                     }
                 }
             } catch (err) {
@@ -518,8 +526,7 @@
                     if (!response.ok) {
                         showRouteError(html);
                     } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
+                        applyRouteResultsHtml(routeResults, html);
                     }
                 }
             } catch (err) {
@@ -557,8 +564,7 @@
                     if (!response.ok) {
                         showRouteError(html);
                     } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
+                        applyRouteResultsHtml(routeResults, html);
                     }
                 }
             } catch (err) {
@@ -1378,9 +1384,7 @@
             })
             .then(function(html) {
                 if (html) {
-                    resultsSection.innerHTML = html;
-                    htmx.process(resultsSection);
-                    populateStopEtas();
+                    applyRouteResultsHtml(resultsSection, html);
                 }
             })
             .catch(function(err) {
