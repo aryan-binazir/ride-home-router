@@ -163,7 +163,6 @@ type RouteResultsView struct {
 	IsEditing        bool
 	UnusedDrivers    []models.Driver
 	Mode             string
-	RoutingPayload   models.RoutingResult
 }
 
 type RoutingErrorDetails struct {

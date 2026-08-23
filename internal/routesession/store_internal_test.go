@@ -1,6 +1,9 @@
 package routesession
 
 import (
+	"context"
+	"errors"
+	"ride-home-router/internal/models"
 	"testing"
 	"time"
 )
@@ -50,5 +53,44 @@ func TestDeleteExpiredSkipsBusySession(t *testing.T) {
 	}
 	if _, ok := store.Snapshot(other.ID); !ok {
 		t.Fatal("cleanup of a busy session blocked or removed an unrelated session")
+	}
+}
+
+func TestFailedCommitRefreshesSessionTTL(t *testing.T) {
+	now := time.Unix(100, 0)
+	store := newStore(nil, time.Minute, time.Hour, func() time.Time { return now })
+	t.Cleanup(store.Close)
+	created := store.Create(CreateInput{})
+	wantErr := errors.New("persistence failed")
+
+	err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+		now = now.Add(2 * time.Minute)
+		return wantErr
+	})
+	if err != wantErr {
+		t.Fatalf("Commit error = %v, want callback error", err)
+	}
+	if _, ok := store.Snapshot(created.ID); !ok {
+		t.Fatal("session expired immediately after failed persistence")
+	}
+}
+
+func TestCommittedMarkerExpiresWithSessionTTL(t *testing.T) {
+	now := time.Unix(100, 0)
+	store := newStore(nil, time.Minute, time.Hour, func() time.Time { return now })
+	t.Cleanup(store.Close)
+	created := store.Create(CreateInput{})
+
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); !errors.Is(err, ErrAlreadyCommitted) {
+		t.Fatalf("second Commit error = %v, want ErrAlreadyCommitted", err)
+	}
+
+	now = now.Add(time.Minute + time.Second)
+	store.deleteExpired(now)
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Commit after marker expiry error = %v, want ErrNotFound", err)
 	}
 }

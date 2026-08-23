@@ -20,31 +20,6 @@ func (routeEditDistanceCalculator) GetDistance(_ context.Context, origin, dest m
 	return &distance.DistanceResult{DistanceMeters: d, DurationSecs: d}, nil
 }
 
-func (c routeEditDistanceCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	result := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		result[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			d, _ := c.GetDistance(ctx, points[i], points[j])
-			result[i][j] = *d
-		}
-	}
-	return result, nil
-}
-
-func (c routeEditDistanceCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	result := make([]distance.DistanceResult, len(destinations))
-	for i := range destinations {
-		d, _ := c.GetDistance(ctx, origin, destinations[i])
-		result[i] = *d
-	}
-	return result, nil
-}
-
-func (routeEditDistanceCalculator) PrewarmCache(context.Context, []models.Coordinates) error {
-	return nil
-}
-
 func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.T) {
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)
@@ -129,6 +104,12 @@ func TestHandleGetRouteSessionReturnsHTMXFragment(t *testing.T) {
 	h.HandleGetRouteSession(w, req)
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`data-session-id="`+created.ID+`"`)) {
 		t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`name="session_id" value="`+created.ID+`"`)) {
+		t.Fatalf("body does not contain the session save field: %q", w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte(`name="routes_json"`)) {
+		t.Fatalf("body contains unreachable routes_json fallback field: %q", w.Body.String())
 	}
 }
 

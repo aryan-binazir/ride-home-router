@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"math"
+	"reflect"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"sync"
@@ -19,34 +20,7 @@ func (stableDistanceCalculator) GetDistance(ctx context.Context, origin, dest mo
 	}, nil
 }
 
-func (calc stableDistanceCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	matrix := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		matrix[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			dist, err := calc.GetDistance(ctx, points[i], points[j])
-			if err != nil {
-				return nil, err
-			}
-			matrix[i][j] = *dist
-		}
-	}
-	return matrix, nil
-}
-
-func (calc stableDistanceCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	results := make([]distance.DistanceResult, len(destinations))
-	for i, dest := range destinations {
-		dist, err := calc.GetDistance(ctx, origin, dest)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = *dist
-	}
-	return results, nil
-}
-
-func (stableDistanceCalculator) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
+func (stableDistanceCalculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
 	return nil
 }
 
@@ -181,6 +155,9 @@ func TestPopulateRouteMetrics_PickupIncludesActivityDestination(t *testing.T) {
 	if route.DetourSecs != 0 {
 		t.Fatalf("DetourSecs = %.0f, want 0", route.DetourSecs)
 	}
+	if route.EffectiveCapacity != 4 {
+		t.Fatalf("EffectiveCapacity = %d, want driver capacity 4", route.EffectiveCapacity)
+	}
 	if len(route.Stops) != 2 {
 		t.Fatalf("len(route.Stops) = %d, want 2", len(route.Stops))
 	}
@@ -195,9 +172,83 @@ func TestPopulateRouteMetrics_PickupIncludesActivityDestination(t *testing.T) {
 	}
 }
 
-func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
+func TestPopulateRouteMetrics_PreservesOrgVehicleAssignment(t *testing.T) {
+	orgVehicleID := int64(30)
 	route := &models.CalculatedRoute{
-		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0},
+		Driver:            &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2},
+		OrgVehicleID:      orgVehicleID,
+		OrgVehicleName:    "Van",
+		EffectiveCapacity: 5,
+		Stops: []models.RouteStop{
+			{Participant: &models.Participant{ID: 1, Name: "Passenger", Lat: 8, Lng: 0}},
+		},
+	}
+
+	if err := PopulateRouteMetrics(context.Background(), stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff, route); err != nil {
+		t.Fatalf("PopulateRouteMetrics() error = %v", err)
+	}
+
+	if route.OrgVehicleID != orgVehicleID {
+		t.Fatalf("OrgVehicleID = %v, want %d", route.OrgVehicleID, orgVehicleID)
+	}
+	if route.OrgVehicleName != "Van" {
+		t.Fatalf("OrgVehicleName = %q, want Van", route.OrgVehicleName)
+	}
+	if route.EffectiveCapacity != 5 {
+		t.Fatalf("EffectiveCapacity = %d, want assigned vehicle capacity 5", route.EffectiveCapacity)
+	}
+}
+
+func TestCalculateRoutes_MetricsMatchPopulateRouteMetrics(t *testing.T) {
+	ctx := context.Background()
+	calc := stableDistanceCalculator{}
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	router := NewBalancedRouter(calc)
+	result, err := router.CalculateRoutes(ctx, &RoutingRequest{
+		InstituteCoords: activity,
+		Participants: []models.Participant{
+			{ID: 1, Name: "Near", Lat: 2, Lng: 0},
+			{ID: 2, Name: "Far", Lat: 7, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 7, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2},
+		},
+		Mode: "",
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+	if len(result.Routes) != 1 {
+		t.Fatalf("len(result.Routes) = %d, want 1", len(result.Routes))
+	}
+	if result.Mode != RouteModeDropoff || result.Routes[0].Mode != RouteModeDropoff {
+		t.Fatalf("default modes: result=%q route=%q, want dropoff", result.Mode, result.Routes[0].Mode)
+	}
+	for i, stop := range result.Routes[0].Stops {
+		if stop.Order != i {
+			t.Fatalf("stop %d order = %d, want dense zero-based order", i, stop.Order)
+		}
+	}
+
+	want := result.Routes[0]
+	recomputed := want
+	recomputed.Stops = append([]models.RouteStop(nil), want.Stops...)
+	if err := PopulateRouteMetrics(ctx, calc, activity, "", &recomputed); err != nil {
+		t.Fatalf("PopulateRouteMetrics() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(recomputed, want) {
+		t.Fatalf("recomputed route = %#v, want CalculateRoutes result %#v", recomputed, want)
+	}
+}
+
+func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
+	orgVehicleID := int64(30)
+	route := &models.CalculatedRoute{
+		Driver:            &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2},
+		OrgVehicleID:      orgVehicleID,
+		OrgVehicleName:    "Van",
+		EffectiveCapacity: 5,
 		Stops: []models.RouteStop{
 			{Participant: &models.Participant{ID: 2, Name: "Origin Detour", Lat: 1, Lng: 100}},
 			{Participant: &models.Participant{ID: 1, Name: "Destination Side", Lat: 9, Lng: 0}},
@@ -217,39 +268,46 @@ func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
 	if route.TotalDistanceMeters == 0 || route.RouteDurationSecs == 0 {
 		t.Fatalf("route metrics were not refreshed: total=%.0f duration=%.0f", route.TotalDistanceMeters, route.RouteDurationSecs)
 	}
+	if route.OrgVehicleID != orgVehicleID || route.OrgVehicleName != "Van" {
+		t.Fatalf("organization vehicle assignment changed: id=%v name=%q", route.OrgVehicleID, route.OrgVehicleName)
+	}
+	if route.EffectiveCapacity != 5 {
+		t.Fatalf("EffectiveCapacity = %d, want assigned vehicle capacity 5", route.EffectiveCapacity)
+	}
 }
 
-func TestOptimizeRouteOrder_MatchesSolverOrdering(t *testing.T) {
+func TestOptimizeRouteOrder_PreservesSingleRouteSolverResult(t *testing.T) {
 	ctx := context.Background()
 	calc := stableDistanceCalculator{}
 	activity := models.Coordinates{Lat: 0, Lng: 0}
-	driver := &models.Driver{ID: 7, Name: "Driver", Lat: 10, Lng: 0}
-	participants := []*models.Participant{
-		{ID: 1, Name: "Far", Lat: 2, Lng: 8},
-		{ID: 2, Name: "Near Home", Lat: 9, Lng: 0},
-		{ID: 3, Name: "Near Activity", Lat: 1, Lng: 0},
+	result, err := NewBalancedRouter(calc).CalculateRoutes(ctx, &RoutingRequest{
+		InstituteCoords: activity,
+		Participants: []models.Participant{
+			{ID: 1, Name: "Far", Lat: 2, Lng: 8},
+			{ID: 2, Name: "Near Home", Lat: 9, Lng: 0},
+			{ID: 3, Name: "Near Activity", Lat: 1, Lng: 0},
+		},
+		Drivers: []models.Driver{
+			{ID: 7, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 3},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
 	}
-	route := &models.CalculatedRoute{Driver: driver, Stops: make([]models.RouteStop, len(participants))}
-	for i, participant := range participants {
-		route.Stops[i].Participant = participant
+	if len(result.Routes) != 1 {
+		t.Fatalf("len(result.Routes) = %d, want 1", len(result.Routes))
 	}
 
-	if err := OptimizeRouteOrder(ctx, calc, activity, RouteModeDropoff, route); err != nil {
+	want := result.Routes[0]
+	optimized := want
+	optimized.Stops = append([]models.RouteStop(nil), want.Stops...)
+	if err := OptimizeRouteOrder(ctx, calc, activity, RouteModeDropoff, &optimized); err != nil {
 		t.Fatalf("OptimizeRouteOrder() error = %v", err)
 	}
 
-	internalRoutes := map[int64]*balancedRoute{
-		driver.ID: {driver: driver, stops: append([]*models.Participant(nil), participants...)},
-	}
-	router := &BalancedRouter{distanceCalc: calc}
-	if err := router.optimizeRouteOrders(ctx, newRouteContext(calc, activity, RouteModeDropoff), internalRoutes, []int64{driver.ID}); err != nil {
-		t.Fatalf("optimizeRouteOrders() error = %v", err)
-	}
-
-	for i, stop := range route.Stops {
-		if got, want := stop.Participant.ID, internalRoutes[driver.ID].stops[i].ID; got != want {
-			t.Fatalf("stop %d participant = %d, want solver order %d", i, got, want)
-		}
+	if !reflect.DeepEqual(optimized, want) {
+		t.Fatalf("optimized route = %#v, want solver result %#v", optimized, want)
 	}
 }
 

@@ -20,6 +20,7 @@ const (
 
 var (
 	ErrNotFound               = errors.New("route session not found")
+	ErrAlreadyCommitted       = errors.New("route session already committed")
 	ErrInvalidRouteIndex      = errors.New("invalid route index")
 	ErrParticipantNotFound    = errors.New("participant not found")
 	ErrParticipantNotInSource = errors.New("participant not found in source route")
@@ -82,8 +83,9 @@ type session struct {
 }
 
 type Store struct {
-	distanceCalc    distance.DistanceCalculator
+	distanceCalc    distance.Lookup
 	sessions        map[string]*session
+	committed       map[string]time.Time
 	mu              sync.Mutex
 	ttl             time.Duration
 	cleanupInterval time.Duration
@@ -93,13 +95,13 @@ type Store struct {
 	closeOnce       sync.Once
 }
 
-func NewStore(distanceCalc distance.DistanceCalculator) *Store {
+func NewStore(distanceCalc distance.Lookup) *Store {
 	return newStore(distanceCalc, defaultTTL, defaultCleanupInterval, time.Now)
 }
 
-func newStore(distanceCalc distance.DistanceCalculator, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
+func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
 	store := &Store{
-		distanceCalc: distanceCalc, sessions: make(map[string]*session), ttl: ttl,
+		distanceCalc: distanceCalc, sessions: make(map[string]*session), committed: make(map[string]time.Time), ttl: ttl,
 		cleanupInterval: cleanupInterval, now: now,
 		stopCleanup: make(chan struct{}), cleanupDone: make(chan struct{}),
 	}
@@ -249,17 +251,48 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 	return snapshotOf(state), nil
 }
 
-func (s *Store) SaveSnapshot(id string) (models.RoutingResult, error) {
+// Commit persists a balanced session and removes it after persistence succeeds.
+// The persist callback receives the persistence context and runs while the target
+// session is locked. It must not call any Store method. Calls waiting on the same
+// session cannot be canceled.
+func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, models.RoutingResult) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {
-		return models.RoutingResult{}, err
+		if errors.Is(err, ErrNotFound) && s.wasCommitted(id) {
+			return ErrAlreadyCommitted
+		}
+		return err
 	}
-	defer state.mu.Unlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			state.lastAccessedAt = s.now()
+			state.mu.Unlock()
+		}
+	}()
 	_, unbalanced := capacityState(state.currentRoutes)
 	if unbalanced {
-		return models.RoutingResult{}, ErrUnbalanced
+		return ErrUnbalanced
 	}
-	return models.RoutingResult{Routes: copyRoutes(state.currentRoutes), Summary: calculateSummary(state.currentRoutes), Mode: state.mode}, nil
+	payload := models.RoutingResult{
+		Routes:  copyRoutes(state.currentRoutes),
+		Summary: calculateSummary(state.currentRoutes),
+		Mode:    state.mode,
+	}
+	if err := persist(ctx, payload); err != nil {
+		return err
+	}
+	state.deleted = true
+	s.mu.Lock()
+	s.committed[id] = s.now()
+	if s.sessions[id] == state {
+		delete(s.sessions, id)
+	}
+	s.mu.Unlock()
+	state.mu.Unlock()
+	unlocked = true
+	log.Printf("[SESSION] Deleted route session: id=%s", id)
+	return nil
 }
 
 func (s *Store) Delete(id string) {
@@ -308,6 +341,17 @@ func (s *Store) remove(id string, state *session) {
 	s.mu.Unlock()
 }
 
+func (s *Store) wasCommitted(id string) bool {
+	s.mu.Lock()
+	committedAt, ok := s.committed[id]
+	if ok && s.now().Sub(committedAt) > s.ttl {
+		delete(s.committed, id)
+		ok = false
+	}
+	s.mu.Unlock()
+	return ok
+}
+
 func (s *Store) cleanupLoop() {
 	defer close(s.cleanupDone)
 	ticker := time.NewTicker(s.cleanupInterval)
@@ -331,6 +375,11 @@ func (s *Store) deleteExpired(now time.Time) {
 	states := make([]candidate, 0, len(s.sessions))
 	for id, state := range s.sessions {
 		states = append(states, candidate{id: id, state: state})
+	}
+	for id, committedAt := range s.committed {
+		if now.Sub(committedAt) > s.ttl {
+			delete(s.committed, id)
+		}
 	}
 	s.mu.Unlock()
 	for _, candidate := range states {
