@@ -22,13 +22,13 @@ func (r *participantRepository) List(ctx context.Context, search string) ([]mode
 	var err error
 
 	if search != "" {
-		query := `SELECT id, name, address, lat, lng, created_at, updated_at
+		query := `SELECT id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at
 		          FROM participants
 		          WHERE name LIKE ?
 		          ORDER BY name`
 		rows, err = r.store.db.QueryContext(ctx, query, "%"+search+"%")
 	} else {
-		query := `SELECT id, name, address, lat, lng, created_at, updated_at
+		query := `SELECT id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at
 		          FROM participants
 		          ORDER BY name`
 		rows, err = r.store.db.QueryContext(ctx, query)
@@ -42,7 +42,7 @@ func (r *participantRepository) List(ctx context.Context, search string) ([]mode
 	var participants []models.Participant
 	for rows.Next() {
 		var p models.Participant
-		if err := rows.Scan(&p.ID, &p.Name, &p.Address, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan participant: %w", err)
 		}
 		participants = append(participants, p)
@@ -59,12 +59,12 @@ func (r *participantRepository) GetByID(ctx context.Context, id int64) (*models.
 	r.store.mu.RLock()
 	defer r.store.mu.RUnlock()
 
-	query := `SELECT id, name, address, lat, lng, created_at, updated_at
+	query := `SELECT id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at
 	          FROM participants WHERE id = ?`
 
 	var p models.Participant
 	err := r.store.db.QueryRowContext(ctx, query, id).Scan(
-		&p.ID, &p.Name, &p.Address, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt,
+		&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -94,7 +94,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []int64) ([]mo
 	}
 
 	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
-		`SELECT id, name, address, lat, lng, created_at, updated_at
+		`SELECT id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at
 		 FROM participants WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),
 	)
@@ -108,7 +108,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []int64) ([]mo
 	var participants []models.Participant
 	for rows.Next() {
 		var p models.Participant
-		if err := rows.Scan(&p.ID, &p.Name, &p.Address, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan participant: %w", err)
 		}
 		participants = append(participants, p)
@@ -125,11 +125,11 @@ func (r *participantRepository) Create(ctx context.Context, p *models.Participan
 	p.CreatedAt = now
 	p.UpdatedAt = now
 
-	query := `INSERT INTO participants (name, address, lat, lng, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at)
+	          VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)`
 
 	result, err := r.store.db.ExecContext(ctx, query,
-		p.Name, p.Address, p.Lat, p.Lng, p.CreatedAt, p.UpdatedAt,
+		p.Name, p.Address, p.AddressName, p.Lat, p.Lng, p.CreatedAt, p.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create participant: %w", err)
@@ -159,9 +159,9 @@ func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.
 	p.UpdatedAt = now
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO participants (name, address, lat, lng, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, p.Name, p.Address, p.Lat, p.Lng, p.CreatedAt, p.UpdatedAt)
+		INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at)
+		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)
+	`, p.Name, p.Address, p.AddressName, p.Lat, p.Lng, p.CreatedAt, p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create participant: %w", err)
 	}
@@ -190,11 +190,11 @@ func (r *participantRepository) Update(ctx context.Context, p *models.Participan
 	p.UpdatedAt = time.Now()
 
 	query := `UPDATE participants
-	          SET name = ?, address = ?, lat = ?, lng = ?, updated_at = ?
+	          SET name = ?, address = ?, address_name = NULLIF(?, ''), lat = ?, lng = ?, updated_at = ?
 	          WHERE id = ?`
 
 	result, err := r.store.db.ExecContext(ctx, query,
-		p.Name, p.Address, p.Lat, p.Lng, p.UpdatedAt, p.ID,
+		p.Name, p.Address, p.AddressName, p.Lat, p.Lng, p.UpdatedAt, p.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update participant: %w", err)
@@ -225,9 +225,9 @@ func (r *participantRepository) UpdateWithLabels(ctx context.Context, p *models.
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE participants
-		SET name = ?, address = ?, lat = ?, lng = ?, updated_at = ?
+		SET name = ?, address = ?, address_name = NULLIF(?, ''), lat = ?, lng = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Address, p.Lat, p.Lng, p.UpdatedAt, p.ID)
+	`, p.Name, p.Address, p.AddressName, p.Lat, p.Lng, p.UpdatedAt, p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update participant: %w", err)
 	}

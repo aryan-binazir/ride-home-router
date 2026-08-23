@@ -23,7 +23,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 4)
+	assertSchemaVersion(t, store.db, 5)
 
 	for _, tableName := range []string{
 		"events_legacy",
@@ -111,7 +111,7 @@ func TestStoreMigratesLegacyEventTablesAndPreservesVisibleHistory(t *testing.T) 
 	assertRowCount(t, store.db, "event_summaries_legacy", 1)
 }
 
-func TestStoreFreshSchemaCreatesV4Tables(t *testing.T) {
+func TestStoreFreshSchemaCreatesV5Tables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fresh-schema.db")
 
 	store, err := New(dbPath)
@@ -124,7 +124,7 @@ func TestStoreFreshSchemaCreatesV4Tables(t *testing.T) {
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 4)
+	assertSchemaVersion(t, store.db, 5)
 
 	for _, tableName := range []string{"events", "event_routes", "event_route_stops", "event_summaries"} {
 		assertTableExists(t, store.db, tableName)
@@ -363,6 +363,27 @@ func createLegacyEventDB(t *testing.T, dbPath string) {
 			version INTEGER PRIMARY KEY
 		);
 		INSERT INTO schema_version (version) VALUES (1);
+
+		CREATE TABLE participants (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			address TEXT NOT NULL,
+			lat REAL NOT NULL,
+			lng REAL NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE drivers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			address TEXT NOT NULL,
+			lat REAL NOT NULL,
+			lng REAL NOT NULL,
+			vehicle_capacity INTEGER NOT NULL DEFAULT 4,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
 
 		CREATE TABLE events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

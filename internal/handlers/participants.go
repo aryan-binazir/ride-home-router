@@ -99,9 +99,10 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 // HandleCreateParticipant handles POST /api/v1/participants
 func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string  `json:"name"`
-		Address  string  `json:"address"`
-		LabelIDs []int64 `json:"label_ids"`
+		Name        string  `json:"name"`
+		Address     string  `json:"address"`
+		AddressName string  `json:"address_name"`
+		LabelIDs    []int64 `json:"label_ids"`
 	}
 	var labelIDs []int64
 
@@ -113,6 +114,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		req.AddressName = r.FormValue("address_name")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
 			h.renderError(w, r, errors.New("invalid label selection"))
@@ -127,6 +129,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		labelIDs = req.LabelIDs
 	}
+	req.AddressName = strings.TrimSpace(req.AddressName)
 
 	if req.Name == "" || req.Address == "" {
 		log.Printf("[HTTP] POST /api/v1/participants: missing_fields name=%s address=%s", req.Name, req.Address)
@@ -135,6 +138,14 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
+		return
+	}
+	if len([]rune(req.AddressName)) > 200 {
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			return
+		}
+		h.handleValidationError(w, messageAddressNameTooLong)
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
@@ -160,10 +171,11 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	participant := &models.Participant{
-		Name:    req.Name,
-		Address: req.Address,
-		Lat:     geocodeResult.Coords.Lat,
-		Lng:     geocodeResult.Coords.Lng,
+		Name:        req.Name,
+		Address:     req.Address,
+		AddressName: req.AddressName,
+		Lat:         geocodeResult.Coords.Lat,
+		Lng:         geocodeResult.Coords.Lng,
 	}
 
 	participant, err = h.DB.Participants().CreateWithLabels(r.Context(), participant, labelIDs)
@@ -245,9 +257,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Name     string   `json:"name"`
-		Address  string   `json:"address"`
-		LabelIDs *[]int64 `json:"label_ids"`
+		Name        string   `json:"name"`
+		Address     string   `json:"address"`
+		AddressName string   `json:"address_name"`
+		LabelIDs    *[]int64 `json:"label_ids"`
 	}
 	var labelIDs []int64
 	shouldSetLabels := false
@@ -259,6 +272,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		req.AddressName = r.FormValue("address_name")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
 			h.renderError(w, r, errors.New("invalid label selection"))
@@ -276,6 +290,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			shouldSetLabels = true
 		}
 	}
+	req.AddressName = strings.TrimSpace(req.AddressName)
 
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
@@ -283,6 +298,14 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
+		return
+	}
+	if len([]rune(req.AddressName)) > 200 {
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			return
+		}
+		h.handleValidationError(w, messageAddressNameTooLong)
 		return
 	}
 	if shouldSetLabels {
@@ -298,12 +321,13 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	participant := &models.Participant{
-		ID:        id,
-		Name:      req.Name,
-		Address:   req.Address,
-		Lat:       existing.Lat,
-		Lng:       existing.Lng,
-		CreatedAt: existing.CreatedAt,
+		ID:          id,
+		Name:        req.Name,
+		Address:     req.Address,
+		AddressName: req.AddressName,
+		Lat:         existing.Lat,
+		Lng:         existing.Lng,
+		CreatedAt:   existing.CreatedAt,
 	}
 
 	if req.Address != existing.Address {

@@ -1,5 +1,5 @@
 {{define "participant_row"}}
-<tr id="participant-{{.Participant.ID}}" data-search="{{.Participant.Name}} {{.Participant.Address}}" data-labels="{{.LabelIDs}}">
+<tr id="participant-{{.Participant.ID}}" data-search="{{.Participant.Name}} {{.Participant.AddressName}} {{.Participant.Address}}" data-labels="{{.LabelIDs}}">
     <td>
         <input type="checkbox"
                name="participant_ids"
@@ -9,7 +9,14 @@
                onchange="updateBulkSelectionCount('participants-tbody')">
     </td>
     <td>{{.Participant.Name}}</td>
-    <td>{{.Participant.Address}}</td>
+    <td>
+        {{if .Participant.AddressName}}
+        <div>{{.Participant.AddressName}}</div>
+        <div class="text-muted" style="font-size: 0.85em;">{{.Participant.Address}}</div>
+        {{else}}
+        {{.Participant.Address}}
+        {{end}}
+    </td>
     <td>
         <div class="table-labels">
             {{range .LabelNames}}

@@ -101,6 +101,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            string  `json:"name"`
 		Address         string  `json:"address"`
+		AddressName     string  `json:"address_name"`
 		VehicleCapacity int     `json:"vehicle_capacity"`
 		LabelIDs        []int64 `json:"label_ids"`
 	}
@@ -113,6 +114,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		req.AddressName = r.FormValue("address_name")
 		capacityStr := r.FormValue("vehicle_capacity")
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
@@ -135,6 +137,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 		labelIDs = req.LabelIDs
 	}
+	req.AddressName = strings.TrimSpace(req.AddressName)
 
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
@@ -142,6 +145,14 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
+		return
+	}
+	if len([]rune(req.AddressName)) > 200 {
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			return
+		}
+		h.handleValidationError(w, messageAddressNameTooLong)
 		return
 	}
 
@@ -178,6 +189,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	driver := &models.Driver{
 		Name:            req.Name,
 		Address:         req.Address,
+		AddressName:     req.AddressName,
 		Lat:             geocodeResult.Coords.Lat,
 		Lng:             geocodeResult.Coords.Lng,
 		VehicleCapacity: req.VehicleCapacity,
@@ -261,6 +273,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            string   `json:"name"`
 		Address         string   `json:"address"`
+		AddressName     string   `json:"address_name"`
 		VehicleCapacity int      `json:"vehicle_capacity"`
 		LabelIDs        *[]int64 `json:"label_ids"`
 	}
@@ -274,6 +287,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
+		req.AddressName = r.FormValue("address_name")
 		capacityStr := r.FormValue("vehicle_capacity")
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
@@ -300,6 +314,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			shouldSetLabels = true
 		}
 	}
+	req.AddressName = strings.TrimSpace(req.AddressName)
 
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
@@ -307,6 +322,14 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleValidationError(w, messageNameAndAddressRequired)
+		return
+	}
+	if len([]rune(req.AddressName)) > 200 {
+		if h.isHTMX(r) {
+			h.renderError(w, r, errors.New(messageAddressNameTooLong))
+			return
+		}
+		h.handleValidationError(w, messageAddressNameTooLong)
 		return
 	}
 
@@ -334,6 +357,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		ID:              id,
 		Name:            req.Name,
 		Address:         req.Address,
+		AddressName:     req.AddressName,
 		Lat:             existing.Lat,
 		Lng:             existing.Lng,
 		VehicleCapacity: req.VehicleCapacity,

@@ -17,7 +17,7 @@
                         <span class="badge badge-warning">{{.OrgVehicleName}}</span>
                         {{end}}
                     </h4>
-                    <p>{{.DriverAddress}}</p>
+                    <p>{{displayAddress .DriverAddressName .DriverAddress}}</p>
                 </div>
             </div>
         </div>
@@ -28,7 +28,7 @@
                 <div class="stop-number">{{add .RouteOrder 1}}</div>
                 <div class="stop-details">
                     <h4>{{.ParticipantName}}</h4>
-                    <p>{{.ParticipantAddress}}</p>
+                    <p>{{displayAddress .ParticipantAddressName .ParticipantAddress}}</p>
                 </div>
                 <div class="stop-distance">
                     {{formatDistance .DistanceFromPrevMeters $useMiles}}
@@ -87,7 +87,7 @@
                         <span class="badge badge-warning">{{.OrgVehicleName}}</span>
                         {{end}}
                     </h4>
-                    <p>{{.DriverAddress}}</p>
+                    <p>{{displayAddress .DriverAddressName .DriverAddress}}</p>
                     <p class="text-muted">
                         {{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}} Distance:
                         {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
@@ -109,7 +109,7 @@
                 <div class="stop-number">{{add .Order 1}}</div>
                 <div class="stop-details">
                     <h4>{{.ParticipantName}}</h4>
-                    <p>{{.ParticipantAddress}}</p>
+                    <p>{{displayAddress .ParticipantAddressName .ParticipantAddress}}</p>
                     <p class="text-muted">
                         {{if eq $route.Mode "pickup"}}
                             {{if eq .Order 0}}

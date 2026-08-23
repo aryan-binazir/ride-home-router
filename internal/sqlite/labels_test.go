@@ -321,7 +321,7 @@ func TestDriverRepository_UpdateWithLabelsRollsBackOnInvalidLabel(t *testing.T) 
 	assertRowCount(t, store.db, "driver_labels", 0)
 }
 
-func TestStoreMigratesV3DatabaseToV4LabelsSchema(t *testing.T) {
+func TestStoreMigratesV3DatabaseToCurrentLabelsSchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "v3-label-migration.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -370,7 +370,7 @@ func TestStoreMigratesV3DatabaseToV4LabelsSchema(t *testing.T) {
 		}
 	})
 
-	assertSchemaVersion(t, store.db, 4)
+	assertSchemaVersion(t, store.db, 5)
 	for _, tableName := range []string{"labels", "participant_labels", "driver_labels"} {
 		assertTableExists(t, store.db, tableName)
 	}

@@ -83,6 +83,34 @@ test('parent copy text omits private addresses and the Maps link', () => {
     );
 });
 
+test('driver copy text uses friendly location names while Maps keeps real addresses', () => {
+    const activity = { address: '1 Church Road', lat: '', lng: '' };
+    const driver = { address: '9 Driver Lane', addressName: 'Driver Home', lat: '', lng: '' };
+    const stops = [{
+        name: 'Sam Rider',
+        address: '5 Rider Street',
+        addressName: 'Collins Crossing',
+        time: '8:15 PM',
+        lat: '',
+        lng: '',
+    }];
+
+    const text = formatRouteText(
+        'Wednesday Night Church',
+        activity,
+        'Jordan Driver',
+        driver,
+        stops,
+        'dropoff',
+    );
+
+    assert.match(text, /Driver Home \(9 Driver Lane\)/);
+    assert.match(text, /Collins Crossing \(5 Rider Street\)/);
+    assert.match(text, /destination=9\+Driver\+Lane/);
+    assert.match(text, /waypoints=5\+Rider\+Street/);
+    assert.doesNotMatch(text, /destination=Driver\+Home/);
+});
+
 test('participant moves flush sequentially in same-session batches with the existing payload contracts', async () => {
     const sent = [];
     const batcher = createParticipantMoveBatcher({

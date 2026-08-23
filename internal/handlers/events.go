@@ -66,11 +66,12 @@ type EventDetailResponse struct {
 
 // AssignmentGroupedByDriver groups stops by driver for legacy-compatible responses.
 type AssignmentGroupedByDriver struct {
-	DriverName     string           `json:"driver_name"`
-	DriverAddress  string           `json:"driver_address"`
-	OrgVehicleID   int64            `json:"org_vehicle_id,omitempty"`
-	OrgVehicleName string           `json:"org_vehicle_name,omitempty"`
-	Stops          []AssignmentStop `json:"stops"`
+	DriverName        string           `json:"driver_name"`
+	DriverAddress     string           `json:"driver_address"`
+	DriverAddressName string           `json:"driver_address_name,omitempty"`
+	OrgVehicleID      int64            `json:"org_vehicle_id,omitempty"`
+	OrgVehicleName    string           `json:"org_vehicle_name,omitempty"`
+	Stops             []AssignmentStop `json:"stops"`
 }
 
 // AssignmentStop represents a single saved stop in legacy-compatible responses.
@@ -78,6 +79,7 @@ type AssignmentStop struct {
 	RouteOrder             int     `json:"route_order"`
 	ParticipantName        string  `json:"participant_name"`
 	ParticipantAddress     string  `json:"participant_address"`
+	ParticipantAddressName string  `json:"participant_address_name,omitempty"`
 	DistanceFromPrevMeters float64 `json:"distance_from_prev_meters"`
 }
 
@@ -152,6 +154,11 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
+		h.handleInternalError(w, err)
+		return
+	}
+	if err := h.enrichEventRouteAddressNames(r.Context(), routes); err != nil {
+		log.Printf("[ERROR] Failed to load event address names: id=%d err=%v", id, err)
 		h.handleInternalError(w, err)
 		return
 	}
@@ -441,6 +448,7 @@ func buildEventSnapshots(result *models.RoutingResult) (models.RouteMode, []mode
 			DriverID:                   route.Driver.ID,
 			DriverName:                 route.Driver.Name,
 			DriverAddress:              route.Driver.Address,
+			DriverAddressName:          route.Driver.AddressName,
 			EffectiveCapacity:          route.EffectiveCapacity,
 			OrgVehicleID:               route.OrgVehicleID,
 			OrgVehicleName:             route.OrgVehicleName,
@@ -468,6 +476,7 @@ func buildEventSnapshots(result *models.RoutingResult) (models.RouteMode, []mode
 				ParticipantID:            stop.Participant.ID,
 				ParticipantName:          stop.Participant.Name,
 				ParticipantAddress:       stop.Participant.Address,
+				ParticipantAddressName:   stop.Participant.AddressName,
 				DistanceFromPrevMeters:   stop.DistanceFromPrevMeters,
 				CumulativeDistanceMeters: stop.CumulativeDistanceMeters,
 				DurationFromPrevSecs:     stop.DurationFromPrevSecs,
@@ -506,11 +515,12 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 		}
 
 		group := AssignmentGroupedByDriver{
-			DriverName:     route.DriverName,
-			DriverAddress:  route.DriverAddress,
-			OrgVehicleID:   route.OrgVehicleID,
-			OrgVehicleName: route.OrgVehicleName,
-			Stops:          make([]AssignmentStop, 0, len(route.Stops)),
+			DriverName:        route.DriverName,
+			DriverAddress:     route.DriverAddress,
+			DriverAddressName: route.DriverAddressName,
+			OrgVehicleID:      route.OrgVehicleID,
+			OrgVehicleName:    route.OrgVehicleName,
+			Stops:             make([]AssignmentStop, 0, len(route.Stops)),
 		}
 
 		for _, stop := range route.Stops {
@@ -518,6 +528,7 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 				RouteOrder:             stop.Order,
 				ParticipantName:        stop.ParticipantName,
 				ParticipantAddress:     stop.ParticipantAddress,
+				ParticipantAddressName: stop.ParticipantAddressName,
 				DistanceFromPrevMeters: stop.DistanceFromPrevMeters,
 			})
 		}
@@ -526,6 +537,44 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 	}
 
 	return grouped
+}
+
+func (h *Handler) enrichEventRouteAddressNames(ctx context.Context, routes []models.EventRoute) error {
+	driverIDs := make([]int64, 0, len(routes))
+	participantIDs := make([]int64, 0)
+	for _, route := range routes {
+		driverIDs = append(driverIDs, route.DriverID)
+		for _, stop := range route.Stops {
+			participantIDs = append(participantIDs, stop.ParticipantID)
+		}
+	}
+
+	drivers, err := h.DB.Drivers().GetByIDs(ctx, driverIDs)
+	if err != nil {
+		return fmt.Errorf("load event drivers: %w", err)
+	}
+	participants, err := h.DB.Participants().GetByIDs(ctx, participantIDs)
+	if err != nil {
+		return fmt.Errorf("load event participants: %w", err)
+	}
+
+	driverAddressNames := make(map[int64]string, len(drivers))
+	for _, driver := range drivers {
+		driverAddressNames[driver.ID] = driver.AddressName
+	}
+	participantAddressNames := make(map[int64]string, len(participants))
+	for _, participant := range participants {
+		participantAddressNames[participant.ID] = participant.AddressName
+	}
+
+	for routeIndex := range routes {
+		routes[routeIndex].DriverAddressName = driverAddressNames[routes[routeIndex].DriverID]
+		for stopIndex := range routes[routeIndex].Stops {
+			participantID := routes[routeIndex].Stops[stopIndex].ParticipantID
+			routes[routeIndex].Stops[stopIndex].ParticipantAddressName = participantAddressNames[participantID]
+		}
+	}
+	return nil
 }
 
 func routesNeedLegacyDetail(routes []models.EventRoute) bool {

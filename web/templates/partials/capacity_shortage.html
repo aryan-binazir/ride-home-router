@@ -46,7 +46,7 @@
                         <tr class="driver-row" data-driver-id="{{.ID}}" data-base-capacity="{{.VehicleCapacity}}">
                             <td>
                                 <strong>{{.Name}}</strong>
-                                <div class="text-muted" style="font-size: 0.85em;">{{.Address}}</div>
+                                <div class="text-muted" style="font-size: 0.85em;">{{displayAddress .AddressName .Address}}</div>
                             </td>
                             <td>{{.VehicleCapacity}} available seats</td>
                             <td>

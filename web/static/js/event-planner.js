@@ -86,6 +86,12 @@
         });
     }
 
+    function formatDisplayAddress(location) {
+        const address = (location?.address || '').trim();
+        const addressName = (location?.addressName || '').trim();
+        return addressName ? `${addressName} (${address})` : address;
+    }
+
     function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff', options = {}) {
         if (!stops || stops.length === 0) return '';
 
@@ -124,14 +130,14 @@
         let text = `Activity Location: ${activityLocationName}\n${activityLocation?.address || ''}\n\n`;
         text += `Driver: ${driverName}\n`;
         if (includeDriverAddress) {
-            text += `${driverLocation?.address || ''}\n`;
+            text += `${formatDisplayAddress(driverLocation)}\n`;
         }
 
         stops.forEach((stop, index) => {
             const prefix = stop.time ? `${stop.time} - ` : '';
             text += `${index + 1}. ${prefix}${stop.name}`;
             if (includeParticipantAddresses && stop.address) {
-                text += ` - ${stop.address}`;
+                text += ` - ${formatDisplayAddress(stop)}`;
             }
             text += '\n';
         });
@@ -605,6 +611,7 @@
             return Array.from(stopItems).map(item => ({
                 name: item.dataset.participantName,
                 address: item.dataset.participantAddress,
+                addressName: item.dataset.participantAddressName,
                 lat: item.dataset.participantLat,
                 lng: item.dataset.participantLng,
                 cumulativeDurationSecs: parseDurationSeconds(item.dataset.stopCumulativeDurationSecs),
@@ -634,6 +641,7 @@
             const driverName = routeCard.dataset.driverName;
             const driverLocation = {
                 address: routeCard.dataset.driverAddress,
+                addressName: routeCard.dataset.driverAddressName,
                 lat: routeCard.dataset.driverLat,
                 lng: routeCard.dataset.driverLng
             };
@@ -693,6 +701,7 @@
                 const driverName = routeCard.dataset.driverName;
                 const driverLocation = {
                     address: routeCard.dataset.driverAddress,
+                    addressName: routeCard.dataset.driverAddressName,
                     lat: routeCard.dataset.driverLat,
                     lng: routeCard.dataset.driverLng
                 };
@@ -702,10 +711,10 @@
                     allText += '\n';
                 }
 
-                allText += `Driver: ${driverName}\n${driverLocation.address}\n`;
+                allText += `Driver: ${driverName}\n${formatDisplayAddress(driverLocation)}\n`;
                 stops.forEach((stop, index) => {
                     const prefix = stop.time ? `${stop.time} - ` : '';
-                    allText += `${index + 1}. ${prefix}${stop.name} - ${stop.address}\n`;
+                    allText += `${index + 1}. ${prefix}${stop.name} - ${formatDisplayAddress(stop)}\n`;
                 });
 
                 const mapsUrl = generateMapsUrl(activityLocation, driverLocation, stops, mode, { navigation: true });

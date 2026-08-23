@@ -15,7 +15,7 @@ import (
 
 const (
 	DefaultDBFileName   = "data.db"
-	schemaVersion       = 4
+	schemaVersion       = 5
 	sqliteCacheSizeKB   = -64000 // 64MB cache (negative = KiB)
 	sqliteBusyTimeoutMS = 5000
 )
@@ -134,6 +134,7 @@ func (s *Store) createSchema() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		address TEXT NOT NULL,
+		address_name TEXT,
 		lat REAL NOT NULL,
 		lng REAL NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -145,6 +146,7 @@ func (s *Store) createSchema() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		address TEXT NOT NULL,
+		address_name TEXT,
 		lat REAL NOT NULL,
 		lng REAL NOT NULL,
 		vehicle_capacity INTEGER NOT NULL DEFAULT 4,
@@ -436,6 +438,15 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 	}
 
+	if fromVersion < 5 {
+		if err := ensureColumn(tx, "participants", "address_name", "TEXT"); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "drivers", "address_name", "TEXT"); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(context.Background(), "UPDATE schema_version SET version = ?", schemaVersion); err != nil {
 		return fmt.Errorf("failed to update schema version: %w", err)
 	}
@@ -448,15 +459,19 @@ func (s *Store) runMigrations(fromVersion int) error {
 }
 
 func ensureEventRouteColumn(tx *sql.Tx, name, definition string) error {
-	exists, err := columnExists(tx, "event_routes", name)
+	return ensureColumn(tx, "event_routes", name, definition)
+}
+
+func ensureColumn(tx *sql.Tx, table, name, definition string) error {
+	exists, err := columnExists(tx, table, name)
 	if err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	if _, err := tx.ExecContext(context.Background(), fmt.Sprintf("ALTER TABLE event_routes ADD COLUMN %s %s", name, definition)); err != nil {
-		return fmt.Errorf("failed to add event_routes.%s: %w", name, err)
+	if _, err := tx.ExecContext(context.Background(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, name, definition)); err != nil {
+		return fmt.Errorf("failed to add %s.%s: %w", table, name, err)
 	}
 	return nil
 }

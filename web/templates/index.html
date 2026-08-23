@@ -126,7 +126,7 @@
             <div class="select-list" id="participants-selection">
                 {{range .Participants}}
                 <label class="select-row"
-                       data-search="{{.Name}} {{.Address}}"
+                       data-search="{{.Name}} {{.AddressName}} {{.Address}}"
                        data-labels="{{labelIDsFor $.ParticipantLabels .ID}}">
                     <input type="checkbox"
                            name="participant_ids"
@@ -134,7 +134,7 @@
                            class="form-checkbox participant-checkbox select-control">
                     <span class="select-row-content">
                         <span class="select-row-title">{{.Name}}</span>
-                        <span class="select-row-subtitle">{{.Address}}</span>
+                        <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
                     </span>
                 </label>
                 {{end}}
@@ -194,7 +194,7 @@
             <div class="select-list" id="drivers-selection">
                 {{range .Drivers}}
                 <label class="select-row"
-                       data-search="{{.Name}} {{.Address}}"
+                       data-search="{{.Name}} {{.AddressName}} {{.Address}}"
                        data-labels="{{labelIDsFor $.DriverLabels .ID}}">
                     <input type="checkbox"
                            name="driver_ids"
@@ -202,10 +202,11 @@
                            class="form-checkbox driver-checkbox select-control"
                            data-capacity="{{.VehicleCapacity}}"
                            data-driver-name="{{.Name}}"
-                           data-driver-address="{{.Address}}">
+                           data-driver-address="{{.Address}}"
+                           data-driver-address-name="{{.AddressName}}">
                     <span class="select-row-content">
                         <span class="select-row-title">{{.Name}}</span>
-                        <span class="select-row-subtitle">{{.Address}}</span>
+                        <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
                         <span class="select-row-meta">
                             <span class="badge badge-muted van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
                         </span>

@@ -4,6 +4,7 @@ import "fmt"
 
 const (
 	messageAddressRequired                               = "Address is required"
+	messageAddressNameTooLong                            = "location name must be 200 characters or fewer"
 	messageChooseActivityLocationForEvent                = "Please choose an activity location for this event."
 	messageChooseRouteTime                               = "please choose a route time"
 	messageChooseValidActivityLocation                   = "Please choose a valid activity location."
