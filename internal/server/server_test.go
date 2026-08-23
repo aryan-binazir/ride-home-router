@@ -72,7 +72,6 @@ func TestRequestSecurityMiddlewareHostAllowlist(t *testing.T) {
 
 	for _, host := range []string{
 		"localhost:8080", "127.0.0.1:8080", "[::1]:8080",
-		"localhost", "127.0.0.1", "[::1]",
 	} {
 		t.Run("allows_"+host, func(t *testing.T) {
 			called := false
@@ -92,7 +91,11 @@ func TestRequestSecurityMiddlewareHostAllowlist(t *testing.T) {
 		})
 	}
 
-	for _, host := range []string{"evil.com:8080", "192.168.1.20:8080"} {
+	// Port-less forms imply port 80, which is not where this server listens.
+	for _, host := range []string{
+		"evil.com:8080", "192.168.1.20:8080",
+		"localhost", "127.0.0.1", "[::1]",
+	} {
 		t.Run("rejects_"+host, func(t *testing.T) {
 			called := false
 			handler := requestSecurityMiddleware(allowlist, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -145,6 +148,30 @@ func TestRequestSecurityMiddlewareWriteRejection(t *testing.T) {
 			wantStatus:  http.StatusNoContent,
 			wantCalled:  true,
 		},
+		{
+			name:        "loopback port 80 origin",
+			contentType: "application/x-www-form-urlencoded",
+			origin:      "http://localhost",
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:        "wails origin",
+			contentType: "application/json",
+			origin:      "wails://wails.localhost",
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:        "no content type no htmx",
+			contentType: "",
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:        "multipart form post",
+			contentType: "multipart/form-data; boundary=xyz",
+			origin:      "http://127.0.0.1:8080",
+			wantStatus:  http.StatusNoContent,
+			wantCalled:  true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -171,6 +198,58 @@ func TestRequestSecurityMiddlewareWriteRejection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewRequestAllowlistBindHostVariants(t *testing.T) {
+	t.Run("port 80 allows bare host forms", func(t *testing.T) {
+		allowlist, err := newRequestAllowlist("127.0.0.1:80")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, host := range []string{"localhost", "127.0.0.1", "[::1]", "localhost:80"} {
+			if !allowlist.allowsHost(host) {
+				t.Errorf("allowsHost(%q) = false, want true", host)
+			}
+		}
+		if !allowlist.allowsOrigin("http://localhost") {
+			t.Error(`allowsOrigin("http://localhost") = false, want true on port 80`)
+		}
+	})
+
+	t.Run("non-standard loopback bind host is allowed", func(t *testing.T) {
+		allowlist, err := newRequestAllowlist("127.0.0.2:8080")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !allowlist.allowsHost("127.0.0.2:8080") {
+			t.Error("bound host 127.0.0.2:8080 must be allowed")
+		}
+		if !allowlist.allowsOrigin("http://127.0.0.2:8080") {
+			t.Error("origin of the bound host must be allowed")
+		}
+		if allowlist.allowsHost("127.0.0.3:8080") {
+			t.Error("unbound loopback host must be rejected")
+		}
+	})
+
+	t.Run("wildcard bind matches any host on the bound port", func(t *testing.T) {
+		allowlist, err := newRequestAllowlist("[::]:8080")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !allowlist.allowsHost("192.168.1.20:8080") {
+			t.Error("LAN host on the bound port must be allowed for a wildcard bind")
+		}
+		if allowlist.allowsHost("192.168.1.20:9090") {
+			t.Error("wrong port must be rejected even for a wildcard bind")
+		}
+		if !allowlist.allowsOrigin("http://192.168.1.20:8080") {
+			t.Error("LAN origin on the bound port must be allowed for a wildcard bind")
+		}
+		if allowlist.allowsOrigin("https://evil.example") {
+			t.Error("foreign https origin must be rejected")
+		}
+	})
 }
 
 func TestRequestSecurityMiddlewareRejectsOversizedBody(t *testing.T) {

@@ -104,20 +104,14 @@ func (s *Store) GetDBPath() string {
 }
 
 func (s *Store) initSchema() error {
-	var version int
-	err := s.db.QueryRowContext(context.Background(), "SELECT version FROM schema_version LIMIT 1").Scan(&version)
+	exists, err := tableExists(s.db, "schema_version")
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table: schema_version") {
-			return s.createSchema()
-		}
 		return fmt.Errorf("failed to read schema version: %w", err)
 	}
-
-	if err := s.runMigrations(); err != nil {
-		return err
+	if !exists {
+		return s.createSchema()
 	}
-
-	return nil
+	return s.runMigrations()
 }
 
 func (s *Store) createSchema() error {
@@ -323,6 +317,13 @@ func (s *Store) runMigrations() error {
 		SELECT COALESCE(MIN(version), 0), COUNT(*) FROM schema_version
 	`).Scan(&fromVersion, &versionRows); err != nil {
 		return fmt.Errorf("failed to inspect schema versions: %w", err)
+	}
+	if versionRows == 0 {
+		// The table exists but holds no version: no code path writes that
+		// state (both writers insert inside their transaction), so guessing a
+		// version risks either skipping or destructively re-running
+		// migrations. Fail loudly instead.
+		return errors.New("schema_version table exists but is empty; refusing to guess the schema version")
 	}
 	if versionRows > 1 {
 		if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version WHERE version <> ?", fromVersion); err != nil {

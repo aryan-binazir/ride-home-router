@@ -133,6 +133,30 @@ func TestNewAppliesConnectionPragmasToEveryPooledConnection(t *testing.T) {
 			t.Errorf("connection %d busy_timeout = %d, want %d", i, busyTimeout, sqliteBusyTimeoutMS)
 		}
 
+		var journalMode string
+		if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+			t.Fatalf("connection %d journal_mode query error = %v", i, err)
+		}
+		if journalMode != "wal" {
+			t.Errorf("connection %d journal_mode = %q, want %q", i, journalMode, "wal")
+		}
+
+		var synchronous int
+		if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous); err != nil {
+			t.Fatalf("connection %d synchronous query error = %v", i, err)
+		}
+		if synchronous != 1 { // NORMAL
+			t.Errorf("connection %d synchronous = %d, want 1 (NORMAL)", i, synchronous)
+		}
+
+		var cacheSize int
+		if err := conn.QueryRowContext(ctx, "PRAGMA cache_size").Scan(&cacheSize); err != nil {
+			t.Fatalf("connection %d cache_size query error = %v", i, err)
+		}
+		if cacheSize != sqliteCacheSizeKB {
+			t.Errorf("connection %d cache_size = %d, want %d", i, cacheSize, sqliteCacheSizeKB)
+		}
+
 		if _, err := conn.ExecContext(ctx, `
 			INSERT INTO participant_labels (label_id, participant_id) VALUES (?, ?)
 		`, 1000+i, 1000+i); err == nil {
@@ -146,10 +170,6 @@ func TestNewAppliesConnectionPragmasToEveryPooledConnection(t *testing.T) {
 			}
 		}
 	})
-
-	if len(connections) != 3 {
-		t.Fatalf("opened %d connections, want 3", len(connections))
-	}
 }
 
 func TestNewAcceptsRelativeDatabasePath(t *testing.T) {

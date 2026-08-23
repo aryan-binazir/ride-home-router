@@ -8,6 +8,15 @@ import (
 
 // HandleAddressSearch handles GET /api/v1/address-search
 func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
+	// GET is exempt from the server's Origin check, and every request here
+	// costs a slot on the shared 1 req/sec Nominatim rate limiter — so a
+	// cross-site page could wedge geocoding via no-preflight <img> requests.
+	// The app's own autocomplete always goes through htmx.
+	if !h.isHTMX(r) {
+		http.Error(w, messageForbidden, http.StatusForbidden)
+		return
+	}
+
 	query := r.URL.Query().Get("address")
 	log.Printf("[HTTP] GET /api/v1/address-search: query=%s", query)
 

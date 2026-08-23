@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -46,16 +47,17 @@ const (
 	serverWriteTimeout = 60 * time.Second
 	serverIdleTimeout  = 120 * time.Second
 
-	serverMessageInvalidRequestBody             = "Invalid request body"
-	serverMessageForbidden                      = "Forbidden"
-	serverMessageMethodNotAllowed               = "Method not allowed"
-	serverMessageNotFound                       = "Not found"
-	serverMessageRequestBodyTooLarge            = "Request body too large"
-	serverMessageOnlyHTTPHTTPSURLsAllowed       = "Only HTTP/HTTPS URLs are allowed"
-	serverMessageURLRequired                    = "URL is required"
-	serverMessageUnsupportedPlatform            = "Unsupported platform"
-	serverMessageFailedToOpenURL                = "Failed to open URL"
-	maxRequestBodyBytes                   int64 = 1 << 20
+	maxRequestBodyBytes int64 = 1 << 20
+
+	serverMessageInvalidRequestBody       = "Invalid request body"
+	serverMessageForbidden                = "Forbidden"
+	serverMessageMethodNotAllowed         = "Method not allowed"
+	serverMessageNotFound                 = "Not found"
+	serverMessageRequestBodyTooLarge      = "Request body too large"
+	serverMessageOnlyHTTPHTTPSURLsAllowed = "Only HTTP/HTTPS URLs are allowed"
+	serverMessageURLRequired              = "URL is required"
+	serverMessageUnsupportedPlatform      = "Unsupported platform"
+	serverMessageFailedToOpenURL          = "Failed to open URL"
 )
 
 // New creates and initializes a new server (does not start it)
@@ -143,10 +145,10 @@ func (s *Server) Start() (string, error) {
 		_ = listener.Close()
 		return "", err
 	}
-	s.httpServer.Handler = requestSecurityMiddleware(
+	s.httpServer.Handler = loggingMiddleware(requestSecurityMiddleware(
 		allowlist,
-		loggingMiddleware(corsMiddleware(allowlist, s.httpServer.Handler)),
-	)
+		corsMiddleware(allowlist, s.httpServer.Handler),
+	))
 	log.Printf("Starting server on %s", actualAddr)
 
 	go func() {
@@ -359,35 +361,57 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 }
 
 type requestAllowlist struct {
+	port    string
+	anyHost bool
 	hosts   map[string]struct{}
 	origins map[string]struct{}
 }
 
 func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
-	_, port, err := net.SplitHostPort(actualAddr)
+	bindHost, port, err := net.SplitHostPort(actualAddr)
 	if err != nil {
-		return requestAllowlist{}, fmt.Errorf("failed to determine listener port from %q: %w", actualAddr, err)
+		return requestAllowlist{}, fmt.Errorf("failed to determine listener address from %q: %w", actualAddr, err)
 	}
 
-	hosts := map[string]struct{}{
-		"localhost": {},
-		"127.0.0.1": {},
-		"[::1]":     {},
-	}
-	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
-		hosts[net.JoinHostPort(host, port)] = struct{}{}
+	bindHost = strings.ToLower(strings.Trim(bindHost, "[]"))
+	bindIP := net.ParseIP(bindHost)
+	// A wildcard or non-loopback bind (explicit SERVER_ALLOW_NONLOCAL opt-in)
+	// serves clients that name this machine in ways we cannot enumerate, so
+	// only the port can be matched there.
+	anyHost := bindHost == "" || (bindIP != nil && (bindIP.IsUnspecified() || !bindIP.IsLoopback()))
+
+	names := []string{"localhost", "127.0.0.1", "::1"}
+	if !anyHost && bindHost != "" {
+		names = append(names, bindHost)
 	}
 
-	origins := make(map[string]struct{}, len(hosts))
-	for host := range hosts {
-		origins["http://"+host] = struct{}{}
+	hosts := make(map[string]struct{})
+	origins := make(map[string]struct{})
+	for _, name := range names {
+		hostPort := net.JoinHostPort(name, port)
+		hosts[hostPort] = struct{}{}
+		origins["http://"+hostPort] = struct{}{}
+		// Browsers omit the port from Host and Origin only on the scheme
+		// default, so the port-less forms are valid solely on port 80.
+		if port == "80" {
+			bare := name
+			if strings.Contains(name, ":") {
+				bare = "[" + name + "]"
+			}
+			hosts[bare] = struct{}{}
+			origins["http://"+bare] = struct{}{}
+		}
 	}
 
-	return requestAllowlist{hosts: hosts, origins: origins}, nil
+	return requestAllowlist{port: port, anyHost: anyHost, hosts: hosts, origins: origins}, nil
 }
 
 func (a requestAllowlist) allowsHost(host string) bool {
-	_, ok := a.hosts[strings.ToLower(host)]
+	host = strings.ToLower(host)
+	if a.anyHost {
+		return hostPortEquals(host, a.port)
+	}
+	_, ok := a.hosts[host]
 	return ok
 }
 
@@ -395,11 +419,26 @@ func (a requestAllowlist) allowsOrigin(origin string) bool {
 	if origin == "" {
 		return true
 	}
-	if strings.HasPrefix(origin, "wails://") {
-		return true
+	origin = strings.ToLower(origin)
+	if a.anyHost {
+		hostPort, ok := strings.CutPrefix(origin, "http://")
+		if !ok {
+			return false
+		}
+		return hostPortEquals(hostPort, a.port)
 	}
-	_, ok := a.origins[strings.ToLower(origin)]
+	_, ok := a.origins[origin]
 	return ok
+}
+
+// hostPortEquals reports whether hostPort carries the given port, treating a
+// missing port as the http default of 80.
+func hostPortEquals(hostPort, port string) bool {
+	_, gotPort, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		gotPort = "80"
+	}
+	return gotPort == port
 }
 
 func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {
@@ -417,25 +456,26 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 			contentType := r.Header.Get(httpx.HeaderContentType)
 			if !httpx.IsHTMX(r) &&
 				!httpx.HasMediaType(contentType, httpx.MediaTypeJSON) &&
-				!httpx.HasMediaType(contentType, httpx.MediaTypeForm) {
+				!httpx.HasFormContentType(contentType) {
 				http.Error(w, serverMessageForbidden, http.StatusForbidden)
 				return
 			}
-		}
 
-		limitedBody := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-		body, err := io.ReadAll(limitedBody)
-		_ = limitedBody.Close()
-		if err != nil {
-			if _, ok := err.(*http.MaxBytesError); ok {
-				http.Error(w, serverMessageRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
+			limitedBody := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+			body, err := io.ReadAll(limitedBody)
+			_ = limitedBody.Close()
+			if err != nil {
+				var maxBytesErr *http.MaxBytesError
+				if errors.As(err, &maxBytesErr) {
+					http.Error(w, serverMessageRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
+					return
+				}
+				http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
 				return
 			}
-			http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
-			return
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.ContentLength = int64(len(body))
 		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		r.ContentLength = int64(len(body))
 
 		next.ServeHTTP(w, r)
 	})
