@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/importer"
+	"ride-home-router/web"
 	"strings"
 	"testing"
 )
@@ -46,6 +48,22 @@ func TestHandleMethods_RejectsUnsupportedMethod(t *testing.T) {
 	}
 	if rec.Body.String() != serverMessageMethodNotAllowed+"\n" {
 		t.Fatalf("body = %q, want %q", rec.Body.String(), serverMessageMethodNotAllowed+"\n")
+	}
+}
+
+func TestSetupRoutesRegistersImportEndpoints(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/imports", nil)
+	request.Host = "localhost:8080"
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want import handler response %d body=%q", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
 }
 

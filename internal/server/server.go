@@ -242,6 +242,8 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
 	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
 	mux.HandleFunc("/api/v1/config/routing-provider", handleMethods(handler.HandleGetRoutingProviderConfig, nil, handler.HandleUpdateRoutingProviderConfig, nil))
+	mux.HandleFunc("/api/v1/imports", handler.HandleCreateImport)
+	mux.HandleFunc("/api/v1/imports/", handler.HandleImportSession)
 	mux.HandleFunc("/api/v1/participants", handleMethods(handler.HandleListParticipants, handler.HandleCreateParticipant, nil, nil))
 	mux.HandleFunc("/api/v1/participants/labels/add", requireMethod(http.MethodPost, handler.HandleAddParticipantsToLabel))
 	mux.HandleFunc("/api/v1/participants/labels/remove", requireMethod(http.MethodPost, handler.HandleRemoveParticipantsFromLabel))
