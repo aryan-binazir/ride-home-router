@@ -304,6 +304,36 @@ test('preview opens a deduplicated pickup route without navigation mode', async 
     ]);
 });
 
+test('preview preserves ordered dropoff stops between the activity and driver', async () => {
+    const opened = [];
+    const { routeCard, stop } = createRouteFixture();
+    const secondStop = {
+        dataset: {
+            participantName: 'Riley Rider',
+            participantAddress: '6 Rider Street',
+            participantLat: '40.3',
+            participantLng: '-74.3',
+            stopCumulativeDurationSecs: '1200',
+        },
+        querySelector: () => null,
+    };
+    routeCard.querySelectorAll = selector => selector === '.stop-item'
+        ? nodeList([stop, secondStop])
+        : nodeList([]);
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async () => {},
+            openUrl: async url => opened.push(url),
+            notify: () => {},
+        },
+    });
+
+    assert.equal(await handoff.previewRoute(routeCard), true);
+    assert.deepEqual(opened, [
+        'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&origin=40.4%2C-74.4&waypoints=40.2%2C-74.2%7C40.3%2C-74.3',
+    ]);
+});
+
 test('preview reports a warning when no valid route can be built', async () => {
     const opened = [];
     const notifications = [];
