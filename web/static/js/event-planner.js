@@ -14,6 +14,47 @@
         writeDraft();
     }
 
+    function createRouteSessionOrchestrator({ getActiveSessionId, results, moves, saveForm }) {
+        let saveInFlight = false;
+
+        function applyEditResult({ requestedSessionId, ok, html }) {
+            if (!ok) {
+                results.reportError(html);
+                return false;
+            }
+            if (getActiveSessionId() !== requestedSessionId) {
+                return true;
+            }
+
+            results.render(html);
+            return true;
+        }
+
+        async function submitSaveWithQueuedMoves(form) {
+            if (saveInFlight) return true;
+            if (!moves.hasPending()) return false;
+
+            saveInFlight = true;
+            const values = saveForm.snapshot(form);
+            let flushed = false;
+            let liveForm = null;
+            try {
+                flushed = await moves.flush();
+            } finally {
+                liveForm = saveForm.findLive();
+                if (liveForm) saveForm.restore(liveForm, values);
+                saveInFlight = false;
+            }
+
+            if (flushed && liveForm && saveForm.canSubmit(liveForm)) {
+                saveForm.submit(liveForm);
+            }
+            return true;
+        }
+
+        return { applyEditResult, submitSaveWithQueuedMoves };
+    }
+
     const DROPOFF_ETA_SLACK_SECS = 2 * 60;
 
     function formatClockTime(value) {
@@ -355,10 +396,65 @@
             return container ? container.dataset.sessionId : null;
         }
 
+        let participantMoveBatcher;
+        const routeSessionOrchestrator = createRouteSessionOrchestrator({
+            getActiveSessionId: getSessionId,
+            results: {
+                render: function(html) {
+                    const routeResults = document.getElementById('results-section');
+                    if (!routeResults) return;
+
+                    routeResults.innerHTML = html;
+                    htmx.process(routeResults);
+                    populateStopEtas();
+                },
+                reportError: showRouteError,
+            },
+            moves: {
+                hasPending: function() {
+                    return participantMoveBatcher.hasPending();
+                },
+                flush: function() {
+                    return participantMoveBatcher.flush();
+                },
+            },
+            saveForm: {
+                snapshot: function(form) {
+                    return {
+                        event_date: form.elements.namedItem('event_date')?.value || '',
+                        notes: form.elements.namedItem('notes')?.value || '',
+                    };
+                },
+                findLive: function() {
+                    const sessionInput = document.querySelector('#results-section form input[name="session_id"]');
+                    return sessionInput ? sessionInput.closest('form') : null;
+                },
+                canSubmit: function(form) {
+                    const submitButton = form.querySelector('button[type="submit"]');
+                    return form.getAttribute('hx-post') === '/api/v1/events' && !submitButton?.disabled;
+                },
+                restore: function(form, values) {
+                    const eventDate = form.elements.namedItem('event_date');
+                    const notes = form.elements.namedItem('notes');
+                    if (eventDate) eventDate.value = values.event_date;
+                    if (notes) notes.value = values.notes;
+                },
+                submit: function(form) {
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit();
+                        return;
+                    }
+
+                    const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                    if (form.dispatchEvent(submitEvent)) form.submit();
+                },
+            },
+        });
+
         /**
          * Moves a participant from one route to another
          */
-        const participantMoveBatcher = createParticipantMoveBatcher({
+        participantMoveBatcher = createParticipantMoveBatcher({
             sendBatch: async function(payload) {
                 try {
                     const response = await fetch('/api/v1/routes/edit/move-participant', {
@@ -371,17 +467,11 @@
                     });
 
                     const html = await response.text();
-                    if (!response.ok) {
-                        showRouteError(html);
-                        return false;
-                    }
-
-                    const routeResults = document.getElementById('results-section');
-                    if (routeResults && getSessionId() === payload.session_id) {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                    return true;
+                    return routeSessionOrchestrator.applyEditResult({
+                        requestedSessionId: payload.session_id,
+                        ok: response.ok,
+                        html,
+                    });
                 } catch (err) {
                     console.error('Failed to move participant:', err);
                     showRouteError('Failed to move participant: ' + err.message);
@@ -408,42 +498,19 @@
             });
         }
 
-        function hasQueuedParticipantMoves() {
-            return participantMoveBatcher.hasPending();
-        }
-
-        async function flushQueuedParticipantMoves() {
-            return participantMoveBatcher.flush();
-        }
-
         function isSaveEventForm(form) {
             return form instanceof HTMLFormElement && form.getAttribute('hx-post') === '/api/v1/events';
         }
 
         document.addEventListener('submit', async function(evt) {
             const form = evt.target;
-            if (!isSaveEventForm(form) || !hasQueuedParticipantMoves() || form.dataset.pendingMoveFlush === 'true') {
+            if (!isSaveEventForm(form) || !participantMoveBatcher.hasPending()) {
                 return;
             }
 
             evt.preventDefault();
             evt.stopImmediatePropagation();
-            form.dataset.pendingMoveFlush = 'true';
-
-            const flushed = await flushQueuedParticipantMoves();
-            delete form.dataset.pendingMoveFlush;
-            if (!flushed) {
-                return;
-            }
-
-            if (typeof form.requestSubmit === 'function') {
-                form.requestSubmit(evt.submitter || undefined);
-            } else {
-                const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                if (form.dispatchEvent(submitEvent)) {
-                    form.submit();
-                }
-            }
+            await routeSessionOrchestrator.submitSaveWithQueuedMoves(form);
         }, true);
 
         /**
@@ -479,15 +546,11 @@
                 });
 
                 const html = await response.text();
-                const routeResults = document.getElementById('results-section');
-                if (routeResults) {
-                    if (!response.ok) {
-                        showRouteError(html);
-                    } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                }
+                routeSessionOrchestrator.applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    html,
+                });
             } catch (err) {
                 console.error('Failed to swap drivers:', err);
                 showRouteError('Failed to swap drivers: ' + err.message);
@@ -513,15 +576,11 @@
                 });
 
                 const html = await response.text();
-                const routeResults = document.getElementById('results-section');
-                if (routeResults) {
-                    if (!response.ok) {
-                        showRouteError(html);
-                    } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                }
+                routeSessionOrchestrator.applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    html,
+                });
             } catch (err) {
                 console.error('Failed to reset routes:', err);
                 showRouteError('Failed to reset routes: ' + err.message);
@@ -552,15 +611,11 @@
                 });
 
                 const html = await response.text();
-                const routeResults = document.getElementById('results-section');
-                if (routeResults) {
-                    if (!response.ok) {
-                        showRouteError(html);
-                    } else {
-                        routeResults.innerHTML = html;
-                        populateStopEtas();
-                    }
-                }
+                routeSessionOrchestrator.applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    html,
+                });
             } catch (err) {
                 console.error('Failed to add driver:', err);
                 showRouteError('Failed to add driver: ' + err.message);
@@ -1489,6 +1544,7 @@
 
     return {
         createParticipantMoveBatcher,
+        createRouteSessionOrchestrator,
         formatRouteText,
         generateMapsUrl,
         getStopEta,
