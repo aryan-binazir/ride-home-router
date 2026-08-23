@@ -8,6 +8,7 @@ import (
 	"ride-home-router/internal/models"
 	"slices"
 	"testing"
+	"time"
 )
 
 type countingSolveDistanceCalculator struct {
@@ -531,6 +532,44 @@ func TestMaximizeNonemptyRoutes_UsesAugmentingRelocationChain(t *testing.T) {
 				t.Fatalf("cap-2 driver household split: %q/%q", routes[2].stops[0].Address, routes[2].stops[1].Address)
 			}
 		})
+	}
+}
+
+func TestMaximizeNonemptyRoutes_AllSingletonRoutesReturnQuickly(t *testing.T) {
+	const singletonCount = 6
+
+	routes := make(map[int64]*balancedRoute, singletonCount+1)
+	driverIDs := make([]int64, 0, singletonCount+1)
+	for id := int64(1); id <= singletonCount+1; id++ {
+		driver := driverAtBearing(id, float64(id), 1)
+		route := &balancedRoute{driver: driver}
+		if id <= singletonCount {
+			route.stops = []*models.Participant{{
+				ID:      id,
+				Name:    fmt.Sprintf("Rider %d", id),
+				Address: fmt.Sprintf("Household %d", id),
+			}}
+		}
+		routes[id] = route
+		driverIDs = append(driverIDs, id)
+	}
+
+	started := time.Now()
+	repairs, err := (&BalancedRouter{}).maximizeNonemptyRoutes(
+		context.Background(),
+		newRouteContext(stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff),
+		routes,
+		driverIDs,
+	)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("maximizeNonemptyRoutes() error = %v", err)
+	}
+	if repairs != 0 {
+		t.Fatalf("repair count = %d, want 0", repairs)
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("maximizeNonemptyRoutes() took %v, want under 1s", elapsed)
 	}
 }
 

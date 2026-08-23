@@ -15,7 +15,8 @@ import (
 )
 
 // BalancedRouter assigns participants under vehicle and household constraints,
-// then improves the complete solution using the participant-first objective.
+// then improves the complete solution with driver utilization first, corridor
+// coherence second, and time tiers last.
 type BalancedRouter struct {
 	distanceCalc distance.SolveSource
 }
@@ -23,9 +24,11 @@ type BalancedRouter struct {
 const (
 	scoreImprovementEpsilon           = 0.001
 	maxAssignmentCandidateEvaluations = 10000
+	maxNonemptyRouteSearchNodes       = 10000
 )
 
-// NewBalancedRouter creates a participant-first bounded-search router.
+// NewBalancedRouter creates a bounded-search router that prioritizes driver
+// utilization first, corridor coherence second, and time tiers last.
 func NewBalancedRouter(distanceCalc distance.SolveSource) Router {
 	return &BalancedRouter{
 		distanceCalc: distanceCalc,
@@ -86,8 +89,8 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		unassigned[i] = &req.Participants[i]
 	}
 
-	// Phase 1: Build a feasible rider-score seed. The complete lexicographic
-	// objective is applied by the ordering and assignment phases below.
+	// Phase 1: Build a feasible bearing-sweep seed. Later phases apply driver
+	// utilization first, corridor coherence second, and time tiers last.
 	phase1Start := time.Now()
 	seedName := "bearing-sweep"
 	if r.bearingSweepInsertion(req.InstituteCoords, routes, driverIDs, unassigned) {
@@ -352,12 +355,32 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 	orderedDriverIDs := slices.Clone(driverIDs)
 	slices.Sort(orderedDriverIDs)
 	repairs := 0
+	searchNodes := 0
+	budgetExhausted := false
+
+	hasUnvisitedMultiBlockRoute := func(stops map[int64][]*models.Participant, visited map[int64]struct{}) bool {
+		for _, driverID := range orderedDriverIDs {
+			if _, alreadyVisited := visited[driverID]; alreadyVisited {
+				continue
+			}
+			if len(routeHouseholdBlocks(stops[driverID])) >= 2 {
+				return true
+			}
+		}
+		return false
+	}
 
 	for {
 		baseStops := make(map[int64][]*models.Participant, len(orderedDriverIDs))
-		baseMetrics := make(map[int64]routeObjectiveMetrics, len(orderedDriverIDs))
 		for _, driverID := range orderedDriverIDs {
 			baseStops[driverID] = slices.Clone(routes[driverID].stops)
+		}
+		if !hasUnvisitedMultiBlockRoute(baseStops, nil) {
+			return repairs, nil
+		}
+
+		baseMetrics := make(map[int64]routeObjectiveMetrics, len(orderedDriverIDs))
+		for _, driverID := range orderedDriverIDs {
 			metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
 			if err != nil {
 				return repairs, err
@@ -369,7 +392,16 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 
 		var search func(int64, map[int64][]*models.Participant, map[int64]struct{}) error
 		search = func(emptyDriverID int64, workingStops map[int64][]*models.Participant, visited map[int64]struct{}) error {
+			if searchNodes >= maxNonemptyRouteSearchNodes {
+				budgetExhausted = true
+				return nil
+			}
+			searchNodes++
+
 			for _, sourceDriverID := range orderedDriverIDs {
+				if budgetExhausted {
+					return nil
+				}
 				if sourceDriverID == emptyDriverID {
 					continue
 				}
@@ -391,6 +423,10 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 					if len(candidateStops[sourceDriverID]) == 0 {
 						candidateVisited := maps.Clone(visited)
 						candidateVisited[emptyDriverID] = struct{}{}
+						if !hasUnvisitedMultiBlockRoute(candidateStops, candidateVisited) {
+							sourcePosition += groupSize
+							continue
+						}
 						if err := search(sourceDriverID, candidateStops, candidateVisited); err != nil {
 							return err
 						}
@@ -420,8 +456,14 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 			if len(baseStops[emptyDriverID]) != 0 {
 				continue
 			}
+			if !hasUnvisitedMultiBlockRoute(baseStops, nil) {
+				return repairs, nil
+			}
 			if err := search(emptyDriverID, baseStops, map[int64]struct{}{}); err != nil {
 				return repairs, err
+			}
+			if budgetExhausted {
+				break
 			}
 		}
 		if !best.found {
@@ -431,6 +473,9 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 			routes[driverID].stops = best.stops[driverID]
 		}
 		repairs++
+		if budgetExhausted {
+			return repairs, nil
+		}
 	}
 }
 
