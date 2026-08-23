@@ -2,22 +2,33 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 )
 
-func prewarmRoutingDistances(ctx context.Context, calc distance.DistanceCalculator, req *RoutingRequest, mode RouteMode) error {
-	pairs := collectRoutingPrewarmPairs(mode, req.InstituteCoords, req.Participants, req.Drivers)
-	return distance.PrewarmRoutingPairs(ctx, calc, pairs)
+// prepareSolveDistances collects and prewarms the directed pairs needed by one
+// solve, then returns an isolated lookup that loads each pair at most once.
+func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {
+	pairs := collectSolveDistancePairs(normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
+	if len(pairs) > 0 {
+		if err := source.PrewarmPairs(ctx, pairs); err != nil {
+			return nil, err
+		}
+	}
+
+	return &solveDistanceLookup{
+		source: source,
+		values: make(map[string]distance.DistanceResult),
+	}, nil
 }
 
-func collectRoutingPrewarmPairs(mode RouteMode, institute models.Coordinates, participants []models.Participant, drivers []models.Driver) []distance.DistancePair {
+func collectSolveDistancePairs(mode RouteMode, institute models.Coordinates, participants []models.Participant, drivers []models.Driver) []distance.DistancePair {
 	seen := make(map[string]struct{})
 	pairs := make([]distance.DistancePair, 0)
 
 	addPair := func(origin, dest models.Coordinates) {
-		if models.RoundCoordinate(origin.Lat) == models.RoundCoordinate(dest.Lat) &&
-			models.RoundCoordinate(origin.Lng) == models.RoundCoordinate(dest.Lng) {
+		if distance.SamePoint(origin, dest) {
 			return
 		}
 		key := distance.PairCacheKey(origin, dest)
@@ -76,4 +87,29 @@ func collectRoutingPrewarmPairs(mode RouteMode, institute models.Coordinates, pa
 	}
 
 	return pairs
+}
+
+// solveDistanceLookup is isolated to one synchronous routing solve.
+type solveDistanceLookup struct {
+	source distance.Lookup
+	values map[string]distance.DistanceResult
+}
+
+func (l *solveDistanceLookup) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	key := distance.PairCacheKey(origin, dest)
+	if cached, ok := l.values[key]; ok {
+		result := cached
+		return &result, nil
+	}
+
+	result, err := l.source.GetDistance(ctx, origin, dest)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, errors.New("distance lookup returned no result")
+	}
+	l.values[key] = *result
+	resultCopy := *result
+	return &resultCopy, nil
 }

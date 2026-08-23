@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
+	"ride-home-router/internal/routing"
 	"sync"
 	"testing"
 	"time"
@@ -19,44 +20,14 @@ func (calculator) GetDistance(_ context.Context, origin, dest models.Coordinates
 	return &distance.DistanceResult{DistanceMeters: d, DurationSecs: d}, nil
 }
 
-func (c calculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	result := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		result[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			d, _ := c.GetDistance(ctx, points[i], points[j])
-			result[i][j] = *d
-		}
-	}
-	return result, nil
+func (calculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
+	return nil
 }
-
-func (c calculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	result := make([]distance.DistanceResult, len(destinations))
-	for i := range destinations {
-		d, _ := c.GetDistance(ctx, origin, destinations[i])
-		result[i] = *d
-	}
-	return result, nil
-}
-func (calculator) PrewarmCache(context.Context, []models.Coordinates) error { return nil }
 
 type failingCalculator struct{ err error }
 
 func (c failingCalculator) GetDistance(context.Context, models.Coordinates, models.Coordinates) (*distance.DistanceResult, error) {
 	return nil, c.err
-}
-
-func (c failingCalculator) GetDistanceMatrix(context.Context, []models.Coordinates) ([][]distance.DistanceResult, error) {
-	return nil, c.err
-}
-
-func (c failingCalculator) GetDistancesFromPoint(context.Context, models.Coordinates, []models.Coordinates) ([]distance.DistanceResult, error) {
-	return nil, c.err
-}
-
-func (c failingCalculator) PrewarmCache(context.Context, []models.Coordinates) error {
-	return c.err
 }
 
 type blockingCalculator struct {
@@ -79,16 +50,6 @@ func (c *blockingCalculator) GetDistance(ctx context.Context, origin, dest model
 		return nil, ctx.Err()
 	}
 }
-
-func (c *blockingCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	return calculator{}.GetDistanceMatrix(ctx, points)
-}
-
-func (c *blockingCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	return calculator{}.GetDistancesFromPoint(ctx, origin, destinations)
-}
-
-func (c *blockingCalculator) PrewarmCache(context.Context, []models.Coordinates) error { return nil }
 
 func (c *blockingCalculator) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
 
@@ -114,6 +75,41 @@ func TestCreateReturnsIndependentFreshSnapshot(t *testing.T) {
 	}
 	if got.Routes[0].Driver.Name != "Driver" || got.ActivityLocation.Name != "HQ" {
 		t.Fatalf("snapshot aliases caller state: %#v", got)
+	}
+}
+
+func TestCreateSummaryMatchesCalculatedRoutingSummary(t *testing.T) {
+	calc := calculator{}
+	request := &routing.RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 10, Name: "Rider", Lat: 1, Lng: 1},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver", Lat: 2, Lng: 0, VehicleCapacity: 1},
+		},
+		Mode: routing.RouteModeDropoff,
+	}
+	result, err := routing.NewBalancedRouter(calc).CalculateRoutes(context.Background(), request)
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+	if result.Summary.MaxDetourSecs <= 0 {
+		t.Fatalf("calculated max detour = %.1f, want nonzero fixture", result.Summary.MaxDetourSecs)
+	}
+
+	store := routesession.NewStore(calc)
+	t.Cleanup(store.Close)
+	snapshot := store.Create(routesession.CreateInput{
+		Routes:          result.Routes,
+		SelectedDrivers: request.Drivers,
+		Mode:            result.Mode,
+	})
+
+	if snapshot.Summary.MaxDetourSecs != result.Summary.MaxDetourSecs ||
+		snapshot.Summary.SumDetourSecs != result.Summary.SumDetourSecs ||
+		snapshot.Summary.AverageDetourSecs != result.Summary.AverageDetourSecs {
+		t.Fatalf("session detour summary = %+v, want calculation summary %+v", snapshot.Summary, result.Summary)
 	}
 }
 
@@ -395,26 +391,222 @@ func TestSwapResetAndAddDriverOperateThroughSnapshots(t *testing.T) {
 	}
 }
 
-func TestSaveSnapshotRejectsUnbalancedAndReturnsIndependentPayload(t *testing.T) {
+func TestCommitRejectsUnbalancedWithoutPersistence(t *testing.T) {
 	store := routesession.NewStore(calculator{})
 	t.Cleanup(store.Close)
 	routes := testRoutes()
 	routes[0].EffectiveCapacity = 0
 	routes[0].Driver.VehicleCapacity = 0
 	created := store.Create(routesession.CreateInput{Routes: routes, ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
-	if _, err := store.SaveSnapshot(created.ID); !errors.Is(err, routesession.ErrUnbalanced) {
-		t.Fatalf("SaveSnapshot error = %v, want ErrUnbalanced", err)
+	called := false
+
+	err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+		called = true
+		return nil
+	})
+
+	if !errors.Is(err, routesession.ErrUnbalanced) {
+		t.Fatalf("Commit error = %v, want ErrUnbalanced", err)
+	}
+	if called {
+		t.Fatal("Commit invoked persistence for an unbalanced session")
+	}
+}
+
+func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+	wantErr := errors.New("persistence failed")
+
+	err := store.Commit(context.Background(), created.ID, func(_ context.Context, payload models.RoutingResult) error {
+		payload.Routes[0].Driver.ID = 999
+		return wantErr
+	})
+
+	if err != wantErr {
+		t.Fatalf("Commit error = %v, want callback error", err)
+	}
+	got, ok := store.Snapshot(created.ID)
+	if !ok {
+		t.Fatal("session was removed after persistence failed")
+	}
+	if got.Routes[0].Driver.ID != 1 {
+		t.Fatalf("session driver ID = %d, want independent value 1", got.Routes[0].Driver.ID)
+	}
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); err != nil {
+		t.Fatalf("retry Commit error = %v", err)
+	}
+}
+
+func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+	if _, ok := store.Snapshot(created.ID); ok {
+		t.Fatal("session remains available after successful Commit")
+	}
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+		t.Fatal("second Commit invoked persistence")
+		return nil
+	}); !errors.Is(err, routesession.ErrAlreadyCommitted) {
+		t.Fatalf("second Commit error = %v, want ErrAlreadyCommitted", err)
+	}
+}
+
+func TestCommitWaitsForInFlightEditAndPersistsItsResult(t *testing.T) {
+	calc := newBlockingCalculator()
+	defer calc.unblock()
+	store := routesession.NewStore(calc)
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+
+	editDone := make(chan error, 1)
+	go func() {
+		_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
+			ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
+		}}, routesession.ApplyMovesOptions{})
+		editDone <- err
+	}()
+	<-calc.started
+
+	commitDone := make(chan error, 1)
+	var persisted models.RoutingResult
+	go func() {
+		commitDone <- store.Commit(context.Background(), created.ID, func(_ context.Context, payload models.RoutingResult) error {
+			persisted = payload
+			return nil
+		})
+	}()
+	select {
+	case err := <-commitDone:
+		t.Fatalf("Commit returned before the in-flight edit: %v", err)
+	case <-time.After(50 * time.Millisecond):
 	}
 
-	balanced := store.Create(testInput())
-	payload, err := store.SaveSnapshot(balanced.ID)
-	if err != nil {
-		t.Fatalf("SaveSnapshot: %v", err)
+	calc.unblock()
+	if err := <-editDone; err != nil {
+		t.Fatalf("ApplyMoves error = %v", err)
 	}
-	payload.Routes[0].Driver.ID = 999
-	got, _ := store.Snapshot(balanced.ID)
-	if got.Routes[0].Driver.ID != 1 {
-		t.Fatal("saved payload aliases stored routes")
+	if err := <-commitDone; err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+	if len(persisted.Routes[0].Stops) != 0 || len(persisted.Routes[1].Stops) != 1 {
+		t.Fatalf("persisted routes did not include completed edit: %#v", persisted.Routes)
+	}
+}
+
+func TestCommitRejectsEditThatArrivesDuringPersistence(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+	persistStarted := make(chan struct{})
+	releasePersist := make(chan struct{})
+	commitDone := make(chan error, 1)
+	var persisted models.RoutingResult
+	go func() {
+		commitDone <- store.Commit(context.Background(), created.ID, func(_ context.Context, payload models.RoutingResult) error {
+			persisted = payload
+			close(persistStarted)
+			<-releasePersist
+			return nil
+		})
+	}()
+	<-persistStarted
+
+	editDone := make(chan error, 1)
+	go func() {
+		_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
+			ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
+		}}, routesession.ApplyMovesOptions{})
+		editDone <- err
+	}()
+	select {
+	case err := <-editDone:
+		t.Fatalf("ApplyMoves returned during persistence: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releasePersist)
+	if err := <-commitDone; err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+	if err := <-editDone; !errors.Is(err, routesession.ErrNotFound) {
+		t.Fatalf("ApplyMoves error = %v, want ErrNotFound", err)
+	}
+	if len(persisted.Routes[0].Stops) != 1 || len(persisted.Routes[1].Stops) != 0 {
+		t.Fatalf("persisted payload includes blocked edit: %#v", persisted.Routes)
+	}
+}
+
+func TestCommitDoesNotBlockOtherSessions(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	committing := store.Create(testInput())
+	other := store.Create(testInput())
+	persistStarted := make(chan struct{})
+	releasePersist := make(chan struct{})
+	commitDone := make(chan error, 1)
+	go func() {
+		commitDone <- store.Commit(context.Background(), committing.ID, func(context.Context, models.RoutingResult) error {
+			close(persistStarted)
+			<-releasePersist
+			return nil
+		})
+	}()
+	<-persistStarted
+
+	otherDone := make(chan bool, 1)
+	go func() {
+		_, ok := store.Snapshot(other.ID)
+		otherDone <- ok
+	}()
+	select {
+	case ok := <-otherDone:
+		if !ok {
+			t.Fatal("other session disappeared during Commit")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Commit blocked access to another session")
+	}
+
+	close(releasePersist)
+	if err := <-commitDone; err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+}
+
+func TestCommitUnlocksSessionWhenPersistencePanics(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+	panicDone := make(chan any, 1)
+	go func() {
+		defer func() { panicDone <- recover() }()
+		_ = store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+			panic("persistence panic")
+		})
+	}()
+	if recovered := <-panicDone; recovered != "persistence panic" {
+		t.Fatalf("recovered panic = %v, want persistence panic", recovered)
+	}
+
+	snapshotDone := make(chan bool, 1)
+	go func() {
+		_, ok := store.Snapshot(created.ID)
+		snapshotDone <- ok
+	}()
+	select {
+	case ok := <-snapshotDone:
+		if !ok {
+			t.Fatal("session disappeared after persistence panic")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session remained locked after persistence panic")
 	}
 }
 

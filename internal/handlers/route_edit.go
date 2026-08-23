@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 )
 
@@ -18,17 +17,12 @@ type participantMove struct {
 	InsertAtPosition int   `json:"insert_at_position"`
 }
 
-func buildRoutingPayload(routes []models.CalculatedRoute, summary models.RoutingSummary, mode models.RouteMode) models.RoutingResult {
-	return models.RoutingResult{Routes: routes, Summary: summary, Mode: mode}
-}
-
 func buildRouteResultsView(snapshot routesession.Snapshot) RouteResultsView {
 	return RouteResultsView{
 		Routes: snapshot.Routes, OverCapacity: snapshot.OverCapacity, IsOutOfBalance: snapshot.IsOutOfBalance,
 		Summary: snapshot.Summary, UseMiles: snapshot.UseMiles, ActivityLocation: snapshot.ActivityLocation,
 		RouteTime: snapshot.RouteTime, SessionID: snapshot.ID, IsEditing: snapshot.IsEditing,
 		UnusedDrivers: snapshot.UnusedDrivers, Mode: string(snapshot.Mode),
-		RoutingPayload: buildRoutingPayload(snapshot.Routes, snapshot.Summary, snapshot.Mode),
 	}
 }
 
