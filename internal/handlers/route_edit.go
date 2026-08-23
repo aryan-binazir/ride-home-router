@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/routesession"
 )
 
@@ -35,7 +35,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		InsertAtPosition int               `json:"insert_at_position"`
 		Moves            []participantMove `json:"moves"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
@@ -78,7 +78,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 		RouteIndex1 int    `json:"route_index_1"`
 		RouteIndex2 int    `json:"route_index_2"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
@@ -116,7 +116,7 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 		DriverID  int64  `json:"driver_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}

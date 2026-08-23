@@ -320,18 +320,58 @@ func TestSwapDriversRejectsCapacityAndRollsBackDistanceFailure(t *testing.T) {
 	}
 }
 
+func TestSwapDriversMovesEffectiveCapacityWithDrivers(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	routes := testRoutes()
+	routes[0].EffectiveCapacity = 2
+	routes[1].EffectiveCapacity = 7
+	created := store.Create(routesession.CreateInput{Routes: routes, ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+
+	swapped, err := store.SwapDrivers(context.Background(), created.ID, 0, 1)
+	if err != nil {
+		t.Fatalf("SwapDrivers: %v", err)
+	}
+	if swapped.Routes[0].Driver.ID != 2 || swapped.Routes[0].EffectiveCapacity != 7 || swapped.Routes[1].Driver.ID != 1 || swapped.Routes[1].EffectiveCapacity != 2 {
+		t.Fatalf("vehicle capacities did not move with drivers: %#v", swapped.Routes)
+	}
+}
+
+func TestSwapDriversMovesOrgVehicleWithDriver(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	routes := testRoutes()
+	routes[0].EffectiveCapacity = 7
+	routes[0].OrgVehicleID = 30
+	routes[0].OrgVehicleName = "Van"
+	created := store.Create(routesession.CreateInput{Routes: routes, ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+
+	swapped, err := store.SwapDrivers(context.Background(), created.ID, 0, 1)
+	if err != nil {
+		t.Fatalf("SwapDrivers: %v", err)
+	}
+	if swapped.Routes[1].Driver.ID != 1 || swapped.Routes[1].EffectiveCapacity != 7 || swapped.Routes[1].OrgVehicleID != 30 || swapped.Routes[1].OrgVehicleName != "Van" {
+		t.Fatalf("org vehicle did not move with driver: %#v", swapped.Routes)
+	}
+	if swapped.Routes[0].Driver.ID != 2 || swapped.Routes[0].OrgVehicleID != 0 || swapped.Routes[0].OrgVehicleName != "" {
+		t.Fatalf("org vehicle remained on old route: %#v", swapped.Routes)
+	}
+}
+
 func TestSwapResetAndAddDriverOperateThroughSnapshots(t *testing.T) {
 	store := routesession.NewStore(calculator{})
 	t.Cleanup(store.Close)
 	drivers := []models.Driver{{ID: 1, VehicleCapacity: 2}, {ID: 2, VehicleCapacity: 2}, {ID: 3, VehicleCapacity: 1}}
+	routes := testRoutes()
+	routes[1].EffectiveCapacity = 1
 	created := store.Create(routesession.CreateInput{
-		Routes: testRoutes(), SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{},
+		Routes: routes, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{},
 		RouteTime: "18:30", Mode: models.RouteModeDropoff,
 		DriverOrgVehicles: map[int64]*models.OrganizationVehicle{3: {ID: 30, Name: "Van", Capacity: 5}},
 	})
 
 	swapped, err := store.SwapDrivers(context.Background(), created.ID, 0, 1)
-	if err != nil || swapped.Routes[0].Driver.ID != 2 || !swapped.IsEditing {
+	if err != nil || swapped.Routes[0].Driver.ID != 2 || swapped.Routes[0].EffectiveCapacity != 1 || swapped.Routes[1].EffectiveCapacity != 2 || !swapped.IsEditing {
 		t.Fatalf("SwapDrivers = %#v, %v", swapped, err)
 	}
 	added, err := store.AddDriver(context.Background(), created.ID, 3)

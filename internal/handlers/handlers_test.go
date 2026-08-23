@@ -3,10 +3,32 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/geocoding"
+	"ride-home-router/internal/httpx"
+	"strings"
 	"testing"
 )
+
+var errAddressSearchGeocodeUnused = errors.New("address search geocoder does not implement geocoding")
+
+type addressSearchGeocoder struct {
+	results []geocoding.GeocodingResult
+}
+
+func (g addressSearchGeocoder) Geocode(context.Context, string) (*geocoding.GeocodingResult, error) {
+	return nil, errAddressSearchGeocodeUnused
+}
+
+func (g addressSearchGeocoder) GeocodeWithRetry(context.Context, string, int) (*geocoding.GeocodingResult, error) {
+	return nil, errAddressSearchGeocodeUnused
+}
+
+func (g addressSearchGeocoder) Search(context.Context, string, int) ([]geocoding.GeocodingResult, error) {
+	return g.results, nil
+}
 
 type triggerHeader struct {
 	ShowToast struct {
@@ -67,4 +89,42 @@ func TestSetHTMXToastWithEvent_SetsToastAndEvent(t *testing.T) {
 	if got.ShowToast.Type != toastTypeSuccess {
 		t.Fatalf("toast type = %q, want %q", got.ShowToast.Type, toastTypeSuccess)
 	}
+}
+
+func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
+	handler := &Handler{
+		Geocoder: addressSearchGeocoder{results: []geocoding.GeocodingResult{
+			{FormattedAddress: "123 Main Street"},
+		}},
+		Renderer: loadEmbeddedTemplates(t),
+	}
+
+	t.Run("non-HTMX request is forbidden", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
+		rec := httptest.NewRecorder()
+
+		handler.HandleAddressSearch(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+		}
+	})
+
+	t.Run("HTMX request renders address suggestions HTML", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
+		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
+		rec := httptest.NewRecorder()
+
+		handler.HandleAddressSearch(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if got := rec.Header().Get(httpx.HeaderContentType); got != httpx.MediaTypeHTML {
+			t.Fatalf("Content-Type = %q, want %q", got, httpx.MediaTypeHTML)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "123 Main Street") {
+			t.Fatalf("body = %q, want rendered address suggestion", body)
+		}
+	})
 }

@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"ride-home-router/internal/models"
 	"strings"
 	"time"
@@ -95,16 +94,13 @@ const (
 	nominatimRateInterval = 1 * time.Second
 )
 
-// NewNominatimGeocoder creates a geocoder using Nominatim as primary with Census as fallback
+// NewNominatimGeocoder creates a geocoder using Nominatim
 func NewNominatimGeocoder() Geocoder {
 	httpClient := &http.Client{
 		Timeout: geocoderClientTimeout,
 	}
 
-	return &fallbackGeocoder{
-		primary:  newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(nominatimRateInterval)),
-		fallback: newCensusGeocoder("https://geocoding.geo.census.gov", httpClient),
-	}
+	return newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(nominatimRateInterval))
 }
 
 func newNominatimGeocoder(baseURL string, httpClient *http.Client, rateLimiter *time.Ticker) *nominatimGeocoder {
@@ -420,12 +416,6 @@ var usStateAbbreviations = map[string]string{
 	"wyoming":              "WY",
 }
 
-var (
-	usStateCodePattern   = regexp.MustCompile(`\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b`)
-	usZIPCodePattern     = regexp.MustCompile(`\b\d{5}(?:-\d{4})?\b`)
-	addressNumberPattern = regexp.MustCompile(`\d`)
-)
-
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
 	var lastErr error
 
@@ -451,27 +441,4 @@ func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geoco
 
 	log.Printf("[ERROR] Geocoding failed after %d retries: address=%s err=%v", maxRetries, address, lastErr)
 	return nil, lastErr
-}
-
-func isNoResultsError(err error) bool {
-	return errors.Is(err, ErrNoGeocodingResults)
-}
-
-func looksLikeUSAddressQuery(query string) bool {
-	trimmed := strings.TrimSpace(query)
-	if trimmed == "" || !addressNumberPattern.MatchString(trimmed) {
-		return false
-	}
-
-	normalized := strings.ToUpper(strings.NewReplacer(",", " ", ".", " ").Replace(trimmed))
-	return usZIPCodePattern.MatchString(normalized) || usStateCodePattern.MatchString(normalized)
-}
-
-func isSpecificUSAddressQuery(query string) bool {
-	trimmed := strings.TrimSpace(query)
-	if !looksLikeUSAddressQuery(trimmed) {
-		return false
-	}
-
-	return usZIPCodePattern.MatchString(trimmed) || strings.Count(trimmed, ",") >= 2
 }

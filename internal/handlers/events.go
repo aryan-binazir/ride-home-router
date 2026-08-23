@@ -233,7 +233,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			req.Routes = routes
 		}
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return

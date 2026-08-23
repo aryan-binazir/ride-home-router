@@ -197,6 +197,9 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 		return Snapshot{}, ErrSwapCapacity
 	}
 	route1.Driver, route2.Driver = route2.Driver, route1.Driver
+	route1.EffectiveCapacity, route2.EffectiveCapacity = route2.EffectiveCapacity, route1.EffectiveCapacity
+	route1.OrgVehicleID, route2.OrgVehicleID = route2.OrgVehicleID, route1.OrgVehicleID
+	route1.OrgVehicleName, route2.OrgVehicleName = route2.OrgVehicleName, route1.OrgVehicleName
 	if err := s.recalculateRoute(ctx, state, route1); err != nil {
 		state.currentRoutes = backup
 		return Snapshot{}, err
