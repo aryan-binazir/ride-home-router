@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -106,14 +107,14 @@ func (s *Store) initSchema() error {
 	var version int
 	err := s.db.QueryRowContext(context.Background(), "SELECT version FROM schema_version LIMIT 1").Scan(&version)
 	if err != nil {
-		return s.createSchema()
+		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table: schema_version") {
+			return s.createSchema()
+		}
+		return fmt.Errorf("failed to read schema version: %w", err)
 	}
 
-	// Run migrations if needed
-	if version < schemaVersion {
-		if err := s.runMigrations(version); err != nil {
-			return err
-		}
+	if err := s.runMigrations(); err != nil {
+		return err
 	}
 
 	return nil
@@ -290,6 +291,9 @@ func (s *Store) createSchema() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version"); err != nil {
+		return fmt.Errorf("failed to clear schema version: %w", err)
+	}
 	if _, err := tx.ExecContext(context.Background(), "INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
 		return fmt.Errorf("failed to record schema version: %w", err)
 	}
@@ -302,12 +306,36 @@ func (s *Store) createSchema() error {
 	return nil
 }
 
-func (s *Store) runMigrations(fromVersion int) error {
+func (s *Store) runMigrations() error {
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin migration transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// A table poisoned with multiple rows (older builds could insert the
+	// current version alongside the real one) always has the true schema
+	// version as its MINIMUM: the extra row was written without running any
+	// migration, and real migrations commit atomically with their version.
+	// Resuming from MIN re-runs only guarded, idempotent steps.
+	var fromVersion, versionRows int
+	if err := tx.QueryRowContext(context.Background(), `
+		SELECT COALESCE(MIN(version), 0), COUNT(*) FROM schema_version
+	`).Scan(&fromVersion, &versionRows); err != nil {
+		return fmt.Errorf("failed to inspect schema versions: %w", err)
+	}
+	if versionRows > 1 {
+		if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version WHERE version <> ?", fromVersion); err != nil {
+			return fmt.Errorf("failed to repair schema versions: %w", err)
+		}
+	}
+
+	if fromVersion >= schemaVersion {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit schema version repair: %w", err)
+		}
+		return nil
+	}
 
 	if fromVersion < 2 {
 		legacyTables := []string{"event_assignments", "event_summaries", "events"}
@@ -442,8 +470,11 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 	}
 
-	if _, err := tx.ExecContext(context.Background(), "UPDATE schema_version SET version = ?", schemaVersion); err != nil {
-		return fmt.Errorf("failed to update schema version: %w", err)
+	if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version"); err != nil {
+		return fmt.Errorf("failed to clear schema version: %w", err)
+	}
+	if _, err := tx.ExecContext(context.Background(), "INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
+		return fmt.Errorf("failed to record schema version: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

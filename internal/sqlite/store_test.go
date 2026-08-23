@@ -5,8 +5,97 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestNewInitializesSingleSchemaVersionRow(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	assertSchemaVersionState(t, store.db, schemaVersion, 1)
+}
+
+func TestNewRepairsMultipleSchemaVersionRows(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "poisoned.db")
+	seedStore, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("seed New() error = %v", err)
+	}
+	if _, err := seedStore.db.ExecContext(context.Background(), `
+		INSERT INTO schema_version (version) VALUES (2)
+	`); err != nil {
+		t.Fatalf("seed schema_version: %v", err)
+	}
+	if err := seedStore.Close(); err != nil {
+		t.Fatalf("seed Close() error = %v", err)
+	}
+
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	assertSchemaVersionState(t, store.db, schemaVersion, 1)
+}
+
+func TestNewReopensCurrentSchemaWithSingleVersionRow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "current.db")
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("first New() error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+
+	store, err = New(dbPath)
+	if err != nil {
+		t.Fatalf("second New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	assertSchemaVersionState(t, store.db, schemaVersion, 1)
+}
+
+func TestInitSchemaReturnsUnexpectedVersionReadError(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "closed.db"))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	err = (&Store{db: db}).initSchema()
+	if err == nil {
+		t.Fatal("initSchema() error = nil, want closed database error")
+	}
+	if !strings.Contains(err.Error(), "failed to read schema version") {
+		t.Fatalf("initSchema() error = %q, want schema version read context", err)
+	}
+}
+
+func assertSchemaVersionState(t *testing.T, db *sql.DB, wantVersion, wantRows int) {
+	t.Helper()
+
+	var version, rows int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COALESCE(MAX(version), 0), COUNT(*) FROM schema_version
+	`).Scan(&version, &rows); err != nil {
+		t.Fatalf("query schema_version state: %v", err)
+	}
+	if version != wantVersion {
+		t.Errorf("schema version = %d, want %d", version, wantVersion)
+	}
+	if rows != wantRows {
+		t.Errorf("schema_version rows = %d, want %d", rows, wantRows)
+	}
+}
 
 func TestNewAppliesConnectionPragmasToEveryPooledConnection(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "database with spaces.db"))
