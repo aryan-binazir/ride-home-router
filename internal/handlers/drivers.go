@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -131,7 +131,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 		labelIDs = parsedLabelIDs
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
@@ -305,7 +305,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		labelIDs = parsedLabelIDs
 		shouldSetLabels = true
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}

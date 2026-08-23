@@ -3,9 +3,12 @@ package routing
 import (
 	"context"
 	"fmt"
+	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"slices"
 	"testing"
+	"time"
 )
 
 type countingSolveDistanceCalculator struct {
@@ -81,6 +84,101 @@ func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
 	// Charlie should be in a different group (rounds to 40.12355, -74.12355)
 	if len(groups) != 2 {
 		t.Errorf("expected 2 groups, got %d", len(groups))
+	}
+}
+
+func TestGroupParticipantsByAddress_SameNormalizedAddressWithDifferentCoordinates(t *testing.T) {
+	participants := []*models.Participant{
+		{ID: 1, Name: "Alice", Address: "123 Main St", Lat: 40.12345, Lng: -74.12345},
+		{ID: 2, Name: "Bob", Address: "123 Main St", Lat: 40.22345, Lng: -74.22345},
+	}
+
+	groups := groupParticipantsByAddress(participants)
+	if len(groups) != 1 {
+		t.Fatalf("group count = %d, want 1", len(groups))
+	}
+	if len(groups[0].members) != 2 {
+		t.Fatalf("group member count = %d, want 2", len(groups[0].members))
+	}
+	if groups[0].lat != models.RoundCoordinate(participants[0].Lat) || groups[0].lng != models.RoundCoordinate(participants[0].Lng) {
+		t.Fatalf("group coordinates = (%f, %f), want first member coordinates", groups[0].lat, groups[0].lng)
+	}
+
+	router := NewBalancedRouter(newMockDistanceAdapter())
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{},
+		Participants: []models.Participant{
+			*participants[0],
+			*participants[1],
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver1", VehicleCapacity: 2},
+			{ID: 2, Name: "Driver2", VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	assignedDriver := make(map[int64]int64)
+	for _, route := range result.Routes {
+		for _, stop := range route.Stops {
+			assignedDriver[stop.Participant.ID] = route.Driver.ID
+		}
+	}
+	if assignedDriver[1] == 0 || assignedDriver[1] != assignedDriver[2] {
+		t.Fatalf("same-address participants assigned to drivers %d and %d, want one driver", assignedDriver[1], assignedDriver[2])
+	}
+}
+
+func TestGroupParticipantsByAddress_DifferentAddressesWithIdenticalCoordinates(t *testing.T) {
+	participants := []*models.Participant{
+		{ID: 1, Address: "Apartment 1", Lat: 40.12345, Lng: -74.12345},
+		{ID: 2, Address: "Apartment 2", Lat: 40.12345, Lng: -74.12345},
+	}
+
+	groups := groupParticipantsByAddress(participants)
+	if len(groups) != 2 {
+		t.Fatalf("group count = %d, want 2", len(groups))
+	}
+	if householdKey(participants[0]) == householdKey(participants[1]) {
+		t.Fatal("different non-blank addresses produced the same household key")
+	}
+}
+
+func TestGroupParticipantsByAddress_NormalizesAddressCaseAndWhitespace(t *testing.T) {
+	participants := []*models.Participant{
+		{ID: 1, Address: "  123  MAIN\tSt\n", Lat: 1, Lng: 1},
+		{ID: 2, Address: "123 main st", Lat: 2, Lng: 2},
+	}
+
+	groups := groupParticipantsByAddress(participants)
+	if len(groups) != 1 {
+		t.Fatalf("group count = %d, want 1", len(groups))
+	}
+	if got := householdKey(participants[0]); got != "addr:123 main st" {
+		t.Fatalf("household key = %q, want %q", got, "addr:123 main st")
+	}
+}
+
+func TestGroupParticipantsByAddress_EmptyAddressFallsBackToCoordinates(t *testing.T) {
+	participants := []*models.Participant{
+		{ID: 1, Address: "", Lat: 40.123450, Lng: -74.123450},
+		{ID: 2, Address: " \t\n", Lat: 40.123454, Lng: -74.123454},
+	}
+
+	groups := groupParticipantsByAddress(participants)
+	if len(groups) != 1 {
+		t.Fatalf("group count = %d, want 1", len(groups))
+	}
+	coordinateHouseholdKey := householdKey(participants[0])
+	if coordinateHouseholdKey != coordinateKey(40.12345, -74.12345) {
+		got := coordinateHouseholdKey
+		t.Fatalf("household key = %q, want coordinate fallback", got)
+	}
+	if householdKey(&models.Participant{Address: coordinateKey(40.12345, -74.12345)}) == coordinateHouseholdKey {
+		t.Fatal("address and coordinate household key spaces collided")
 	}
 }
 
@@ -256,7 +354,6 @@ func TestBalancedRouter_LargeHouseholdStaysTogetherWhenAnyVehicleFits(t *testing
 
 func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T) {
 	distances := stableDistanceCalculator{}
-	router := &BalancedRouter{distanceCalc: distances}
 	institute := models.Coordinates{Lat: 0, Lng: 0}
 	household := models.Coordinates{Lat: 10, Lng: 0}
 	solo := models.Coordinates{Lat: 0.1, Lng: 0}
@@ -275,7 +372,7 @@ func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T
 		{ID: 5, Name: "Solo", Lat: solo.Lat, Lng: solo.Lng},
 	}
 
-	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, institute, RouteModeDropoff), routes, []int64{largeDriver.ID, smallDriver.ID}, participants)
+	remaining, err := roundRobinInsertion(context.Background(), newRouteContext(distances, institute, RouteModeDropoff), routes, []int64{largeDriver.ID, smallDriver.ID}, participants)
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}
@@ -287,6 +384,353 @@ func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T
 	}
 	if got := len(routes[smallDriver.ID].stops); got != 1 {
 		t.Fatalf("small driver stop count = %d, want solo rider", got)
+	}
+}
+
+func TestBearingSweepInsertion_AssignsClearBearingClustersToMatchingDrivers(t *testing.T) {
+	routes, participants := bearingSweepFixture(
+		[]float64{85, 95, 265, 275},
+		[]bearingSweepDriver{{id: 1, bearing: 90, capacity: 2}, {id: 2, bearing: 270, capacity: 2}},
+	)
+
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2}, participants); !ok {
+		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
+	}
+	assertSweepRouteParticipantIDs(t, routes[1], 1, 2)
+	assertSweepRouteParticipantIDs(t, routes[2], 3, 4)
+}
+
+func TestBearingSweepInsertion_MatchesDriverByHomeBearingNotDriverOrder(t *testing.T) {
+	routes, participants := bearingSweepFixture(
+		[]float64{85, 95, 265, 275},
+		[]bearingSweepDriver{{id: 1, bearing: 270, capacity: 2}, {id: 2, bearing: 90, capacity: 2}},
+	)
+
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2}, participants); !ok {
+		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
+	}
+	assertSweepRouteParticipantIDs(t, routes[2], 1, 2)
+	assertSweepRouteParticipantIDs(t, routes[1], 3, 4)
+}
+
+func TestBearingSweepInsertion_KeepsWraparoundClusterContiguous(t *testing.T) {
+	routes, participants := bearingSweepFixture(
+		[]float64{350, 355, 5, 10},
+		[]bearingSweepDriver{{id: 1, bearing: 355, capacity: 2}, {id: 2, bearing: 5, capacity: 2}},
+	)
+
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2}, participants); !ok {
+		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
+	}
+	assertSweepRouteParticipantIDs(t, routes[1], 1, 2)
+	assertSweepRouteParticipantIDs(t, routes[2], 3, 4)
+}
+
+func TestBearingSweepInsertion_ReservesOneGroupPerRemainingDriver(t *testing.T) {
+	routes, participants := bearingSweepFixture(
+		[]float64{0, 10, 20},
+		[]bearingSweepDriver{{id: 1, bearing: 0, capacity: 3}, {id: 2, bearing: 10, capacity: 3}, {id: 3, bearing: 20, capacity: 3}},
+	)
+
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2, 3}, participants); !ok {
+		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
+	}
+	for _, driverID := range []int64{1, 2, 3} {
+		if got := len(routes[driverID].stops); got != 1 {
+			t.Fatalf("driver %d stop count = %d, want 1", driverID, got)
+		}
+	}
+}
+
+func TestBearingSweepInsertion_DeterministicTieBreaks(t *testing.T) {
+	participants := participantsAtBearings(0, 90, 180, 270)
+	for i, participant := range participants {
+		participant.Address = fmt.Sprintf("Household %d", i+1)
+	}
+	groups := bearingSweepGroups(models.Coordinates{}, participants)
+	for i, group := range groups {
+		if got, want := group.members[0].ID, int64(i+1); got != want {
+			t.Fatalf("equal-gap sweep group %d ID = %d, want household-key order ID %d", i, got, want)
+		}
+	}
+
+	routes, oneGroup := bearingSweepFixture(
+		[]float64{0},
+		[]bearingSweepDriver{{id: 2, bearing: 0, capacity: 1}, {id: 1, bearing: 0, capacity: 1}},
+	)
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{2, 1}, oneGroup); !ok {
+		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
+	}
+	assertSweepRouteParticipantIDs(t, routes[1], 1)
+}
+
+func TestBearingSweepInsertion_DoesNotBurnDriverOnUnfittingGroup(t *testing.T) {
+	institute := models.Coordinates{}
+	groupCoords := participantAtBearing(1, 0).GetCoords()
+	soloCoords := participantAtBearing(3, 10).GetCoords()
+	participants := []*models.Participant{
+		{ID: 1, Name: "Group 1", Address: "Shared", Lat: groupCoords.Lat, Lng: groupCoords.Lng},
+		{ID: 2, Name: "Group 2", Address: "Shared", Lat: groupCoords.Lat, Lng: groupCoords.Lng},
+		{ID: 3, Name: "Solo", Address: "Solo", Lat: soloCoords.Lat, Lng: soloCoords.Lng},
+	}
+	small := driverAtBearing(1, 0, 1)
+	large := driverAtBearing(2, 10, 2)
+	routes := map[int64]*balancedRoute{
+		small.ID: {driver: small},
+		large.ID: {driver: large},
+	}
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(institute, routes, []int64{small.ID, large.ID}, participants); !ok {
+		t.Fatal("bearingSweepInsertion() failed after the small driver rejected only the oversized group")
+	}
+	assertSweepRouteParticipantIDs(t, routes[small.ID], 3)
+	assertSweepRouteParticipantIDs(t, routes[large.ID], 1, 2)
+}
+
+func TestMaximizeNonemptyRoutes_UsesAugmentingRelocationChain(t *testing.T) {
+	for _, mode := range []RouteMode{RouteModeDropoff, RouteModePickup} {
+		t.Run(string(mode), func(t *testing.T) {
+			groupA := participantAtBearing(1, 0).GetCoords()
+			groupB := participantAtBearing(3, 10).GetCoords()
+			groupC := participantAtBearing(5, 20).GetCoords()
+			participants := []*models.Participant{
+				{ID: 1, Name: "A1", Address: "A", Lat: groupA.Lat, Lng: groupA.Lng},
+				{ID: 2, Name: "A2", Address: "A", Lat: groupA.Lat, Lng: groupA.Lng},
+				{ID: 3, Name: "B1", Address: "B", Lat: groupB.Lat, Lng: groupB.Lng},
+				{ID: 4, Name: "B2", Address: "B", Lat: groupB.Lat, Lng: groupB.Lng},
+				{ID: 5, Name: "C", Address: "C", Lat: groupC.Lat, Lng: groupC.Lng},
+			}
+			drivers := []*models.Driver{
+				driverAtBearing(1, 30, 4),
+				driverAtBearing(2, 20, 2),
+				driverAtBearing(3, 0, 1),
+			}
+			routes := map[int64]*balancedRoute{
+				1: {driver: drivers[0], stops: participants[:4]},
+				2: {driver: drivers[1], stops: participants[4:]},
+				3: {driver: drivers[2]},
+			}
+
+			repairs, err := (&BalancedRouter{}).maximizeNonemptyRoutes(
+				context.Background(),
+				newRouteContext(stableDistanceCalculator{}, models.Coordinates{}, mode),
+				routes,
+				[]int64{1, 2, 3},
+			)
+			if err != nil {
+				t.Fatalf("maximizeNonemptyRoutes() error = %v", err)
+			}
+			if repairs != 1 {
+				t.Fatalf("repair count = %d, want 1", repairs)
+			}
+			if len(routes[1].stops) != 2 || len(routes[2].stops) != 2 || len(routes[3].stops) != 1 {
+				t.Fatalf("route sizes = %d/%d/%d, want 2/2/1", len(routes[1].stops), len(routes[2].stops), len(routes[3].stops))
+			}
+			if routes[3].stops[0].Address != "C" {
+				t.Fatalf("cap-1 driver received household %q, want C", routes[3].stops[0].Address)
+			}
+			if routes[2].stops[0].Address != routes[2].stops[1].Address {
+				t.Fatalf("cap-2 driver household split: %q/%q", routes[2].stops[0].Address, routes[2].stops[1].Address)
+			}
+		})
+	}
+}
+
+func TestMaximizeNonemptyRoutes_AllSingletonRoutesReturnQuickly(t *testing.T) {
+	const singletonCount = 6
+
+	routes := make(map[int64]*balancedRoute, singletonCount+1)
+	driverIDs := make([]int64, 0, singletonCount+1)
+	for id := int64(1); id <= singletonCount+1; id++ {
+		driver := driverAtBearing(id, float64(id), 1)
+		route := &balancedRoute{driver: driver}
+		if id <= singletonCount {
+			route.stops = []*models.Participant{{
+				ID:      id,
+				Name:    fmt.Sprintf("Rider %d", id),
+				Address: fmt.Sprintf("Household %d", id),
+			}}
+		}
+		routes[id] = route
+		driverIDs = append(driverIDs, id)
+	}
+
+	started := time.Now()
+	repairs, err := (&BalancedRouter{}).maximizeNonemptyRoutes(
+		context.Background(),
+		newRouteContext(stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff),
+		routes,
+		driverIDs,
+	)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("maximizeNonemptyRoutes() error = %v", err)
+	}
+	if repairs != 0 {
+		t.Fatalf("repair count = %d, want 0", repairs)
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("maximizeNonemptyRoutes() took %v, want under 1s", elapsed)
+	}
+}
+
+func TestBalancedRouter_MaximizesDriversWithHeterogeneousCapacities(t *testing.T) {
+	for _, mode := range []RouteMode{RouteModeDropoff, RouteModePickup} {
+		t.Run(string(mode), func(t *testing.T) {
+			institute := models.Coordinates{}
+			groupA := participantAtBearing(1, 0).GetCoords()
+			groupB := participantAtBearing(3, 10).GetCoords()
+			groupC := participantAtBearing(5, 20).GetCoords()
+			drivers := []models.Driver{
+				*driverAtBearing(1, 30, 4),
+				*driverAtBearing(2, 20, 2),
+				*driverAtBearing(3, 0, 1),
+			}
+			distances := newOverrideDistanceAdapter(1000)
+			if mode == RouteModeDropoff {
+				distances.setDuration(institute, groupA, 1)
+				distances.setDuration(institute, groupB, 100)
+				distances.setDuration(institute, groupC, 3)
+			} else {
+				distances.setDuration(drivers[0].GetCoords(), groupA, 1)
+				distances.setDuration(drivers[0].GetCoords(), groupB, 100)
+				distances.setDuration(drivers[0].GetCoords(), groupC, 3)
+				distances.setDuration(drivers[1].GetCoords(), groupB, 100)
+				distances.setDuration(drivers[2].GetCoords(), groupC, 5000)
+				distances.setDuration(groupA, groupB, 1)
+				distances.setDuration(groupB, groupA, 1)
+				distances.setDuration(groupA, institute, 1)
+				distances.setDuration(groupB, institute, 1)
+				distances.setDuration(groupC, institute, 1)
+			}
+
+			result, err := NewBalancedRouter(distances).CalculateRoutes(context.Background(), &RoutingRequest{
+				InstituteCoords: institute,
+				Participants: []models.Participant{
+					{ID: 1, Name: "A1", Address: "A", Lat: groupA.Lat, Lng: groupA.Lng},
+					{ID: 2, Name: "A2", Address: "A", Lat: groupA.Lat, Lng: groupA.Lng},
+					{ID: 3, Name: "B1", Address: "B", Lat: groupB.Lat, Lng: groupB.Lng},
+					{ID: 4, Name: "B2", Address: "B", Lat: groupB.Lat, Lng: groupB.Lng},
+					{ID: 5, Name: "C", Address: "C", Lat: groupC.Lat, Lng: groupC.Lng},
+				},
+				Drivers: drivers,
+				Mode:    mode,
+			})
+			if err != nil {
+				t.Fatalf("CalculateRoutes() error = %v", err)
+			}
+
+			assertAllDriversUsedAndHouseholdsIntact(t, result, 3, map[string]int{"A": 2, "B": 2, "C": 1})
+		})
+	}
+}
+
+func TestBalancedRouter_HeterogeneousCapacityForcedFallbackUsesAllDrivers(t *testing.T) {
+	institute := models.Coordinates{}
+	groupA := participantAtBearing(1, 0).GetCoords()
+	groupB := participantAtBearing(3, 10).GetCoords()
+	groupC := participantAtBearing(5, 20).GetCoords()
+	participants := []*models.Participant{
+		{ID: 1, Name: "A1", Address: "A", Lat: groupA.Lat, Lng: groupA.Lng},
+		{ID: 2, Name: "A2", Address: "A", Lat: groupA.Lat, Lng: groupA.Lng},
+		{ID: 3, Name: "B1", Address: "B", Lat: groupB.Lat, Lng: groupB.Lng},
+		{ID: 4, Name: "B2", Address: "B", Lat: groupB.Lat, Lng: groupB.Lng},
+		{ID: 5, Name: "C", Address: "C", Lat: groupC.Lat, Lng: groupC.Lng},
+	}
+	drivers := []*models.Driver{
+		driverAtBearing(1, 0, 3),
+		driverAtBearing(2, 10, 2),
+	}
+	routes := map[int64]*balancedRoute{
+		drivers[0].ID: {driver: drivers[0]},
+		drivers[1].ID: {driver: drivers[1]},
+	}
+	if ok := (&BalancedRouter{}).bearingSweepInsertion(institute, routes, []int64{1, 2}, participants); ok {
+		t.Fatal("bearingSweepInsertion() succeeded, want a forced fallback for noncontiguous capacity packing")
+	}
+
+	result, err := NewBalancedRouter(stableDistanceCalculator{}).CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: institute,
+		Participants: []models.Participant{
+			*participants[0], *participants[1], *participants[2], *participants[3], *participants[4],
+		},
+		Drivers: []models.Driver{*drivers[0], *drivers[1]},
+		Mode:    RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+	assertAllDriversUsedAndHouseholdsIntact(t, result, 2, map[string]int{"A": 2, "B": 2, "C": 1})
+}
+
+func assertAllDriversUsedAndHouseholdsIntact(t *testing.T, result *models.RoutingResult, wantDrivers int, householdSizes map[string]int) {
+	t.Helper()
+	if result.Summary.TotalDriversUsed != wantDrivers {
+		t.Fatalf("drivers used = %d, want %d", result.Summary.TotalDriversUsed, wantDrivers)
+	}
+
+	householdDriver := make(map[string]int64, len(householdSizes))
+	householdCounts := make(map[string]int, len(householdSizes))
+	for _, route := range result.Routes {
+		if len(route.Stops) > route.Driver.VehicleCapacity {
+			t.Fatalf("driver %d has %d stops over capacity %d", route.Driver.ID, len(route.Stops), route.Driver.VehicleCapacity)
+		}
+		for _, stop := range route.Stops {
+			address := stop.Participant.Address
+			if previousDriver, seen := householdDriver[address]; seen && previousDriver != route.Driver.ID {
+				t.Fatalf("household %q split between drivers %d and %d", address, previousDriver, route.Driver.ID)
+			}
+			householdDriver[address] = route.Driver.ID
+			householdCounts[address]++
+		}
+	}
+	for address, want := range householdSizes {
+		if got := householdCounts[address]; got != want {
+			t.Fatalf("household %q assigned count = %d, want %d", address, got, want)
+		}
+	}
+}
+
+type bearingSweepDriver struct {
+	id       int64
+	bearing  float64
+	capacity int
+}
+
+func bearingSweepFixture(groupBearings []float64, drivers []bearingSweepDriver) (map[int64]*balancedRoute, []*models.Participant) {
+	participants := make([]*models.Participant, len(groupBearings))
+	for i, bearing := range groupBearings {
+		participant := participantAtBearing(int64(i+1), bearing)
+		participant.Address = fmt.Sprintf("Household %d", i+1)
+		participants[i] = participant
+	}
+
+	routes := make(map[int64]*balancedRoute, len(drivers))
+	for _, spec := range drivers {
+		driver := driverAtBearing(spec.id, spec.bearing, spec.capacity)
+		routes[spec.id] = &balancedRoute{driver: driver}
+	}
+	return routes, participants
+}
+
+func driverAtBearing(id int64, bearing float64, capacity int) *models.Driver {
+	radians := bearing * math.Pi / 180
+	return &models.Driver{
+		ID:              id,
+		Name:            fmt.Sprintf("Driver %d", id),
+		Lat:             math.Cos(radians),
+		Lng:             math.Sin(radians),
+		VehicleCapacity: capacity,
+	}
+}
+
+func assertSweepRouteParticipantIDs(t *testing.T, route *balancedRoute, want ...int64) {
+	t.Helper()
+	got := make([]int64, len(route.stops))
+	for i, stop := range route.stops {
+		got[i] = stop.ID
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("driver %d participant IDs = %v, want %v", route.driver.ID, got, want)
 	}
 }
 
@@ -458,8 +902,12 @@ func TestBalancedRouter_OrdersRoutesAgainstTheFullSolutionObjective(t *testing.T
 
 	var firstRoute *models.CalculatedRoute
 	latestDropoff := 0.0
+	maxDetour := 0.0
+	sumDetour := 0.0
 	for i := range result.Routes {
 		route := &result.Routes[i]
+		maxDetour = max(maxDetour, route.DetourSecs)
+		sumDetour += route.DetourSecs
 		for _, stop := range route.Stops {
 			latestDropoff = max(latestDropoff, stop.CumulativeDurationSecs)
 		}
@@ -479,9 +927,188 @@ func TestBalancedRouter_OrdersRoutesAgainstTheFullSolutionObjective(t *testing.T
 	if latestDropoff != 12 {
 		t.Fatalf("latest dropoff = %.0f, want peer-route maximum 12", latestDropoff)
 	}
+	if maxDetour != 3 || sumDetour != 3 {
+		t.Fatalf("route detours: max=%.1f sum=%.1f, want max=3 sum=3", maxDetour, sumDetour)
+	}
+	if result.Summary.MaxDetourSecs != 3 {
+		t.Fatalf("summary max detour = %.1f, want 3", result.Summary.MaxDetourSecs)
+	}
+	if result.Summary.SumDetourSecs != 3 {
+		t.Fatalf("summary sum detour = %.1f, want 3", result.Summary.SumDetourSecs)
+	}
+	if result.Summary.AverageDetourSecs != 1.5 {
+		t.Fatalf("summary average detour = %.1f, want 1.5", result.Summary.AverageDetourSecs)
+	}
+	if result.Summary.MaxDetourSecs != maxDetour || result.Summary.SumDetourSecs != sumDetour {
+		t.Fatalf("summary detours %+v do not match returned routes", result.Summary)
+	}
 }
 
-func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *testing.T) {
+func TestRouteCorridorSpread(t *testing.T) {
+	institute := models.Coordinates{}
+	tests := []struct {
+		name     string
+		bearings []float64
+		want     float64
+	}{
+		{name: "empty route", want: 0},
+		{name: "single stop", bearings: []float64{42}, want: 0},
+		{name: "wraparound", bearings: []float64{10, 350}, want: 20},
+		{name: "half circle", bearings: []float64{0, 90, 180}, want: 180},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stops := make([]*models.Participant, 0, len(tt.bearings))
+			for i, bearing := range tt.bearings {
+				stops = append(stops, participantAtBearing(int64(i+1), bearing))
+			}
+
+			got := routeCorridorSpread(institute, stops)
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Fatalf("routeCorridorSpread() = %.12f, want %.12f", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBearingFromInstitute_NormalizesAntimeridianLongitudeDelta(t *testing.T) {
+	got := bearingFromInstitute(
+		models.Coordinates{Lat: 0, Lng: 179},
+		models.Coordinates{Lat: 1, Lng: -179},
+	)
+	const want = 63.43494882292201
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("bearingFromInstitute() = %.12f, want %.12f", got, want)
+	}
+}
+
+func TestRouteCorridorSpread_StraddlesAntimeridian(t *testing.T) {
+	institute := models.Coordinates{Lat: 0, Lng: 179}
+	stops := []*models.Participant{
+		{ID: 1, Address: "West", Lat: 1, Lng: 178.5},
+		{ID: 2, Address: "East", Lat: 1, Lng: -179.5},
+	}
+
+	got := routeCorridorSpread(institute, stops)
+	const want = 82.8749836510982
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("routeCorridorSpread() = %.12f, want %.12f", got, want)
+	}
+}
+
+func TestSolutionObjective_PrefersLowerCorridorSpreadOverFasterRoutes(t *testing.T) {
+	institute := models.Coordinates{}
+	participants := participantsAtBearings(0, 10, 90, 100)
+	driver1 := &models.Driver{ID: 1, Lat: -1, Lng: -1}
+	driver2 := &models.Driver{ID: 2, Lat: -2, Lng: -2}
+	distances := newOverrideDistanceAdapter(1)
+	distances.setDuration(participants[0].GetCoords(), participants[1].GetCoords(), 100)
+	distances.setDuration(participants[2].GetCoords(), participants[3].GetCoords(), 100)
+	rc := newRouteContext(distances, institute, RouteModeDropoff)
+
+	coherent := objectiveScoreForTest(t, rc,
+		objectiveTestRoute{driver: driver1, stops: participants[0:2]},
+		objectiveTestRoute{driver: driver2, stops: participants[2:4]},
+	)
+	zigzag := objectiveScoreForTest(t, rc,
+		objectiveTestRoute{driver: driver1, stops: []*models.Participant{participants[0], participants[2]}},
+		objectiveTestRoute{driver: driver2, stops: []*models.Participant{participants[1], participants[3]}},
+	)
+
+	if coherent.corridorSpread >= zigzag.corridorSpread {
+		t.Fatalf("coherent corridor spread = %d, want less than zigzag spread %d", coherent.corridorSpread, zigzag.corridorSpread)
+	}
+	if coherent.latestParticipantCompletion <= zigzag.latestParticipantCompletion {
+		t.Fatalf("coherent latest completion = %.0f, want slower than zigzag completion %.0f", coherent.latestParticipantCompletion, zigzag.latestParticipantCompletion)
+	}
+	if !coherent.betterThan(zigzag) {
+		t.Fatal("lower-spread solution did not beat faster zigzag solution")
+	}
+}
+
+func TestSolutionObjective_UsedDriversDominatesCorridorSpread(t *testing.T) {
+	institute := models.Coordinates{}
+	participants := participantsAtBearings(0, 10, 90, 100)
+	driver1 := &models.Driver{ID: 1, Lat: -1, Lng: -1}
+	driver2 := &models.Driver{ID: 2, Lat: -2, Lng: -2}
+	rc := newRouteContext(newOverrideDistanceAdapter(1), institute, RouteModeDropoff)
+
+	oneDriver := objectiveScoreForTest(t, rc,
+		objectiveTestRoute{driver: driver1, stops: participants},
+	)
+	twoDrivers := objectiveScoreForTest(t, rc,
+		objectiveTestRoute{driver: driver1, stops: []*models.Participant{participants[0], participants[2]}},
+		objectiveTestRoute{driver: driver2, stops: []*models.Participant{participants[1], participants[3]}},
+	)
+
+	if twoDrivers.corridorSpread <= oneDriver.corridorSpread {
+		t.Fatalf("two-driver corridor spread = %d, want greater than one-driver spread %d", twoDrivers.corridorSpread, oneDriver.corridorSpread)
+	}
+	if !twoDrivers.betterThan(oneDriver) {
+		t.Fatal("solution using more drivers did not win over its lower-spread alternative")
+	}
+}
+
+func TestSolutionObjective_SameCorridorBucketFallsThroughToTime(t *testing.T) {
+	institute := models.Coordinates{}
+	slowerStops := participantsAtBearings(0, 20)
+	fasterStops := participantsAtBearings(180, 204)
+	driver := &models.Driver{ID: 1, Lat: -1, Lng: -1}
+	distances := newOverrideDistanceAdapter(1)
+	distances.setDuration(slowerStops[0].GetCoords(), slowerStops[1].GetCoords(), 100)
+	rc := newRouteContext(distances, institute, RouteModeDropoff)
+
+	slower := objectiveScoreForTest(t, rc, objectiveTestRoute{driver: driver, stops: slowerStops})
+	faster := objectiveScoreForTest(t, rc, objectiveTestRoute{driver: driver, stops: fasterStops})
+
+	spreadDifference := routeCorridorSpread(institute, fasterStops) - routeCorridorSpread(institute, slowerStops)
+	if spreadDifference <= 0 || spreadDifference >= 10 {
+		t.Fatalf("raw spread difference = %.2f, want between 0 and 10 degrees", spreadDifference)
+	}
+	if slower.corridorSpread != faster.corridorSpread {
+		t.Fatalf("corridor buckets differ: slower = %d, faster = %d", slower.corridorSpread, faster.corridorSpread)
+	}
+	if !faster.betterThan(slower) {
+		t.Fatal("faster solution did not win after equal corridor buckets")
+	}
+}
+
+type objectiveTestRoute struct {
+	driver *models.Driver
+	stops  []*models.Participant
+}
+
+func objectiveScoreForTest(t *testing.T, rc routeContext, routes ...objectiveTestRoute) solutionScore {
+	t.Helper()
+
+	metrics := make(map[int64]routeObjectiveMetrics, len(routes))
+	driverIDs := make([]int64, 0, len(routes))
+	for _, route := range routes {
+		routeMetrics, err := rc.evaluateRouteObjective(context.Background(), route.driver, route.stops)
+		if err != nil {
+			t.Fatalf("evaluateRouteObjective() error = %v", err)
+		}
+		metrics[route.driver.ID] = routeMetrics
+		driverIDs = append(driverIDs, route.driver.ID)
+	}
+	return scoreSolution(metrics, driverIDs)
+}
+
+func participantsAtBearings(bearings ...float64) []*models.Participant {
+	participants := make([]*models.Participant, 0, len(bearings))
+	for i, bearing := range bearings {
+		participants = append(participants, participantAtBearing(int64(i+1), bearing))
+	}
+	return participants
+}
+
+func participantAtBearing(id int64, bearing float64) *models.Participant {
+	radians := bearing * math.Pi / 180
+	return &models.Participant{ID: id, Lat: math.Cos(radians), Lng: math.Sin(radians)}
+}
+
+func TestOptimizeAssignments_UsesTimeTieBreakerWhenDriverCountIsEqual(t *testing.T) {
 	ctx := context.Background()
 	activity := models.Coordinates{Lat: 0, Lng: 0}
 	x1 := &models.Participant{ID: 1, Name: "X1", Lat: 1, Lng: 0}
@@ -519,7 +1146,6 @@ func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *t
 	distances.setDuration(c2.GetCoords(), driver3.GetCoords(), 0)
 	distances.setDuration(c1.GetCoords(), driver3.GetCoords(), 100)
 
-	router := &BalancedRouter{distanceCalc: distances}
 	routes := map[int64]*balancedRoute{
 		driver1.ID: {driver: driver1, stops: []*models.Participant{x1, y1}},
 		driver2.ID: {driver: driver2, stops: []*models.Participant{x2, y2}},
@@ -528,14 +1154,14 @@ func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *t
 	driverIDs := []int64{driver1.ID, driver2.ID, driver3.ID}
 	rc := newRouteContext(distances, activity, RouteModeDropoff)
 
-	if err := router.optimizeRouteOrders(ctx, rc, routes, driverIDs); err != nil {
+	if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
 		t.Fatalf("optimizeRouteOrders() error = %v", err)
 	}
 	if routes[driver3.ID].stops[0].ID != c1.ID {
 		t.Fatalf("peer route changed before the global maximum dropped")
 	}
 
-	if _, err := router.optimizeAssignments(ctx, rc, routes, driverIDs); err != nil {
+	if _, err := optimizeAssignments(ctx, rc, routes, driverIDs); err != nil {
 		t.Fatalf("optimizeAssignments() error = %v", err)
 	}
 	if routes[driver3.ID].stops[0].ID != c2.ID {
@@ -543,48 +1169,34 @@ func TestOptimizeAssignments_ReordersUntouchedPeerAfterGlobalMaximumChanges(t *t
 	}
 }
 
-func TestBalancedRouter_CanLeaveASelectedDriverUnusedForAHigherPriorityObjective(t *testing.T) {
-	router := NewBalancedRouter(stableDistanceCalculator{})
+func TestBalancedRouter_UsesAllDriversEvenWhenConsolidationIsFaster(t *testing.T) {
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	first := models.Coordinates{Lat: 1, Lng: 0}
+	second := models.Coordinates{Lat: 2, Lng: 0}
+	nearbyHome := models.Coordinates{Lat: 3, Lng: 0}
+	oppositeHome := models.Coordinates{Lat: -100, Lng: 0}
+	distances := newOverrideDistanceAdapter(1000)
+	distances.setDuration(activity, first, 1)
+	distances.setDuration(activity, second, 2)
+	distances.setDuration(first, second, 1)
+	distances.setDuration(second, first, 1)
+	distances.setDuration(first, nearbyHome, 1)
+	distances.setDuration(second, nearbyHome, 2)
+	distances.setDuration(activity, nearbyHome, 2)
+	distances.setDuration(first, oppositeHome, 101)
+	distances.setDuration(second, oppositeHome, 102)
+	distances.setDuration(activity, oppositeHome, 100)
+	router := NewBalancedRouter(distances)
 
 	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
-		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		InstituteCoords: activity,
 		Participants: []models.Participant{
-			{ID: 1, Name: "First", Lat: 1, Lng: 0},
-			{ID: 2, Name: "Second", Lat: 2, Lng: 0},
+			{ID: 1, Name: "First", Address: "1 First Street", Lat: first.Lat, Lng: first.Lng},
+			{ID: 2, Name: "Second", Address: "2 Second Street", Lat: second.Lat, Lng: second.Lng},
 		},
 		Drivers: []models.Driver{
-			{ID: 1, Name: "Nearby Driver", Lat: 2, Lng: 0, VehicleCapacity: 2},
-			{ID: 2, Name: "Opposite Driver", Lat: -100, Lng: 0, VehicleCapacity: 2},
-		},
-		Mode: RouteModeDropoff,
-	})
-	if err != nil {
-		t.Fatalf("CalculateRoutes() error = %v", err)
-	}
-
-	if result.Summary.TotalDriversUsed != 1 {
-		t.Fatalf("drivers used = %d, want 1 because an empty route removes the higher-priority detour", result.Summary.TotalDriversUsed)
-	}
-	if len(result.Routes) != 1 || result.Routes[0].Driver.ID != 1 {
-		t.Fatalf("routes = %+v, want only nearby driver 1", result.Routes)
-	}
-	if len(result.Routes[0].Stops) != 2 {
-		t.Fatalf("nearby driver stops = %d, want 2", len(result.Routes[0].Stops))
-	}
-}
-
-func TestBalancedRouter_PrefersUsingMoreDriversOnlyAfterObjectiveTies(t *testing.T) {
-	router := NewBalancedRouter(newOverrideDistanceAdapter(0))
-
-	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
-		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
-		Participants: []models.Participant{
-			{ID: 1, Name: "First", Lat: 1, Lng: 0},
-			{ID: 2, Name: "Second", Lat: 2, Lng: 0},
-		},
-		Drivers: []models.Driver{
-			{ID: 1, Name: "First Driver", Lat: 10, Lng: 0, VehicleCapacity: 2},
-			{ID: 2, Name: "Second Driver", Lat: 20, Lng: 0, VehicleCapacity: 2},
+			{ID: 1, Name: "Nearby Driver", Lat: nearbyHome.Lat, Lng: nearbyHome.Lng, VehicleCapacity: 2},
+			{ID: 2, Name: "Opposite Driver", Lat: oppositeHome.Lat, Lng: oppositeHome.Lng, VehicleCapacity: 2},
 		},
 		Mode: RouteModeDropoff,
 	})
@@ -593,7 +1205,125 @@ func TestBalancedRouter_PrefersUsingMoreDriversOnlyAfterObjectiveTies(t *testing
 	}
 
 	if result.Summary.TotalDriversUsed != 2 {
-		t.Fatalf("drivers used = %d, want 2 when every higher-priority objective ties", result.Summary.TotalDriversUsed)
+		t.Fatalf("drivers used = %d, want 2 despite the second driver's worse route", result.Summary.TotalDriversUsed)
+	}
+	if len(result.Routes) != 2 {
+		t.Fatalf("route count = %d, want 2", len(result.Routes))
+	}
+	for _, route := range result.Routes {
+		if len(route.Stops) != 1 {
+			t.Fatalf("driver %d stops = %d, want exactly 1", route.Driver.ID, len(route.Stops))
+		}
+	}
+	if result.Summary.MaxDetourSecs != 2 || result.Summary.SumDetourSecs != 4 || result.Summary.AverageDetourSecs != 2 {
+		t.Fatalf("detour summary = %+v, want max=2 sum=4 average=2", result.Summary)
+	}
+}
+
+func TestBalancedRouter_UsedDriversDominatesLatestCompletionAndDetour(t *testing.T) {
+	activity := models.Coordinates{Lat: 0, Lng: 0}
+	first := models.Coordinates{Lat: 1, Lng: 0}
+	second := models.Coordinates{Lat: 2, Lng: 0}
+	firstDriverHome := models.Coordinates{Lat: 10, Lng: 0}
+	secondDriverHome := models.Coordinates{Lat: 20, Lng: 0}
+	distances := newOverrideDistanceAdapter(1000)
+	distances.setDuration(activity, first, 1)
+	distances.setDuration(activity, second, 100)
+	distances.setDuration(first, second, 1)
+	distances.setDuration(second, first, 100)
+	distances.setDuration(activity, firstDriverHome, 10)
+	distances.setDuration(first, firstDriverHome, 9)
+	distances.setDuration(second, firstDriverHome, 8)
+	distances.setDuration(activity, secondDriverHome, 20)
+	distances.setDuration(second, secondDriverHome, 100)
+	router := NewBalancedRouter(distances)
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: activity,
+		Participants: []models.Participant{
+			{ID: 1, Name: "First", Address: "1 First Street", Lat: first.Lat, Lng: first.Lng},
+			{ID: 2, Name: "Second", Address: "2 Second Street", Lat: second.Lat, Lng: second.Lng},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "First Driver", Lat: firstDriverHome.Lat, Lng: firstDriverHome.Lng, VehicleCapacity: 2},
+			{ID: 2, Name: "Second Driver", Lat: secondDriverHome.Lat, Lng: secondDriverHome.Lng, VehicleCapacity: 2},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if result.Summary.TotalDriversUsed != 2 {
+		t.Fatalf("drivers used = %d, want 2 despite worse completion and detour", result.Summary.TotalDriversUsed)
+	}
+
+	latestCompletion := 0.0
+	maxDetour := 0.0
+	for _, route := range result.Routes {
+		for _, stop := range route.Stops {
+			latestCompletion = max(latestCompletion, stop.CumulativeDurationSecs)
+		}
+		maxDetour = max(maxDetour, route.DetourSecs)
+	}
+	if latestCompletion <= 2 {
+		t.Fatalf("latest completion = %.0f, want greater than consolidated completion 2", latestCompletion)
+	}
+	if maxDetour <= 0 {
+		t.Fatalf("max detour = %.0f, want greater than consolidated detour 0", maxDetour)
+	}
+}
+
+func TestBalancedRouter_SingleHouseholdUsesOnlyOneDriver(t *testing.T) {
+	router := NewBalancedRouter(stableDistanceCalculator{})
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{},
+		Participants: []models.Participant{
+			{ID: 1, Name: "First", Address: "1 Shared Street", Lat: 1},
+			{ID: 2, Name: "Second", Address: "1 Shared Street", Lat: 1},
+			{ID: 3, Name: "Third", Address: "1 Shared Street", Lat: 1},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "First Driver", Lat: 10, VehicleCapacity: 3},
+			{ID: 2, Name: "Second Driver", Lat: 20, VehicleCapacity: 3},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if result.Summary.TotalDriversUsed != 1 {
+		t.Fatalf("drivers used = %d, want 1 because the only household is atomic", result.Summary.TotalDriversUsed)
+	}
+	if len(result.Routes) != 1 || len(result.Routes[0].Stops) != 3 {
+		t.Fatalf("routes = %+v, want one route containing the whole household", result.Routes)
+	}
+}
+
+func TestBalancedRouter_ThreeHouseholdsUseBothDrivers(t *testing.T) {
+	router := NewBalancedRouter(stableDistanceCalculator{})
+
+	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
+		InstituteCoords: models.Coordinates{},
+		Participants: []models.Participant{
+			{ID: 1, Name: "First", Address: "1 First Street", Lat: 1},
+			{ID: 2, Name: "Second", Address: "2 Second Street", Lat: 2},
+			{ID: 3, Name: "Third", Address: "3 Third Street", Lat: 3},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "First Driver", Lat: 10, VehicleCapacity: 3},
+			{ID: 2, Name: "Second Driver", Lat: 20, VehicleCapacity: 3},
+		},
+		Mode: RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+
+	if result.Summary.TotalDriversUsed != 2 {
+		t.Fatalf("drivers used = %d, want 2 for three household groups", result.Summary.TotalDriversUsed)
 	}
 }
 
@@ -705,34 +1435,7 @@ func (a *overrideDistanceAdapter) GetDistance(ctx context.Context, origin, dest 
 	return &distance.DistanceResult{DistanceMeters: duration, DurationSecs: duration}, nil
 }
 
-func (a *overrideDistanceAdapter) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	matrix := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		matrix[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			result, err := a.GetDistance(ctx, points[i], points[j])
-			if err != nil {
-				return nil, err
-			}
-			matrix[i][j] = *result
-		}
-	}
-	return matrix, nil
-}
-
-func (a *overrideDistanceAdapter) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	results := make([]distance.DistanceResult, len(destinations))
-	for i, destination := range destinations {
-		result, err := a.GetDistance(ctx, origin, destination)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = *result
-	}
-	return results, nil
-}
-
-func (a *overrideDistanceAdapter) PrewarmCache(ctx context.Context, points []models.Coordinates) error {
+func (a *overrideDistanceAdapter) PrewarmPairs(context.Context, []distance.DistancePair) error {
 	return nil
 }
 
@@ -751,7 +1454,6 @@ func TestRoundRobinInsertion_KeepsPickupHouseholdsIntact(t *testing.T) {
 	distances.setDuration(household, activity, 1)
 	distances.setDuration(otherStop, activity, 100)
 
-	router := &BalancedRouter{distanceCalc: distances}
 	driver := &models.Driver{ID: 1, Name: "Driver", Lat: driverHome.Lat, Lng: driverHome.Lng, VehicleCapacity: 3}
 	routes := map[int64]*balancedRoute{
 		driver.ID: {
@@ -765,7 +1467,7 @@ func TestRoundRobinInsertion_KeepsPickupHouseholdsIntact(t *testing.T) {
 		{ID: 3, Name: "Neighbor", Lat: otherStop.Lat, Lng: otherStop.Lng},
 	}
 
-	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModePickup), routes, []int64{driver.ID}, participants)
+	remaining, err := roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModePickup), routes, []int64{driver.ID}, participants)
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}
@@ -797,7 +1499,6 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 	distances.setDuration(splitHome, otherStop, 90)
 	distances.setDuration(otherStop, splitHome, 100)
 
-	router := &BalancedRouter{distanceCalc: distances}
 	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 9, Lng: 9, VehicleCapacity: 4}
 	routes := map[int64]*balancedRoute{
 		driver.ID: {
@@ -814,7 +1515,7 @@ func TestRoundRobinInsertion_SingleParticipantFallbackPreservesExistingHousehold
 		{ID: 5, Name: "Large Household 2", Lat: splitHome.Lat, Lng: splitHome.Lng},
 	}
 
-	remaining, err := router.roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModeDropoff), routes, []int64{driver.ID}, participants)
+	remaining, err := roundRobinInsertion(context.Background(), newRouteContext(distances, activity, RouteModeDropoff), routes, []int64{driver.ID}, participants)
 	if err != nil {
 		t.Fatalf("roundRobinInsertion() error = %v", err)
 	}

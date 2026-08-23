@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"ride-home-router/internal/browser"
@@ -25,6 +26,9 @@ func main() {
 
 func run() error {
 	addr := getEnv("SERVER_ADDR", "127.0.0.1:8080")
+	if err := validateServerAddr(addr, os.Getenv("SERVER_ALLOW_NONLOCAL") == "1"); err != nil {
+		return err
+	}
 
 	srv, err := server.New(server.Config{
 		Addr: addr,
@@ -64,6 +68,23 @@ func run() error {
 
 	log.Println("Server stopped")
 	return nil
+}
+
+func validateServerAddr(addr string, allowNonlocal bool) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid SERVER_ADDR %q: %w", addr, err)
+	}
+	if allowNonlocal || host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing to bind unauthenticated server to non-loopback address %q; set SERVER_ALLOW_NONLOCAL=1 to accept the risk",
+		addr,
+	)
 }
 
 func getEnv(key, defaultValue string) string {

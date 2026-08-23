@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
@@ -21,7 +20,6 @@ import (
 type Handler struct {
 	DB            database.DataStore
 	Geocoder      geocoding.Geocoder
-	DistanceCalc  distance.DistanceCalculator
 	Router        routing.Router
 	Renderer      *templates.Renderer
 	RouteSession  *routesession.Store

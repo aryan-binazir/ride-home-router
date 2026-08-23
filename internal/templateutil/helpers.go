@@ -27,13 +27,6 @@ func FuncMap() template.FuncMap {
 		"currentDate": func() string {
 			return time.Now().Format("2006-01-02")
 		},
-		"toJSON": func(v any) string {
-			b, err := json.Marshal(v)
-			if err != nil {
-				return "{}"
-			}
-			return string(b)
-		},
 		"toJSONRaw": func(v any) template.JS {
 			b, err := json.Marshal(v)
 			if err != nil {

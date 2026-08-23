@@ -12,6 +12,7 @@ const (
 	messageChooseValidActivityLocation                   = "Please choose a valid activity location."
 	messageChooseValidRouteTime                          = "please choose a valid route time"
 	messageDatabasePathMustBeAbsolute                    = "Database path must be absolute"
+	messageForbidden                                     = "Forbidden"
 	messageDatabasePathUpdatedRestart                    = "Database path updated. Restart the application to apply changes."
 	messageDriverNotFound                                = "driver not found"
 	messageEventDateRequired                             = "Event date is required"

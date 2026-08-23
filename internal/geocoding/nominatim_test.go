@@ -1,6 +1,13 @@
 package geocoding
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
 
 func TestFormatAddressLabel(t *testing.T) {
 	tests := []struct {
@@ -55,5 +62,25 @@ func TestFormatAddressLabel(t *testing.T) {
 				t.Fatalf("formatAddressLabel() = %q, want %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNominatimGeocodeWithRetry_NoResultsReturnsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	t.Cleanup(server.Close)
+
+	rateLimiter := time.NewTicker(time.Millisecond)
+	t.Cleanup(rateLimiter.Stop)
+	g := newNominatimGeocoder(server.URL, server.Client(), rateLimiter)
+
+	result, err := g.GeocodeWithRetry(context.Background(), "823 Redfield Dr", 1)
+	if result != nil {
+		t.Fatalf("GeocodeWithRetry() result = %#v, want nil", result)
+	}
+	if !errors.Is(err, ErrNoGeocodingResults) {
+		t.Fatalf("GeocodeWithRetry() error = %v, want ErrNoGeocodingResults", err)
 	}
 }

@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -96,7 +96,7 @@ func (h *Handler) HandleCreateLabel(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Name = strings.TrimSpace(r.FormValue("name"))
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}
@@ -149,7 +149,7 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Name = strings.TrimSpace(r.FormValue("name"))
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
 			h.handleValidationError(w, messageInvalidRequestBody)
 			return
 		}

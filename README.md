@@ -54,14 +54,13 @@ Manually figuring out who goes with whom is tedious and often results in unfair 
 
 ## Privacy First
 
-**Persistent app data stays on your computer.** Names, addresses, API configuration, and event history are stored locally in `~/.ride-home-router/`. During route calculation, coordinates are sent to Google Routes; during address search, the search text is sent to Nominatim, with the U.S. Census geocoder as a fallback for failed U.S. lookups.
+**Persistent app data stays on your computer.** Names, addresses, API configuration, and event history are stored locally in `~/.ride-home-router/`. During route calculation, coordinates are sent to Google Routes; during address search, the search text is sent to Nominatim.
 
 Spreadsheet imports are parsed entirely locally. Rows that include coordinates are never sent to a geocoding service; rows without coordinates use the same geocoding services as manual entry.
 
 The external services used are:
 - **Google Routes API** — Calculates driving distances and durations between coordinates. Route calculation requires a Google Maps API key saved in Settings.
 - **Nominatim** — OpenStreetMap geocoder (converts addresses to coordinates)
-- **U.S. Census Geocoder** — Fallback geocoder for failed U.S. address lookups
 
 No Ride Home Router account. No cloud sync. No tracking.
 

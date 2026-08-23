@@ -18,10 +18,6 @@ func TestGeocoderLogsDoNotContainAddressOrResultNames(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if strings.Contains(r.URL.Path, "onelineaddress") {
-			_, _ = w.Write([]byte(`{"result":{"addressMatches":[{"coordinates":{"x":-71,"y":42},"matchedAddress":"` + displayName + `","addressComponents":{"fromAddress":"8123","streetName":"PRIVATE SENTINEL","suffixType":"AVE","city":"BOSTON","state":"MA","zip":"02110"}}]}}`))
-			return
-		}
 		_, _ = w.Write([]byte(`[{"lat":"42","lon":"-71","display_name":"` + displayName + `","address":{}}]`))
 	}))
 	t.Cleanup(server.Close)
@@ -45,14 +41,6 @@ func TestGeocoderLogsDoNotContainAddressOrResultNames(t *testing.T) {
 	if _, err := nominatim.Geocode(context.Background(), address); err != nil {
 		t.Fatalf("Nominatim Geocode() error = %v", err)
 	}
-	census := newCensusGeocoder(server.URL, server.Client())
-	if _, err := census.Search(context.Background(), address, 1); err != nil {
-		t.Fatalf("Census Search() error = %v", err)
-	}
-
-	primary := &privacyTestGeocoder{geocodeErr: &ErrGeocodingFailed{Address: address, Reason: "no results", Cause: ErrNoGeocodingResults}}
-	fallback := &privacyTestGeocoder{geocodeErr: errors.New("fallback failed for " + address)}
-	_, _ = (&fallbackGeocoder{primary: primary, fallback: fallback}).Geocode(context.Background(), address)
 	_, _ = geocodeWithRetry(context.Background(), address, 1, func(context.Context, string) (*GeocodingResult, error) {
 		return nil, errors.New("retry failed for " + address)
 	})
@@ -63,18 +51,9 @@ func TestGeocoderLogsDoNotContainAddressOrResultNames(t *testing.T) {
 			t.Fatalf("logs contain private value %q: %s", private, output)
 		}
 	}
-	for _, want := range []string{"outcome=success", "status=200", "results_count=1", "retries=1", "duration="} {
+	for _, want := range []string{"outcome=success", "status=200", "retries=1", "duration="} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("logs missing %q: %s", want, output)
 		}
 	}
-}
-
-type privacyTestGeocoder struct {
-	Geocoder
-	geocodeErr error
-}
-
-func (g *privacyTestGeocoder) Geocode(context.Context, string) (*GeocodingResult, error) {
-	return nil, g.geocodeErr
 }

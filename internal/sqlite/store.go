@@ -3,11 +3,14 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"ride-home-router/internal/database"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -46,25 +49,29 @@ func New(dbPath string) (*Store, error) {
 
 	log.Printf("Opening SQLite database at: %s", dbPath)
 
-	db, err := sql.Open("sqlite", dbPath)
+	absoluteDBPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve database path: %w", err)
+	}
+
+	// A rooted path renders as file:///... — a Windows drive path like C:/...
+	// would otherwise become file://C:/... with "C:" parsed as URI authority.
+	urlPath := filepath.ToSlash(absoluteDBPath)
+	if !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
+	}
+	dsn := url.URL{Scheme: "file", Path: urlPath}
+	query := url.Values{}
+	query.Add("_pragma", "foreign_keys(1)")
+	query.Add("_pragma", "journal_mode(WAL)")
+	query.Add("_pragma", "synchronous(NORMAL)")
+	query.Add("_pragma", fmt.Sprintf("cache_size(%d)", sqliteCacheSizeKB))
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMS))
+	dsn.RawQuery = query.Encode()
+
+	db, err := sql.Open("sqlite", dsn.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	// Enable foreign keys and WAL mode for better performance
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
-		fmt.Sprintf("PRAGMA cache_size = %d", sqliteCacheSizeKB),
-		fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeoutMS),
-	}
-
-	for _, pragma := range pragmas {
-		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("failed to set pragma %s: %w", pragma, err)
-		}
 	}
 
 	store := &Store{
@@ -97,20 +104,14 @@ func (s *Store) GetDBPath() string {
 }
 
 func (s *Store) initSchema() error {
-	var version int
-	err := s.db.QueryRowContext(context.Background(), "SELECT version FROM schema_version LIMIT 1").Scan(&version)
+	exists, err := tableExists(s.db, "schema_version")
 	if err != nil {
+		return fmt.Errorf("failed to read schema version: %w", err)
+	}
+	if !exists {
 		return s.createSchema()
 	}
-
-	// Run migrations if needed
-	if version < schemaVersion {
-		if err := s.runMigrations(version); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return s.runMigrations()
 }
 
 func (s *Store) createSchema() error {
@@ -288,6 +289,9 @@ func (s *Store) createSchema() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version"); err != nil {
+		return fmt.Errorf("failed to clear schema version: %w", err)
+	}
 	if _, err := tx.ExecContext(context.Background(), "INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
 		return fmt.Errorf("failed to record schema version: %w", err)
 	}
@@ -300,12 +304,43 @@ func (s *Store) createSchema() error {
 	return nil
 }
 
-func (s *Store) runMigrations(fromVersion int) error {
+func (s *Store) runMigrations() error {
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin migration transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// A table poisoned with multiple rows (older builds could insert the
+	// current version alongside the real one) always has the true schema
+	// version as its MINIMUM: the extra row was written without running any
+	// migration, and real migrations commit atomically with their version.
+	// Resuming from MIN re-runs only guarded, idempotent steps.
+	var fromVersion, versionRows int
+	if err := tx.QueryRowContext(context.Background(), `
+		SELECT COALESCE(MIN(version), 0), COUNT(*) FROM schema_version
+	`).Scan(&fromVersion, &versionRows); err != nil {
+		return fmt.Errorf("failed to inspect schema versions: %w", err)
+	}
+	if versionRows == 0 {
+		// The table exists but holds no version: no code path writes that
+		// state (both writers insert inside their transaction), so guessing a
+		// version risks either skipping or destructively re-running
+		// migrations. Fail loudly instead.
+		return errors.New("schema_version table exists but is empty; refusing to guess the schema version")
+	}
+	if versionRows > 1 {
+		if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version WHERE version <> ?", fromVersion); err != nil {
+			return fmt.Errorf("failed to repair schema versions: %w", err)
+		}
+	}
+
+	if fromVersion >= schemaVersion {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit schema version repair: %w", err)
+		}
+		return nil
+	}
 
 	if fromVersion < 2 {
 		legacyTables := []string{"event_assignments", "event_summaries", "events"}
@@ -468,8 +503,11 @@ func (s *Store) runMigrations(fromVersion int) error {
 		}
 	}
 
-	if _, err := tx.ExecContext(context.Background(), "UPDATE schema_version SET version = ?", schemaVersion); err != nil {
-		return fmt.Errorf("failed to update schema version: %w", err)
+	if _, err := tx.ExecContext(context.Background(), "DELETE FROM schema_version"); err != nil {
+		return fmt.Errorf("failed to clear schema version: %w", err)
+	}
+	if _, err := tx.ExecContext(context.Background(), "INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
+		return fmt.Errorf("failed to record schema version: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

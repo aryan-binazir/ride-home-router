@@ -20,31 +20,6 @@ func (routeEditDistanceCalculator) GetDistance(_ context.Context, origin, dest m
 	return &distance.DistanceResult{DistanceMeters: d, DurationSecs: d}, nil
 }
 
-func (c routeEditDistanceCalculator) GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]distance.DistanceResult, error) {
-	result := make([][]distance.DistanceResult, len(points))
-	for i := range points {
-		result[i] = make([]distance.DistanceResult, len(points))
-		for j := range points {
-			d, _ := c.GetDistance(ctx, points[i], points[j])
-			result[i][j] = *d
-		}
-	}
-	return result, nil
-}
-
-func (c routeEditDistanceCalculator) GetDistancesFromPoint(ctx context.Context, origin models.Coordinates, destinations []models.Coordinates) ([]distance.DistanceResult, error) {
-	result := make([]distance.DistanceResult, len(destinations))
-	for i := range destinations {
-		d, _ := c.GetDistance(ctx, origin, destinations[i])
-		result[i] = *d
-	}
-	return result, nil
-}
-
-func (routeEditDistanceCalculator) PrewarmCache(context.Context, []models.Coordinates) error {
-	return nil
-}
-
 func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.T) {
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)
@@ -53,7 +28,7 @@ func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.
 		Routes:           []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10}}}}, {Driver: &models.Driver{ID: 2, VehicleCapacity: 2}}},
 		ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff,
 	})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewBufferString(`{"session_id":"`+session.ID+`","participant_id":10,"from_route_index":1,"to_route_index":1,"insert_at_position":-1}`))
+	req := newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", []byte(`{"session_id":"`+session.ID+`","participant_id":10,"from_route_index":1,"to_route_index":1,"insert_at_position":-1}`))
 	w := httptest.NewRecorder()
 	h.HandleMoveParticipant(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -79,7 +54,7 @@ func TestHandleMoveParticipantTranslatesBatchAndReturnsJSON(t *testing.T) {
 	h, created := newRouteEditHandler(t)
 	body := `{"session_id":"` + created.ID + `","moves":[{"participant_id":10,"from_route_index":99,"to_route_index":1,"insert_at_position":-1}]}`
 	w := httptest.NewRecorder()
-	h.HandleMoveParticipant(w, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewBufferString(body)))
+	h.HandleMoveParticipant(w, newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", []byte(body)))
 	response := decodeRouteResponse(t, w)
 	if len(response.Routes[0].Stops) != 0 || len(response.Routes[1].Stops) != 1 {
 		t.Fatalf("routes = %#v", response.Routes)
@@ -90,7 +65,7 @@ func TestHandleSwapDriversReturnsJSON(t *testing.T) {
 	h, created := newRouteEditHandler(t)
 	body := `{"session_id":"` + created.ID + `","route_index_1":0,"route_index_2":1}`
 	w := httptest.NewRecorder()
-	h.HandleSwapDrivers(w, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/swap-drivers", bytes.NewBufferString(body)))
+	h.HandleSwapDrivers(w, newRouteEditJSONRequest("/api/v1/routes/edit/swap-drivers", []byte(body)))
 	response := decodeRouteResponse(t, w)
 	if response.Routes[0].Driver.ID != 2 || response.Routes[1].Driver.ID != 1 {
 		t.Fatalf("drivers were not swapped: %#v", response.Routes)
@@ -114,7 +89,7 @@ func TestHandleAddDriverReturnsJSON(t *testing.T) {
 	h, created := newRouteEditHandler(t)
 	body := `{"session_id":"` + created.ID + `","driver_id":3}`
 	w := httptest.NewRecorder()
-	h.HandleAddDriver(w, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/add-driver", bytes.NewBufferString(body)))
+	h.HandleAddDriver(w, newRouteEditJSONRequest("/api/v1/routes/edit/add-driver", []byte(body)))
 	response := decodeRouteResponse(t, w)
 	if len(response.Routes) != 3 || response.Routes[2].Driver.ID != 3 {
 		t.Fatalf("driver route was not added: %#v", response.Routes)
@@ -129,6 +104,12 @@ func TestHandleGetRouteSessionReturnsHTMXFragment(t *testing.T) {
 	h.HandleGetRouteSession(w, req)
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`data-session-id="`+created.ID+`"`)) {
 		t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`name="session_id" value="`+created.ID+`"`)) {
+		t.Fatalf("body does not contain the session save field: %q", w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte(`name="routes_json"`)) {
+		t.Fatalf("body contains unreachable routes_json fallback field: %q", w.Body.String())
 	}
 }
 
@@ -164,7 +145,7 @@ func TestHandleMoveParticipantPreservesBatchRequestValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", bytes.NewReader(tt.body))
+			req := newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", tt.body)
 			h.HandleMoveParticipant(w, req)
 			if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte(tt.want)) {
 				t.Fatalf("status=%d body=%q, want 400 containing %q", w.Code, w.Body.String(), tt.want)
@@ -205,6 +186,12 @@ func newRouteEditHandler(t *testing.T) (*Handler, routesession.Snapshot) {
 		RouteTime: "18:30", Mode: models.RouteModeDropoff,
 	})
 	return &Handler{RouteSession: store, Renderer: loadEmbeddedTemplates(t)}, created
+}
+
+func newRouteEditJSONRequest(path string, body []byte) *http.Request {
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
 
 func decodeRouteResponse(t *testing.T, w *httptest.ResponseRecorder) RouteCalculationResponse {
