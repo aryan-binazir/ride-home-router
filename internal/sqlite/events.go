@@ -138,6 +138,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 
 	routeRows, err := r.store.db.QueryContext(ctx, `
 		SELECT id, event_id, route_order, driver_id, driver_name, driver_address,
+		       COALESCE(driver_address_name, ''),
 		       effective_capacity, org_vehicle_id, org_vehicle_name,
 		       total_dropoff_distance_meters, distance_to_driver_home_meters,
 		       total_distance_meters, baseline_duration_secs, route_duration_secs,
@@ -162,6 +163,7 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 		var metricsComplete int
 		if err := routeRows.Scan(
 			&route.ID, &route.EventID, &route.RouteOrder, &route.DriverID, &route.DriverName, &route.DriverAddress,
+			&route.DriverAddressName,
 			&route.EffectiveCapacity, &orgVehicleID, &orgVehicleName,
 			&route.TotalDropoffDistanceMeters, &route.DistanceToDriverHomeMeters,
 			&route.TotalDistanceMeters, &route.BaselineDurationSecs, &route.RouteDurationSecs,
@@ -199,7 +201,8 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 
 		stopRows, err := r.store.db.QueryContext(ctx, fmt.Sprintf(`
 			SELECT id, event_route_id, route_order, participant_id, participant_name,
-			       participant_address, distance_from_prev_meters, cumulative_distance_meters,
+			       participant_address, COALESCE(participant_address_name, ''),
+			       distance_from_prev_meters, cumulative_distance_meters,
 			       duration_from_prev_secs, cumulative_duration_secs
 			FROM event_route_stops
 			WHERE event_route_id IN (%s)
@@ -214,7 +217,8 @@ func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event,
 			var stop models.EventRouteStop
 			if err := stopRows.Scan(
 				&stop.ID, &stop.EventRouteID, &stop.Order, &stop.ParticipantID, &stop.ParticipantName,
-				&stop.ParticipantAddress, &stop.DistanceFromPrevMeters, &stop.CumulativeDistanceMeters,
+				&stop.ParticipantAddress, &stop.ParticipantAddressName,
+				&stop.DistanceFromPrevMeters, &stop.CumulativeDistanceMeters,
 				&stop.DurationFromPrevSecs, &stop.CumulativeDurationSecs,
 			); err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to scan event route stop: %w", err)
@@ -283,19 +287,20 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 
 	routeInsert := `
 		INSERT INTO event_routes (
-			event_id, route_order, driver_id, driver_name, driver_address,
+			event_id, route_order, driver_id, driver_name, driver_address, driver_address_name,
 			effective_capacity, org_vehicle_id, org_vehicle_name,
 			total_dropoff_distance_meters, distance_to_driver_home_meters,
 			total_distance_meters, baseline_duration_secs, route_duration_secs,
 			detour_secs, mode, snapshot_version, metrics_complete
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	stopInsert := `
 		INSERT INTO event_route_stops (
 			event_route_id, route_order, participant_id, participant_name,
-			participant_address, distance_from_prev_meters, cumulative_distance_meters,
+			participant_address, participant_address_name,
+			distance_from_prev_meters, cumulative_distance_meters,
 			duration_from_prev_secs, cumulative_duration_secs
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	for _, route := range routes {
@@ -315,7 +320,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 		}
 
 		routeResult, err := tx.ExecContext(ctx, routeInsert,
-			eventID, route.RouteOrder, route.DriverID, route.DriverName, route.DriverAddress,
+			eventID, route.RouteOrder, route.DriverID, route.DriverName, route.DriverAddress, route.DriverAddressName,
 			route.EffectiveCapacity, orgVehicleID, orgVehicleName,
 			route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters,
 			route.TotalDistanceMeters, route.BaselineDurationSecs, route.RouteDurationSecs,
@@ -333,7 +338,8 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 		for _, stop := range route.Stops {
 			if _, err := tx.ExecContext(ctx, stopInsert,
 				eventRouteID, stop.Order, stop.ParticipantID, stop.ParticipantName,
-				stop.ParticipantAddress, stop.DistanceFromPrevMeters, stop.CumulativeDistanceMeters,
+				stop.ParticipantAddress, stop.ParticipantAddressName,
+				stop.DistanceFromPrevMeters, stop.CumulativeDistanceMeters,
 				stop.DurationFromPrevSecs, stop.CumulativeDurationSecs,
 			); err != nil {
 				return nil, fmt.Errorf("failed to create event route stop: %w", err)

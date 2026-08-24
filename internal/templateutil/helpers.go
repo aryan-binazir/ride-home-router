@@ -51,6 +51,12 @@ func FuncMap() template.FuncMap {
 			}
 			return fmt.Sprintf("%dm %ds", mins, secs)
 		},
+		"displayAddress": func(addressName, address string) string {
+			if addressName == "" {
+				return address
+			}
+			return fmt.Sprintf("%s (%s)", addressName, address)
+		},
 		"initials": func(name string) string {
 			parts := strings.Fields(strings.TrimSpace(name))
 			if len(parts) == 0 {

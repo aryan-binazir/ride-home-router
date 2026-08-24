@@ -40,6 +40,7 @@
          data-activity-location-address="{{$activityLocation.Address}}"
          data-driver-name="{{.Driver.Name}}"
          data-driver-address="{{.Driver.Address}}"
+         data-driver-address-name="{{.Driver.AddressName}}"
          data-driver-lat="{{printf "%.6f" .Driver.Lat}}"
          data-driver-lng="{{printf "%.6f" .Driver.Lng}}"
          data-route-duration-secs="{{printf "%.0f" .RouteDurationSecs}}"
@@ -55,7 +56,7 @@
                         <span class="badge badge-info">{{.OrgVehicleName}}</span>
                         {{end}}
                     </h3>
-                    <p>{{.Driver.Address}}</p>
+                    <p>{{displayAddress .Driver.AddressName .Driver.Address}}</p>
                 </div>
             </div>
             <div class="route-stats">
@@ -124,6 +125,7 @@
             <div class="stop-item"
                  data-participant-name="{{.Participant.Name}}"
                  data-participant-address="{{.Participant.Address}}"
+                 data-participant-address-name="{{.Participant.AddressName}}"
                  data-participant-lat="{{printf "%.6f" .Participant.Lat}}"
                  data-participant-lng="{{printf "%.6f" .Participant.Lng}}"
                  data-stop-cumulative-duration-secs="{{printf "%.0f" .CumulativeDurationSecs}}"
@@ -131,7 +133,7 @@
                 <div class="stop-number">{{add .Order 1}}</div>
                 <div class="stop-details">
                     <h4>{{.Participant.Name}}</h4>
-                    <p>{{.Participant.Address}}</p>
+                    <p>{{displayAddress .Participant.AddressName .Participant.Address}}</p>
                 </div>
                 <div class="stop-distance">
                     <span class="stop-eta"></span>

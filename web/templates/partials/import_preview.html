@@ -1,0 +1,97 @@
+{{define "import_preview"}}
+<div class="import-step">
+    <h4 class="import-step-title">Review rows</h4>
+    <p class="import-step-subtitle">{{.Filename}}</p>
+
+    {{if .Warnings}}
+    <div class="alert alert-warning">
+        <ul>
+            {{range .Warnings}}<li>{{.}}</li>{{end}}
+        </ul>
+    </div>
+    {{end}}
+
+    {{if .Geocoding}}
+    <div class="import-progress"
+         hx-get="/api/v1/imports/{{.SessionID}}?view=panel"
+         hx-trigger="every 2s"
+         hx-target="#import-steps"
+         hx-swap="innerHTML">
+        <p class="import-progress-label">Looking up addresses… {{.GeocodeDone}}/{{.GeocodeTotal}}</p>
+        <progress class="import-progress-bar" value="{{.GeocodeDone}}" max="{{.GeocodeTotal}}"></progress>
+    </div>
+    {{end}}
+
+    <form id="import-selection-form"
+          hx-put="/api/v1/imports/{{.SessionID}}/selection?view=panel"
+          hx-trigger="change"
+          hx-target="#import-commit-bar"
+          hx-swap="outerHTML">
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 42px;"></th>
+                        <th style="width: 64px;">Row</th>
+                        <th>Name</th>
+                        <th>Address</th>
+                        {{if .IsDriver}}<th style="width: 90px;">Capacity</th>{{end}}
+                        <th style="width: 150px;">Coordinates</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Rows}}
+                    <tr class="import-row{{if .State}} import-row-{{.State}}{{end}}">
+                        <td>
+                            {{if .Selectable}}
+                            <input type="checkbox"
+                                   class="form-checkbox"
+                                   name="selected"
+                                   value="{{.Index}}"
+                                   aria-label="Import row {{.SourceRow}}"
+                                   {{if .Selected}}checked{{end}}>
+                            {{end}}
+                        </td>
+                        <td>{{.SourceRow}}</td>
+                        <td>{{.Name}}</td>
+                        <td>{{displayAddress .AddressName .Address}}</td>
+                        {{if $.IsDriver}}<td>{{if .Capacity}}{{.Capacity}}{{end}}</td>{{end}}
+                        <td>{{.Coordinates}}</td>
+                        <td>
+                            {{if .Notes}}
+                            <ul class="import-row-notes">
+                                {{range .Notes}}<li>{{.}}</li>{{end}}
+                            </ul>
+                            {{else}}
+                            <span class="text-muted">Ready</span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    {{template "import_commit_bar" .CommitBar}}
+</div>
+{{end}}
+
+{{define "import_commit_bar"}}
+<div id="import-commit-bar" class="import-commit-bar">
+    <span class="import-commit-summary">{{.Selected}} of {{.Total}} rows selected</span>
+    <div class="import-actions">
+        <button type="button"
+                class="btn btn-primary"
+                hx-post="/api/v1/imports/{{.SessionID}}/commit?view=panel"
+                hx-include="#import-selection-form"
+                hx-target="#import-steps"
+                hx-swap="innerHTML"
+                {{if .Disabled}}disabled{{end}}>
+            Import {{.Selected}} {{if eq .Selected 1}}row{{else}}rows{{end}}
+        </button>
+        {{template "import_cancel" .SessionID}}
+    </div>
+</div>
+{{end}}

@@ -726,6 +726,12 @@ func TestActualEventDetailTemplateRendersFloatDetourComparison(t *testing.T) {
 		"initials": func(name string) string {
 			return name[:1]
 		},
+		"displayAddress": func(addressName, address string) string {
+			if addressName == "" {
+				return address
+			}
+			return addressName + " (" + address + ")"
+		},
 	}).Parse(string(content))
 	if err != nil {
 		t.Fatalf("parse event_detail template: %v", err)
@@ -913,6 +919,25 @@ func createLegacyHistoryDB(t *testing.T, dbPath string) {
 	statements := []string{
 		`CREATE TABLE schema_version (version INTEGER PRIMARY KEY)`,
 		`INSERT INTO schema_version (version) VALUES (1)`,
+		`CREATE TABLE participants (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			address TEXT NOT NULL,
+			lat REAL NOT NULL,
+			lng REAL NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE drivers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			address TEXT NOT NULL,
+			lat REAL NOT NULL,
+			lng REAL NOT NULL,
+			vehicle_capacity INTEGER NOT NULL DEFAULT 4,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			selected_activity_location_id INTEGER,

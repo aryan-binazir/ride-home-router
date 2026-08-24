@@ -797,7 +797,7 @@ func TestHandleCreateParticipant_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("create label: %v", err)
 	}
 
-	body := `{"name":"Participant One","address":"1 Rider Way","label_ids":[` + int64ToString(label.ID) + `]}`
+	body := `{"name":"Participant One","address":"1 Rider Way","address_name":"  Collins Crossing  ","label_ids":[` + int64ToString(label.ID) + `]}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -808,13 +808,14 @@ func TestHandleCreateParticipant_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 	var response struct {
-		ID       int64   `json:"id"`
-		LabelIDs []int64 `json:"label_ids"`
+		ID          int64   `json:"id"`
+		AddressName string  `json:"address_name"`
+		LabelIDs    []int64 `json:"label_ids"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.ID == 0 || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
+	if response.ID == 0 || response.AddressName != "Collins Crossing" || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
 		t.Fatalf("response = %#v, want created participant with label_ids [%d]", response, label.ID)
 	}
 }
@@ -827,7 +828,7 @@ func TestHandleCreateDriver_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("create label: %v", err)
 	}
 
-	body := `{"name":"Driver One","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[` + int64ToString(label.ID) + `]}`
+	body := `{"name":"Driver One","address":"1 Driver Way","address_name":"  North Campus  ","vehicle_capacity":4,"label_ids":[` + int64ToString(label.ID) + `]}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -838,14 +839,68 @@ func TestHandleCreateDriver_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 	var response struct {
-		ID       int64   `json:"id"`
-		LabelIDs []int64 `json:"label_ids"`
+		ID          int64   `json:"id"`
+		AddressName string  `json:"address_name"`
+		LabelIDs    []int64 `json:"label_ids"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.ID == 0 || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
+	if response.ID == 0 || response.AddressName != "North Campus" || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
 		t.Fatalf("response = %#v, want created driver with label_ids [%d]", response, label.ID)
+	}
+}
+
+func TestHandleCreateParticipantAndDriverRejectAddressNameOver200Characters(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	tooLong := strings.Repeat("a", 201)
+
+	tests := []struct {
+		name string
+		path string
+		body string
+		call func(http.ResponseWriter, *http.Request)
+	}{
+		{
+			name: "participant",
+			path: "/api/v1/participants",
+			body: `{"name":"Participant One","address":"1 Rider Way","address_name":"` + tooLong + `"}`,
+			call: handler.HandleCreateParticipant,
+		},
+		{
+			name: "driver",
+			path: "/api/v1/drivers",
+			body: `{"name":"Driver One","address":"1 Driver Way","address_name":"` + tooLong + `","vehicle_capacity":4}`,
+			call: handler.HandleCreateDriver,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			tt.call(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			if !strings.Contains(rr.Body.String(), messageAddressNameTooLong()) {
+				t.Fatalf("body = %q, want %q", rr.Body.String(), messageAddressNameTooLong())
+			}
+		})
+	}
+
+	participants, err := store.Participants().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list participants: %v", err)
+	}
+	drivers, err := store.Drivers().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list drivers: %v", err)
+	}
+	if len(participants) != 0 || len(drivers) != 0 {
+		t.Fatalf("unexpected records after validation failure: participants=%d drivers=%d", len(participants), len(drivers))
 	}
 }
 
@@ -873,7 +928,7 @@ func TestHandleUpdateParticipant_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("SetLabelsForParticipant() error = %v", err)
 	}
 
-	body := `{"name":"Participant One Updated","address":"1 Rider Way","label_ids":[` + int64ToString(newLabel.ID) + `]}`
+	body := `{"name":"Participant One Updated","address":"1 Rider Way","address_name":"  Community Center  ","label_ids":[` + int64ToString(newLabel.ID) + `]}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/participants/"+int64ToString(participant.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -884,13 +939,14 @@ func TestHandleUpdateParticipant_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	var response struct {
-		ID       int64   `json:"id"`
-		LabelIDs []int64 `json:"label_ids"`
+		ID          int64   `json:"id"`
+		AddressName string  `json:"address_name"`
+		LabelIDs    []int64 `json:"label_ids"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.ID != participant.ID || len(response.LabelIDs) != 1 || response.LabelIDs[0] != newLabel.ID {
+	if response.ID != participant.ID || response.AddressName != "Community Center" || len(response.LabelIDs) != 1 || response.LabelIDs[0] != newLabel.ID {
 		t.Fatalf("response = %#v, want updated participant with label_ids [%d]", response, newLabel.ID)
 	}
 }
@@ -920,7 +976,7 @@ func TestHandleUpdateDriver_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("SetLabelsForDriver() error = %v", err)
 	}
 
-	body := `{"name":"Driver One Updated","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[` + int64ToString(newLabel.ID) + `]}`
+	body := `{"name":"Driver One Updated","address":"1 Driver Way","address_name":"  South Campus  ","vehicle_capacity":4,"label_ids":[` + int64ToString(newLabel.ID) + `]}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/drivers/"+int64ToString(driver.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -931,13 +987,14 @@ func TestHandleUpdateDriver_JSONReturnsLabelIDs(t *testing.T) {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	var response struct {
-		ID       int64   `json:"id"`
-		LabelIDs []int64 `json:"label_ids"`
+		ID          int64   `json:"id"`
+		AddressName string  `json:"address_name"`
+		LabelIDs    []int64 `json:"label_ids"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.ID != driver.ID || len(response.LabelIDs) != 1 || response.LabelIDs[0] != newLabel.ID {
+	if response.ID != driver.ID || response.AddressName != "South Campus" || len(response.LabelIDs) != 1 || response.LabelIDs[0] != newLabel.ID {
 		t.Fatalf("response = %#v, want updated driver with label_ids [%d]", response, newLabel.ID)
 	}
 }

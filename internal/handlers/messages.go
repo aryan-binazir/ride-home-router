@@ -1,6 +1,9 @@
 package handlers
 
-import "fmt"
+import (
+	"fmt"
+	"ride-home-router/internal/models"
+)
 
 const (
 	messageAddressRequired                               = "Address is required"
@@ -43,7 +46,6 @@ const (
 	messageSelectAtLeastOneDriver                        = "Please select at least one driver."
 	messageSelectAtLeastOneParticipant                   = "Please select at least one participant."
 	messageTargetVehicleAtCapacity                       = "Target vehicle is at capacity"
-	messageVehicleCapacityMustBeGreaterThanZero          = "vehicle capacity must be greater than 0"
 	messageOrganizationVehicleCapacityMustBeAtLeastOne   = "Capacity must be at least 1"
 
 	toastTypeError   = "error"
@@ -81,6 +83,14 @@ func messageFailedToSaveVan(err error) string {
 
 func messageNotEnoughCapacity(shortage int) string {
 	return fmt.Sprintf("Not enough capacity - need %d more seats", shortage)
+}
+
+func messageAddressNameTooLong() string {
+	return fmt.Sprintf("location name must be %d characters or fewer", models.MaxAddressNameLength)
+}
+
+func messageVehicleCapacityOutOfRange() string {
+	return fmt.Sprintf("vehicle capacity must be between %d and %d", models.MinVehicleCapacity, models.MaxVehicleCapacity)
 }
 
 func messageRoutesCalculated(driversAssigned int) string {

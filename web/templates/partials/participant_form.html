@@ -34,6 +34,16 @@
             <div class="form-help">Address will be geocoded automatically</div>
         </div>
 
+        <div class="form-group">
+            <label class="form-label">Location name (optional)</label>
+            <input type="text"
+                   name="address_name"
+                   class="form-input"
+                   value="{{.Participant.AddressName}}"
+                   placeholder="e.g. Collins Crossing"
+                   maxlength="200">
+        </div>
+
         {{if .Labels}}
         <div class="form-group">
             <label class="form-label">Labels</label>

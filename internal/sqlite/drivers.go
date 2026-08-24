@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
@@ -22,13 +23,13 @@ func (r *driverRepository) List(ctx context.Context, search string) ([]models.Dr
 	var err error
 
 	if search != "" {
-		query := `SELECT id, name, address, lat, lng, vehicle_capacity, created_at, updated_at
+		query := `SELECT id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at
 		          FROM drivers
 		          WHERE name LIKE ?
 		          ORDER BY name`
 		rows, err = r.store.db.QueryContext(ctx, query, "%"+search+"%")
 	} else {
-		query := `SELECT id, name, address, lat, lng, vehicle_capacity, created_at, updated_at
+		query := `SELECT id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at
 		          FROM drivers
 		          ORDER BY name`
 		rows, err = r.store.db.QueryContext(ctx, query)
@@ -42,7 +43,7 @@ func (r *driverRepository) List(ctx context.Context, search string) ([]models.Dr
 	var drivers []models.Driver
 	for rows.Next() {
 		var d models.Driver
-		if err := rows.Scan(&d.ID, &d.Name, &d.Address, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan driver: %w", err)
 		}
 		drivers = append(drivers, d)
@@ -59,12 +60,12 @@ func (r *driverRepository) GetByID(ctx context.Context, id int64) (*models.Drive
 	r.store.mu.RLock()
 	defer r.store.mu.RUnlock()
 
-	query := `SELECT id, name, address, lat, lng, vehicle_capacity, created_at, updated_at
+	query := `SELECT id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at
 	          FROM drivers WHERE id = ?`
 
 	var d models.Driver
 	err := r.store.db.QueryRowContext(ctx, query, id).Scan(
-		&d.ID, &d.Name, &d.Address, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt,
+		&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -93,7 +94,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 	}
 
 	query := fmt.Sprintf( //nolint:gosec // G201: placeholder list is "?" only; values are bound args.
-		`SELECT id, name, address, lat, lng, vehicle_capacity, created_at, updated_at
+		`SELECT id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at
 		 FROM drivers WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),
 	)
@@ -107,7 +108,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 	var drivers []models.Driver
 	for rows.Next() {
 		var d models.Driver
-		if err := rows.Scan(&d.ID, &d.Name, &d.Address, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan driver: %w", err)
 		}
 		drivers = append(drivers, d)
@@ -124,11 +125,11 @@ func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*model
 	d.CreatedAt = now
 	d.UpdatedAt = now
 
-	query := `INSERT INTO drivers (name, address, lat, lng, vehicle_capacity, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at)
+	          VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?)`
 
 	result, err := r.store.db.ExecContext(ctx, query,
-		d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.CreatedAt, d.UpdatedAt,
+		d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.CreatedAt, d.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create driver: %w", err)
@@ -141,6 +142,89 @@ func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*model
 	d.ID = id
 
 	return d, nil
+}
+
+func (r *driverRepository) CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return database.BatchCreateResult{}, fmt.Errorf("failed to begin driver batch transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	existing, err := driverDuplicateKeys(ctx, tx)
+	if err != nil {
+		return database.BatchCreateResult{}, err
+	}
+	batchResult := database.BatchCreateResult{}
+
+	type createdDriver struct {
+		driver    *models.Driver
+		id        int64
+		createdAt time.Time
+	}
+	created := make([]createdDriver, 0, len(drivers))
+	for i, driver := range drivers {
+		if driver == nil {
+			return database.BatchCreateResult{}, errors.New("driver batch contains a nil driver")
+		}
+		key := models.RosterKey(driver.Name, driver.Address)
+		_, duplicate := existing[key]
+		allowDuplicate := i < len(allowExistingDuplicate) && allowExistingDuplicate[i]
+		if key != "" && duplicate && !allowDuplicate {
+			batchResult.SkippedDuplicate++
+			continue
+		}
+		now := time.Now()
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at)
+			VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?)
+		`, driver.Name, driver.Address, driver.AddressName, driver.Lat, driver.Lng, driver.VehicleCapacity, now, now)
+		if err != nil {
+			return database.BatchCreateResult{}, fmt.Errorf("failed to create driver in batch: %w", err)
+		}
+		id, err := result.LastInsertId()
+		if err != nil {
+			return database.BatchCreateResult{}, fmt.Errorf("failed to get driver batch insert id: %w", err)
+		}
+		created = append(created, createdDriver{driver: driver, id: id, createdAt: now})
+		batchResult.Created++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return database.BatchCreateResult{}, fmt.Errorf("failed to commit driver batch transaction: %w", err)
+	}
+	for _, item := range created {
+		item.driver.ID = item.id
+		item.driver.CreatedAt = item.createdAt
+		item.driver.UpdatedAt = item.createdAt
+	}
+	return batchResult, nil
+}
+
+func driverDuplicateKeys(ctx context.Context, tx *sql.Tx) (map[string]struct{}, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name, address FROM drivers`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query driver duplicates: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	keys := make(map[string]struct{})
+	for rows.Next() {
+		var name, address string
+		if err := rows.Scan(&name, &address); err != nil {
+			return nil, fmt.Errorf("failed to scan driver duplicate: %w", err)
+		}
+		if key := models.RosterKey(name, address); key != "" {
+			keys[key] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate driver duplicates: %w", err)
+	}
+	return keys, nil
 }
 
 func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
@@ -158,9 +242,9 @@ func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Drive
 	d.UpdatedAt = now
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO drivers (name, address, lat, lng, vehicle_capacity, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.CreatedAt, d.UpdatedAt)
+		INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at)
+		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?)
+	`, d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.CreatedAt, d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create driver: %w", err)
 	}
@@ -189,11 +273,11 @@ func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*model
 	d.UpdatedAt = time.Now()
 
 	query := `UPDATE drivers
-	          SET name = ?, address = ?, lat = ?, lng = ?, vehicle_capacity = ?, updated_at = ?
+	          SET name = ?, address = ?, address_name = NULLIF(?, ''), lat = ?, lng = ?, vehicle_capacity = ?, updated_at = ?
 	          WHERE id = ?`
 
 	result, err := r.store.db.ExecContext(ctx, query,
-		d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID,
+		d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update driver: %w", err)
@@ -224,9 +308,9 @@ func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Drive
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE drivers
-		SET name = ?, address = ?, lat = ?, lng = ?, vehicle_capacity = ?, updated_at = ?
+		SET name = ?, address = ?, address_name = NULLIF(?, ''), lat = ?, lng = ?, vehicle_capacity = ?, updated_at = ?
 		WHERE id = ?
-	`, d.Name, d.Address, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID)
+	`, d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update driver: %w", err)
 	}

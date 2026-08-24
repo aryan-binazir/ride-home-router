@@ -707,6 +707,7 @@ test('saving a draft aborts an in-flight restore before clearing the active sess
     ]);
 });
 
+
 test('participant moves flush sequentially in same-session batches with the existing payload contracts', async () => {
     const sent = [];
     const batcher = createParticipantMoveBatcher({
@@ -758,4 +759,26 @@ test('flushing a session preserves an earlier failure across later successful ba
     assert.equal(await batcher.flushFor('session-a'), false);
     assert.equal(calls, 3);
     assert.equal(batcher.hasPendingFor('session-a'), false);
+});
+
+test('driver copy shows friendly location names while Maps keeps real coordinates', async () => {
+    const copied = [];
+    const { container, routeCard } = createRouteFixture();
+    routeCard.dataset.driverAddressName = 'Driver Home';
+    const stopItems = routeCard.querySelectorAll('.stop-item');
+    stopItems[0].dataset.participantAddressName = 'Collins Crossing';
+    const handoff = createRouteHandoff({
+        platform: {
+            copyText: async text => copied.push(text),
+            openUrl: async () => {},
+            notify: () => {},
+        },
+        formatTime: value => value.toTimeString().slice(0, 5),
+    });
+
+    assert.equal(await handoff.copyRoute(routeCard), true);
+    assert.match(copied[0], /Driver: Jordan Driver\nDriver Home \(9 Driver Lane\)\n/);
+    assert.match(copied[0], /Sam Rider - Collins Crossing \(5 Rider Street\)/);
+    assert.match(copied[0], /destination=40.1%2C-74.1/);
+    assert.doesNotMatch(copied[0], /Driver\+Home/);
 });

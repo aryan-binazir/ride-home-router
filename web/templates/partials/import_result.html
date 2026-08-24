@@ -1,0 +1,17 @@
+{{define "import_result"}}
+<div class="import-step">
+    <div class="alert alert-success">{{.Message}}</div>
+    <div class="import-actions">
+        <button type="button"
+                class="btn btn-outline"
+                onclick="document.getElementById('import-steps').innerHTML = ''; document.getElementById('import-upload-form').reset(); document.getElementById('import-panel').removeAttribute('open');">
+            Done
+        </button>
+    </div>
+</div>
+{{if .HasList}}
+<div id="{{.ListElementID}}" class="table-container mb-0" hx-swap-oob="true">
+    {{if .IsDriver}}{{template "driver_list" .DriverList}}{{else}}{{template "participant_list" .ParticipantList}}{{end}}
+</div>
+{{end}}
+{{end}}

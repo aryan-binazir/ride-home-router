@@ -7,6 +7,29 @@ import (
 	"time"
 )
 
+const (
+	MaxAddressNameLength = 200
+	MinVehicleCapacity   = 1
+	MaxVehicleCapacity   = 50
+)
+
+// RosterKey returns the canonical exact-match key for a roster identity.
+// An empty key means either the name or address is blank.
+func RosterKey(name, address string) string {
+	name = NormalizeRosterField(name)
+	address = NormalizeRosterField(address)
+	if name == "" || address == "" {
+		return ""
+	}
+	return name + "\x00" + address
+}
+
+// NormalizeRosterField canonicalizes a roster identity field for exact-match
+// comparisons.
+func NormalizeRosterField(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+}
+
 // Coordinates represents a geographic point
 type Coordinates struct {
 	Lat float64 `json:"lat"`
@@ -43,13 +66,14 @@ func RoundCoordinate(coord float64) float64 {
 
 // Participant represents a person to be driven home
 type Participant struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Address   string    `json:"address"`
-	Lat       float64   `json:"lat"`
-	Lng       float64   `json:"lng"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Address     string    `json:"address"`
+	AddressName string    `json:"address_name"`
+	Lat         float64   `json:"lat"`
+	Lng         float64   `json:"lng"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // GetCoords returns the coordinates of the participant
@@ -62,6 +86,7 @@ type Driver struct {
 	ID              int64     `json:"id"`
 	Name            string    `json:"name"`
 	Address         string    `json:"address"`
+	AddressName     string    `json:"address_name"`
 	Lat             float64   `json:"lat"`
 	Lng             float64   `json:"lng"`
 	VehicleCapacity int       `json:"vehicle_capacity"`
@@ -133,6 +158,7 @@ type EventRoute struct {
 	DriverID                   int64            `json:"driver_id"`
 	DriverName                 string           `json:"driver_name"`
 	DriverAddress              string           `json:"driver_address"`
+	DriverAddressName          string           `json:"driver_address_name,omitempty"`
 	EffectiveCapacity          int              `json:"effective_capacity"`
 	OrgVehicleID               int64            `json:"org_vehicle_id,omitempty"`
 	OrgVehicleName             string           `json:"org_vehicle_name,omitempty"`
@@ -156,6 +182,7 @@ type EventRouteStop struct {
 	ParticipantID            int64   `json:"participant_id"`
 	ParticipantName          string  `json:"participant_name"`
 	ParticipantAddress       string  `json:"participant_address"`
+	ParticipantAddressName   string  `json:"participant_address_name,omitempty"`
 	DistanceFromPrevMeters   float64 `json:"distance_from_prev_meters"`
 	CumulativeDistanceMeters float64 `json:"cumulative_distance_meters"`
 	DurationFromPrevSecs     float64 `json:"duration_from_prev_secs"`

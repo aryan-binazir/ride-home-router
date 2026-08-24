@@ -1,5 +1,5 @@
 {{define "driver_row"}}
-<tr id="driver-{{.Driver.ID}}" data-search="{{.Driver.Name}} {{.Driver.Address}}" data-labels="{{.LabelIDs}}">
+<tr id="driver-{{.Driver.ID}}" data-search="{{.Driver.Name}} {{.Driver.AddressName}} {{.Driver.Address}}" data-labels="{{.LabelIDs}}">
     <td>
         <input type="checkbox"
                name="driver_ids"
@@ -9,7 +9,14 @@
                onchange="updateBulkSelectionCount('drivers-tbody')">
     </td>
     <td>{{.Driver.Name}}</td>
-    <td>{{.Driver.Address}}</td>
+    <td>
+        {{if .Driver.AddressName}}
+        <div>{{.Driver.AddressName}}</div>
+        <div class="text-muted" style="font-size: 0.85em;">{{.Driver.Address}}</div>
+        {{else}}
+        {{.Driver.Address}}
+        {{end}}
+    </td>
     <td>
         <div class="table-labels">
             {{range .LabelNames}}

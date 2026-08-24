@@ -1857,6 +1857,135 @@ tbody tr:last-child td {
     padding: 0 1.25rem 1.25rem;
 }
 
+.import-panel {
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.import-panel-toggle {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.85rem 1.1rem;
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.import-panel-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.import-panel-toggle:hover {
+    color: var(--text);
+}
+
+.import-panel[open] .import-panel-toggle {
+    border-bottom: 1px solid var(--border);
+}
+
+.import-panel-body {
+    padding: 1.1rem;
+}
+
+.import-steps:not(:empty) {
+    margin-top: 1.1rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--border);
+}
+
+.import-step-title {
+    margin-bottom: 0.2rem;
+    font-family: var(--font-display);
+    font-size: 1rem;
+}
+
+.import-step-subtitle {
+    margin-bottom: 0.9rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.import-column-header {
+    font-weight: 600;
+}
+
+.import-column-warning {
+    margin-top: 0.35rem;
+    font-size: 0.8rem;
+    color: color-mix(in srgb, var(--warning) 82%, var(--text));
+}
+
+.import-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.import-progress {
+    margin-bottom: 1rem;
+}
+
+.import-progress-label {
+    margin-bottom: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.import-progress-bar {
+    width: 100%;
+    height: 6px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    accent-color: var(--primary);
+}
+
+.import-commit-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.import-commit-bar .import-actions {
+    margin-top: 0;
+}
+
+.import-commit-summary {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.import-row-notes {
+    margin: 0;
+    padding-left: 1rem;
+    font-size: 0.8rem;
+}
+
+.import-row-error {
+    background: color-mix(in srgb, var(--danger-dim) 45%, transparent);
+    color: color-mix(in srgb, var(--danger) 70%, var(--text));
+}
+
+.import-row-warning {
+    background: color-mix(in srgb, var(--warning-dim) 45%, transparent);
+    color: color-mix(in srgb, var(--warning) 70%, var(--text));
+}
+
+.import-row-duplicate {
+    background: var(--primary-faint);
+    color: color-mix(in srgb, var(--primary) 55%, var(--text));
+}
+
 .text-muted {
     color: var(--text-muted);
 }

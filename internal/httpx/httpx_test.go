@@ -40,3 +40,39 @@ func TestDecodeJSONAcceptsJSONContentTypeParameters(t *testing.T) {
 		t.Fatalf("name = %q, want Alex", dst.Name)
 	}
 }
+
+func TestIsLoopbackHost(t *testing.T) {
+	for _, host := range []string{"localhost:8080", "127.0.0.1:8080", "[::1]:8080", "::1"} {
+		if !IsLoopbackHost(host) {
+			t.Errorf("IsLoopbackHost(%q) = false, want true", host)
+		}
+	}
+	for _, host := range []string{"evil.example:8080", "127.0.0.2:8080", "192.0.2.1:8080", "[2001:db8::1]:8080"} {
+		if IsLoopbackHost(host) {
+			t.Errorf("IsLoopbackHost(%q) = true, want false", host)
+		}
+	}
+}
+
+func TestHasSameHTTPOrigin(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		host   string
+		origin string
+		want   bool
+	}{
+		{name: "missing origin", host: "localhost:8080", want: true},
+		{name: "matching IPv6 origin", host: "[::1]:8080", origin: "http://[::1]:8080", want: true},
+		{name: "wails origin", host: "localhost:8080", origin: "wails://wails.localhost", want: false},
+		{name: "different loopback host", host: "localhost:8080", origin: "http://127.0.0.1:8080", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://"+tt.host+"/", nil)
+			req.Host = tt.host
+			req.Header.Set("Origin", tt.origin)
+			if got := HasSameHTTPOrigin(req); got != tt.want {
+				t.Fatalf("HasSameHTTPOrigin() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

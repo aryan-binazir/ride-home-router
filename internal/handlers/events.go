@@ -89,11 +89,12 @@ type EventDetailResponse struct {
 
 // AssignmentGroupedByDriver groups stops by driver for legacy-compatible responses.
 type AssignmentGroupedByDriver struct {
-	DriverName     string           `json:"driver_name"`
-	DriverAddress  string           `json:"driver_address"`
-	OrgVehicleID   int64            `json:"org_vehicle_id,omitempty"`
-	OrgVehicleName string           `json:"org_vehicle_name,omitempty"`
-	Stops          []AssignmentStop `json:"stops"`
+	DriverName        string           `json:"driver_name"`
+	DriverAddress     string           `json:"driver_address"`
+	DriverAddressName string           `json:"driver_address_name,omitempty"`
+	OrgVehicleID      int64            `json:"org_vehicle_id,omitempty"`
+	OrgVehicleName    string           `json:"org_vehicle_name,omitempty"`
+	Stops             []AssignmentStop `json:"stops"`
 }
 
 // AssignmentStop represents a single saved stop in legacy-compatible responses.
@@ -101,6 +102,7 @@ type AssignmentStop struct {
 	RouteOrder             int     `json:"route_order"`
 	ParticipantName        string  `json:"participant_name"`
 	ParticipantAddress     string  `json:"participant_address"`
+	ParticipantAddressName string  `json:"participant_address_name,omitempty"`
 	DistanceFromPrevMeters float64 `json:"distance_from_prev_meters"`
 }
 
@@ -178,7 +180,6 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 		h.handleInternalError(w, err)
 		return
 	}
-
 	assignments := groupRoutesByDriver(routes)
 
 	if h.isHTMX(r) {
@@ -448,11 +449,12 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 		}
 
 		group := AssignmentGroupedByDriver{
-			DriverName:     route.DriverName,
-			DriverAddress:  route.DriverAddress,
-			OrgVehicleID:   route.OrgVehicleID,
-			OrgVehicleName: route.OrgVehicleName,
-			Stops:          make([]AssignmentStop, 0, len(route.Stops)),
+			DriverName:        route.DriverName,
+			DriverAddress:     route.DriverAddress,
+			DriverAddressName: route.DriverAddressName,
+			OrgVehicleID:      route.OrgVehicleID,
+			OrgVehicleName:    route.OrgVehicleName,
+			Stops:             make([]AssignmentStop, 0, len(route.Stops)),
 		}
 
 		for _, stop := range route.Stops {
@@ -460,6 +462,7 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 				RouteOrder:             stop.Order,
 				ParticipantName:        stop.ParticipantName,
 				ParticipantAddress:     stop.ParticipantAddress,
+				ParticipantAddressName: stop.ParticipantAddressName,
 				DistanceFromPrevMeters: stop.DistanceFromPrevMeters,
 			})
 		}

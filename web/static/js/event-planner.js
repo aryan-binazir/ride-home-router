@@ -199,6 +199,12 @@
         });
     }
 
+    function formatDisplayAddress(location) {
+        const address = (location?.address || '').trim();
+        const addressName = (location?.addressName || '').trim();
+        return addressName ? `${addressName} (${address})` : address;
+    }
+
     function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff', options = {}) {
         if (!stops || stops.length === 0) return '';
 
@@ -248,6 +254,7 @@
                 element: item,
                 name: item.dataset.participantName,
                 address: item.dataset.participantAddress,
+                addressName: item.dataset.participantAddressName,
                 lat: item.dataset.participantLat,
                 lng: item.dataset.participantLng,
                 time: includeEtas ? getStopEta(
@@ -278,6 +285,7 @@
                 driverName: routeCard.dataset.driverName,
                 driverLocation: {
                     address: routeCard.dataset.driverAddress,
+                    addressName: routeCard.dataset.driverAddressName,
                     lat: routeCard.dataset.driverLat,
                     lng: routeCard.dataset.driverLng,
                 },
@@ -289,14 +297,14 @@
             const isParentCopy = audience === 'parent';
             let text = `Driver: ${route.driverName}\n`;
             if (!isParentCopy) {
-                text += `${route.driverLocation.address || ''}\n`;
+                text += `${formatDisplayAddress(route.driverLocation)}\n`;
             }
 
             route.stops.forEach((stop, index) => {
                 const prefix = stop.time ? `${stop.time} - ` : '';
                 text += `${index + 1}. ${prefix}${stop.name}`;
                 if (!isParentCopy && stop.address) {
-                    text += ` - ${stop.address}`;
+                    text += ` - ${formatDisplayAddress(stop)}`;
                 }
                 text += '\n';
             });

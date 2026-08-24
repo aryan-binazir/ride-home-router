@@ -5,6 +5,12 @@ import (
 	"ride-home-router/internal/models"
 )
 
+// BatchCreateResult reports the outcome of a duplicate-aware atomic batch.
+type BatchCreateResult struct {
+	Created          int
+	SkippedDuplicate int
+}
+
 // DataStore is the interface for data persistence
 type DataStore interface {
 	Close() error
@@ -25,6 +31,10 @@ type ParticipantRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
+	// CreateBatch atomically creates participants, allowing explicitly selected
+	// preview-known duplicates while skipping rows that became duplicates after preview.
+	// Missing allowExistingDuplicate entries are treated as false.
+	CreateBatch(ctx context.Context, participants []*models.Participant, allowExistingDuplicate []bool) (BatchCreateResult, error)
 	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
 	UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
@@ -37,6 +47,10 @@ type DriverRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
+	// CreateBatch atomically creates drivers, allowing explicitly selected
+	// preview-known duplicates while skipping rows that became duplicates after preview.
+	// Missing allowExistingDuplicate entries are treated as false.
+	CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (BatchCreateResult, error)
 	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)

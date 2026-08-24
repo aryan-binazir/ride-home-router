@@ -16,6 +16,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/importer"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
@@ -96,13 +97,15 @@ func New(cfg Config) (*Server, error) {
 	})
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewStore(distanceCalc)
+	importSession := importer.NewStore(geocoder, db)
 
 	handler := &handlers.Handler{
-		DB:           db,
-		Geocoder:     geocoder,
-		Router:       router,
-		Renderer:     renderer,
-		RouteSession: routeSession,
+		DB:            db,
+		Geocoder:      geocoder,
+		Router:        router,
+		Renderer:      renderer,
+		RouteSession:  routeSession,
+		ImportSession: importSession,
 	}
 
 	mux := setupRoutes(handler, web.Static)
@@ -163,6 +166,9 @@ func (s *Server) Start() (string, error) {
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.handler != nil && s.handler.RouteSession != nil {
 		s.handler.RouteSession.Close()
+	}
+	if s.handler != nil && s.handler.ImportSession != nil {
+		s.handler.ImportSession.Close()
 	}
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return err
@@ -250,6 +256,8 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
 	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
 	mux.HandleFunc("/api/v1/config/routing-provider", handleMethods(handler.HandleGetRoutingProviderConfig, nil, handler.HandleUpdateRoutingProviderConfig, nil))
+	mux.HandleFunc("/api/v1/imports", handler.HandleCreateImport)
+	mux.HandleFunc("/api/v1/imports/", handler.HandleImportSession)
 	mux.HandleFunc("/api/v1/participants", handleMethods(handler.HandleListParticipants, handler.HandleCreateParticipant, nil, nil))
 	mux.HandleFunc("/api/v1/participants/labels/add", requireMethod(http.MethodPost, handler.HandleAddParticipantsToLabel))
 	mux.HandleFunc("/api/v1/participants/labels/remove", requireMethod(http.MethodPost, handler.HandleRemoveParticipantsFromLabel))
@@ -385,7 +393,7 @@ func newRequestAllowlistWithInterfaceAddrs(
 	// safely allow arbitrary Host values.
 	anyHost := bindHost == "" || (bindIP != nil && (bindIP.IsUnspecified() || !bindIP.IsLoopback()))
 
-	names := []string{"localhost", "127.0.0.1", "::1"}
+	names := httpx.LoopbackHostnames()
 	if anyHost {
 		addrs, err := interfaceAddrs()
 		if err != nil {
@@ -451,7 +459,7 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 		}
 
 		if isStateChangingMethod(r.Method) {
-			if !hasSameOrigin(r) {
+			if !httpx.HasSameHTTPOrigin(r) {
 				http.Error(w, serverMessageForbidden, http.StatusForbidden)
 				return
 			}
@@ -463,7 +471,11 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 				return
 			}
 
-			limitedBody := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+			bodyLimit := maxRequestBodyBytes
+			if r.Method == http.MethodPost && r.URL.Path == "/api/v1/imports" {
+				bodyLimit = handlers.MaxImportUploadBytes
+			}
+			limitedBody := http.MaxBytesReader(w, r.Body, bodyLimit)
 			body, err := io.ReadAll(limitedBody)
 			_ = limitedBody.Close()
 			if err != nil {
@@ -483,11 +495,6 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 	})
 }
 
-func hasSameOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
-}
-
 func isStateChangingMethod(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -501,7 +508,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		if hasSameOrigin(r) {
+		if httpx.HasSameHTTPOrigin(r) {
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
