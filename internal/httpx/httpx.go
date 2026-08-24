@@ -4,8 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"mime"
+	"net"
 	"net/http"
+	"slices"
+	"strings"
 )
+
+var loopbackHostnames = [...]string{"localhost", "127.0.0.1", "::1"}
 
 var ErrJSONContentTypeRequired = errors.New("Content-Type must be application/json")
 
@@ -44,4 +49,32 @@ func DecodeJSON(r *http.Request, dst any) error {
 		return ErrJSONContentTypeRequired
 	}
 	return json.NewDecoder(r.Body).Decode(dst)
+}
+
+// LoopbackHostnames returns the hostnames accepted for local-only requests.
+func LoopbackHostnames() []string {
+	return slices.Clone(loopbackHostnames[:])
+}
+
+// IsLoopbackHost reports whether host is on the local-request allowlist, with
+// or without a port.
+func IsLoopbackHost(host string) bool {
+	hostname := host
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		hostname = parsedHost
+	}
+	hostname = strings.Trim(hostname, "[]")
+	for _, allowed := range loopbackHostnames {
+		if strings.EqualFold(hostname, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasSameHTTPOrigin reports whether the request has no Origin header or has an
+// HTTP Origin that exactly matches its Host.
+func HasSameHTTPOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
 }

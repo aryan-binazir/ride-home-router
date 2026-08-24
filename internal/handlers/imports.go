@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"path/filepath"
+	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
 	"strings"
 	"time"
@@ -486,20 +486,7 @@ func importFormat(filename string) (importer.Format, bool) {
 }
 
 func validImportRequestSource(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin != "" && !strings.HasPrefix(origin, "http://localhost:") &&
-		!strings.HasPrefix(origin, "http://127.0.0.1:") && !strings.HasPrefix(origin, "wails://") {
-		return false
-	}
-	host := r.Host
-	if strings.Contains(host, ":") {
-		var err error
-		host, _, err = net.SplitHostPort(host)
-		if err != nil {
-			return false
-		}
-	}
-	return strings.EqualFold(host, "localhost") || host == "127.0.0.1"
+	return httpx.IsLoopbackHost(r.Host) && httpx.HasSameHTTPOrigin(r)
 }
 
 func parseImportSessionPath(path string) (id, action string, ok bool) {

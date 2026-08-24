@@ -180,6 +180,56 @@ func TestXLSXUsesRawNumericValuesAndRejectsErrorCells(t *testing.T) {
 	})
 }
 
+func TestXLSXDriverCapacityAcceptsIntegralFloatOnly(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{
+			{"name", "address", "capacity"},
+			{"Integral", "1 Main St", 4},
+			{"Fractional", "2 Main St", 4.5},
+		})
+	})
+	data = patchXLSXCellValue(t, data, "xl/worksheets/sheet1.xml", "C2", "4.0")
+
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	rows := Validate(grid, AutoMap(grid.Headers), KindDriver, nil)
+	if rows[0].Capacity != 4 || len(rows[0].Errors) != 0 {
+		t.Fatalf("integral float row = %#v, want capacity 4 without errors", rows[0])
+	}
+	if !hasMessage(rows[1].Errors, "capacity must be a whole number") {
+		t.Fatalf("fractional row errors = %#v, want whole-number error", rows[1].Errors)
+	}
+}
+
+func TestXLSXFormulaMetadataInflatedLimitDegradesToWarning(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+	})
+	f, _, err := openXLSX(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("openXLSX() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	oversized := rewriteXLSXEntry(t, data, "xl/worksheets/sheet1.xml", func(contents []byte) []byte {
+		padding := bytes.Repeat([]byte(" "), int(MaxFormulaMetadataXMLBytes)+1)
+		return bytes.Replace(contents, []byte("</worksheet>"), append(padding, []byte("</worksheet>")...), 1)
+	})
+	grid, err := parseXLSXSheet(f, oversized, "Sheet1")
+	if err != nil {
+		t.Fatalf("parseXLSXSheet() error = %v", err)
+	}
+	if !hasMessage(grid.Warnings, formulaMetadataWarning) {
+		t.Fatalf("file warnings = %#v, want formula metadata warning", grid.Warnings)
+	}
+}
+
 func TestXLSXErrorTextIsCheckedOnlyInMappedColumns(t *testing.T) {
 	data := makeXLSX(t, func(f *excelize.File) {
 		setRows(t, f, "Sheet1", [][]any{

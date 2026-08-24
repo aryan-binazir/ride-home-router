@@ -21,6 +21,8 @@ import (
 const (
 	xlsxUnzipSizeLimit    = 64 << 20
 	xlsxUnzipXMLSizeLimit = 8 << 20
+	// MaxFormulaMetadataXMLBytes caps each inflated XLSX XML part inspected for formulas.
+	MaxFormulaMetadataXMLBytes int64 = 32 << 20
 
 	formulaMetadataWarning = "Formula information could not be read from this workbook; values calculated by formulas may not be flagged."
 )
@@ -375,12 +377,11 @@ func xlsxFormulaRows(data []byte, sheet string) (map[int]struct{}, error) {
 		return nil, fmt.Errorf("worksheet %q XML is missing", sheet)
 	}
 
-	reader, err := entry.Open()
+	contents, err := readXLSXMetadataEntry(entry)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = reader.Close() }()
-	decoder := xml.NewDecoder(reader)
+	decoder := xml.NewDecoder(bytes.NewReader(contents))
 	formulaRows := make(map[int]struct{})
 	currentRow := 0
 	for {
@@ -421,15 +422,30 @@ func xlsxFormulaRows(data []byte, sheet string) (map[int]struct{}, error) {
 }
 
 func decodeXLSXEntry(entry *zip.File, target any) error {
-	if entry == nil {
-		return errors.New("required XLSX metadata is missing")
-	}
-	reader, err := entry.Open()
+	contents, err := readXLSXMetadataEntry(entry)
 	if err != nil {
 		return err
 	}
+	return xml.NewDecoder(bytes.NewReader(contents)).Decode(target)
+}
+
+func readXLSXMetadataEntry(entry *zip.File) ([]byte, error) {
+	if entry == nil {
+		return nil, errors.New("required XLSX metadata is missing")
+	}
+	reader, err := entry.Open()
+	if err != nil {
+		return nil, err
+	}
 	defer func() { _ = reader.Close() }()
-	return xml.NewDecoder(reader).Decode(target)
+	contents, err := io.ReadAll(io.LimitReader(reader, MaxFormulaMetadataXMLBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(contents)) > MaxFormulaMetadataXMLBytes {
+		return nil, fmt.Errorf("XLSX formula metadata exceeds the inflated limit of %d bytes", MaxFormulaMetadataXMLBytes)
+	}
+	return contents, nil
 }
 
 func cellsHaveContent(cells []string) bool {

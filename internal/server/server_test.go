@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -480,4 +482,91 @@ func TestRequestSecurityMiddlewareRejectsOversizedBody(t *testing.T) {
 	if rec.Code != http.StatusRequestEntityTooLarge || called {
 		t.Fatalf("status = %d, called = %v; want 413 and handler not called", rec.Code, called)
 	}
+}
+
+func TestRequestSecurityMiddlewareUsesImportUploadBudgetOnRealRoutes(t *testing.T) {
+	server, err := New(Config{Addr: "127.0.0.1:0", DBPath: filepath.Join(t.TempDir(), "middleware-import.db")})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		server.handler.ImportSession.Close()
+		if err := server.db.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	allowlist, err := newRequestAllowlist("[::1]:8080")
+	if err != nil {
+		t.Fatalf("newRequestAllowlist() error = %v", err)
+	}
+	handler := loggingMiddleware(requestSecurityMiddleware(allowlist, corsMiddleware(server.httpServer.Handler)))
+
+	t.Run("import over default limit succeeds from IPv6 loopback", func(t *testing.T) {
+		req := newMiddlewareImportRequest(t, int(maxRequestBodyBytes)+1)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want %d body=%q", rec.Code, http.StatusCreated, rec.Body.String())
+		}
+	})
+
+	t.Run("import over upload limit is rejected", func(t *testing.T) {
+		req := newMiddlewareImportRequest(t, int(handlers.MaxImportUploadBytes)+1)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want %d body=%q", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
+		}
+	})
+
+	t.Run("non-import over default limit is rejected", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(
+			context.Background(),
+			http.MethodPut,
+			"http://[::1]:8080/api/v1/settings",
+			strings.NewReader(strings.Repeat("x", int(maxRequestBodyBytes)+1)),
+		)
+		req.Host = "[::1]:8080"
+		req.Header.Set("Origin", "http://[::1]:8080")
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want %d body=%q", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
+		}
+	})
+}
+
+func newMiddlewareImportRequest(t *testing.T, paddingBytes int) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("kind", string(importer.KindParticipant)); err != nil {
+		t.Fatalf("write kind: %v", err)
+	}
+	if err := writer.WriteField("padding", strings.Repeat("x", paddingBytes)); err != nil {
+		t.Fatalf("write padding: %v", err)
+	}
+	file, err := writer.CreateFormFile("file", "participants.csv")
+	if err != nil {
+		t.Fatalf("create file field: %v", err)
+	}
+	if _, err := file.Write([]byte("name,address,lat,lng\nAlex,1 Main St,40,-73\n")); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://[::1]:8080/api/v1/imports", &body)
+	req.Host = "[::1]:8080"
+	req.Header.Set("Origin", "http://[::1]:8080")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("HX-Request", "true")
+	return req
 }

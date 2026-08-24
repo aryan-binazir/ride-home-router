@@ -393,7 +393,7 @@ func newRequestAllowlistWithInterfaceAddrs(
 	// safely allow arbitrary Host values.
 	anyHost := bindHost == "" || (bindIP != nil && (bindIP.IsUnspecified() || !bindIP.IsLoopback()))
 
-	names := []string{"localhost", "127.0.0.1", "::1"}
+	names := httpx.LoopbackHostnames()
 	if anyHost {
 		addrs, err := interfaceAddrs()
 		if err != nil {
@@ -459,7 +459,7 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 		}
 
 		if isStateChangingMethod(r.Method) {
-			if !hasSameOrigin(r) {
+			if !httpx.HasSameHTTPOrigin(r) {
 				http.Error(w, serverMessageForbidden, http.StatusForbidden)
 				return
 			}
@@ -471,7 +471,11 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 				return
 			}
 
-			limitedBody := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+			bodyLimit := maxRequestBodyBytes
+			if r.Method == http.MethodPost && r.URL.Path == "/api/v1/imports" {
+				bodyLimit = handlers.MaxImportUploadBytes
+			}
+			limitedBody := http.MaxBytesReader(w, r.Body, bodyLimit)
 			body, err := io.ReadAll(limitedBody)
 			_ = limitedBody.Close()
 			if err != nil {
@@ -491,11 +495,6 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 	})
 }
 
-func hasSameOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
-}
-
 func isStateChangingMethod(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -509,7 +508,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		if hasSameOrigin(r) {
+		if httpx.HasSameHTTPOrigin(r) {
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")

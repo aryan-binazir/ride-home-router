@@ -199,16 +199,16 @@ func validateCapacity(row *Row, cells []string, m Mapping, kind Kind) {
 		row.addError("capacity is required when the capacity column is mapped")
 		return
 	}
-	capacity, err := strconv.Atoi(value)
-	if err != nil {
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || math.Trunc(parsed) != parsed {
 		row.addError("capacity must be a whole number")
 		return
 	}
-	if capacity < MinCapacity || capacity > MaxCapacity {
+	if parsed < MinCapacity || parsed > MaxCapacity {
 		row.addError(fmt.Sprintf("capacity must be between %d and %d", MinCapacity, MaxCapacity))
 		return
 	}
-	row.Capacity = capacity
+	row.Capacity = int(parsed)
 }
 
 func reconcileHouseholdCoordinates(rows []Row, states []coordinateState, existing []Existing) {
