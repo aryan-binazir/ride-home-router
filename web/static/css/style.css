@@ -97,7 +97,7 @@ body {
     font-size: 14px;
     line-height: 1.6;
     color: var(--text);
-    min-height: 100vh;
+    min-height: 100dvh;
     background-color: var(--bg);
     background-image:
         linear-gradient(var(--grid-line) 1px, transparent 1px),
@@ -224,7 +224,7 @@ textarea {
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 1rem 0 0;
+    padding-top: 1rem;
     flex-wrap: wrap;
 }
 
@@ -298,7 +298,7 @@ textarea {
 
 .main {
     padding: 2rem 0 4rem;
-    min-height: calc(100vh - 88px);
+    min-height: calc(100dvh - 88px);
 }
 
 .page-header {
@@ -2071,16 +2071,9 @@ tbody tr:last-child td {
 
 @media (max-width: 1024px) {
     .routes-header,
-    .route-header,
-    .action-bar {
+    .route-header {
         flex-direction: column;
         align-items: flex-start;
-    }
-
-    .action-bar-right {
-        width: 100%;
-        align-items: stretch;
-        flex-direction: column;
     }
 
     .route-stats {
@@ -2092,7 +2085,8 @@ tbody tr:last-child td {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .table-container {
+    .table-container,
+    .org-vehicle-assignments {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
     }
@@ -2105,6 +2099,33 @@ tbody tr:last-child td {
     .form-input-inline {
         width: 100%;
         min-width: 0;
+    }
+}
+
+/* Touch devices in any orientation: comfortable targets, and 16px inputs so iOS does not zoom on focus. */
+@media (pointer: coarse) {
+    .btn,
+    .btn-sm {
+        min-height: 2.75rem;
+    }
+
+    .nav a {
+        min-height: 2.75rem;
+    }
+
+    .form-input,
+    .form-select,
+    .form-textarea,
+    .ui-select-trigger,
+    .form-input-search {
+        font-size: 16px;
+        min-height: 2.75rem;
+    }
+
+    .form-checkbox,
+    .form-radio {
+        width: 20px;
+        height: 20px;
     }
 }
 
@@ -2175,30 +2196,6 @@ tbody tr:last-child td {
         width: 100%;
     }
 
-    /* Comfortable touch targets, and 16px inputs so iOS does not zoom on focus. */
-    .btn {
-        min-height: 2.75rem;
-    }
-
-    .btn-sm {
-        min-height: 2.5rem;
-    }
-
-    .form-input,
-    .form-select,
-    .form-textarea,
-    .ui-select-trigger,
-    .form-input-search {
-        font-size: 16px;
-        min-height: 2.75rem;
-    }
-
-    .form-checkbox,
-    .form-radio {
-        width: 20px;
-        height: 20px;
-    }
-
     .panel-toolbar,
     .bulk-toolbar,
     .filter-chip-toolbar {
@@ -2212,13 +2209,8 @@ tbody tr:last-child td {
         width: 100%;
     }
 
-    .btn-dropdown > .btn {
-        width: 100%;
-    }
-
     .btn-dropdown-menu {
         right: 0;
-        max-width: none;
     }
 
     .select-row {
@@ -2257,12 +2249,20 @@ tbody tr:last-child td {
         border-bottom: 0;
     }
 
-    table[data-cards] td:first-child {
+    table[data-cards] td.table-select-cell {
         position: absolute;
         top: 0.85rem;
         left: 1rem;
         width: auto;
         padding: 0;
+    }
+
+    table[data-cards] tr:not(:has(.table-select-cell)) {
+        padding-left: 1rem;
+    }
+
+    table[data-cards] td:not([data-col]):not(.table-select-cell):not(.table-actions-cell) {
+        display: none;
     }
 
     table[data-cards] td[data-col]::before {
@@ -2289,22 +2289,28 @@ tbody tr:last-child td {
         padding-top: 0.6rem;
     }
 
-    table[data-cards] .table-actions {
-        flex-direction: row;
-    }
-
     table[data-cards] .table-actions .btn {
         flex: 1 1 0;
     }
 
     /* Sticky bar: keep it slim and clear of the home indicator. */
     .action-bar {
+        flex-direction: column;
+        align-items: stretch;
         bottom: 0;
         margin-left: -1rem;
         margin-right: -1rem;
-        padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
-        border-top: 1px solid var(--border);
+        padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
         gap: 0.65rem;
+    }
+
+    .action-bar-right {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .action-bar-left {
@@ -2352,7 +2358,7 @@ tbody tr:last-child td {
     .toast-container {
         left: 1rem;
         right: 1rem;
-        bottom: calc(1rem + env(safe-area-inset-bottom));
+        bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
     }
 
     .toast {

@@ -1,10 +1,11 @@
 {{define "driver_row"}}
 <tr id="driver-{{.Driver.ID}}" data-search="{{.Driver.Name}} {{.Driver.AddressName}} {{.Driver.Address}}" data-labels="{{.LabelIDs}}">
-    <td>
+    <td class="table-select-cell">
         <input type="checkbox"
                name="driver_ids"
                value="{{.Driver.ID}}"
                class="form-checkbox bulk-table-checkbox"
+               aria-label="Select {{.Driver.Name}}"
                data-bulk-row
                onchange="updateBulkSelectionCount('drivers-tbody')">
     </td>
@@ -18,13 +19,15 @@
         {{end}}
     </td>
     <td {{if .LabelNames}}data-col="Labels"{{end}}>
+        {{if .LabelNames}}
         <div class="table-labels">
             {{range .LabelNames}}
             <span class="badge badge-muted">{{.}}</span>
             {{end}}
         </div>
+        {{end}}
     </td>
-    <td data-col="Capacity">{{.Driver.VehicleCapacity}}</td>
+    <td data-col="Available capacity">{{.Driver.VehicleCapacity}}</td>
     <td class="text-muted" {{if and .Driver.Lat .Driver.Lng}}data-col="Coordinates"{{end}}>
         {{if and .Driver.Lat .Driver.Lng}}
         {{printf "%.4f, %.4f" .Driver.Lat .Driver.Lng}}

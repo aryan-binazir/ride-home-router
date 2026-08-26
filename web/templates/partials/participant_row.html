@@ -1,10 +1,11 @@
 {{define "participant_row"}}
 <tr id="participant-{{.Participant.ID}}" data-search="{{.Participant.Name}} {{.Participant.AddressName}} {{.Participant.Address}}" data-labels="{{.LabelIDs}}">
-    <td>
+    <td class="table-select-cell">
         <input type="checkbox"
                name="participant_ids"
                value="{{.Participant.ID}}"
                class="form-checkbox bulk-table-checkbox"
+               aria-label="Select {{.Participant.Name}}"
                data-bulk-row
                onchange="updateBulkSelectionCount('participants-tbody')">
     </td>
@@ -18,11 +19,13 @@
         {{end}}
     </td>
     <td {{if .LabelNames}}data-col="Labels"{{end}}>
+        {{if .LabelNames}}
         <div class="table-labels">
             {{range .LabelNames}}
             <span class="badge badge-muted">{{.}}</span>
             {{end}}
         </div>
+        {{end}}
     </td>
     <td class="text-muted" {{if and .Participant.Lat .Participant.Lng}}data-col="Coordinates"{{end}}>
         {{if and .Participant.Lat .Participant.Lng}}
