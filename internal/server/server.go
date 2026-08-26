@@ -17,10 +17,11 @@ import (
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
-	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templates"
+	"ride-home-router/migrations"
 	"ride-home-router/web"
 	"strings"
 	"time"
@@ -33,17 +34,20 @@ type Server struct {
 	db           database.DataStore
 	listener     net.Listener
 	addr         string
-	dbPath       string
 	allowedHosts []string
 }
 
 // Config holds server configuration
 type Config struct {
-	Addr   string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
-	DBPath string // Optional: path to SQLite database, uses config file or default if empty
+	Addr string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
 	// AllowedHosts lists the public hostnames a proxy or tunnel forwards in
 	// Host/Origin. Required when Addr is not a loopback address.
 	AllowedHosts []string
+	// DatabaseURL is the Postgres connection string. Pending migrations are
+	// applied before the server starts serving.
+	DatabaseURL string
+	// GoogleMapsAPIKey enables Google Routes distances; empty disables routing.
+	GoogleMapsAPIKey string
 }
 
 const (
@@ -60,26 +64,20 @@ const (
 	serverMessageRequestBodyTooLarge = "Request body too large"
 )
 
-// New creates and initializes a new server (does not start it)
-func New(cfg Config) (*Server, error) {
-	// Determine database path
-	dbPath := cfg.DBPath
-	if dbPath == "" {
-		// Load from config file or use default
-		appConfig, err := database.LoadConfig()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config: %w", err)
-		}
-		dbPath = appConfig.DatabasePath
+// New migrates the database and initializes a new server (does not start it).
+func New(ctx context.Context, cfg Config) (*Server, error) {
+	if cfg.DatabaseURL == "" {
+		return nil, errors.New("database URL is required")
 	}
-
-	log.Printf("Initializing SQLite data store at: %s", dbPath)
-	db, err := sqlite.New(dbPath)
+	log.Printf("Applying database migrations...")
+	if err := migrations.Run(ctx, cfg.DatabaseURL); err != nil {
+		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	}
+	db, err := postgres.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data store: %w", err)
 	}
 
-	log.Printf("Loading templates...")
 	renderer, err := templates.New(web.Templates)
 	if err != nil {
 		_ = db.Close()
@@ -88,11 +86,7 @@ func New(cfg Config) (*Server, error) {
 
 	geocoder := geocoding.NewNominatimGeocoder()
 	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), func() (string, error) {
-		config, err := database.LoadConfig()
-		if err != nil {
-			return "", err
-		}
-		return config.GoogleMapsAPIKey, nil
+		return cfg.GoogleMapsAPIKey, nil
 	})
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewStore(distanceCalc)
@@ -123,14 +117,8 @@ func New(cfg Config) (*Server, error) {
 		db:           db,
 		listener:     nil,
 		addr:         cfg.Addr,
-		dbPath:       dbPath,
 		allowedHosts: cfg.AllowedHosts,
 	}, nil
-}
-
-// GetDBPath returns the current database path
-func (s *Server) GetDBPath() string {
-	return s.dbPath
 }
 
 // Start starts the server and returns the actual address (useful for random port)
@@ -250,8 +238,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 
 	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
-	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
-	mux.HandleFunc("/api/v1/config/routing-provider", handleMethods(handler.HandleGetRoutingProviderConfig, nil, handler.HandleUpdateRoutingProviderConfig, nil))
 	mux.HandleFunc("/api/v1/imports", handler.HandleCreateImport)
 	mux.HandleFunc("/api/v1/imports/", handler.HandleImportSession)
 	mux.HandleFunc("/api/v1/participants", handleMethods(handler.HandleListParticipants, handler.HandleCreateParticipant, nil, nil))

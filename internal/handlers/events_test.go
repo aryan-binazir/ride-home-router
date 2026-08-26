@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -11,11 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
+	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
-	"ride-home-router/internal/sqlite"
 	"ride-home-router/internal/templates"
 	"ride-home-router/web"
 	"strconv"
@@ -798,17 +797,12 @@ func TestHandleDeleteEvent_HTMXRerendersEventList(t *testing.T) {
 	}
 }
 
-func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlite.Store) {
+func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *postgres.Store) {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "events-test.db")
+	store := postgrestest.Open(t)
 	if withLegacyHistory {
-		createLegacyHistoryDB(t, dbPath)
-	}
-
-	store, err := sqlite.New(dbPath)
-	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
+		createLegacyEvent(t, store)
 	}
 
 	handler := &Handler{
@@ -817,12 +811,7 @@ func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *sqlit
 		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
 	}
 
-	t.Cleanup(func() {
-		handler.RouteSession.Close()
-		if err := store.Close(); err != nil {
-			t.Fatalf("close sqlite store: %v", err)
-		}
-	})
+	t.Cleanup(handler.RouteSession.Close)
 
 	return handler, store
 }
@@ -849,7 +838,7 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 	return renderer
 }
 
-func createTestEvent(t *testing.T, store *sqlite.Store, eventDate, notes string) *models.Event {
+func createTestEvent(t *testing.T, store *postgres.Store, eventDate, notes string) *models.Event {
 	t.Helper()
 
 	date, err := time.Parse("2006-01-02", eventDate)
@@ -907,90 +896,26 @@ func createTestEvent(t *testing.T, store *sqlite.Store, eventDate, notes string)
 	return created
 }
 
-func createLegacyHistoryDB(t *testing.T, dbPath string) {
+// createLegacyEvent seeds a snapshot_version 1 event as the SQLite-era
+// migration used to produce: distances only, no durations or final leg.
+func createLegacyEvent(t *testing.T, store *postgres.Store) {
 	t.Helper()
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open legacy db: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	statements := []string{
-		`CREATE TABLE schema_version (version INTEGER PRIMARY KEY)`,
-		`INSERT INTO schema_version (version) VALUES (1)`,
-		`CREATE TABLE participants (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			address TEXT NOT NULL,
-			lat REAL NOT NULL,
-			lng REAL NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE drivers (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			address TEXT NOT NULL,
-			lat REAL NOT NULL,
-			lng REAL NOT NULL,
-			vehicle_capacity INTEGER NOT NULL DEFAULT 4,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE settings (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
-			selected_activity_location_id INTEGER,
-			use_miles INTEGER NOT NULL DEFAULT 0
-		)`,
-		`INSERT INTO settings (id, use_miles) VALUES (1, 0)`,
-		`CREATE TABLE events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			event_date DATETIME NOT NULL,
-			notes TEXT,
-			mode TEXT NOT NULL DEFAULT 'dropoff',
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE event_assignments (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			event_id INTEGER NOT NULL,
-			driver_id INTEGER NOT NULL,
-			driver_name TEXT NOT NULL,
-			driver_address TEXT NOT NULL,
-			route_order INTEGER NOT NULL,
-			participant_id INTEGER NOT NULL,
-			participant_name TEXT NOT NULL,
-			participant_address TEXT NOT NULL,
-			distance_from_prev_meters REAL NOT NULL DEFAULT 0,
-			org_vehicle_id INTEGER,
-			org_vehicle_name TEXT
-		)`,
-		`CREATE TABLE event_summaries (
-			event_id INTEGER PRIMARY KEY,
-			total_participants INTEGER NOT NULL DEFAULT 0,
-			total_drivers INTEGER NOT NULL DEFAULT 0,
-			total_distance_meters REAL NOT NULL DEFAULT 0,
-			org_vehicles_used INTEGER NOT NULL DEFAULT 0,
-			mode TEXT NOT NULL DEFAULT 'dropoff'
-		)`,
-		`INSERT INTO events (id, event_date, notes, mode, created_at)
-		 VALUES (1, '2026-03-13T00:00:00Z', 'legacy event', 'dropoff', '2026-03-13T00:00:00Z')`,
-		`INSERT INTO event_assignments (
-			event_id, driver_id, driver_name, driver_address, route_order,
-			participant_id, participant_name, participant_address, distance_from_prev_meters,
-			org_vehicle_id, org_vehicle_name
-		) VALUES
-			(1, 10, 'Legacy Driver', '10 Driver Lane', 0, 11, 'Legacy Rider One', '11 Rider Lane', 1500, 5, 'Org Van'),
-			(1, 10, 'Legacy Driver', '10 Driver Lane', 1, 12, 'Legacy Rider Two', '12 Rider Lane', 600, 5, 'Org Van')`,
-		`INSERT INTO event_summaries (
-			event_id, total_participants, total_drivers, total_distance_meters, org_vehicles_used, mode
-		) VALUES (1, 2, 1, 2100, 1, 'dropoff')`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
-			t.Fatalf("exec legacy statement %q: %v", stmt, err)
-		}
+	orgVehicleID := int64(5)
+	routes := []models.EventRoute{{
+		RouteOrder: 0, DriverID: 10, DriverName: "Legacy Driver", DriverAddress: "10 Driver Lane",
+		OrgVehicleID: orgVehicleID, OrgVehicleName: "Org Van",
+		TotalDropoffDistanceMeters: 2100, TotalDistanceMeters: 2100, Mode: "dropoff",
+		SnapshotVersion: 1, MetricsComplete: false,
+		Stops: []models.EventRouteStop{
+			{Order: 0, ParticipantID: 11, ParticipantName: "Legacy Rider One", ParticipantAddress: "11 Rider Lane", DistanceFromPrevMeters: 1500, CumulativeDistanceMeters: 1500},
+			{Order: 1, ParticipantID: 12, ParticipantName: "Legacy Rider Two", ParticipantAddress: "12 Rider Lane", DistanceFromPrevMeters: 600, CumulativeDistanceMeters: 2100},
+		},
+	}}
+	summary := &models.EventSummary{TotalParticipants: 2, TotalDrivers: 1, TotalDistanceMeters: 2100, OrgVehiclesUsed: 1, Mode: "dropoff"}
+	if _, err := store.Events().Create(context.Background(), &models.Event{
+		EventDate: time.Date(2026, time.March, 13, 0, 0, 0, 0, time.UTC), Notes: "legacy event", Mode: "dropoff",
+	}, routes, summary); err != nil {
+		t.Fatalf("create legacy event: %v", err)
 	}
 }
 

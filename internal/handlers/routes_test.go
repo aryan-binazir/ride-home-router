@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
+	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
-	"ride-home-router/internal/sqlite"
 	"strings"
 	"testing"
 )
@@ -1233,14 +1233,10 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 	}
 }
 
-func newTestRouteHandler(t *testing.T) (*Handler, *sqlite.Store) {
+func newTestRouteHandler(t *testing.T) (*Handler, *postgres.Store) {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "routes-test.db")
-	store, err := sqlite.New(dbPath)
-	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
-	}
+	store := postgrestest.Open(t)
 
 	handler := &Handler{
 		DB:           store,
@@ -1248,12 +1244,7 @@ func newTestRouteHandler(t *testing.T) (*Handler, *sqlite.Store) {
 		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
 	}
 
-	t.Cleanup(func() {
-		handler.RouteSession.Close()
-		if err := store.Close(); err != nil {
-			t.Fatalf("close sqlite store: %v", err)
-		}
-	})
+	t.Cleanup(handler.RouteSession.Close)
 
 	return handler, store
 }

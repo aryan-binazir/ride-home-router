@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"ride-home-router/internal/database"
 )
 
 // HandleIndexPage handles GET /
@@ -167,25 +166,10 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load database config
-	dbConfig, err := database.LoadConfig()
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-	defaultDBPath, _ := database.GetDefaultDBPath()
-
 	h.renderTemplate(w, "settings.html", SettingsPageView{
 		Title:      "Settings",
 		ActivePage: ActivePageSettings,
 		Settings:   settings,
-		DatabaseConfig: DatabaseConfigView{
-			DatabasePath: dbConfig.DatabasePath,
-			DefaultPath:  defaultDBPath,
-			IsDefault:    dbConfig.DatabasePath == defaultDBPath,
-		},
-		RoutingProviderConfig: RoutingProviderConfigView{
-			GoogleMapsAPIKeyConfigured: dbConfig.GoogleMapsAPIKey != "",
-		},
 	})
 }
 

@@ -60,21 +60,9 @@ type VansPageView struct {
 	OrgVehicles []models.OrganizationVehicle
 }
 
-type DatabaseConfigView struct {
-	DatabasePath string
-	DefaultPath  string
-	IsDefault    bool
-}
-
-type RoutingProviderConfigView struct {
-	GoogleMapsAPIKeyConfigured bool
-}
-
 type SettingsPageView struct {
 	BasePageView
-	Settings              *models.Settings
-	DatabaseConfig        DatabaseConfigView
-	RoutingProviderConfig RoutingProviderConfigView
+	Settings *models.Settings
 }
 
 type HistoryPageView struct {
@@ -176,14 +164,4 @@ type RouteCalculationResponse struct {
 	Summary   models.RoutingSummary    `json:"summary"`
 	SessionID string                   `json:"session_id"`
 	Mode      models.RouteMode         `json:"mode"`
-}
-
-type DatabasePathUpdateResponse struct {
-	DatabasePath string `json:"database_path"`
-	Message      string `json:"message"`
-}
-
-type RoutingProviderConfigResponse struct {
-	GoogleMapsAPIKeyConfigured bool   `json:"google_maps_api_key_configured"`
-	Message                    string `json:"message,omitempty"`
 }

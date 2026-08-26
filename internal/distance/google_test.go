@@ -6,28 +6,20 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/sqlite"
+	"ride-home-router/internal/postgres"
+	"ride-home-router/internal/postgres/postgrestest"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-func newTestGoogleCalculator(t *testing.T, handler http.HandlerFunc) (*googleCalculator, *sqlite.Store) {
+func newTestGoogleCalculator(t *testing.T, handler http.HandlerFunc) (*googleCalculator, *postgres.Store) {
 	t.Helper()
 
-	store, err := sqlite.New(filepath.Join(t.TempDir(), "google-distance-test.db"))
-	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
-	}
+	store := postgrestest.Open(t)
 	server := httptest.NewServer(handler)
-	t.Cleanup(func() {
-		server.Close()
-		if err := store.Close(); err != nil {
-			t.Fatalf("close sqlite store: %v", err)
-		}
-	})
+	t.Cleanup(server.Close)
 
 	calc := NewGoogleCalculator(store.DistanceCache(), func() (string, error) {
 		return "test-api-key", nil
@@ -151,27 +143,19 @@ func TestGoogleCalculator_ReturnsElementFailure(t *testing.T) {
 }
 
 func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
-	store, err := sqlite.New(filepath.Join(t.TempDir(), "missing-key-test.db"))
-	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
-	}
-	defer func() { _ = store.Close() }()
+	store := postgrestest.Open(t)
 
 	calc := NewGoogleCalculator(store.DistanceCache(), func() (string, error) {
 		return "", nil
 	})
-	_, err = calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
+	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
 	if !errors.Is(err, ErrProviderNotConfigured) {
 		t.Fatalf("error = %v, want ErrProviderNotConfigured", err)
 	}
 }
 
 func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
-	store, err := sqlite.New(filepath.Join(t.TempDir(), "cached-missing-key-test.db"))
-	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
-	}
-	defer func() { _ = store.Close() }()
+	store := postgrestest.Open(t)
 
 	origin := models.Coordinates{Lat: 35, Lng: -79}
 	dest := models.Coordinates{Lat: 36, Lng: -79}

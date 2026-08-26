@@ -8,11 +8,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/sqlite"
+	"ride-home-router/internal/postgres"
+	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"sync"
 	"testing"
@@ -374,20 +374,12 @@ func (g *blockingImportGeocoder) GeocodeWithRetry(ctx context.Context, _ string,
 	return nil, ctx.Err()
 }
 
-func newImportTestHandler(t *testing.T, geocoder geocoding.Geocoder) (*Handler, *sqlite.Store) {
+func newImportTestHandler(t *testing.T, geocoder geocoding.Geocoder) (*Handler, *postgres.Store) {
 	t.Helper()
-	db, err := sqlite.New(filepath.Join(t.TempDir(), "imports-test.db"))
-	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
-	}
+	db := postgrestest.Open(t)
 	importStore := importer.NewStore(geocoder, db)
 	handler := &Handler{DB: db, Geocoder: geocoder, ImportSession: importStore, Renderer: loadEmbeddedTemplates(t)}
-	t.Cleanup(func() {
-		importStore.Close()
-		if err := db.Close(); err != nil {
-			t.Fatalf("close sqlite store: %v", err)
-		}
-	})
+	t.Cleanup(importStore.Close)
 	return handler, db
 }
 

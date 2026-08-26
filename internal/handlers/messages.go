@@ -11,9 +11,7 @@ const (
 	messageChooseRouteTime                               = "please choose a route time"
 	messageChooseValidActivityLocation                   = "Please choose a valid activity location."
 	messageChooseValidRouteTime                          = "please choose a valid route time"
-	messageDatabasePathMustBeAbsolute                    = "Database path must be absolute"
 	messageForbidden                                     = "Forbidden"
-	messageDatabasePathUpdatedRestart                    = "Database path updated. Restart the application to apply changes."
 	messageDriverNotFound                                = "driver not found"
 	messageEventDateRequired                             = "Event date is required"
 	messageEventNotFound                                 = "Event not found"
@@ -34,8 +32,6 @@ const (
 	messageOrganizationVehicleNotFound                   = "organization vehicle not found"
 	messageParticipantNotFound                           = "participant not found"
 	messagePreferencesSaved                              = "Preferences saved!"
-	messageRoutingProviderConfigUnchanged                = "Google Maps API key unchanged."
-	messageRoutingProviderConfigUpdated                  = "Google Maps API key saved. Distance cache cleared."
 	messageRoutesRequired                                = "Routes are required"
 	messageRoutesMustBeBalancedBeforeSaving              = "Routes must be balanced before saving"
 	messageMovesRequired                                 = "At least one move is required"
@@ -63,10 +59,6 @@ func messageEntityDeleted(entity string) string {
 
 func messageEntityUpdated(entity, name string) string {
 	return fmt.Sprintf("%s '%s' updated!", entity, name)
-}
-
-func messageFailedToCreateDirectory(err error) string {
-	return fmt.Sprintf("Failed to create directory: %v", err)
 }
 
 func messageFailedToGeocodeAddress(err error) string {

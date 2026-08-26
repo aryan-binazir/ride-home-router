@@ -1,20 +1,34 @@
 # Ride Home Router — server build and verification targets.
-# `make serve` runs the server on 127.0.0.1:$PORT (default 8080).
+#
+# Local development assumes the podman Postgres started by `make postgres-up`
+# on port 5434. Override DATABASE_URL / TEST_DATABASE_URL in the environment
+# for anything else.
 
-.PHONY: help check lint verify vet test build serve clean
+POSTGRES_CONTAINER ?= ride-home-router-postgres
+POSTGRES_PORT ?= 5434
+LOCAL_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router?sslmode=disable
+LOCAL_TEST_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router_test?sslmode=disable
+DATABASE_URL ?= $(LOCAL_DATABASE_URL)
+TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
+export DATABASE_URL TEST_DATABASE_URL
+
+.PHONY: help check check-unit lint verify vet test test-unit build serve clean postgres-up postgres-down psql
 
 help:
 	@echo "Ride Home Router"
 	@echo ""
-	@echo "  make serve    Run the server locally (127.0.0.1:$${PORT:-8080})"
-	@echo "  make build    Build bin/ride-home-router (CGO_ENABLED=0)"
-	@echo "  make check    lint + verify + vet + test"
-	@echo "  make lint     golangci-lint"
-	@echo "  make verify   go mod tidy -diff && go mod verify"
-	@echo "  make test     Go and JS tests"
-	@echo "  make clean    Remove build artifacts"
+	@echo "  make serve         Run the server on 127.0.0.1:$${PORT:-8080} against DATABASE_URL"
+	@echo "  make build         Build bin/ride-home-router (CGO_ENABLED=0)"
+	@echo "  make check         lint + verify + vet + all tests (needs TEST_DATABASE_URL)"
+	@echo "  make check-unit    Same without database-backed tests"
+	@echo "  make postgres-up   Start the local podman Postgres (port $(POSTGRES_PORT))"
+	@echo "  make postgres-down Remove the local podman Postgres"
+	@echo "  make psql          Open psql on the local Postgres"
+	@echo "  make clean         Remove build artifacts"
 
 check: lint verify vet test
+
+check-unit: lint verify vet test-unit
 
 lint:
 	golangci-lint run ./...
@@ -26,9 +40,16 @@ verify:
 vet:
 	go vet ./...
 
+# Database-backed tests skip themselves when TEST_DATABASE_URL is unset, so
+# `check` refuses to run unless it is set and reachable.
 test:
+	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL is required for make test" >&2; exit 1; }
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
+
+test-unit:
+	node --test web/static/js/*.test.js
+	TEST_DATABASE_URL= go test -race -count=1 ./...
 
 build:
 	@mkdir -p bin
@@ -40,3 +61,17 @@ serve:
 
 clean:
 	rm -rf bin coverage.out
+
+# Local Postgres 18 in podman, with both the dev and test databases.
+postgres-up:
+	podman run -d --name $(POSTGRES_CONTAINER) -p $(POSTGRES_PORT):5432 \
+		-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ride_home_router \
+		docker.io/library/postgres:18
+	@for i in $$(seq 1 30); do podman exec $(POSTGRES_CONTAINER) pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
+	podman exec $(POSTGRES_CONTAINER) psql -U postgres -c 'CREATE DATABASE ride_home_router_test'
+
+postgres-down:
+	podman rm -f $(POSTGRES_CONTAINER)
+
+psql:
+	podman exec -it $(POSTGRES_CONTAINER) psql -U postgres -d ride_home_router

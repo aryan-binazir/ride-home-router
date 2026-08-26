@@ -21,8 +21,10 @@ const (
 )
 
 type options struct {
-	Addr         string
-	AllowedHosts []string
+	Addr             string
+	AllowedHosts     []string
+	DatabaseURL      string
+	GoogleMapsAPIKey string
 }
 
 func main() {
@@ -37,9 +39,11 @@ func run(args []string) error {
 		return err
 	}
 
-	srv, err := server.New(server.Config{
-		Addr:         opts.Addr,
-		AllowedHosts: opts.AllowedHosts,
+	srv, err := server.New(context.Background(), server.Config{
+		Addr:             opts.Addr,
+		AllowedHosts:     opts.AllowedHosts,
+		DatabaseURL:      opts.DatabaseURL,
+		GoogleMapsAPIKey: opts.GoogleMapsAPIKey,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -68,10 +72,12 @@ func run(args []string) error {
 	return nil
 }
 
-// parseArgs resolves the listen address and the public hostnames this server
-// may be addressed by. The address defaults to loopback on $PORT (or 8080);
-// binding anywhere else requires --allowed-hosts because the server has no
-// authentication of its own and relies on a tunnel or proxy in front of it.
+// parseArgs resolves the listen address, the public hostnames this server may
+// be addressed by, and the environment-provided secrets. The address defaults
+// to loopback on $PORT (or 8080); binding anywhere else requires
+// --allowed-hosts because the server has no authentication of its own and
+// relies on a tunnel or proxy in front of it. DATABASE_URL is required;
+// GOOGLE_MAPS_API_KEY is optional.
 func parseArgs(args []string) (options, error) {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -84,7 +90,14 @@ func parseArgs(args []string) (options, error) {
 		return options{}, errors.New("usage: server [--addr address] [--allowed-hosts host,...]")
 	}
 
-	opts := options{Addr: *addr}
+	opts := options{
+		Addr:             *addr,
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		GoogleMapsAPIKey: os.Getenv("GOOGLE_MAPS_API_KEY"),
+	}
+	if opts.DatabaseURL == "" {
+		return options{}, errors.New("DATABASE_URL is required (Postgres connection string)")
+	}
 	if opts.Addr == "" {
 		port := os.Getenv("PORT")
 		if port == "" {

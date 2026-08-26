@@ -37,12 +37,5 @@ go.work.sum
 .vscode/
 .DS_Store
 
-# SQLite database files
-*.db
-*.db-wal
-*.db-shm
-*.sqlite
-*.sqlite3
-
 # scratch files
 _scratch/

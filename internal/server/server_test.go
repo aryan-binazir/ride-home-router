@@ -7,16 +7,16 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/importer"
+	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/web"
 	"strings"
 	"testing"
 )
 
 func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
-	server, err := New(Config{Addr: "127.0.0.1:0", DBPath: filepath.Join(t.TempDir(), "server.db")})
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -402,7 +402,7 @@ func TestRequestSecurityMiddlewareRejectsOversizedBody(t *testing.T) {
 }
 
 func TestRequestSecurityMiddlewareUsesImportUploadBudgetOnRealRoutes(t *testing.T) {
-	server, err := New(Config{Addr: "127.0.0.1:0", DBPath: filepath.Join(t.TempDir(), "middleware-import.db")})
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

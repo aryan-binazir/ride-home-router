@@ -11,9 +11,11 @@ func TestParseArgs(t *testing.T) {
 		name    string
 		args    []string
 		port    string
+		dbURL   string
 		want    options
 		wantErr string
 	}{
+		{name: "missing DATABASE_URL", dbURL: "-", wantErr: "DATABASE_URL"},
 		{name: "defaults to loopback 8080", want: options{Addr: "127.0.0.1:8080"}},
 		{name: "PORT sets the loopback port", port: "9000", want: options{Addr: "127.0.0.1:9000"}},
 		{name: "addr overrides PORT", args: []string{"--addr", "[::1]:7000"}, port: "9000", want: options{Addr: "[::1]:7000"}},
@@ -30,6 +32,16 @@ func TestParseArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("PORT", tt.port)
+			dbURL := "postgres://test"
+			if tt.dbURL == "-" {
+				dbURL = ""
+			}
+			t.Setenv("DATABASE_URL", dbURL)
+			t.Setenv("GOOGLE_MAPS_API_KEY", "maps-key")
+			if tt.wantErr == "" {
+				tt.want.DatabaseURL = dbURL
+				tt.want.GoogleMapsAPIKey = "maps-key"
+			}
 			got, err := parseArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
