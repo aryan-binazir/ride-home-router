@@ -2103,14 +2103,18 @@ tbody tr:last-child td {
 }
 
 /* Touch devices in any orientation: comfortable targets, and 16px inputs so iOS does not zoom on focus. */
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
     .btn,
-    .btn-sm {
+    .btn-sm,
+    .nav a,
+    .filter-chip,
+    .btn-dropdown-item,
+    .checkbox-label {
         min-height: 2.75rem;
     }
 
-    .nav a {
-        min-height: 2.75rem;
+    .filter-chip {
+        padding: 0.35rem 0.9rem;
     }
 
     .form-input,
@@ -2124,13 +2128,13 @@ tbody tr:last-child td {
 
     .form-checkbox,
     .form-radio {
-        width: 20px;
-        height: 20px;
+        width: 22px;
+        height: 22px;
     }
 }
 
-/* Phones (and anything narrower than a portrait tablet) */
-@media (max-width: 640px) {
+/* Phones in either orientation (and anything narrower than a portrait tablet) */
+@media (max-width: 640px), ((any-pointer: coarse) and (max-height: 500px)) {
     .container {
         padding: 0 1rem;
     }
@@ -2196,6 +2200,11 @@ tbody tr:last-child td {
         width: 100%;
     }
 
+    /* Generic action rows (settings, forms) wrap instead of clipping. */
+    .d-flex {
+        flex-wrap: wrap;
+    }
+
     .panel-toolbar,
     .bulk-toolbar,
     .filter-chip-toolbar {
@@ -2251,10 +2260,16 @@ tbody tr:last-child td {
 
     table[data-cards] td.table-select-cell {
         position: absolute;
-        top: 0.85rem;
-        left: 1rem;
+        top: 0.4rem;
+        left: 0.4rem;
         width: auto;
         padding: 0;
+    }
+
+    table[data-cards] td.table-select-cell .form-checkbox {
+        width: 26px;
+        height: 26px;
+        margin: 0.35rem 0.5rem;
     }
 
     table[data-cards] tr:not(:has(.table-select-cell)) {
