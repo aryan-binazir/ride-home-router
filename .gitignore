@@ -3,7 +3,6 @@
 #
 # Binaries for programs and plugins
 /bin/
-/build/bin/
 .gocache/
 *.exe
 *.exe~
@@ -44,13 +43,6 @@ go.work.sum
 *.db-shm
 *.sqlite
 *.sqlite3
-
-# Built executables
-/server
-/ride-home-router
-
-# Wails-generated frontend bindings/runtime
-/frontend/wailsjs/
 
 # scratch files
 _scratch/

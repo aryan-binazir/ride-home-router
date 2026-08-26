@@ -6,6 +6,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 )
@@ -72,9 +73,18 @@ func IsLoopbackHost(host string) bool {
 	return false
 }
 
-// HasSameHTTPOrigin reports whether the request has no Origin header or has an
-// HTTP Origin that exactly matches its Host.
-func HasSameHTTPOrigin(r *http.Request) bool {
+// HasSameOrigin reports whether the request has no Origin header or an http(s)
+// Origin whose host exactly matches the request Host. Both schemes are accepted
+// because a TLS-terminating proxy or tunnel forwards https origins to this
+// plain-HTTP listener.
+func HasSameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }

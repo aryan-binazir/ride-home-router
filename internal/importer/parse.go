@@ -140,8 +140,7 @@ func csvRecordLine(reader *csv.Reader, record []string, readErr error) int {
 		line, _ := reader.FieldPos(0)
 		return line
 	}
-	var parseErr *csv.ParseError
-	if errors.As(readErr, &parseErr) {
+	if parseErr, ok := errors.AsType[*csv.ParseError](readErr); ok {
 		return parseErr.StartLine
 	}
 	return 1

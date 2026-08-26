@@ -1,116 +1,42 @@
-.PHONY: build build-all run clean test lint help wails-dev wails-build wails-build-all
+# Ride Home Router — server build and verification targets.
+# `make serve` runs the server on 127.0.0.1:$PORT (default 8080).
 
-# Variables
-MODULE := ride-home-router
-MAIN_PKG := ./cmd/server
-BIN_DIR := bin
-GO := go
-
-# Detect current OS/ARCH for native build
-GOOS ?= $(shell go env GOOS)
-GOARCH ?= $(shell go env GOARCH)
-
-# Platform-specific binary name
-ifeq ($(GOOS),windows)
-	BIN_NAME := $(BIN_DIR)/$(MODULE)-$(GOOS)-$(GOARCH).exe
-else
-	BIN_NAME := $(BIN_DIR)/$(MODULE)-$(GOOS)-$(GOARCH)
-endif
-
-# Build information
-LDFLAGS := -ldflags "-s -w"
-VERSION ?= dev
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+.PHONY: help check lint verify vet test build serve clean
 
 help:
-	@echo "Ride Home Router - Build Targets"
+	@echo "Ride Home Router"
 	@echo ""
-	@echo "Server (browser-based):"
-	@echo "  make build       Build server for current platform"
-	@echo "  make build-all   Build server for all platforms"
-	@echo "  make run         Build and run server locally"
-	@echo ""
-	@echo "Wails (native desktop app):"
-	@echo "  make wails-dev       Start development mode"
-	@echo "  make wails-build     Build for current platform"
-	@echo "  make wails-build-all Build for all platforms"
-	@echo ""
-	@echo "Other:"
-	@echo "  make clean       Remove build artifacts"
-	@echo "  make test        Run tests"
-	@echo "  make lint        Run golangci-lint"
-	@echo ""
+	@echo "  make serve    Run the server locally (127.0.0.1:$${PORT:-8080})"
+	@echo "  make build    Build bin/ride-home-router (CGO_ENABLED=0)"
+	@echo "  make check    lint + verify + vet + test"
+	@echo "  make lint     golangci-lint"
+	@echo "  make verify   go mod tidy -diff && go mod verify"
+	@echo "  make test     Go and JS tests"
+	@echo "  make clean    Remove build artifacts"
 
-build: $(BIN_DIR)
-	@echo "Building $(MODULE) for $(GOOS)/$(GOARCH)..."
-	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build $(LDFLAGS) -o $(BIN_NAME) $(MAIN_PKG)
-	@echo "✓ Built: $(BIN_NAME)"
-
-build-all: $(BIN_DIR) build-windows build-macos-amd64 build-macos-arm64
-	@echo "✓ All builds complete"
-
-build-windows:
-	@echo "Building for Windows amd64..."
-	GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(MODULE)-windows-amd64.exe $(MAIN_PKG)
-
-build-macos-amd64:
-	@echo "Building for macOS amd64..."
-	GOOS=darwin GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(MODULE)-darwin-amd64 $(MAIN_PKG)
-
-build-macos-arm64:
-	@echo "Building for macOS arm64..."
-	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(MODULE)-darwin-arm64 $(MAIN_PKG)
-
-run: build
-	@echo "Running $(MODULE)..."
-	@./$(BIN_NAME)
-
-clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf $(BIN_DIR)
-	@echo "✓ Clean complete"
-
-test:
-	@echo "Running tests..."
-	@node --test web/static/js/*.test.js
-	@$(GO) test -v -race -coverprofile=coverage.out ./...
-	@echo "✓ Tests complete"
+check: lint verify vet test
 
 lint:
-	@echo "Running golangci-lint..."
-	@golangci-lint run
-	@echo "✓ Lint complete"
+	golangci-lint run ./...
 
-$(BIN_DIR):
-	@mkdir -p $(BIN_DIR)
+verify:
+	go mod tidy -diff
+	go mod verify
 
-# Include current workspace directory in Go searches
-.DEFAULT_GOAL := help
+vet:
+	go vet ./...
 
-# Wails targets (native desktop app)
-wails-dev:
-	@echo "Starting Wails development mode..."
-	wails dev
+test:
+	node --test web/static/js/*.test.js
+	go test -race -count=1 -coverprofile=coverage.out ./...
 
-wails-build:
-	@echo "Building Wails application for current platform..."
-	wails build
+build:
+	@mkdir -p bin
+	@rm -f bin/ride-home-router
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/ride-home-router ./cmd/server
 
-wails-build-all: wails-build-darwin-arm64 wails-build-darwin-amd64 wails-build-windows wails-build-linux
-	@echo "✓ All Wails builds complete"
+serve:
+	go run ./cmd/server
 
-wails-build-darwin-arm64:
-	@echo "Building Wails app for macOS arm64..."
-	wails build -platform darwin/arm64
-
-wails-build-darwin-amd64:
-	@echo "Building Wails app for macOS amd64..."
-	wails build -platform darwin/amd64
-
-wails-build-windows:
-	@echo "Building Wails app for Windows..."
-	wails build -platform windows/amd64
-
-wails-build-linux:
-	@echo "Building Wails app for Linux..."
-	wails build -platform linux/amd64
+clean:
+	rm -rf bin coverage.out

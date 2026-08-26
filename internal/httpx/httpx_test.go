@@ -54,7 +54,7 @@ func TestIsLoopbackHost(t *testing.T) {
 	}
 }
 
-func TestHasSameHTTPOrigin(t *testing.T) {
+func TestHasSameOrigin(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		host   string
@@ -63,15 +63,17 @@ func TestHasSameHTTPOrigin(t *testing.T) {
 	}{
 		{name: "missing origin", host: "localhost:8080", want: true},
 		{name: "matching IPv6 origin", host: "[::1]:8080", origin: "http://[::1]:8080", want: true},
-		{name: "wails origin", host: "localhost:8080", origin: "wails://wails.localhost", want: false},
+		{name: "https origin behind TLS-terminating tunnel", host: "routes.example.com", origin: "https://routes.example.com", want: true},
+		{name: "other scheme", host: "localhost:8080", origin: "wails://wails.localhost", want: false},
+		{name: "https origin for a different host", host: "routes.example.com", origin: "https://evil.example.com", want: false},
 		{name: "different loopback host", host: "localhost:8080", origin: "http://127.0.0.1:8080", want: false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://"+tt.host+"/", nil)
 			req.Host = tt.host
 			req.Header.Set("Origin", tt.origin)
-			if got := HasSameHTTPOrigin(req); got != tt.want {
-				t.Fatalf("HasSameHTTPOrigin() = %v, want %v", got, tt.want)
+			if got := HasSameOrigin(req); got != tt.want {
+				t.Fatalf("HasSameOrigin() = %v, want %v", got, tt.want)
 			}
 		})
 	}

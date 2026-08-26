@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -51,6 +50,20 @@ func TestHandleMethods_RejectsUnsupportedMethod(t *testing.T) {
 	}
 	if rec.Body.String() != serverMessageMethodNotAllowed+"\n" {
 		t.Fatalf("body = %q, want %q", rec.Body.String(), serverMessageMethodNotAllowed+"\n")
+	}
+}
+
+func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/open-url", strings.NewReader(`{"url":"https://maps.google.com"}`))
+	request.Host = "localhost:8080"
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: the browser client opens URLs itself", recorder.Code, http.StatusNotFound)
 	}
 }
 
@@ -109,7 +122,7 @@ func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T
 }
 
 func TestRequestSecurityMiddlewareHostAllowlist(t *testing.T) {
-	allowlist, err := newRequestAllowlist("127.0.0.1:8080")
+	allowlist, err := newRequestAllowlist("127.0.0.1:8080", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +172,7 @@ func TestRequestSecurityMiddlewareHostAllowlist(t *testing.T) {
 }
 
 func TestRequestSecurityMiddlewareWriteRejection(t *testing.T) {
-	allowlist, err := newRequestAllowlist("127.0.0.1:8080")
+	allowlist, err := newRequestAllowlist("127.0.0.1:8080", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +279,7 @@ func TestRequestSecurityMiddlewareWriteRejection(t *testing.T) {
 
 func TestNewRequestAllowlistBindHostVariants(t *testing.T) {
 	t.Run("port 80 allows bare host forms", func(t *testing.T) {
-		allowlist, err := newRequestAllowlist("127.0.0.1:80")
+		allowlist, err := newRequestAllowlist("127.0.0.1:80", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -278,7 +291,7 @@ func TestNewRequestAllowlistBindHostVariants(t *testing.T) {
 	})
 
 	t.Run("non-standard loopback bind host is allowed", func(t *testing.T) {
-		allowlist, err := newRequestAllowlist("127.0.0.2:8080")
+		allowlist, err := newRequestAllowlist("127.0.0.2:8080", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -290,78 +303,48 @@ func TestNewRequestAllowlistBindHostVariants(t *testing.T) {
 		}
 	})
 
-	t.Run("wildcard bind allows only interface IPs", func(t *testing.T) {
-		allowlist, err := newRequestAllowlistWithInterfaceAddrs("[::]:8080", func() ([]net.Addr, error) {
-			return []net.Addr{
-				&net.IPNet{IP: net.ParseIP("192.0.2.10"), Mask: net.CIDRMask(24, 32)},
-				&net.IPNet{IP: net.ParseIP("2001:db8::10"), Mask: net.CIDRMask(64, 128)},
-			}, nil
-		})
+	t.Run("configured hosts are allowed bare and on the bound port", func(t *testing.T) {
+		allowlist, err := newRequestAllowlist("127.0.0.1:8080", []string{"routes.example.com"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !allowlist.allowsHost("192.0.2.10:8080") {
-			t.Error("LAN host on the bound port must be allowed for a wildcard bind")
+		for _, host := range []string{"routes.example.com", "ROUTES.example.com:8080", "localhost:8080"} {
+			if !allowlist.allowsHost(host) {
+				t.Errorf("allowsHost(%q) = false, want true", host)
+			}
 		}
-		if !allowlist.allowsHost("[2001:db8::10]:8080") {
-			t.Error("IPv6 interface host on the bound port must be allowed for a wildcard bind")
-		}
-		if allowlist.allowsHost("192.0.2.20:8080") {
-			t.Error("non-interface IP must be rejected for a wildcard bind")
-		}
-		if allowlist.allowsHost("attacker.example:8080") {
-			t.Error("hostname must be rejected for a wildcard bind")
-		}
-		if allowlist.allowsHost("192.0.2.10:9090") {
-			t.Error("wrong port must be rejected even for a wildcard bind")
+		for _, host := range []string{"evil.example", "routes.example.com:9090", "evil.example:8080:9"} {
+			if allowlist.allowsHost(host) {
+				t.Errorf("allowsHost(%q) = true, want false", host)
+			}
 		}
 	})
 
-	t.Run("wildcard port 80 allows bare interface IPs", func(t *testing.T) {
-		allowlist, err := newRequestAllowlistWithInterfaceAddrs("0.0.0.0:80", func() ([]net.Addr, error) {
-			return []net.Addr{
-				&net.IPNet{IP: net.ParseIP("192.0.2.10"), Mask: net.CIDRMask(24, 32)},
-			}, nil
-		})
+	t.Run("non-loopback bind requires configured hosts", func(t *testing.T) {
+		_, err := newRequestAllowlist("0.0.0.0:8080", nil)
+		if err == nil || !strings.Contains(err.Error(), "allowed-hosts") {
+			t.Fatalf("newRequestAllowlist() error = %v, want allowed-hosts guidance", err)
+		}
+	})
+
+	t.Run("non-loopback bind allows only configured hosts", func(t *testing.T) {
+		allowlist, err := newRequestAllowlist("[::]:8080", []string{"routes.example.com"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !allowlist.allowsHost("192.0.2.10") {
-			t.Error("bare interface IP must be allowed for a wildcard bind on port 80")
+		if !allowlist.allowsHost("routes.example.com") {
+			t.Error("configured host must be allowed")
 		}
-	})
-
-	t.Run("wildcard bind fails when interface enumeration fails", func(t *testing.T) {
-		_, err := newRequestAllowlistWithInterfaceAddrs("0.0.0.0:8080", func() ([]net.Addr, error) {
-			return nil, errors.New("interface enumeration failed")
-		})
-		if err == nil {
-			t.Fatal("newRequestAllowlistWithInterfaceAddrs() error = nil, want interface enumeration error")
-		}
-		if !strings.Contains(err.Error(), "failed to enumerate interface addresses") {
-			t.Fatalf("error = %q, want interface enumeration context", err)
-		}
-	})
-
-	t.Run("wildcard bind fails when interface enumeration returns no IPs", func(t *testing.T) {
-		_, err := newRequestAllowlistWithInterfaceAddrs("0.0.0.0:8080", func() ([]net.Addr, error) {
-			return nil, nil
-		})
-		if err == nil {
-			t.Fatal("newRequestAllowlistWithInterfaceAddrs() error = nil, want no usable IP addresses error")
-		}
-		if !strings.Contains(err.Error(), "no usable IP addresses") {
-			t.Fatalf("error = %q, want no usable IP addresses context", err)
+		for _, host := range []string{"192.0.2.10:8080", "attacker.example:8080", "[::]:8080"} {
+			if allowlist.allowsHost(host) {
+				t.Errorf("allowsHost(%q) = true, want false", host)
+			}
 		}
 	})
 }
 
-func TestRequestSecurityMiddlewareAnyHostSameOrigin(t *testing.T) {
-	allowlist, err := newRequestAllowlistWithInterfaceAddrs("0.0.0.0:8080", func() ([]net.Addr, error) {
-		return []net.Addr{
-			&net.IPNet{IP: net.ParseIP("192.0.2.10"), Mask: net.CIDRMask(24, 32)},
-		}, nil
-	})
+func TestRequestSecurityMiddlewareTunnelledWrite(t *testing.T) {
+	allowlist, err := newRequestAllowlist("127.0.0.1:8080", []string{"routes.example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,14 +354,15 @@ func TestRequestSecurityMiddlewareAnyHostSameOrigin(t *testing.T) {
 		origin     string
 		wantStatus int
 	}{
-		{name: "same origin", origin: "http://192.0.2.10:8080", wantStatus: http.StatusNoContent},
-		{name: "same port attacker", origin: "http://attacker.example:8080", wantStatus: http.StatusForbidden},
+		{name: "https origin via tunnel", origin: "https://routes.example.com", wantStatus: http.StatusNoContent},
+		{name: "foreign origin", origin: "https://attacker.example", wantStatus: http.StatusForbidden},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := requestSecurityMiddleware(allowlist, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://192.0.2.10:8080/write", strings.NewReader("{}"))
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://routes.example.com/write", strings.NewReader("{}"))
+			req.Host = "routes.example.com"
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Origin", tt.origin)
 			rec := httptest.NewRecorder()
@@ -392,75 +376,8 @@ func TestRequestSecurityMiddlewareAnyHostSameOrigin(t *testing.T) {
 	}
 }
 
-func TestRequestAllowlistRejectsMalformedHostInEveryMode(t *testing.T) {
-	interfaceAddrs := func() ([]net.Addr, error) {
-		return []net.Addr{
-			&net.IPNet{IP: net.ParseIP("192.0.2.10"), Mask: net.CIDRMask(24, 32)},
-		}, nil
-	}
-	for _, tt := range []struct {
-		name           string
-		addr           string
-		interfaceAddrs func() ([]net.Addr, error)
-	}{
-		{name: "loopback", addr: "127.0.0.1:8080", interfaceAddrs: interfaceAddrs},
-		{name: "any host", addr: "0.0.0.0:8080", interfaceAddrs: interfaceAddrs},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			allowlist, err := newRequestAllowlistWithInterfaceAddrs(tt.addr, tt.interfaceAddrs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if allowlist.allowsHost("evil.example:8080:9") {
-				t.Error("malformed Host must be rejected")
-			}
-		})
-	}
-}
-
-func TestCORSMiddlewareReflectsOnlySameOrigin(t *testing.T) {
-	for _, tt := range []struct {
-		name                 string
-		origin               string
-		wantAllowOrigin      string
-		wantAllowCredentials string
-	}{
-		{
-			name:                 "same origin",
-			origin:               "http://127.0.0.1:8080",
-			wantAllowOrigin:      "http://127.0.0.1:8080",
-			wantAllowCredentials: "true",
-		},
-		{
-			name:   "foreign origin",
-			origin: "http://attacker.example:8080",
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusNoContent)
-			}))
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "http://127.0.0.1:8080/write", nil)
-			req.Header.Set("Origin", tt.origin)
-			rec := httptest.NewRecorder()
-
-			handler.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-			}
-			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != tt.wantAllowOrigin {
-				t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, tt.wantAllowOrigin)
-			}
-			if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != tt.wantAllowCredentials {
-				t.Errorf("Access-Control-Allow-Credentials = %q, want %q", got, tt.wantAllowCredentials)
-			}
-		})
-	}
-}
-
 func TestRequestSecurityMiddlewareRejectsOversizedBody(t *testing.T) {
-	allowlist, err := newRequestAllowlist("127.0.0.1:8080")
+	allowlist, err := newRequestAllowlist("127.0.0.1:8080", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,11 +412,11 @@ func TestRequestSecurityMiddlewareUsesImportUploadBudgetOnRealRoutes(t *testing.
 			t.Errorf("close database: %v", err)
 		}
 	})
-	allowlist, err := newRequestAllowlist("[::1]:8080")
+	allowlist, err := newRequestAllowlist("[::1]:8080", nil)
 	if err != nil {
 		t.Fatalf("newRequestAllowlist() error = %v", err)
 	}
-	handler := loggingMiddleware(requestSecurityMiddleware(allowlist, corsMiddleware(server.httpServer.Handler)))
+	handler := loggingMiddleware(requestSecurityMiddleware(allowlist, server.httpServer.Handler))
 
 	t.Run("import over default limit succeeds from IPv6 loopback", func(t *testing.T) {
 		req := newMiddlewareImportRequest(t, int(maxRequestBodyBytes)+1)

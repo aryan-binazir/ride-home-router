@@ -1,0 +1,9 @@
+.git
+.github
+_scratch
+bin
+coverage.out
+Dockerfile
+README.md
+*.db
+*.db-*

@@ -648,15 +648,10 @@
                     }
                 },
                 openUrl: async url => {
-                    try {
-                        return await fetch('/api/v1/open-url', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url }),
-                        });
-                    } catch (error) {
-                        console.error('Failed to open URL:', error);
-                        throw error;
+                    // Opened synchronously within the click gesture so popup
+                    // blockers allow it; the browser is the client now.
+                    if (!window.open(url, '_blank', 'noopener,noreferrer')) {
+                        throw new Error('Popup blocked');
                     }
                 },
                 notify: showToast,

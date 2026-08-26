@@ -1,33 +1,47 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestValidateServerAddr(t *testing.T) {
+func TestParseArgs(t *testing.T) {
 	tests := []struct {
-		name          string
-		addr          string
-		allowNonlocal bool
-		wantErr       bool
+		name    string
+		args    []string
+		port    string
+		want    options
+		wantErr string
 	}{
-		{name: "IPv4 loopback", addr: "127.0.0.1:8080"},
-		{name: "IPv6 loopback", addr: "[::1]:8080"},
-		{name: "localhost", addr: "localhost:8080"},
-		{name: "LAN address", addr: "192.168.1.20:8080", wantErr: true},
-		{name: "all interfaces", addr: ":8080", wantErr: true},
-		{name: "explicit nonlocal opt-in", addr: "0.0.0.0:8080", allowNonlocal: true},
+		{name: "defaults to loopback 8080", want: options{Addr: "127.0.0.1:8080"}},
+		{name: "PORT sets the loopback port", port: "9000", want: options{Addr: "127.0.0.1:9000"}},
+		{name: "addr overrides PORT", args: []string{"--addr", "[::1]:7000"}, port: "9000", want: options{Addr: "[::1]:7000"}},
+		{
+			name: "non-loopback bind with allowed hosts",
+			args: []string{"--addr", "0.0.0.0:8080", "--allowed-hosts", "routes.example.com, healthcheck.railway.app"},
+			want: options{Addr: "0.0.0.0:8080", AllowedHosts: []string{"routes.example.com", "healthcheck.railway.app"}},
+		},
+		{name: "non-loopback bind without allowed hosts", args: []string{"--addr", "0.0.0.0:8080"}, wantErr: "--allowed-hosts"},
+		{name: "invalid addr", args: []string{"--addr", "nope"}, wantErr: "invalid --addr"},
+		{name: "positional args rejected", args: []string{"extra"}, wantErr: "usage"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateServerAddr(tt.addr, tt.allowNonlocal)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateServerAddr() error = %v, wantErr = %v", err, tt.wantErr)
+			t.Setenv("PORT", tt.port)
+			got, err := parseArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseArgs() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
 			}
-			if tt.wantErr && !strings.Contains(err.Error(), "SERVER_ALLOW_NONLOCAL=1") {
-				t.Fatalf("error = %q, want explicit opt-in guidance", err)
+			if err != nil {
+				t.Fatalf("parseArgs() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("parseArgs() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}

@@ -10,7 +10,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"ride-home-router/internal/browser"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
@@ -29,18 +28,22 @@ import (
 
 // Server wraps the HTTP server and all dependencies
 type Server struct {
-	httpServer *http.Server
-	handler    *handlers.Handler
-	db         database.DataStore
-	listener   net.Listener
-	addr       string
-	dbPath     string
+	httpServer   *http.Server
+	handler      *handlers.Handler
+	db           database.DataStore
+	listener     net.Listener
+	addr         string
+	dbPath       string
+	allowedHosts []string
 }
 
 // Config holds server configuration
 type Config struct {
 	Addr   string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
 	DBPath string // Optional: path to SQLite database, uses config file or default if empty
+	// AllowedHosts lists the public hostnames a proxy or tunnel forwards in
+	// Host/Origin. Required when Addr is not a loopback address.
+	AllowedHosts []string
 }
 
 const (
@@ -50,15 +53,11 @@ const (
 
 	maxRequestBodyBytes int64 = 1 << 20
 
-	serverMessageInvalidRequestBody       = "Invalid request body"
-	serverMessageForbidden                = "Forbidden"
-	serverMessageMethodNotAllowed         = "Method not allowed"
-	serverMessageNotFound                 = "Not found"
-	serverMessageRequestBodyTooLarge      = "Request body too large"
-	serverMessageOnlyHTTPHTTPSURLsAllowed = "Only HTTP/HTTPS URLs are allowed"
-	serverMessageURLRequired              = "URL is required"
-	serverMessageUnsupportedPlatform      = "Unsupported platform"
-	serverMessageFailedToOpenURL          = "Failed to open URL"
+	serverMessageInvalidRequestBody  = "Invalid request body"
+	serverMessageForbidden           = "Forbidden"
+	serverMessageMethodNotAllowed    = "Method not allowed"
+	serverMessageNotFound            = "Not found"
+	serverMessageRequestBodyTooLarge = "Request body too large"
 )
 
 // New creates and initializes a new server (does not start it)
@@ -119,12 +118,13 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	return &Server{
-		httpServer: httpServer,
-		handler:    handler,
-		db:         db,
-		listener:   nil,
-		addr:       cfg.Addr,
-		dbPath:     dbPath,
+		httpServer:   httpServer,
+		handler:      handler,
+		db:           db,
+		listener:     nil,
+		addr:         cfg.Addr,
+		dbPath:       dbPath,
+		allowedHosts: cfg.AllowedHosts,
 	}, nil
 }
 
@@ -142,15 +142,12 @@ func (s *Server) Start() (string, error) {
 
 	s.listener = listener
 	actualAddr := listener.Addr().String()
-	allowlist, err := newRequestAllowlist(actualAddr)
+	allowlist, err := newRequestAllowlist(actualAddr, s.allowedHosts)
 	if err != nil {
 		_ = listener.Close()
 		return "", err
 	}
-	s.httpServer.Handler = loggingMiddleware(requestSecurityMiddleware(
-		allowlist,
-		corsMiddleware(s.httpServer.Handler),
-	))
+	s.httpServer.Handler = loggingMiddleware(requestSecurityMiddleware(allowlist, s.httpServer.Handler))
 	log.Printf("Starting server on %s", actualAddr)
 
 	go func() {
@@ -252,7 +249,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 
-	mux.HandleFunc("/api/v1/open-url", requireMethod(http.MethodPost, handleOpenURL))
 	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
 	mux.HandleFunc("/api/v1/config/database", handleMethods(handler.HandleGetDatabaseConfig, nil, handler.HandleUpdateDatabaseConfig, nil))
 	mux.HandleFunc("/api/v1/config/routing-provider", handleMethods(handler.HandleGetRoutingProviderConfig, nil, handler.HandleUpdateRoutingProviderConfig, nil))
@@ -307,37 +303,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 }
 
 // handleOpenURL opens a URL in the system's default browser
-func handleOpenURL(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL string `json:"url"`
-	}
-	if err := httpx.DecodeJSON(r, &req); err != nil {
-		http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
-		return
-	}
-
-	if req.URL == "" {
-		http.Error(w, serverMessageURLRequired, http.StatusBadRequest)
-		return
-	}
-
-	if err := browser.Open(r.Context(), req.URL); err != nil {
-		if browser.IsInvalidURL(err) {
-			http.Error(w, serverMessageOnlyHTTPHTTPSURLsAllowed, http.StatusBadRequest)
-			return
-		}
-		if browser.IsUnsupportedPlatform(err) {
-			http.Error(w, serverMessageUnsupportedPlatform, http.StatusInternalServerError)
-			return
-		}
-		log.Printf("Failed to open URL: %v", err)
-		http.Error(w, serverMessageFailedToOpenURL, http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -372,14 +337,12 @@ type requestAllowlist struct {
 	hosts map[string]struct{}
 }
 
-func newRequestAllowlist(actualAddr string) (requestAllowlist, error) {
-	return newRequestAllowlistWithInterfaceAddrs(actualAddr, net.InterfaceAddrs)
-}
-
-func newRequestAllowlistWithInterfaceAddrs(
-	actualAddr string,
-	interfaceAddrs func() ([]net.Addr, error),
-) (requestAllowlist, error) {
+// newRequestAllowlist builds the Host allowlist for a listener bound to
+// actualAddr. Loopback names and a loopback bind host are always accepted.
+// Any other name must be configured explicitly (--allowed-hosts): this
+// unauthenticated server sits behind a tunnel or proxy that forwards the public
+// hostname, so a non-loopback bind with no configured hosts is a misconfiguration.
+func newRequestAllowlist(actualAddr string, allowedHosts []string) (requestAllowlist, error) {
 	bindHost, port, err := net.SplitHostPort(actualAddr)
 	if err != nil {
 		return requestAllowlist{}, fmt.Errorf("failed to determine listener address from %q: %w", actualAddr, err)
@@ -387,68 +350,52 @@ func newRequestAllowlistWithInterfaceAddrs(
 
 	bindHost = strings.ToLower(strings.Trim(bindHost, "[]"))
 	bindIP := net.ParseIP(bindHost)
-	// A wildcard or non-loopback bind is the explicit SERVER_ALLOW_NONLOCAL
-	// opt-in. Clients must address it by interface IP; hostnames and mDNS names
-	// are intentionally rejected because this unauthenticated server cannot
-	// safely allow arbitrary Host values.
-	anyHost := bindHost == "" || (bindIP != nil && (bindIP.IsUnspecified() || !bindIP.IsLoopback()))
+	loopbackBind := bindHost == "localhost" || (bindIP != nil && bindIP.IsLoopback())
+	if !loopbackBind && len(allowedHosts) == 0 {
+		return requestAllowlist{}, fmt.Errorf(
+			"listening on non-loopback address %q requires --allowed-hosts naming the public hostname(s) this server is reached by",
+			actualAddr,
+		)
+	}
 
 	names := httpx.LoopbackHostnames()
-	if anyHost {
-		addrs, err := interfaceAddrs()
-		if err != nil {
-			return requestAllowlist{}, fmt.Errorf("failed to enumerate interface addresses for request Host allowlist: %w", err)
-		}
-		interfaceIPs := 0
-		for _, addr := range addrs {
-			if ip := interfaceAddrIP(addr); ip != nil {
-				names = append(names, ip.String())
-				interfaceIPs++
-			}
-		}
-		if interfaceIPs == 0 {
-			return requestAllowlist{}, errors.New("interface enumeration returned no usable IP addresses for request Host allowlist")
-		}
-	} else if bindHost != "" {
+	if loopbackBind {
 		names = append(names, bindHost)
 	}
 
 	hosts := make(map[string]struct{})
 	for _, name := range names {
-		hostPort := net.JoinHostPort(name, port)
-		hosts[strings.ToLower(hostPort)] = struct{}{}
+		hosts[strings.ToLower(net.JoinHostPort(name, port))] = struct{}{}
 		// Browsers omit the port from Host and Origin only on the scheme
 		// default, so the port-less forms are valid solely on port 80.
 		if port == "80" {
-			bare := name
-			if strings.Contains(name, ":") {
-				bare = "[" + name + "]"
-			}
-			hosts[strings.ToLower(bare)] = struct{}{}
+			hosts[strings.ToLower(bareHost(name))] = struct{}{}
 		}
+	}
+	// Configured hosts arrive through a proxy or tunnel that terminates TLS, so
+	// they are valid bare (default port) and on this listener's port.
+	for _, name := range allowedHosts {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		hosts[bareHost(name)] = struct{}{}
+		hosts[strings.ToLower(net.JoinHostPort(strings.Trim(name, "[]"), port))] = struct{}{}
 	}
 
 	return requestAllowlist{hosts: hosts}, nil
 }
 
+func bareHost(name string) string {
+	if strings.Contains(name, ":") && !strings.HasPrefix(name, "[") {
+		return "[" + name + "]"
+	}
+	return name
+}
+
 func (a requestAllowlist) allowsHost(host string) bool {
 	_, ok := a.hosts[strings.ToLower(host)]
 	return ok
-}
-
-func interfaceAddrIP(addr net.Addr) net.IP {
-	switch addr := addr.(type) {
-	case *net.IPAddr:
-		return addr.IP
-	case *net.IPNet:
-		return addr.IP
-	default:
-		ip, _, err := net.ParseCIDR(addr.String())
-		if err != nil {
-			return nil
-		}
-		return ip
-	}
 }
 
 func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) http.Handler {
@@ -459,7 +406,7 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 		}
 
 		if isStateChangingMethod(r.Method) {
-			if !httpx.HasSameHTTPOrigin(r) {
+			if !httpx.HasSameOrigin(r) {
 				http.Error(w, serverMessageForbidden, http.StatusForbidden)
 				return
 			}
@@ -479,8 +426,7 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 			body, err := io.ReadAll(limitedBody)
 			_ = limitedBody.Close()
 			if err != nil {
-				var maxBytesErr *http.MaxBytesError
-				if errors.As(err, &maxBytesErr) {
+				if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 					http.Error(w, serverMessageRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
 					return
 				}
@@ -502,31 +448,4 @@ func isStateChangingMethod(method string) bool {
 	default:
 		return false
 	}
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-
-		if httpx.HasSameHTTPOrigin(r) {
-			if origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
-				httpx.HeaderContentType,
-				httpx.HeaderHXRequest,
-				httpx.HeaderHXTarget,
-				httpx.HeaderHXCurrentURL,
-			}, ", "))
-		}
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }

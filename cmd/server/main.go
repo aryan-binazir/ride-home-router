@@ -2,36 +2,44 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
-	"ride-home-router/internal/browser"
 	"ride-home-router/internal/server"
+	"strings"
 	"syscall"
 	"time"
 )
 
 const (
-	browserLaunchDelay    = 500 * time.Millisecond
+	defaultPort           = "8080"
 	serverShutdownTimeout = 30 * time.Second
 )
 
+type options struct {
+	Addr         string
+	AllowedHosts []string
+}
+
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		log.Fatalf("Fatal error: %v", err)
 	}
 }
 
-func run() error {
-	addr := getEnv("SERVER_ADDR", "127.0.0.1:8080")
-	if err := validateServerAddr(addr, os.Getenv("SERVER_ALLOW_NONLOCAL") == "1"); err != nil {
+func run(args []string) error {
+	opts, err := parseArgs(args)
+	if err != nil {
 		return err
 	}
 
 	srv, err := server.New(server.Config{
-		Addr: addr,
+		Addr:         opts.Addr,
+		AllowedHosts: opts.AllowedHosts,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -41,17 +49,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
-
-	// Open browser after a short delay to ensure server is ready
-	go func() {
-		time.Sleep(browserLaunchDelay)
-		url := fmt.Sprintf("http://%s", actualAddr)
-		if err := browser.Open(context.Background(), url); err != nil {
-			log.Printf("Could not open browser: %v", err)
-		} else {
-			log.Printf("Opened browser at %s", url)
-		}
-	}()
+	log.Printf("Ride Home Router listening on http://%s", actualAddr)
 
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
@@ -70,26 +68,47 @@ func run() error {
 	return nil
 }
 
-func validateServerAddr(addr string, allowNonlocal bool) error {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("invalid SERVER_ADDR %q: %w", addr, err)
+// parseArgs resolves the listen address and the public hostnames this server
+// may be addressed by. The address defaults to loopback on $PORT (or 8080);
+// binding anywhere else requires --allowed-hosts because the server has no
+// authentication of its own and relies on a tunnel or proxy in front of it.
+func parseArgs(args []string) (options, error) {
+	flags := flag.NewFlagSet("server", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	addr := flags.String("addr", "", "listen address (default 127.0.0.1:$PORT, falling back to 127.0.0.1:"+defaultPort+")")
+	allowedHosts := flags.String("allowed-hosts", "", "comma-separated public hostnames forwarded in Host/Origin by the tunnel or proxy in front of this server")
+	if err := flags.Parse(args); err != nil {
+		return options{}, err
 	}
-	if allowNonlocal || host == "localhost" {
-		return nil
+	if flags.NArg() != 0 {
+		return options{}, errors.New("usage: server [--addr address] [--allowed-hosts host,...]")
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return nil
-	}
-	return fmt.Errorf(
-		"refusing to bind unauthenticated server to non-loopback address %q; set SERVER_ALLOW_NONLOCAL=1 to accept the risk",
-		addr,
-	)
-}
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+	opts := options{Addr: *addr}
+	if opts.Addr == "" {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = defaultPort
+		}
+		opts.Addr = net.JoinHostPort("127.0.0.1", port)
 	}
-	return defaultValue
+	for host := range strings.SplitSeq(*allowedHosts, ",") {
+		if host = strings.TrimSpace(host); host != "" {
+			opts.AllowedHosts = append(opts.AllowedHosts, host)
+		}
+	}
+
+	host, _, err := net.SplitHostPort(opts.Addr)
+	if err != nil {
+		return options{}, fmt.Errorf("invalid --addr %q: %w", opts.Addr, err)
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
+	if !loopback && len(opts.AllowedHosts) == 0 {
+		return options{}, fmt.Errorf(
+			"refusing to bind unauthenticated server to non-loopback address %q without --allowed-hosts naming the public hostname(s) it is reached by",
+			opts.Addr,
+		)
+	}
+	return opts, nil
 }
