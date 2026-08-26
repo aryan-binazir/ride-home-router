@@ -50,11 +50,14 @@ func TestHandleIndexPage_RouteOptionsRenderInsideFormBeforeActionBar(t *testing.
 }
 
 // Card layout on phones hides the table header, which holds the only
-// select-all-visible control, so the bulk toolbar needs its own button — with
-// or without labels configured.
+// select-all-visible control, so the bulk toolbar needs its own button. (The
+// toolbar only renders when labels exist, since labels are the only bulk action.)
 func TestRosterPages_RenderSelectVisibleButtonInBulkToolbar(t *testing.T) {
 	handler, store := newTestPageHandler(t)
 	ctx := context.Background()
+	if _, err := store.Labels().Create(ctx, &models.Label{Name: "Youth"}); err != nil {
+		t.Fatalf("create label: %v", err)
+	}
 	if _, err := store.Participants().Create(ctx, &models.Participant{Name: "Pat Rider", Address: "1 Main St", Lat: 35.9, Lng: -79.0}); err != nil {
 		t.Fatalf("create participant: %v", err)
 	}
@@ -83,7 +86,7 @@ func TestRosterPages_RenderSelectVisibleButtonInBulkToolbar(t *testing.T) {
 
 			toolbar := strings.Index(body, `class="bulk-toolbar"`)
 			if toolbar < 0 {
-				t.Fatal("expected the bulk toolbar to render without any labels configured")
+				t.Fatal("expected the bulk toolbar to render")
 			}
 			toolbarEnd := strings.Index(body[toolbar:], `class="form-input form-input-search"`)
 			if toolbarEnd < 0 {
