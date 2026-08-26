@@ -237,14 +237,14 @@
         </section>
     </div>
 
-    <div class="action-bar">
-        <div class="action-bar-left">
-            <button type="button" class="btn btn-secondary" onclick="clearSelections()">
-                Clear all
-            </button>
-            <div class="action-bar-stats text-muted" id="selection-stats"></div>
+    <section class="panel route-options">
+        <div class="panel-header">
+            <div>
+                <h3 class="panel-title">Route Options</h3>
+                <p class="panel-subtitle">When routes start and which direction they run.</p>
+            </div>
         </div>
-        <div class="action-bar-right">
+        <div class="form-row route-options-row">
             <div class="form-group mb-0">
                 <label class="form-label" for="route-time" id="route-time-label">Depart activity location at</label>
                 <input type="time"
@@ -272,6 +272,17 @@
                     Dropoff: Activity → Homes | Pickup: Homes → Activity
                 </div>
             </div>
+        </div>
+    </section>
+
+    <div class="action-bar">
+        <div class="action-bar-left">
+            <button type="button" class="btn btn-secondary" onclick="clearSelections()">
+                Clear all
+            </button>
+            <div class="action-bar-stats text-muted" id="selection-stats"></div>
+        </div>
+        <div class="action-bar-right">
             <button type="button"
                     class="btn btn-primary btn-lg"
                     hx-post="/api/v1/routes/calculate"

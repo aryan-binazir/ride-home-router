@@ -8,8 +8,8 @@
                data-bulk-row
                onchange="updateBulkSelectionCount('drivers-tbody')">
     </td>
-    <td>{{.Driver.Name}}</td>
-    <td>
+    <td data-col="Name">{{.Driver.Name}}</td>
+    <td data-col="Address">
         {{if .Driver.AddressName}}
         <div>{{.Driver.AddressName}}</div>
         <div class="text-muted" style="font-size: 0.85em;">{{.Driver.Address}}</div>
@@ -17,20 +17,20 @@
         {{.Driver.Address}}
         {{end}}
     </td>
-    <td>
+    <td {{if .LabelNames}}data-col="Labels"{{end}}>
         <div class="table-labels">
             {{range .LabelNames}}
             <span class="badge badge-muted">{{.}}</span>
             {{end}}
         </div>
     </td>
-    <td>{{.Driver.VehicleCapacity}}</td>
-    <td class="text-muted">
+    <td data-col="Capacity">{{.Driver.VehicleCapacity}}</td>
+    <td class="text-muted" {{if and .Driver.Lat .Driver.Lng}}data-col="Coordinates"{{end}}>
         {{if and .Driver.Lat .Driver.Lng}}
         {{printf "%.4f, %.4f" .Driver.Lat .Driver.Lng}}
         {{end}}
     </td>
-    <td>
+    <td class="table-actions-cell">
         <div class="table-actions">
             <button type="button"
                     class="btn btn-sm btn-outline"

@@ -262,6 +262,8 @@ textarea {
 .nav {
     display: flex;
     gap: 0;
+    min-width: 0;
+    max-width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -589,6 +591,7 @@ p {
     left: 0;
     display: none;
     min-width: 12rem;
+    max-width: calc(100vw - 2rem);
     max-height: 16rem;
     overflow: auto;
     padding: 0.35rem;
@@ -1005,7 +1008,7 @@ tbody tr:last-child td {
 
 .select-list {
     border-top: 1px solid var(--border);
-    max-height: 430px;
+    max-height: min(430px, 60vh);
     overflow: auto;
 }
 
@@ -1149,6 +1152,14 @@ tbody tr:last-child td {
 .list-card:hover {
     border-color: var(--border-strong);
     transform: translateY(-1px);
+}
+
+.route-options {
+    margin-top: 1.5rem;
+}
+
+.route-options-row {
+    align-items: flex-start;
 }
 
 .action-bar {
@@ -2058,8 +2069,7 @@ tbody tr:last-child td {
     display: none !important;
 }
 
-@media (max-width: 960px) {
-    .header-inner,
+@media (max-width: 1024px) {
     .routes-header,
     .route-header,
     .action-bar {
@@ -2081,28 +2091,76 @@ tbody tr:last-child td {
     .summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .route-tools {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .form-input-inline {
+        width: 100%;
+        min-width: 0;
+    }
 }
 
-@media (max-width: 768px) {
+/* Phones (and anything narrower than a portrait tablet) */
+@media (max-width: 640px) {
     .container {
         padding: 0 1rem;
     }
 
-    .main {
-        padding: 1.5rem 0 3rem;
+    .header-inner {
+        padding-top: 0.75rem;
+        gap: 0.5rem;
     }
 
-    .grid-2 {
-        grid-template-columns: 1fr;
+    .header h1 {
+        font-size: 1.25rem;
     }
 
-    .page-header {
-        flex-direction: column;
+    .brand-subtitle {
+        display: none;
     }
 
     .nav a {
         padding: 0.65rem 0.75rem;
         font-size: 0.76rem;
+    }
+
+    .main {
+        padding: 1.25rem 0 3rem;
+    }
+
+    .page-header {
+        flex-direction: column;
+        margin-bottom: 1.25rem;
+    }
+
+    .page-title {
+        font-size: 1.5rem;
+    }
+
+    .page-actions,
+    .page-actions .btn,
+    .panel-actions,
+    .panel-actions .btn,
+    .routes-actions,
+    .routes-actions .btn {
+        width: 100%;
+    }
+
+    .panel-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .grid-2 {
+        grid-template-columns: 1fr;
     }
 
     .form-row {
@@ -2117,39 +2175,167 @@ tbody tr:last-child td {
         width: 100%;
     }
 
-    .panel-toolbar {
+    /* Comfortable touch targets, and 16px inputs so iOS does not zoom on focus. */
+    .btn {
+        min-height: 2.75rem;
+    }
+
+    .btn-sm {
+        min-height: 2.5rem;
+    }
+
+    .form-input,
+    .form-select,
+    .form-textarea,
+    .ui-select-trigger,
+    .form-input-search {
+        font-size: 16px;
+        min-height: 2.75rem;
+    }
+
+    .form-checkbox,
+    .form-radio {
+        width: 20px;
+        height: 20px;
+    }
+
+    .panel-toolbar,
+    .bulk-toolbar,
+    .filter-chip-toolbar {
         flex-direction: column;
         align-items: stretch;
     }
 
-    .table-container {
-        overflow-x: auto;
-    }
-
-    .table-actions {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .route-tools {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .form-input-inline {
+    .bulk-toolbar .btn,
+    .filter-chip-toolbar > .btn,
+    .btn-dropdown {
         width: 100%;
-        min-width: 0;
+    }
+
+    .btn-dropdown > .btn {
+        width: 100%;
+    }
+
+    .btn-dropdown-menu {
+        right: 0;
+        max-width: none;
+    }
+
+    .select-row {
+        padding: 0.85rem 1rem;
+    }
+
+    .select-row.is-selected {
+        padding-left: calc(1rem - 2px);
+    }
+
+    /* Roster tables become stacked cards. */
+    table[data-cards],
+    table[data-cards] tbody,
+    table[data-cards] tr,
+    table[data-cards] td {
+        display: block;
+        width: 100%;
+    }
+
+    table[data-cards] thead {
+        display: none;
+    }
+
+    table[data-cards] tr {
+        position: relative;
+        padding: 0.85rem 1rem 0.85rem 2.75rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    table[data-cards] tr:last-child {
+        border-bottom: 0;
+    }
+
+    table[data-cards] td {
+        padding: 0.2rem 0;
+        border-bottom: 0;
+    }
+
+    table[data-cards] td:first-child {
+        position: absolute;
+        top: 0.85rem;
+        left: 1rem;
+        width: auto;
+        padding: 0;
+    }
+
+    table[data-cards] td[data-col]::before {
+        content: attr(data-col);
+        display: block;
+        font-family: var(--font-display);
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+
+    table[data-cards] td[data-col="Name"] {
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    table[data-cards] td[data-col="Name"]::before {
+        display: none;
+    }
+
+    table[data-cards] .table-actions-cell {
+        padding-top: 0.6rem;
+    }
+
+    table[data-cards] .table-actions {
+        flex-direction: row;
+    }
+
+    table[data-cards] .table-actions .btn {
+        flex: 1 1 0;
+    }
+
+    /* Sticky bar: keep it slim and clear of the home indicator. */
+    .action-bar {
+        bottom: 0;
+        margin-left: -1rem;
+        margin-right: -1rem;
+        padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border);
+        gap: 0.65rem;
+    }
+
+    .action-bar-left {
+        width: 100%;
+        justify-content: space-between;
     }
 
     .stop-item {
         grid-template-columns: auto minmax(0, 1fr);
         align-items: start;
+        padding: 0.8rem 1rem;
     }
 
     .stop-distance,
     .stop-actions {
         grid-column: 2;
         justify-self: start;
+    }
+
+    .route-header {
+        padding: 1rem;
+    }
+
+    .route-stops > .d-flex.justify-between {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .route-stops > .d-flex.justify-between .d-flex {
+        flex-wrap: wrap;
     }
 
     .summary-grid {
@@ -2166,7 +2352,7 @@ tbody tr:last-child td {
     .toast-container {
         left: 1rem;
         right: 1rem;
-        bottom: 1rem;
+        bottom: calc(1rem + env(safe-area-inset-bottom));
     }
 
     .toast {
