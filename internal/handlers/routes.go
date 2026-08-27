@@ -327,7 +327,7 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 	code := "DISTANCE_PROVIDER_FAILED"
 
 	if errors.Is(err, distance.ErrProviderNotConfigured) {
-		message = "Google Maps API key is not configured. Add it in Settings."
+		message = "Google Maps API key is not configured. Set GOOGLE_MAPS_API_KEY on the server."
 		status = http.StatusBadRequest
 		code = "DISTANCE_PROVIDER_NOT_CONFIGURED"
 	}

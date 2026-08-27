@@ -30,6 +30,7 @@
 
             resultsSection.innerHTML = html;
             htmx.process(resultsSection);
+            applyLocalEventDate(resultsSection);
             refreshEtas();
         }
 
@@ -648,16 +649,11 @@
                     }
                 },
                 openUrl: async url => {
-                    try {
-                        return await fetch('/api/v1/open-url', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url }),
-                        });
-                    } catch (error) {
-                        console.error('Failed to open URL:', error);
-                        throw error;
-                    }
+                    // Opened synchronously within the click gesture so popup
+                    // blockers allow it. With noopener the spec requires
+                    // window.open to return null even on success, so the
+                    // return value carries no signal and is ignored.
+                    window.open(url, '_blank', 'noopener,noreferrer');
                 },
                 notify: showToast,
             },
@@ -1486,6 +1482,7 @@
                 if (html) {
                     resultsSection.innerHTML = html;
                     htmx.process(resultsSection);
+                    applyLocalEventDate(resultsSection);
                     refreshEtas();
                 }
             })
@@ -1573,6 +1570,8 @@
         root.copyRoute = copyRoute;
         root.copyAllRoutes = copyAllRoutes;
         root.previewRoute = previewRoute;
+        document.addEventListener('DOMContentLoaded', () => applyLocalEventDate(document));
+        document.addEventListener('htmx:afterSettle', event => applyLocalEventDate(event.target || document));
         root.handleVanAssignmentChange = handleVanAssignmentChange;
         root.filterSelectList = filterSelectList;
         root.toggleLabelFilter = toggleLabelFilter;
@@ -1593,10 +1592,37 @@
     }
 
 
+    /**
+     * Formats a Date as YYYY-MM-DD in the browser's local calendar, unlike
+     * toISOString() which shifts to UTC and can land on the wrong day.
+     */
+    function localISODate(date) {
+        const pad = value => String(value).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    /**
+     * The server renders {{currentDate}} in its own (UTC) timezone; the
+     * coordinator's calendar day is only known in the browser. Every path that
+     * injects the save-event form (initial load, htmx swaps, route calculation,
+     * session restore) must call this on the injected scope.
+     */
+    function applyLocalEventDate(scope, now = new Date()) {
+        if (!scope || typeof scope.querySelectorAll !== 'function') return 0;
+        const inputs = scope.querySelectorAll('input[type="date"][name="event_date"]');
+        inputs.forEach(input => {
+            if (!input.dataset.userEdited) input.value = localISODate(now);
+            input.addEventListener('input', () => { input.dataset.userEdited = '1'; }, { once: true });
+        });
+        return inputs.length;
+    }
+
     return {
         createParticipantMoveBatcher,
         createRouteHandoff,
+        applyLocalEventDate,
         createRouteSessionOrchestrator,
+        localISODate,
         saveDraft,
     };
 });

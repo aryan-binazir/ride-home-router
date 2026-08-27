@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"ride-home-router/internal/database"
 )
 
 // HandleIndexPage handles GET /
@@ -47,10 +46,8 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "index.html", IndexPageView{
-		BasePageView: BasePageView{
-			Title:      "Event Planning",
-			ActivePage: ActivePageHome,
-		},
+		Title:             "Event Planning",
+		ActivePage:        ActivePageHome,
 		Participants:      participants,
 		Drivers:           drivers,
 		Labels:            labels,
@@ -80,10 +77,8 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.renderTemplate(w, "participants.html", ParticipantsPageView{
-		BasePageView: BasePageView{
-			Title:      "Participants",
-			ActivePage: ActivePageParticipants,
-		},
+		Title:        "Participants",
+		ActivePage:   ActivePageParticipants,
 		Participants: participants,
 		Labels:       labels,
 		LabelIDs:     labelIDs,
@@ -109,13 +104,11 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "drivers.html", DriversPageView{
-		BasePageView: BasePageView{
-			Title:      "Drivers",
-			ActivePage: ActivePageDrivers,
-		},
-		Drivers:  drivers,
-		Labels:   labels,
-		LabelIDs: labelIDs,
+		Title:      "Drivers",
+		ActivePage: ActivePageDrivers,
+		Drivers:    drivers,
+		Labels:     labels,
+		LabelIDs:   labelIDs,
 	})
 }
 
@@ -128,11 +121,9 @@ func (h *Handler) HandleLabelsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "labels.html", LabelsPageView{
-		BasePageView: BasePageView{
-			Title:      "Labels",
-			ActivePage: ActivePageLabels,
-		},
-		Labels: labels,
+		Title:      "Labels",
+		ActivePage: ActivePageLabels,
+		Labels:     labels,
 	})
 }
 
@@ -145,10 +136,8 @@ func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Req
 	}
 
 	h.renderTemplate(w, "activity_locations.html", ActivityLocationsPageView{
-		BasePageView: BasePageView{
-			Title:      "Activity Locations",
-			ActivePage: ActivePageActivityLocations,
-		},
+		Title:             "Activity Locations",
+		ActivePage:        ActivePageActivityLocations,
 		ActivityLocations: activityLocations,
 	})
 }
@@ -162,10 +151,8 @@ func (h *Handler) HandleVansPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "vans.html", VansPageView{
-		BasePageView: BasePageView{
-			Title:      "Vans",
-			ActivePage: ActivePageVans,
-		},
+		Title:       "Vans",
+		ActivePage:  ActivePageVans,
 		OrgVehicles: orgVehicles,
 	})
 }
@@ -179,27 +166,10 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load database config
-	dbConfig, err := database.LoadConfig()
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-	defaultDBPath, _ := database.GetDefaultDBPath()
-
 	h.renderTemplate(w, "settings.html", SettingsPageView{
-		BasePageView: BasePageView{
-			Title:      "Settings",
-			ActivePage: ActivePageSettings,
-		},
-		Settings: settings,
-		DatabaseConfig: DatabaseConfigView{
-			DatabasePath: dbConfig.DatabasePath,
-			DefaultPath:  defaultDBPath,
-			IsDefault:    dbConfig.DatabasePath == defaultDBPath,
-		},
-		RoutingProviderConfig: RoutingProviderConfigView{
-			GoogleMapsAPIKeyConfigured: dbConfig.GoogleMapsAPIKey != "",
-		},
+		Title:      "Settings",
+		ActivePage: ActivePageSettings,
+		Settings:   settings,
 	})
 }
 
@@ -212,10 +182,8 @@ func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "history.html", HistoryPageView{
-		BasePageView: BasePageView{
-			Title:      "Event History",
-			ActivePage: ActivePageHistory,
-		},
+		Title:          "Event History",
+		ActivePage:     ActivePageHistory,
 		Events:         view.Events,
 		Total:          view.Total,
 		UseMiles:       view.UseMiles,

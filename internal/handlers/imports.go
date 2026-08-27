@@ -100,7 +100,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import requests are only accepted from the local application", nil)
+		h.writeError(w, status, "FORBIDDEN", "Import requests must come from this application's own origin", nil)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -129,8 +129,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	if parseErr != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(parseErr, &tooLarge) {
+		if _, ok := errors.AsType[*http.MaxBytesError](parseErr); ok {
 			status = h.writeImportError(w, r, "", http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import uploads are limited to %d bytes", MaxImportUploadBytes), nil)
 			return
 		}
@@ -213,7 +212,7 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import requests are only accepted from the local application", nil)
+		h.writeError(w, status, "FORBIDDEN", "Import requests must come from this application's own origin", nil)
 		return
 	}
 	if h.ImportSession == nil {
@@ -341,8 +340,7 @@ func (h *Handler) commitImportSession(w http.ResponseWriter, r *http.Request, id
 }
 
 func (h *Handler) writeImportJSONBodyError(w http.ResponseWriter, r *http.Request, id string, err error) int {
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		return h.writeImportError(w, r, id, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import JSON bodies are limited to %d bytes", MaxImportJSONBytes), nil)
 	}
 	h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body", nil)
@@ -486,7 +484,7 @@ func importFormat(filename string) (importer.Format, bool) {
 }
 
 func validImportRequestSource(r *http.Request) bool {
-	return httpx.IsLoopbackHost(r.Host) && httpx.HasSameHTTPOrigin(r)
+	return httpx.HasSameOrigin(r)
 }
 
 func parseImportSessionPath(path string) (id, action string, ok bool) {

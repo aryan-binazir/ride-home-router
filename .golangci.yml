@@ -22,21 +22,17 @@ linters:
     - sqlclosecheck
   exclusions:
     rules:
-      # Local desktop app: verbose handler request logging; no shared log pipeline.
+      # Handler request logging is deliberately verbose; user-controlled values are
+      # passed through logutil.SafeString at the call sites that log them.
       - path: internal/handlers/
         linters:
           - gosec
         text: "G706"
-    paths:
-      - frontend
 
 formatters:
   enable:
     - gofumpt
     - goimports
-  exclusions:
-    paths:
-      - frontend
 
 issues:
   max-issues-per-linter: 0

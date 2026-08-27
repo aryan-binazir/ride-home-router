@@ -109,7 +109,6 @@ type EventRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Event, []models.EventRoute, *models.EventSummary, error)
 	Create(ctx context.Context, event *models.Event, routes []models.EventRoute, summary *models.EventSummary) (*models.Event, error)
 	Delete(ctx context.Context, id int64) error
-	HasLegacyArchive(ctx context.Context) (bool, error)
 }
 
 // DistanceCacheRepository handles distance cache persistence

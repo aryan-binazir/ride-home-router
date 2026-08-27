@@ -1,116 +1,76 @@
-.PHONY: build build-all run clean test lint help wails-dev wails-build wails-build-all
+# Ride Home Router — server build and verification targets.
+#
+# Local development assumes the podman Postgres started by `make postgres-up`
+# on port 5434. Override DATABASE_URL / TEST_DATABASE_URL in the environment
+# for anything else.
 
-# Variables
-MODULE := ride-home-router
-MAIN_PKG := ./cmd/server
-BIN_DIR := bin
-GO := go
+POSTGRES_CONTAINER ?= ride-home-router-postgres
+POSTGRES_PORT ?= 5434
+LOCAL_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router?sslmode=disable
+LOCAL_TEST_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router_test?sslmode=disable
+DATABASE_URL ?= $(LOCAL_DATABASE_URL)
+TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
+export DATABASE_URL TEST_DATABASE_URL
 
-# Detect current OS/ARCH for native build
-GOOS ?= $(shell go env GOOS)
-GOARCH ?= $(shell go env GOARCH)
-
-# Platform-specific binary name
-ifeq ($(GOOS),windows)
-	BIN_NAME := $(BIN_DIR)/$(MODULE)-$(GOOS)-$(GOARCH).exe
-else
-	BIN_NAME := $(BIN_DIR)/$(MODULE)-$(GOOS)-$(GOARCH)
-endif
-
-# Build information
-LDFLAGS := -ldflags "-s -w"
-VERSION ?= dev
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+.PHONY: help check check-unit lint verify vet test test-unit build serve clean postgres-up postgres-down psql
 
 help:
-	@echo "Ride Home Router - Build Targets"
+	@echo "Ride Home Router"
 	@echo ""
-	@echo "Server (browser-based):"
-	@echo "  make build       Build server for current platform"
-	@echo "  make build-all   Build server for all platforms"
-	@echo "  make run         Build and run server locally"
-	@echo ""
-	@echo "Wails (native desktop app):"
-	@echo "  make wails-dev       Start development mode"
-	@echo "  make wails-build     Build for current platform"
-	@echo "  make wails-build-all Build for all platforms"
-	@echo ""
-	@echo "Other:"
-	@echo "  make clean       Remove build artifacts"
-	@echo "  make test        Run tests"
-	@echo "  make lint        Run golangci-lint"
-	@echo ""
+	@echo "  make serve         Run the server on 127.0.0.1:$${PORT:-8080} against DATABASE_URL"
+	@echo "  make build         Build bin/ride-home-router (CGO_ENABLED=0)"
+	@echo "  make check         lint + verify + vet + all tests (needs TEST_DATABASE_URL)"
+	@echo "  make check-unit    Same without database-backed tests"
+	@echo "  make postgres-up   Start the local podman Postgres (port $(POSTGRES_PORT))"
+	@echo "  make postgres-down Remove the local podman Postgres"
+	@echo "  make psql          Open psql on the local Postgres"
+	@echo "  make clean         Remove build artifacts"
 
-build: $(BIN_DIR)
-	@echo "Building $(MODULE) for $(GOOS)/$(GOARCH)..."
-	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build $(LDFLAGS) -o $(BIN_NAME) $(MAIN_PKG)
-	@echo "✓ Built: $(BIN_NAME)"
+check: lint verify vet test
 
-build-all: $(BIN_DIR) build-windows build-macos-amd64 build-macos-arm64
-	@echo "✓ All builds complete"
-
-build-windows:
-	@echo "Building for Windows amd64..."
-	GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(MODULE)-windows-amd64.exe $(MAIN_PKG)
-
-build-macos-amd64:
-	@echo "Building for macOS amd64..."
-	GOOS=darwin GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(MODULE)-darwin-amd64 $(MAIN_PKG)
-
-build-macos-arm64:
-	@echo "Building for macOS arm64..."
-	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(MODULE)-darwin-arm64 $(MAIN_PKG)
-
-run: build
-	@echo "Running $(MODULE)..."
-	@./$(BIN_NAME)
-
-clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf $(BIN_DIR)
-	@echo "✓ Clean complete"
-
-test:
-	@echo "Running tests..."
-	@node --test web/static/js/*.test.js
-	@$(GO) test -v -race -coverprofile=coverage.out ./...
-	@echo "✓ Tests complete"
+check-unit: lint verify vet test-unit
 
 lint:
-	@echo "Running golangci-lint..."
-	@golangci-lint run
-	@echo "✓ Lint complete"
+	golangci-lint run ./...
 
-$(BIN_DIR):
-	@mkdir -p $(BIN_DIR)
+verify:
+	go mod tidy -diff
+	go mod verify
 
-# Include current workspace directory in Go searches
-.DEFAULT_GOAL := help
+vet:
+	go vet ./...
 
-# Wails targets (native desktop app)
-wails-dev:
-	@echo "Starting Wails development mode..."
-	wails dev
+# Database-backed tests run against TEST_DATABASE_URL (defaulted above to the
+# local podman Postgres); test-unit blanks it so those tests skip.
+test:
+	node --test web/static/js/*.test.js
+	go test -race -count=1 -coverprofile=coverage.out ./...
 
-wails-build:
-	@echo "Building Wails application for current platform..."
-	wails build
+test-unit:
+	node --test web/static/js/*.test.js
+	TEST_DATABASE_URL= go test -race -count=1 ./...
 
-wails-build-all: wails-build-darwin-arm64 wails-build-darwin-amd64 wails-build-windows wails-build-linux
-	@echo "✓ All Wails builds complete"
+build:
+	@mkdir -p bin
+	@rm -f bin/ride-home-router
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/ride-home-router ./cmd/server
 
-wails-build-darwin-arm64:
-	@echo "Building Wails app for macOS arm64..."
-	wails build -platform darwin/arm64
+serve:
+	go run ./cmd/server
 
-wails-build-darwin-amd64:
-	@echo "Building Wails app for macOS amd64..."
-	wails build -platform darwin/amd64
+clean:
+	rm -rf bin coverage.out
 
-wails-build-windows:
-	@echo "Building Wails app for Windows..."
-	wails build -platform windows/amd64
+# Local Postgres 18 in podman, with both the dev and test databases.
+postgres-up:
+	podman run -d --name $(POSTGRES_CONTAINER) -p $(POSTGRES_PORT):5432 \
+		-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ride_home_router \
+		docker.io/library/postgres:18
+	@for i in $$(seq 1 30); do podman exec $(POSTGRES_CONTAINER) pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
+	podman exec $(POSTGRES_CONTAINER) psql -U postgres -c 'CREATE DATABASE ride_home_router_test'
 
-wails-build-linux:
-	@echo "Building Wails app for Linux..."
-	wails build -platform linux/amd64
+postgres-down:
+	podman rm -f $(POSTGRES_CONTAINER)
+
+psql:
+	podman exec -it $(POSTGRES_CONTAINER) psql -U postgres -d ride_home_router

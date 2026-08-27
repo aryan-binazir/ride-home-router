@@ -129,7 +129,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 		return nil, &ErrGeocodingFailed{Address: address, Reason: err.Error()}
 	}
 
-	req.Header.Set("User-Agent", "RideHomeRouter/1.0")
+	req.Header.Set("User-Agent", "RideHomeRouter/1.0 (+https://github.com/aryan-binazir/ride-home-router)")
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
@@ -201,7 +201,7 @@ func (g *nominatimGeocoder) Search(ctx context.Context, query string, limit int)
 		return nil, &ErrGeocodingFailed{Address: query, Reason: err.Error()}
 	}
 
-	req.Header.Set("User-Agent", "RideHomeRouter/1.0")
+	req.Header.Set("User-Agent", "RideHomeRouter/1.0 (+https://github.com/aryan-binazir/ride-home-router)")
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {

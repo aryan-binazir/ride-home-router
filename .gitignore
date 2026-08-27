@@ -3,7 +3,6 @@
 #
 # Binaries for programs and plugins
 /bin/
-/build/bin/
 .gocache/
 *.exe
 *.exe~
@@ -38,19 +37,12 @@ go.work.sum
 .vscode/
 .DS_Store
 
-# SQLite database files
+# SQLite files from pre-Postgres builds hold real names and addresses
 *.db
 *.db-wal
 *.db-shm
 *.sqlite
 *.sqlite3
-
-# Built executables
-/server
-/ride-home-router
-
-# Wails-generated frontend bindings/runtime
-/frontend/wailsjs/
 
 # scratch files
 _scratch/

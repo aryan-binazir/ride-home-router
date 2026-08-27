@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 )
 
 // HandleAddressSearch handles GET /api/v1/address-search
@@ -18,7 +19,7 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query().Get("address")
-	log.Printf("[HTTP] GET /api/v1/address-search: query=%s", query)
+	log.Printf("[HTTP] GET /api/v1/address-search: query=%s", logutil.SafeString(query))
 
 	if len(query) < 4 {
 		log.Printf("[HTTP] GET /api/v1/address-search: query too short, returning empty HTML")

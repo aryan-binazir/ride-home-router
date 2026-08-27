@@ -1,14 +1,9 @@
-<p align="center">
-  <img src="build/icon.svg" alt="Ride Home Router" width="128" height="128">
-</p>
-
 # Ride Home Router
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![Wails v2](https://img.shields.io/badge/Wails-v2-red)](https://wails.io/)
+[![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-A desktop app that optimizes driver assignments for getting people home after events. Perfect for community groups, religious organizations, schools, or any gathering where you need to coordinate rides.
+A web app that optimizes driver assignments for getting people home after events. Perfect for community groups, religious organizations, schools, or any gathering where you need to coordinate rides. Coordinators use it from any browser; the Go server and its Postgres database run wherever you host them.
 
 > **Disclaimer:** This software only calculates routes—it does not vet drivers. You are responsible for screening drivers and verifying all routes. Use at your own risk. See [full disclaimer](#disclaimer).
 
@@ -16,8 +11,9 @@ A desktop app that optimizes driver assignments for getting people home after ev
 
 - [The Problem It Solves](#the-problem-it-solves)
 - [Features](#features)
-- [Privacy First](#privacy-first)
-- [Installation](#installation)
+- [Privacy](#privacy)
+- [Running It](#running-it)
+- [Deploying It](#deploying-it)
 - [Google Routes API Setup](#google-routes-api-setup)
 - [Usage](#usage)
 - [Technical Details](#technical-details)
@@ -50,97 +46,86 @@ Manually figuring out who goes with whom is tedious and often results in unfair 
 - **Preview Routes** — Open any route directly in Google Maps
 - **Copy to Clipboard** — Export routes as text or Google Maps links
 - **Distance Units** — Toggle between kilometers and miles
-- **Local Data Storage** — All data stored on your computer; internet needed for address lookup and route calculations
+- **Spreadsheet Import** — Import participant and driver rosters from CSV/XLSX
 
-## Privacy First
+## Privacy
 
-**Persistent app data stays on your computer.** Names, addresses, API configuration, and event history are stored locally in `~/.ride-home-router/`. During route calculation, coordinates are sent to Google Routes; during address search, the search text is sent to Nominatim.
-
-Spreadsheet imports are parsed entirely locally. Rows that include coordinates are never sent to a geocoding service; rows without coordinates use the same geocoding services as manual entry.
+Names, addresses, and event history live in the Postgres database you host. During route calculation, coordinates are sent to Google Routes; during address search, the search text is sent to Nominatim. Spreadsheet imports are parsed on the server; rows that include coordinates are never sent to a geocoding service.
 
 The external services used are:
-- **Google Routes API** — Calculates driving distances and durations between coordinates. Route calculation requires a Google Maps API key saved in Settings.
+- **Google Routes API** — Calculates driving distances and durations between coordinates. Requires a Google Maps API key in the server environment.
 - **Nominatim** — OpenStreetMap geocoder (converts addresses to coordinates)
 
-No Ride Home Router account. No cloud sync. No tracking.
+No Ride Home Router account. No tracking.
+
+**The server has no authentication of its own.** It is designed to run behind an access layer that authenticates coordinators—Cloudflare Tunnel with Zero Trust is the intended setup. Never expose it directly to the internet.
 
 ---
 
-## Installation
+## Running It
 
-### Download (Recommended)
-
-Download the latest release for your platform from the [Releases](../../releases) page:
-
-| Platform | Download |
-|----------|----------|
-| macOS (Apple Silicon) | `Ride-Home-Router-macOS-arm64.dmg` |
-| Windows | `Ride-Home-Router-Windows-amd64.exe` |
-| Linux | `Ride-Home-Router-Linux-amd64` |
-
-#### macOS Installation
-
-1. **Double-click** the downloaded `.dmg` file to mount it
-2. **Drag** the `Ride Home Router.app` to your **Applications** folder
-3. **Remove the quarantine attribute** by running the following command in Terminal:
+Requirements: Go 1.27, Node 22 (JS tests only), and Postgres 18 (podman for the local container).
 
 ```bash
-xattr -d com.apple.quarantine /Applications/ride-home-router.app
+make postgres-up                 # local Postgres 18 in podman on port 5434
+GOOGLE_MAPS_API_KEY=... make serve
 ```
 
-**Why is this necessary?** macOS places a quarantine flag on applications downloaded from the internet. Since this app is not signed with an Apple Developer certificate, macOS Gatekeeper will block it from running. The command above removes this quarantine attribute, allowing the app to launch.
+`make serve` runs the server on `http://127.0.0.1:8080` against the local Postgres (`DATABASE_URL` overrides it). Pending schema migrations are applied at startup.
 
-**⚠️ Important:** Before running this command, you should:
-- **Understand the risk**: Removing the quarantine attribute bypasses macOS security checks. Only do this for software you trust and have downloaded from a verified source.
-- **Read the licenses**: Review the [MIT License](LICENSE) and understand that this software is provided "as is" without warranty. See the [Disclaimer](#disclaimer) section for full details.
+### Configuration
 
-### Build from Source
+| Setting | How | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | env, required | Postgres connection string |
+| `GOOGLE_MAPS_API_KEY` | env | Enables route calculation; address search works without it |
+| `PORT` | env | Loopback port when `--addr` is not given (default `8080`) |
+| `--addr` | flag | Listen address, e.g. `0.0.0.0:8080` in a container |
+| `--allowed-hosts` | flag | Comma-separated public hostnames the tunnel or proxy forwards, without ports (the listener port and the scheme default are matched automatically). **Required** for any non-loopback `--addr` |
 
-Requires [Go 1.25+](https://go.dev/dl/) and [Wails v2](https://wails.io/docs/gettingstarted/installation).
+Requests whose `Host` (or `Origin`, for writes) is not loopback or one of `--allowed-hosts` are rejected with `403`, so a stray public domain in front of the server serves nothing.
+
+### Verifying
 
 ```bash
-# Install Wails CLI
-# Ensure you have GOPATH set in your environment
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-# Clone and build
-git clone https://github.com/aryan-binazir/ride-home-router.git
-cd ride-home-router
-wails build
+make check        # lint, go mod verify, vet, JS + Go tests (needs TEST_DATABASE_URL, set by make for the local Postgres)
+make check-unit   # same without the database-backed tests
 ```
 
-The built application will be in `build/bin/`.
+Database-backed tests create a throwaway schema per test in `TEST_DATABASE_URL`, migrate it, and drop it afterwards.
 
-#### Linux Dependencies
+---
 
-On Linux, you'll need WebKit2GTK:
+## Deploying It
 
-```bash
-# Arch
-sudo pacman -S webkit2gtk gtk3
+The `Dockerfile` builds a static binary into a non-root Alpine image. The container expects:
 
-# Ubuntu/Debian
-sudo apt install libgtk-3-dev libwebkit2gtk-4.0-dev
+- `DATABASE_URL` — your Postgres
+- `ALLOWED_HOSTS` — the public hostname(s) served by the tunnel, e.g. `rides.example.org`
+- `GOOGLE_MAPS_API_KEY` — optional
+- `PORT` — set by the platform; the server binds `0.0.0.0:$PORT`
 
-# Fedora
-sudo dnf install gtk3-devel webkit2gtk4.0-devel
-```
+A `HEALTHCHECK` polls `/api/v1/health`.
+
+The intended shape is Railway (or any host) with **no public domain on the app service**, plus a `cloudflared` sidecar that connects the tunnel to the app over the private network, with Cloudflare Access policies deciding who gets in. If your platform performs HTTP health checks with its own `Host` header, add that hostname to `ALLOWED_HOSTS` too.
+
+Known limitations of the hosted setup:
+- Settings (selected activity location, units) are shared by everyone using the deployment; it is designed for one coordinator at a time.
+- In-progress route edits and spreadsheet imports are held in server memory and are lost on restart or deploy. Saved events are in Postgres.
+- Back up the Postgres database with your provider's tooling; the app does not export data.
 
 ---
 
 ## Google Routes API Setup
 
-Route calculation now uses Google's Routes API instead of the public OSRM demo server. Address search still uses Nominatim/OpenStreetMap.
-
-Before calculating routes:
+Route calculation uses Google's Routes API. Address search uses Nominatim/OpenStreetMap.
 
 1. Create or choose a Google Cloud project.
 2. Enable the **Routes API** for that project.
 3. Create a Google Maps API key with permission to call the Routes API.
-4. Open **Settings** in Ride Home Router.
-5. Paste the key under **Routing Provider** and click **Save API Key**.
+4. Set `GOOGLE_MAPS_API_KEY` in the server environment and restart.
 
-The key is stored in `~/.ride-home-router/config.json` as `google_maps_api_key`. Saving a new key clears cached distances so future route calculations use the new provider credentials. If no key is configured, route calculation fails with a Settings prompt; address autocomplete still works.
+If no key is configured, route calculation fails with a clear error; address autocomplete still works. Distance results are cached in Postgres, so rotate the key and clear the `distance_cache` table if you switch providers.
 
 ---
 
@@ -149,11 +134,10 @@ The key is stored in `~/.ride-home-router/config.json` as `google_maps_api_key`.
 ### Quick Start
 
 1. **Add an Activity Location** — Save where your events happen on the Activity Locations page
-2. **Add Participants** — People who need rides
+2. **Add Participants** — People who need rides (or import a spreadsheet)
 3. **Add Drivers** — People with vehicles, including their capacity
 4. **Add Vans** (Optional) — Save shared vans on the Vans page for overflow events
-5. **Configure Google Routes** — Add a Google Maps API key in Settings before the first route calculation
-6. **Calculate Routes** — Select participants, drivers, activity location, optional van assignments, and mode, then click Calculate
+5. **Calculate Routes** — Select participants, drivers, activity location, optional van assignments, and mode, then click Calculate
 
 ### Workflow
 
@@ -196,61 +180,31 @@ Candidates are compared lexicographically: latest participant completion, worst 
 
 ```
 ride-home-router/
-├── cmd/server/          # Standalone HTTP server (browser mode)
+├── cmd/server/          # Server entry point (flags, env, graceful shutdown)
+├── migrations/          # Embedded Postgres schema migrations (golang-migrate)
 ├── internal/
 │   ├── models/          # Data structures (Participant, Driver, Event, etc.)
 │   ├── database/        # Storage interfaces and repository contracts
-│   ├── sqlite/          # SQLite storage implementation
+│   ├── postgres/        # Postgres storage implementation (+ postgrestest helpers)
 │   ├── handlers/        # HTTP request handlers
 │   ├── routing/         # Route optimization algorithms
-│   ├── distance/        # Google Routes distance provider and legacy OSRM client
+│   ├── distance/        # Google Routes distance provider
 │   ├── geocoding/       # Nominatim API client
+│   ├── importer/        # Spreadsheet import staging
 │   ├── httpx/           # HTTP constants and helpers
-│   ├── templateutil/    # Shared template helper functions
-│   └── server/          # HTTP server setup and routing
-├── web/                 # Frontend (HTML templates, CSS, JS)
-│   ├── templates/       # Go html/template files
-│   └── static/          # CSS, JavaScript (HTMX)
-├── frontend/            # Wails loading page
-├── build/               # App icons and platform configs
-├── main.go              # Wails entry point
-└── app.go               # Wails app lifecycle
+│   └── server/          # HTTP server setup, routing, request security
+├── web/                 # Frontend (Go html/template + HTMX, CSS, JS)
+├── Dockerfile           # Multi-stage container build
+└── Makefile
 ```
 
 ### Technology Stack
 
 - **Backend**: Go (standard library HTTP server)
-- **Frontend**: HTML templates + [HTMX](https://htmx.org/) for dynamic updates
-- **Desktop**: [Wails v2](https://wails.io/) (Go + WebView)
-- **Storage**: SQLite database in `~/.ride-home-router/`
+- **Frontend**: HTML templates + [HTMX](https://htmx.org/) for dynamic updates; the browser is the client
+- **Storage**: PostgreSQL via pgx, schema managed by golang-migrate
 - **Routing**: Google Routes API `computeRouteMatrix`
 - **Geocoding**: Nominatim (OpenStreetMap)
-
-### Development
-
-```bash
-# Run in development mode (hot reload)
-wails dev
-
-# Build for current platform
-wails build
-
-# Build standalone server (opens in browser)
-go run cmd/server/main.go
-
-# Run tests
-go test ./...
-```
-
-### Data Storage
-
-All data is stored in `~/.ride-home-router/`:
-
-```
-~/.ride-home-router/
-├── config.json            # App config, including database path and Google Maps API key
-└── data.db                # SQLite database (participants, drivers, settings, events, distance cache)
-```
 
 ---
 
@@ -258,11 +212,11 @@ All data is stored in `~/.ride-home-router/`:
 
 This app uses external APIs that have usage limits:
 
-- **Google Routes API**: Route distance and duration calculations use `routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix`. Google Cloud billing, quotas, and API key restrictions apply. The app caches distance results in SQLite and batches route matrix calls up to 625 elements per request.
+- **Google Routes API**: Route distance and duration calculations use `routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix`. Google Cloud billing, quotas, and API key restrictions apply. The app caches distance results in Postgres and batches route matrix calls up to 625 elements per request.
 
-- **Nominatim (OpenStreetMap Geocoding)**: The public Nominatim service has a [usage policy](https://operations.osmfoundation.org/policies/nominatim/) limiting requests to 1 per second. The app includes built-in delays to respect this limit.
+- **Nominatim (OpenStreetMap Geocoding)**: The public Nominatim service has a [usage policy](https://operations.osmfoundation.org/policies/nominatim/) limiting requests to 1 per second. The app includes built-in delays to respect this limit. A hosted deployment sends every coordinator's searches from one IP, so keep usage modest.
 
-For typical community group usage, address search should stay within Nominatim's public limits. Route calculation depends on your Google Cloud quota and billing configuration. If route calculation fails, first verify the API key in Settings, that the Routes API is enabled, and that the key is allowed to call it.
+For typical community group usage, address search should stay within Nominatim's public limits. Route calculation depends on your Google Cloud quota and billing configuration. If route calculation fails, first verify `GOOGLE_MAPS_API_KEY`, that the Routes API is enabled, and that the key is allowed to call it.
 
 ---
 
@@ -273,7 +227,7 @@ For typical community group usage, address search should stay within Nominatim's
 - **Driver vetting**: This software only calculates routes—it does not screen or verify drivers. You are solely responsible for vetting all drivers, including performing background checks as appropriate for your organization.
 - **Route accuracy**: Route suggestions are approximations based on heuristic algorithms. They may not be optimal, accurate, or safe. Always verify addresses and routes before driving.
 - **Third-party services**: This tool relies on Google Routes and Nominatim (OpenStreetMap) for routing and geocoding. Accuracy, availability, quotas, and costs depend on these external services, which are outside our control.
-- **Data security**: While data is stored locally on your computer, we make no guarantees about data protection or security. You are responsible for securing your own device and backups.
+- **Data security**: You host the server and database. We make no guarantees about data protection or security; you are responsible for the access layer in front of the server, the database, and backups.
 - **No liability**: The developers are not responsible for any damages, losses, injuries, data breaches, or incidents arising from use of this software or the transportation it helps coordinate.
 
 By using this software, you accept full responsibility for its use.

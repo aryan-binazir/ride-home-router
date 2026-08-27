@@ -1,24 +1,20 @@
-package sqlite
+package postgres
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
 type activityLocationRepository struct {
-	store *Store
+	db *sql.DB
 }
 
 func (r *activityLocationRepository) List(ctx context.Context) ([]models.ActivityLocation, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	query := `SELECT id, name, address, lat, lng FROM activity_locations ORDER BY name`
-
-	rows, err := r.store.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, address, lat, lng FROM activity_locations ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query activity locations: %w", err)
 	}
@@ -32,95 +28,51 @@ func (r *activityLocationRepository) List(ctx context.Context) ([]models.Activit
 		}
 		locations = append(locations, loc)
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating activity locations: %w", err)
 	}
-
 	return locations, nil
 }
 
 func (r *activityLocationRepository) GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error) {
-	r.store.mu.RLock()
-	defer r.store.mu.RUnlock()
-
-	query := `SELECT id, name, address, lat, lng FROM activity_locations WHERE id = ?`
-
 	var loc models.ActivityLocation
-	err := r.store.db.QueryRowContext(ctx, query, id).Scan(
-		&loc.ID, &loc.Name, &loc.Address, &loc.Lat, &loc.Lng,
-	)
-
-	if err == sql.ErrNoRows {
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, address, lat, lng FROM activity_locations WHERE id = $1`, id).
+		Scan(&loc.ID, &loc.Name, &loc.Address, &loc.Lat, &loc.Lng)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, database.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get activity location: %w", err)
 	}
-
 	return &loc, nil
 }
 
 func (r *activityLocationRepository) Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	query := `INSERT INTO activity_locations (name, address, lat, lng) VALUES (?, ?, ?, ?)`
-
-	result, err := r.store.db.ExecContext(ctx, query, loc.Name, loc.Address, loc.Lat, loc.Lng)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, `
+		INSERT INTO activity_locations (name, address, lat, lng) VALUES ($1, $2, $3, $4) RETURNING id`,
+		loc.Name, loc.Address, loc.Lat, loc.Lng).Scan(&loc.ID); err != nil {
 		return nil, fmt.Errorf("failed to create activity location: %w", err)
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert id: %w", err)
-	}
-	loc.ID = id
-
 	return loc, nil
 }
 
 func (r *activityLocationRepository) Update(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	query := `UPDATE activity_locations
-	          SET name = ?, address = ?, lat = ?, lng = ?
-	          WHERE id = ?`
-
-	result, err := r.store.db.ExecContext(ctx, query, loc.Name, loc.Address, loc.Lat, loc.Lng, loc.ID)
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE activity_locations SET name = $1, address = $2, lat = $3, lng = $4 WHERE id = $5`,
+		loc.Name, loc.Address, loc.Lat, loc.Lng, loc.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update activity location: %w", err)
 	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	if err := rowsAffectedOrNotFound(result); err != nil {
+		return nil, err
 	}
-	if rows == 0 {
-		return nil, database.ErrNotFound
-	}
-
 	return loc, nil
 }
 
 func (r *activityLocationRepository) Delete(ctx context.Context, id int64) error {
-	r.store.mu.Lock()
-	defer r.store.mu.Unlock()
-
-	result, err := r.store.db.ExecContext(ctx, `DELETE FROM activity_locations WHERE id = ?`, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM activity_locations WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete activity location: %w", err)
 	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return database.ErrNotFound
-	}
-
-	return nil
+	return rowsAffectedOrNotFound(result)
 }

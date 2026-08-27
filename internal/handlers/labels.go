@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -530,6 +531,5 @@ func isUniqueConstraintError(err error) bool {
 	if err == nil {
 		return false
 	}
-	message := err.Error()
-	return strings.Contains(message, "UNIQUE constraint failed") || strings.Contains(message, "constraint failed: UNIQUE")
+	return errors.Is(err, database.ErrDuplicate)
 }
