@@ -329,9 +329,8 @@ func TestImportPanelAcceptsTunnelledSameOriginRequests(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.HandleCreateImport(recorder, upload)
 
-	if recorder.Code == http.StatusForbidden {
-		t.Fatalf("status = %d; hosted imports behind a tunnel must not be loopback-gated", recorder.Code)
-	}
+	assertPanelFragment(t, recorder)
+	importPanelSessionID(t, recorder.Body.String())
 }
 
 func startImportPanelSession(t *testing.T, handler *Handler, contents string, kind importer.Kind) string {

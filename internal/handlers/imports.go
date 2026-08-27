@@ -100,7 +100,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import requests are only accepted from the local application", nil)
+		h.writeError(w, status, "FORBIDDEN", "Import requests must come from this application's own origin", nil)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -212,7 +212,7 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import requests are only accepted from the local application", nil)
+		h.writeError(w, status, "FORBIDDEN", "Import requests must come from this application's own origin", nil)
 		return
 	}
 	if h.ImportSession == nil {

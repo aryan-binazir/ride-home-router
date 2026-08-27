@@ -18,8 +18,10 @@ const (
 // FuncMap returns the shared template helper functions used in production and tests.
 func FuncMap() template.FuncMap {
 	return template.FuncMap{
+		// Dates are stored as UTC midnight; render in UTC so the calendar day
+		// is stable whatever the process TZ is.
 		"formatDate": func(t time.Time) string {
-			return t.Format("2006-01-02")
+			return t.UTC().Format("2006-01-02")
 		},
 		"add": func(a, b int) int {
 			return a + b

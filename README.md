@@ -81,7 +81,7 @@ GOOGLE_MAPS_API_KEY=... make serve
 | `GOOGLE_MAPS_API_KEY` | env | Enables route calculation; address search works without it |
 | `PORT` | env | Loopback port when `--addr` is not given (default `8080`) |
 | `--addr` | flag | Listen address, e.g. `0.0.0.0:8080` in a container |
-| `--allowed-hosts` | flag | Comma-separated public hostnames the tunnel or proxy forwards. **Required** for any non-loopback `--addr` |
+| `--allowed-hosts` | flag | Comma-separated public hostnames the tunnel or proxy forwards, without ports (the listener port and the scheme default are matched automatically). **Required** for any non-loopback `--addr` |
 
 Requests whose `Host` (or `Origin`, for writes) is not loopback or one of `--allowed-hosts` are rejected with `403`, so a stray public domain in front of the server serves nothing.
 
