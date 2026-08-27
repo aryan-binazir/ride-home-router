@@ -45,12 +45,14 @@
                     <tr class="import-row{{if .State}} import-row-{{.State}}{{end}}">
                         <td>
                             {{if .Selectable}}
+                            <label class="table-select-hit">
                             <input type="checkbox"
                                    class="form-checkbox"
                                    name="selected"
                                    value="{{.Index}}"
                                    aria-label="Import row {{.SourceRow}}"
                                    {{if .Selected}}checked{{end}}>
+                            </label>
                             {{end}}
                         </td>
                         <td>{{.SourceRow}}</td>

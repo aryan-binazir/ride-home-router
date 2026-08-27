@@ -1,6 +1,6 @@
 {{define "label_list"}}
 {{if .Labels}}
-<table>
+<table data-cards>
     <thead>
         <tr>
             <th>Name</th>
@@ -12,10 +12,10 @@
     <tbody id="labels-tbody">
         {{range .Labels}}
         <tr id="label-{{.ID}}" data-search="{{.Name}}">
-            <td>{{.Name}}</td>
-            <td>{{.ParticipantCount}}</td>
-            <td>{{.DriverCount}}</td>
-            <td>
+            <td data-col="Name">{{.Name}}</td>
+            <td data-col="Participants">{{.ParticipantCount}}</td>
+            <td data-col="Drivers">{{.DriverCount}}</td>
+            <td class="table-actions-cell">
                 <div class="table-actions">
                     <button type="button"
                             class="btn btn-sm btn-outline"

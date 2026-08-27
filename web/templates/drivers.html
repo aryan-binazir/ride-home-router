@@ -36,6 +36,8 @@
         {{if .Labels}}
         <div class="bulk-toolbar">
             <span class="panel-count text-muted"><span id="drivers-bulk-selected-count">0</span> selected</span>
+            <button type="button" class="btn btn-sm btn-outline" onclick="selectVisibleTableRows('drivers-tbody', true)">Select visible</button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="clearTableSelection('drivers-tbody')">Clear selection</button>
             <div class="btn-dropdown">
                 <button type="button" class="btn btn-sm btn-outline" onclick="toggleBulkDropdown(this)">Add label</button>
                 <div class="btn-dropdown-menu">
@@ -70,7 +72,6 @@
                     {{end}}
                 </div>
             </div>
-            <button type="button" class="btn btn-sm btn-outline" onclick="clearTableSelection('drivers-tbody')">Clear selection</button>
         </div>
         {{end}}
         <input type="search"

@@ -1,15 +1,18 @@
 {{define "participant_row"}}
 <tr id="participant-{{.Participant.ID}}" data-search="{{.Participant.Name}} {{.Participant.AddressName}} {{.Participant.Address}}" data-labels="{{.LabelIDs}}">
-    <td>
+    <td class="table-select-cell">
+        <label class="table-select-hit">
         <input type="checkbox"
                name="participant_ids"
                value="{{.Participant.ID}}"
                class="form-checkbox bulk-table-checkbox"
+               aria-label="Select {{.Participant.Name}}"
                data-bulk-row
                onchange="updateBulkSelectionCount('participants-tbody')">
+        </label>
     </td>
-    <td>{{.Participant.Name}}</td>
-    <td>
+    <td data-col="Name">{{.Participant.Name}}</td>
+    <td data-col="Address">
         {{if .Participant.AddressName}}
         <div>{{.Participant.AddressName}}</div>
         <div class="text-muted" style="font-size: 0.85em;">{{.Participant.Address}}</div>
@@ -17,19 +20,21 @@
         {{.Participant.Address}}
         {{end}}
     </td>
-    <td>
+    <td {{if .LabelNames}}data-col="Labels"{{end}}>
+        {{if .LabelNames}}
         <div class="table-labels">
             {{range .LabelNames}}
             <span class="badge badge-muted">{{.}}</span>
             {{end}}
         </div>
+        {{end}}
     </td>
-    <td class="text-muted">
+    <td class="text-muted" {{if and .Participant.Lat .Participant.Lng}}data-col="Coordinates"{{end}}>
         {{if and .Participant.Lat .Participant.Lng}}
         {{printf "%.4f, %.4f" .Participant.Lat .Participant.Lng}}
         {{end}}
     </td>
-    <td>
+    <td class="table-actions-cell">
         <div class="table-actions">
             <button type="button"
                     class="btn btn-sm btn-outline"
