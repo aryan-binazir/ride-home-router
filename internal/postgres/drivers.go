@@ -88,6 +88,9 @@ func (r *driverRepository) CreateBatch(ctx context.Context, drivers []*models.Dr
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockRoster(ctx, tx, "drivers"); err != nil {
+		return database.BatchCreateResult{}, err
+	}
 	existing, err := rosterKeys(ctx, tx, "drivers")
 	if err != nil {
 		return database.BatchCreateResult{}, err
@@ -140,6 +143,9 @@ func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Drive
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockRoster(ctx, tx, "drivers"); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	d.CreatedAt = now
 	d.UpdatedAt = now

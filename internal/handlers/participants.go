@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -158,7 +159,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/participants: name=%s address=%s", req.Name, req.Address)
+	log.Printf("[HTTP] POST /api/v1/participants: name=%s address=%s", logutil.SafeString(req.Name), logutil.SafeString(req.Address))
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
 		log.Printf("[ERROR] Failed to geocode participant address: address=%s err=%v", req.Address, err)

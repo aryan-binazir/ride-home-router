@@ -88,6 +88,9 @@ func (r *participantRepository) CreateBatch(ctx context.Context, participants []
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockRoster(ctx, tx, "participants"); err != nil {
+		return database.BatchCreateResult{}, err
+	}
 	existing, err := rosterKeys(ctx, tx, "participants")
 	if err != nil {
 		return database.BatchCreateResult{}, err
@@ -133,6 +136,15 @@ func (r *participantRepository) CreateBatch(ctx context.Context, participants []
 	return batchResult, nil
 }
 
+// lockRoster serializes roster writes inside tx so the duplicate recheck in
+// CreateBatch cannot interleave with another batch or a manual create.
+func lockRoster(ctx context.Context, tx *sql.Tx, table string) error {
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "ride-home-router:"+table); err != nil {
+		return fmt.Errorf("failed to lock %s for writing: %w", table, err)
+	}
+	return nil
+}
+
 // rosterKeys returns the normalized name+address keys already stored in the
 // participants or drivers table.
 func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]struct{}, error) {
@@ -174,6 +186,9 @@ func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockRoster(ctx, tx, "participants"); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	p.CreatedAt = now
 	p.UpdatedAt = now

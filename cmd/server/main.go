@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"regexp"
 	"ride-home-router/internal/server"
 	"strings"
 	"syscall"
@@ -112,8 +113,8 @@ func parseArgs(args []string) (options, error) {
 		if host == "" {
 			continue
 		}
-		if _, _, err := net.SplitHostPort(host); err == nil {
-			return options{}, fmt.Errorf("--allowed-hosts entry %q must be a hostname without a port; the listener port and the scheme default are matched automatically", host)
+		if !validAllowedHost(host) {
+			return options{}, fmt.Errorf("--allowed-hosts entry %q must be a bare hostname or IP without scheme, port, or path; the listener port and the scheme default are matched automatically", host)
 		}
 		opts.AllowedHosts = append(opts.AllowedHosts, host)
 	}
@@ -131,4 +132,12 @@ func parseArgs(args []string) (options, error) {
 		)
 	}
 	return opts, nil
+}
+
+var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
+
+// validAllowedHost accepts a DNS hostname or an IP literal, exactly as a
+// browser would send it in Host without a port.
+func validAllowedHost(host string) bool {
+	return hostnamePattern.MatchString(host) || net.ParseIP(strings.Trim(host, "[]")) != nil
 }

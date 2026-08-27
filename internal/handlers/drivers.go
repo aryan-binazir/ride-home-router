@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -174,7 +175,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/drivers: name=%s address=%s capacity=%d", req.Name, req.Address, req.VehicleCapacity)
+	log.Printf("[HTTP] POST /api/v1/drivers: name=%s address=%s capacity=%d", logutil.SafeString(req.Name), logutil.SafeString(req.Address), req.VehicleCapacity)
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
 		log.Printf("[ERROR] Failed to geocode driver address: address=%s err=%v", req.Address, err)

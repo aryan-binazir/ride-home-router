@@ -25,7 +25,10 @@ func TestParseArgs(t *testing.T) {
 			want: options{Addr: "0.0.0.0:8080", AllowedHosts: []string{"routes.example.com", "healthcheck.railway.app"}},
 		},
 		{name: "non-loopback bind without allowed hosts", args: []string{"--addr", "0.0.0.0:8080"}, wantErr: "--allowed-hosts"},
-		{name: "allowed host with port", args: []string{"--allowed-hosts", "routes.example.com:8443"}, wantErr: "without a port"},
+		{name: "allowed host with port", args: []string{"--allowed-hosts", "routes.example.com:8443"}, wantErr: "bare hostname"},
+		{name: "allowed host with scheme", args: []string{"--allowed-hosts", "https://routes.example.com"}, wantErr: "bare hostname"},
+		{name: "allowed host with path", args: []string{"--allowed-hosts", "routes.example.com/path"}, wantErr: "bare hostname"},
+		{name: "allowed IPv6 literal", args: []string{"--addr", "0.0.0.0:8080", "--allowed-hosts", "[2001:db8::10]"}, want: options{Addr: "0.0.0.0:8080", AllowedHosts: []string{"[2001:db8::10]"}}},
 		{name: "invalid addr", args: []string{"--addr", "nope"}, wantErr: "invalid --addr"},
 		{name: "positional args rejected", args: []string{"extra"}, wantErr: "usage"},
 	}

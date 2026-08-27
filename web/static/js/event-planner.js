@@ -649,10 +649,10 @@
                 },
                 openUrl: async url => {
                     // Opened synchronously within the click gesture so popup
-                    // blockers allow it; the browser is the client now.
-                    if (!window.open(url, '_blank', 'noopener,noreferrer')) {
-                        throw new Error('Popup blocked');
-                    }
+                    // blockers allow it. With noopener the spec requires
+                    // window.open to return null even on success, so the
+                    // return value carries no signal and is ignored.
+                    window.open(url, '_blank', 'noopener,noreferrer');
                 },
                 notify: showToast,
             },
@@ -1568,6 +1568,16 @@
         root.copyRoute = copyRoute;
         root.copyAllRoutes = copyAllRoutes;
         root.previewRoute = previewRoute;
+        // The server renders {{currentDate}} in its own (UTC) timezone; the
+        // coordinator's calendar day is only known in the browser.
+        const applyLocalEventDate = scope => {
+            scope.querySelectorAll('input[type="date"][name="event_date"]').forEach(input => {
+                if (!input.dataset.userEdited) input.value = localISODate(new Date());
+                input.addEventListener('input', () => { input.dataset.userEdited = '1'; }, { once: true });
+            });
+        };
+        document.addEventListener('DOMContentLoaded', () => applyLocalEventDate(document));
+        document.addEventListener('htmx:afterSettle', event => applyLocalEventDate(event.target || document));
         root.handleVanAssignmentChange = handleVanAssignmentChange;
         root.filterSelectList = filterSelectList;
         root.toggleLabelFilter = toggleLabelFilter;
@@ -1588,10 +1598,20 @@
     }
 
 
+    /**
+     * Formats a Date as YYYY-MM-DD in the browser's local calendar, unlike
+     * toISOString() which shifts to UTC and can land on the wrong day.
+     */
+    function localISODate(date) {
+        const pad = value => String(value).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
     return {
         createParticipantMoveBatcher,
         createRouteHandoff,
         createRouteSessionOrchestrator,
+        localISODate,
         saveDraft,
     };
 });

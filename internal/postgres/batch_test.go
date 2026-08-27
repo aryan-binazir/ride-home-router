@@ -5,6 +5,7 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres/postgrestest"
+	"sync"
 	"testing"
 )
 
@@ -125,5 +126,38 @@ func TestCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t *testing.T) {
 	}
 	if batch[0].ID == 0 || batch[1].ID != 0 {
 		t.Fatalf("batch IDs = [%d %d], want [created 0]", batch[0].ID, batch[1].ID)
+	}
+}
+
+func TestCreateBatchSerializesConcurrentDuplicateRechecks(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	const workers = 8
+
+	var wg sync.WaitGroup
+	results := make([]database.BatchCreateResult, workers)
+	errs := make([]error, workers)
+	for i := range workers {
+		wg.Go(func() {
+			results[i], errs[i] = store.Participants().CreateBatch(ctx, []*models.Participant{
+				{Name: "Same Rider", Address: "1 Main St", Lat: 40, Lng: -73},
+			}, nil)
+		})
+	}
+	wg.Wait()
+
+	created, skipped := 0, 0
+	for i := range workers {
+		if errs[i] != nil {
+			t.Fatalf("CreateBatch() worker %d error = %v", i, errs[i])
+		}
+		created += results[i].Created
+		skipped += results[i].SkippedDuplicate
+	}
+	if created != 1 || skipped != workers-1 {
+		t.Fatalf("created = %d skipped = %d, want exactly one insert across %d concurrent batches", created, skipped, workers)
+	}
+	if list, err := store.Participants().List(ctx, ""); err != nil || len(list) != 1 {
+		t.Fatalf("participants = %d, err=%v, want 1", len(list), err)
 	}
 }
