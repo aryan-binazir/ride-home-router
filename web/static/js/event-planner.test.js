@@ -7,10 +7,28 @@ const planner = require('./event-planner.js');
 const {
     createParticipantMoveBatcher,
     createRouteHandoff,
+    applyLocalEventDate,
     createRouteSessionOrchestrator,
     localISODate,
     saveDraft,
 } = planner;
+
+test('applyLocalEventDate overwrites the server date on injected forms but keeps user edits', () => {
+    const makeInput = (value, userEdited) => ({
+        value,
+        dataset: userEdited ? { userEdited: '1' } : {},
+        listeners: [],
+        addEventListener(type, fn) { this.listeners.push([type, fn]); },
+    });
+    const serverDated = makeInput('2026-03-15', false);
+    const edited = makeInput('2026-03-20', true);
+    const scope = { querySelectorAll: () => [serverDated, edited] };
+
+    assert.equal(applyLocalEventDate(scope, new Date(2026, 2, 14, 23, 30)), 2);
+    assert.equal(serverDated.value, '2026-03-14');
+    assert.equal(edited.value, '2026-03-20');
+    assert.equal(serverDated.listeners[0][0], 'input');
+});
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
     // 23:30 local on 14 March: in any zone west of UTC toISOString() reports
@@ -22,6 +40,7 @@ test('localISODate uses the local calendar day, not the UTC one', () => {
 
 test('planner exposes the route handoff instead of its internal helpers', () => {
     assert.deepEqual(Object.keys(planner).sort(), [
+        'applyLocalEventDate',
         'createParticipantMoveBatcher',
         'createRouteHandoff',
         'createRouteSessionOrchestrator',

@@ -28,6 +28,8 @@ func TestParseArgs(t *testing.T) {
 		{name: "allowed host with port", args: []string{"--allowed-hosts", "routes.example.com:8443"}, wantErr: "bare hostname"},
 		{name: "allowed host with scheme", args: []string{"--allowed-hosts", "https://routes.example.com"}, wantErr: "bare hostname"},
 		{name: "allowed host with path", args: []string{"--allowed-hosts", "routes.example.com/path"}, wantErr: "bare hostname"},
+		{name: "unbalanced IPv6 bracket", args: []string{"--allowed-hosts", "[2001:db8::10"}, wantErr: "bare hostname"},
+		{name: "unbracketed IPv6 literal", args: []string{"--allowed-hosts", "2001:db8::10"}, wantErr: "bare hostname"},
 		{name: "allowed IPv6 literal", args: []string{"--addr", "0.0.0.0:8080", "--allowed-hosts", "[2001:db8::10]"}, want: options{Addr: "0.0.0.0:8080", AllowedHosts: []string{"[2001:db8::10]"}}},
 		{name: "invalid addr", args: []string{"--addr", "nope"}, wantErr: "invalid --addr"},
 		{name: "positional args rejected", args: []string{"extra"}, wantErr: "usage"},

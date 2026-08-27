@@ -139,5 +139,12 @@ var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])
 // validAllowedHost accepts a DNS hostname or an IP literal, exactly as a
 // browser would send it in Host without a port.
 func validAllowedHost(host string) bool {
-	return hostnamePattern.MatchString(host) || net.ParseIP(strings.Trim(host, "[]")) != nil
+	if hostnamePattern.MatchString(host) {
+		return true
+	}
+	if inner, ok := strings.CutPrefix(host, "["); ok {
+		inner, ok = strings.CutSuffix(inner, "]")
+		return ok && net.ParseIP(inner) != nil && strings.Contains(inner, ":")
+	}
+	return net.ParseIP(host) != nil && !strings.Contains(host, ":")
 }

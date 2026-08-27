@@ -30,6 +30,7 @@
 
             resultsSection.innerHTML = html;
             htmx.process(resultsSection);
+            applyLocalEventDate(resultsSection);
             refreshEtas();
         }
 
@@ -1481,6 +1482,7 @@
                 if (html) {
                     resultsSection.innerHTML = html;
                     htmx.process(resultsSection);
+                    applyLocalEventDate(resultsSection);
                     refreshEtas();
                 }
             })
@@ -1568,14 +1570,6 @@
         root.copyRoute = copyRoute;
         root.copyAllRoutes = copyAllRoutes;
         root.previewRoute = previewRoute;
-        // The server renders {{currentDate}} in its own (UTC) timezone; the
-        // coordinator's calendar day is only known in the browser.
-        const applyLocalEventDate = scope => {
-            scope.querySelectorAll('input[type="date"][name="event_date"]').forEach(input => {
-                if (!input.dataset.userEdited) input.value = localISODate(new Date());
-                input.addEventListener('input', () => { input.dataset.userEdited = '1'; }, { once: true });
-            });
-        };
         document.addEventListener('DOMContentLoaded', () => applyLocalEventDate(document));
         document.addEventListener('htmx:afterSettle', event => applyLocalEventDate(event.target || document));
         root.handleVanAssignmentChange = handleVanAssignmentChange;
@@ -1607,9 +1601,26 @@
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
+    /**
+     * The server renders {{currentDate}} in its own (UTC) timezone; the
+     * coordinator's calendar day is only known in the browser. Every path that
+     * injects the save-event form (initial load, htmx swaps, route calculation,
+     * session restore) must call this on the injected scope.
+     */
+    function applyLocalEventDate(scope, now = new Date()) {
+        if (!scope || typeof scope.querySelectorAll !== 'function') return 0;
+        const inputs = scope.querySelectorAll('input[type="date"][name="event_date"]');
+        inputs.forEach(input => {
+            if (!input.dataset.userEdited) input.value = localISODate(now);
+            input.addEventListener('input', () => { input.dataset.userEdited = '1'; }, { once: true });
+        });
+        return inputs.length;
+    }
+
     return {
         createParticipantMoveBatcher,
         createRouteHandoff,
+        applyLocalEventDate,
         createRouteSessionOrchestrator,
         localISODate,
         saveDraft,
