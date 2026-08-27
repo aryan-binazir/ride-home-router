@@ -1,6 +1,7 @@
 {{define "driver_row"}}
 <tr id="driver-{{.Driver.ID}}" data-search="{{.Driver.Name}} {{.Driver.AddressName}} {{.Driver.Address}}" data-labels="{{.LabelIDs}}">
     <td class="table-select-cell">
+        <label class="table-select-hit">
         <input type="checkbox"
                name="driver_ids"
                value="{{.Driver.ID}}"
@@ -8,6 +9,7 @@
                aria-label="Select {{.Driver.Name}}"
                data-bulk-row
                onchange="updateBulkSelectionCount('drivers-tbody')">
+        </label>
     </td>
     <td data-col="Name">{{.Driver.Name}}</td>
     <td data-col="Address">

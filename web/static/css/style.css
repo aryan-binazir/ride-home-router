@@ -2131,10 +2131,20 @@ tbody tr:last-child td {
         width: 22px;
         height: 22px;
     }
+
+    /* Roster row checkboxes get a 44px hit area via their label. */
+    .table-select-hit {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        cursor: pointer;
+    }
 }
 
 /* Phones in either orientation (and anything narrower than a portrait tablet) */
-@media (max-width: 640px), ((any-pointer: coarse) and (max-height: 500px)) {
+@media (max-width: 640px), ((any-pointer: coarse) and (max-height: 500px) and (max-width: 1024px)) {
     .container {
         padding: 0 1rem;
     }
@@ -2260,16 +2270,10 @@ tbody tr:last-child td {
 
     table[data-cards] td.table-select-cell {
         position: absolute;
-        top: 0.4rem;
-        left: 0.4rem;
+        top: 0.3rem;
+        left: 0;
         width: auto;
         padding: 0;
-    }
-
-    table[data-cards] td.table-select-cell .form-checkbox {
-        width: 26px;
-        height: 26px;
-        margin: 0.35rem 0.5rem;
     }
 
     table[data-cards] tr:not(:has(.table-select-cell)) {

@@ -1,6 +1,7 @@
 {{define "participant_row"}}
 <tr id="participant-{{.Participant.ID}}" data-search="{{.Participant.Name}} {{.Participant.AddressName}} {{.Participant.Address}}" data-labels="{{.LabelIDs}}">
     <td class="table-select-cell">
+        <label class="table-select-hit">
         <input type="checkbox"
                name="participant_ids"
                value="{{.Participant.ID}}"
@@ -8,6 +9,7 @@
                aria-label="Select {{.Participant.Name}}"
                data-bulk-row
                onchange="updateBulkSelectionCount('participants-tbody')">
+        </label>
     </td>
     <td data-col="Name">{{.Participant.Name}}</td>
     <td data-col="Address">
