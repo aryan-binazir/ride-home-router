@@ -305,11 +305,12 @@ func TestImportPanelSessionRoutesStayJSONWithoutViewParameter(t *testing.T) {
 	assertJSONContentType(t, recorder)
 }
 
-func TestImportPanelRejectsRemoteRequests(t *testing.T) {
+func TestImportPanelRejectsCrossOriginRequests(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 
 	upload := newImportPanelUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
-	upload.Host = "example.com"
+	upload.Host = "rides.example.org"
+	upload.Header.Set("Origin", "https://attacker.example")
 	recorder := httptest.NewRecorder()
 	handler.HandleCreateImport(recorder, upload)
 
@@ -317,6 +318,20 @@ func TestImportPanelRejectsRemoteRequests(t *testing.T) {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
 	}
 	assertJSONContentType(t, recorder)
+}
+
+func TestImportPanelAcceptsTunnelledSameOriginRequests(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
+	upload.Host = "rides.example.org"
+	upload.Header.Set("Origin", "https://rides.example.org")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+
+	if recorder.Code == http.StatusForbidden {
+		t.Fatalf("status = %d; hosted imports behind a tunnel must not be loopback-gated", recorder.Code)
+	}
 }
 
 func startImportPanelSession(t *testing.T, handler *Handler, contents string, kind importer.Kind) string {

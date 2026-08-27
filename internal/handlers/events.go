@@ -486,13 +486,15 @@ func routesNeedLegacyDetail(routes []models.EventRoute) bool {
 func (h *Handler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	status := "ok"
 	dbStatus := "connected"
+	code := http.StatusOK
 
 	if err := h.DB.HealthCheck(r.Context()); err != nil {
 		status = "degraded"
 		dbStatus = "error"
+		code = http.StatusServiceUnavailable
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]string{
+	h.writeJSON(w, code, map[string]string{
 		"status":   status,
 		"version":  "1.0.0",
 		"database": dbStatus,

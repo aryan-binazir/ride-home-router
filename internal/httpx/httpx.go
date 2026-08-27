@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -55,22 +54,6 @@ func DecodeJSON(r *http.Request, dst any) error {
 // LoopbackHostnames returns the hostnames accepted for local-only requests.
 func LoopbackHostnames() []string {
 	return slices.Clone(loopbackHostnames[:])
-}
-
-// IsLoopbackHost reports whether host is on the local-request allowlist, with
-// or without a port.
-func IsLoopbackHost(host string) bool {
-	hostname := host
-	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
-		hostname = parsedHost
-	}
-	hostname = strings.Trim(hostname, "[]")
-	for _, allowed := range loopbackHostnames {
-		if strings.EqualFold(hostname, allowed) {
-			return true
-		}
-	}
-	return false
 }
 
 // HasSameOrigin reports whether the request has no Origin header or an http(s)

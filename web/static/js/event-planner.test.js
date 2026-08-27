@@ -372,7 +372,7 @@ test('preview open failure returns false and reports an error', async () => {
     assert.deepEqual(notifications, [['Failed to open browser', 'error']]);
 });
 
-test('preview preserves resolved non-success responses from the open endpoint', async () => {
+test('preview ignores whatever openUrl resolves with', async () => {
     const notifications = [];
     const { routeCard } = createRouteFixture();
     const handoff = createRouteHandoff({

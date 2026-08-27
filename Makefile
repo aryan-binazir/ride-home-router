@@ -40,10 +40,9 @@ verify:
 vet:
 	go vet ./...
 
-# Database-backed tests skip themselves when TEST_DATABASE_URL is unset, so
-# `check` refuses to run unless it is set and reachable.
+# Database-backed tests run against TEST_DATABASE_URL (defaulted above to the
+# local podman Postgres); test-unit blanks it so those tests skip.
 test:
-	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL is required for make test" >&2; exit 1; }
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
 

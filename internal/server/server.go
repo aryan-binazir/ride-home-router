@@ -155,10 +155,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.handler != nil && s.handler.ImportSession != nil {
 		s.handler.ImportSession.Close()
 	}
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
-	}
-	return s.db.Close()
+	return errors.Join(s.httpServer.Shutdown(ctx), s.db.Close())
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {
@@ -288,7 +285,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	return mux
 }
 
-// handleOpenURL opens a URL in the system's default browser
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

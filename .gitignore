@@ -37,5 +37,12 @@ go.work.sum
 .vscode/
 .DS_Store
 
+# SQLite files from pre-Postgres builds hold real names and addresses
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # scratch files
 _scratch/

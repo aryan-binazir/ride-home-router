@@ -94,6 +94,9 @@ func TestEventRepositoryPersistsFullRouteSnapshot(t *testing.T) {
 	if gotEvent.Mode != models.RouteModePickup || !gotEvent.EventDate.Equal(eventDate) || gotEvent.Notes != "Persist full route totals" {
 		t.Fatalf("event = %#v", gotEvent)
 	}
+	if gotEvent.EventDate.Location() != time.UTC || gotEvent.EventDate.Format("2006-01-02") != "2026-03-14" {
+		t.Fatalf("EventDate = %v, want UTC midnight so the calendar date renders unchanged in any TZ", gotEvent.EventDate)
+	}
 	if gotSummary == nil || gotSummary.TotalDistanceMeters != fullRouteDistance || gotSummary.Mode != models.RouteModePickup || gotSummary.OrgVehiclesUsed != 1 {
 		t.Fatalf("summary = %#v", gotSummary)
 	}

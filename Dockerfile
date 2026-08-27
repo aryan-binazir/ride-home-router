@@ -7,6 +7,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY web ./web
+COPY migrations ./migrations
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/ride-home-router ./cmd/server
@@ -17,7 +18,7 @@ RUN apk add --no-cache ca-certificates \
 COPY --from=build /out/ride-home-router /usr/local/bin/ride-home-router
 USER router
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- --header="Host: localhost:${PORT:-8080}" "http://127.0.0.1:${PORT:-8080}/api/v1/health" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/api/v1/health" || exit 1
 # The server has no authentication: ALLOWED_HOSTS must name the public hostname
 # served by the Cloudflare Tunnel (or proxy) in front of it, and the container
 # must not be given a public domain of its own. Shell form expands $PORT; exec

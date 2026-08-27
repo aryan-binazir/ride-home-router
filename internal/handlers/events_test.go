@@ -23,8 +23,6 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 const testEventTemplates = `

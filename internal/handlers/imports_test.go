@@ -138,14 +138,6 @@ func TestImportHTTPSecurity(t *testing.T) {
 			},
 		},
 		{
-			name: "bad host",
-			request: func(t *testing.T) *http.Request {
-				r := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
-				r.Host = "evil.example"
-				return r
-			},
-		},
-		{
 			name: "missing HX-Request",
 			request: func(t *testing.T) *http.Request {
 				r := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")

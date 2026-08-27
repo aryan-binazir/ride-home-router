@@ -113,28 +113,35 @@ func (r *distanceCacheRepository) SetBatch(ctx context.Context, entries []models
 	if len(entries) == 0 {
 		return nil
 	}
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+	n := len(entries)
+	originLats := make([]float64, n)
+	originLngs := make([]float64, n)
+	destLats := make([]float64, n)
+	destLngs := make([]float64, n)
+	distances := make([]float64, n)
+	durations := make([]float64, n)
+	for i, entry := range entries {
+		originLats[i] = models.RoundCoordinate(entry.Origin.Lat)
+		originLngs[i] = models.RoundCoordinate(entry.Origin.Lng)
+		destLats[i] = models.RoundCoordinate(entry.Destination.Lat)
+		destLngs[i] = models.RoundCoordinate(entry.Destination.Lng)
+		distances[i] = entry.DistanceMeters
+		durations[i] = entry.DurationSecs
 	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx, upsertCacheEntry)
-	if err != nil {
-		return fmt.Errorf("failed to prepare insert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	for _, entry := range entries {
-		if _, err := stmt.ExecContext(ctx,
-			models.RoundCoordinate(entry.Origin.Lat), models.RoundCoordinate(entry.Origin.Lng),
-			models.RoundCoordinate(entry.Destination.Lat), models.RoundCoordinate(entry.Destination.Lng),
-			entry.DistanceMeters, entry.DurationSecs); err != nil {
-			return fmt.Errorf("failed to insert batch entry: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	// One round trip for the whole matrix. Duplicate keys within the batch
+	// are collapsed to the last occurrence before the upsert, because ON
+	// CONFLICT cannot touch the same row twice in one statement.
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO distance_cache (`+cacheColumns+`)
+		SELECT DISTINCT ON (origin_lat, origin_lng, dest_lat, dest_lng)
+		       origin_lat, origin_lng, dest_lat, dest_lng, distance_meters, duration_secs
+		FROM unnest($1::float8[], $2::float8[], $3::float8[], $4::float8[], $5::float8[], $6::float8[])
+		     WITH ORDINALITY AS e(origin_lat, origin_lng, dest_lat, dest_lng, distance_meters, duration_secs, ord)
+		ORDER BY origin_lat, origin_lng, dest_lat, dest_lng, ord DESC
+		ON CONFLICT (origin_lat, origin_lng, dest_lat, dest_lng)
+		DO UPDATE SET distance_meters = EXCLUDED.distance_meters, duration_secs = EXCLUDED.duration_secs`,
+		originLats, originLngs, destLats, destLngs, distances, durations); err != nil {
+		return fmt.Errorf("failed to insert batch entries: %w", err)
 	}
 	return nil
 }

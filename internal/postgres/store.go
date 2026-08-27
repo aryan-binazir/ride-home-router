@@ -15,7 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
-const connectTimeout = 10 * time.Second
+const (
+	connectTimeout  = 10 * time.Second
+	maxOpenConns    = 10
+	connMaxLifetime = 30 * time.Minute
+	connMaxIdleTime = 5 * time.Minute
+)
 
 // Store is a PostgreSQL-backed data store. The schema must already be migrated
 // (see the migrations package).
@@ -33,6 +38,12 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		config.ConnectTimeout = connectTimeout
 	}
 	db := stdlib.OpenDB(*config)
+	// Bound the pool: managed Postgres tiers cap connections, and route
+	// calculations fan out many small queries per request.
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
 
 	pingCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()

@@ -45,5 +45,5 @@ jobs:
       - run: make verify vet test
       - name: Check coverage
         run: go tool cover -func=coverage.out
-      - name: Cross-build for the container target
-        run: GOOS=linux GOARCH=amd64 make build
+      - name: Build the container image
+        run: docker build -t ride-home-router:ci .

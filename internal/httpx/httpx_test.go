@@ -41,19 +41,6 @@ func TestDecodeJSONAcceptsJSONContentTypeParameters(t *testing.T) {
 	}
 }
 
-func TestIsLoopbackHost(t *testing.T) {
-	for _, host := range []string{"localhost:8080", "127.0.0.1:8080", "[::1]:8080", "::1"} {
-		if !IsLoopbackHost(host) {
-			t.Errorf("IsLoopbackHost(%q) = false, want true", host)
-		}
-	}
-	for _, host := range []string{"evil.example:8080", "127.0.0.2:8080", "192.0.2.1:8080", "[2001:db8::1]:8080"} {
-		if IsLoopbackHost(host) {
-			t.Errorf("IsLoopbackHost(%q) = true, want false", host)
-		}
-	}
-}
-
 func TestHasSameOrigin(t *testing.T) {
 	for _, tt := range []struct {
 		name   string

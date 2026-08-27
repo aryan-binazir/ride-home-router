@@ -39,6 +39,11 @@ func run(args []string) error {
 		return err
 	}
 
+	// Installed before migrations run so a SIGTERM during startup is not the
+	// default handler killing the process mid-migration.
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
 	srv, err := server.New(context.Background(), server.Config{
 		Addr:             opts.Addr,
 		AllowedHosts:     opts.AllowedHosts,
@@ -54,9 +59,6 @@ func run(args []string) error {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
 	log.Printf("Ride Home Router listening on http://%s", actualAddr)
-
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
 	sig := <-shutdown
 	log.Printf("Received signal %v, starting graceful shutdown", sig)
@@ -106,9 +108,14 @@ func parseArgs(args []string) (options, error) {
 		opts.Addr = net.JoinHostPort("127.0.0.1", port)
 	}
 	for host := range strings.SplitSeq(*allowedHosts, ",") {
-		if host = strings.TrimSpace(host); host != "" {
-			opts.AllowedHosts = append(opts.AllowedHosts, host)
+		host = strings.TrimSpace(host)
+		if host == "" {
+			continue
 		}
+		if _, _, err := net.SplitHostPort(host); err == nil {
+			return options{}, fmt.Errorf("--allowed-hosts entry %q must be a hostname without a port; the listener port and the scheme default are matched automatically", host)
+		}
+		opts.AllowedHosts = append(opts.AllowedHosts, host)
 	}
 
 	host, _, err := net.SplitHostPort(opts.Addr)

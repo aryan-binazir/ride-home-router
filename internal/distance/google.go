@@ -438,7 +438,7 @@ func (c *googleCalculator) currentAPIKey() (string, error) {
 	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return "", fmt.Errorf("%w: Google Maps API key is missing; add it in Settings", ErrProviderNotConfigured)
+		return "", fmt.Errorf("%w: Google Maps API key is missing; set GOOGLE_MAPS_API_KEY on the server", ErrProviderNotConfigured)
 	}
 	return apiKey, nil
 }

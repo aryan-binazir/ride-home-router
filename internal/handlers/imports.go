@@ -484,7 +484,7 @@ func importFormat(filename string) (importer.Format, bool) {
 }
 
 func validImportRequestSource(r *http.Request) bool {
-	return httpx.IsLoopbackHost(r.Host) && httpx.HasSameOrigin(r)
+	return httpx.HasSameOrigin(r)
 }
 
 func parseImportSessionPath(path string) (id, action string, ok bool) {
