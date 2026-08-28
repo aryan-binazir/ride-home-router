@@ -9,6 +9,7 @@ const {
     createRouteHandoff,
     applyLocalEventDate,
     createRouteSessionOrchestrator,
+    installRouteResults,
     localISODate,
     saveDraft,
 } = planner;
@@ -38,12 +39,82 @@ test('localISODate uses the local calendar day, not the UTC one', () => {
     assert.equal(localISODate(new Date(2026, 0, 5, 0, 10)), '2026-01-05');
 });
 
+test('installRouteResults performs every manual result-installation step in order', () => {
+    const calls = [];
+    const dateInput = {
+        value: '2026-03-15',
+        dataset: {},
+        listeners: [],
+        addEventListener(type, fn) { this.listeners.push([type, fn]); },
+    };
+    const target = {
+        set innerHTML(html) { calls.push(['html', html]); },
+        querySelectorAll(selector) {
+            calls.push(['date', selector]);
+            return [dateInput];
+        },
+    };
+
+    installRouteResults({
+        target,
+        html: '<form>routes</form>',
+        htmx: { process: element => calls.push(['htmx', element]) },
+        refreshEtas: () => calls.push(['etas']),
+    });
+
+    assert.deepEqual(calls, [
+        ['html', '<form>routes</form>'],
+        ['htmx', target],
+        ['date', 'input[type="date"][name="event_date"]'],
+        ['etas'],
+    ]);
+    assert.equal(dateInput.value, localISODate(new Date()));
+    assert.equal(dateInput.listeners[0][0], 'input');
+});
+
+test('installRouteResults preserves user-edited dates', () => {
+    const dateInput = {
+        value: '2026-03-20',
+        dataset: { userEdited: '1' },
+        addEventListener() {},
+    };
+    const target = { querySelectorAll: () => [dateInput] };
+
+    installRouteResults({
+        target,
+        html: 'routes',
+        htmx: { process() {} },
+        refreshEtas() {},
+    });
+
+    assert.equal(dateInput.value, '2026-03-20');
+});
+
+test('installRouteResults still processes and refreshes a target without date-query support', () => {
+    const calls = [];
+    const target = { set innerHTML(html) { calls.push(['html', html]); } };
+
+    installRouteResults({
+        target,
+        html: 'routes',
+        htmx: { process: element => calls.push(['htmx', element]) },
+        refreshEtas: () => calls.push(['etas']),
+    });
+
+    assert.deepEqual(calls, [
+        ['html', 'routes'],
+        ['htmx', target],
+        ['etas'],
+    ]);
+});
+
 test('planner exposes the route handoff instead of its internal helpers', () => {
     assert.deepEqual(Object.keys(planner).sort(), [
         'applyLocalEventDate',
         'createParticipantMoveBatcher',
         'createRouteHandoff',
         'createRouteSessionOrchestrator',
+        'installRouteResults',
         'localISODate',
         'saveDraft',
     ]);
@@ -514,14 +585,25 @@ function createRouteSessionHarness({
     getLiveForm = () => null,
     hasPending = () => true,
     flush = async () => true,
+    hasResultsSection = true,
 } = {}) {
     const rendered = [];
     const processed = [];
     const errors = [];
     let etaRefreshes = 0;
     let currentSessionId = activeSessionId;
+    const dateInput = {
+        value: 'server-date',
+        dataset: {},
+        addEventListener() {},
+    };
+    let dateApplications = 0;
     const resultsSection = {
         set innerHTML(html) { rendered.push(html); },
+        querySelectorAll() {
+            dateApplications += 1;
+            return [dateInput];
+        },
     };
     const document = {
         querySelector(selector) {
@@ -534,7 +616,7 @@ function createRouteSessionHarness({
             }
             return null;
         },
-        getElementById: id => id === 'results-section' ? resultsSection : null,
+        getElementById: id => id === 'results-section' && hasResultsSection ? resultsSection : null,
     };
     const orchestrator = createRouteSessionOrchestrator({
         document,
@@ -546,6 +628,8 @@ function createRouteSessionHarness({
 
     return {
         errors,
+        get dateApplications() { return dateApplications; },
+        dateInput,
         get etaRefreshes() { return etaRefreshes; },
         orchestrator,
         processed,
@@ -555,19 +639,49 @@ function createRouteSessionHarness({
     };
 }
 
-test('route edit responses render only while their requested session is active', () => {
+test('route edit responses install dates only while their requested session is active', () => {
     const harness = createRouteSessionHarness();
 
     const currentResult = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'current routes' });
     harness.setActiveSessionId('session-b');
     const staleResult = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'stale routes' });
 
-    assert.deepEqual({ currentResult, staleResult, rendered: harness.rendered, processed: harness.processed, etaRefreshes: harness.etaRefreshes }, {
+    assert.deepEqual({
+        currentResult,
+        staleResult,
+        rendered: harness.rendered,
+        processed: harness.processed,
+        dateApplications: harness.dateApplications,
+        date: harness.dateInput.value,
+        etaRefreshes: harness.etaRefreshes,
+    }, {
         currentResult: true,
         staleResult: true,
         rendered: ['current routes'],
         processed: [harness.resultsSection],
+        dateApplications: 1,
+        date: localISODate(new Date()),
         etaRefreshes: 1,
+    });
+});
+
+test('route edit success remains handled when the results target is absent', () => {
+    const harness = createRouteSessionHarness({ hasResultsSection: false });
+
+    const handled = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'routes' });
+
+    assert.deepEqual({
+        handled,
+        rendered: harness.rendered,
+        processed: harness.processed,
+        dateApplications: harness.dateApplications,
+        etaRefreshes: harness.etaRefreshes,
+    }, {
+        handled: true,
+        rendered: [],
+        processed: [],
+        dateApplications: 0,
+        etaRefreshes: 0,
     });
 });
 

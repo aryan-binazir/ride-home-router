@@ -16,6 +16,13 @@
 
     const SAVE_EVENT_ENDPOINT = '/api/v1/events';
 
+    function installRouteResults({ target, html, htmx, refreshEtas }) {
+        target.innerHTML = html;
+        htmx.process(target);
+        applyLocalEventDate(target);
+        refreshEtas();
+    }
+
     function createRouteSessionOrchestrator({ document, htmx, moves, reportError, refreshEtas }) {
         const savesInFlight = new Set();
 
@@ -28,10 +35,7 @@
             const resultsSection = document.getElementById('results-section');
             if (!resultsSection) return;
 
-            resultsSection.innerHTML = html;
-            htmx.process(resultsSection);
-            applyLocalEventDate(resultsSection);
-            refreshEtas();
+            installRouteResults({ target: resultsSection, html, htmx, refreshEtas });
         }
 
         function applyEditResult({ requestedSessionId, ok, html }) {
@@ -1480,10 +1484,7 @@
             })
             .then(function(html) {
                 if (html) {
-                    resultsSection.innerHTML = html;
-                    htmx.process(resultsSection);
-                    applyLocalEventDate(resultsSection);
-                    refreshEtas();
+                    installRouteResults({ target: resultsSection, html, htmx, refreshEtas });
                 }
             })
             .catch(function(err) {
@@ -1622,6 +1623,7 @@
         createRouteHandoff,
         applyLocalEventDate,
         createRouteSessionOrchestrator,
+        installRouteResults,
         localISODate,
         saveDraft,
     };
