@@ -177,7 +177,6 @@ func TestCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t *testing.T) {
 }
 
 func testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	for _, entity := range []*T{
@@ -215,7 +214,6 @@ func TestCreateBatchSerializesConcurrentDuplicateRechecks(t *testing.T) {
 }
 
 func testCreateBatchSerializesConcurrentDuplicateRechecks[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	const workers = 8
@@ -258,7 +256,6 @@ func TestCreateBatchBackfillsOnlyCommittedRows(t *testing.T) {
 }
 
 func testCreateBatchBackfillsOnlyCommittedRows[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	batch := []*T{
@@ -290,7 +287,6 @@ func TestCreateBatchPreservesWithinBatchDuplicates(t *testing.T) {
 }
 
 func testCreateBatchPreservesWithinBatchDuplicates[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	batch := []*T{
@@ -319,7 +315,6 @@ func TestCreateBatchNilEntityRollsBackWithoutBackfill(t *testing.T) {
 }
 
 func testCreateBatchNilEntityRollsBackWithoutBackfill[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	first := spec.newEntity("First", "1 Main St")

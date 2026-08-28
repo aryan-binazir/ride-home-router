@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres/postgrestest"
@@ -67,5 +68,8 @@ func TestParticipantRepositoryRoundTrip(t *testing.T) {
 	}
 	if _, err := store.Participants().GetByID(ctx, participant.ID); err != database.ErrNotFound {
 		t.Fatalf("GetByID() after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := store.Participants().Update(ctx, participant); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("Update() after delete error = %v, want ErrNotFound", err)
 	}
 }
