@@ -51,8 +51,7 @@ func scanEvent(scanner interface{ Scan(dest ...any) error }) (models.Event, erro
 	if err := scanner.Scan(&event.ID, &event.EventDate, &notes, &mode, &event.CreatedAt); err != nil {
 		return models.Event{}, err
 	}
-	// pgx returns timestamptz in the process location; render dates in UTC
-	// regardless of the server's TZ so "2026-03-13" never becomes "2026-03-12".
+	// Force UTC so event dates do not shift with the server's time zone.
 	event.EventDate = event.EventDate.UTC()
 	event.CreatedAt = event.CreatedAt.UTC()
 	event.Notes = notes.String

@@ -87,8 +87,7 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 		t.Fatal("coordinate-complete rows unexpectedly started geocoding")
 	}
 
-	// This duplicate appears after preview. CreateBatch sees it in its
-	// transaction and leaves the corresponding imported model ID at zero.
+	// This duplicate appears after preview and gets skipped during creation.
 	db.participants.addExisting(models.Participant{Name: " second ", Address: "2   MAIN ST", Lat: 40.2, Lng: -73.2})
 	selected := []bool{true, true, false}
 	selectedSnapshot, err := store.SelectRows(created.ID, selected)

@@ -20,8 +20,7 @@ var fieldOrder = []Field{
 	FieldCapacity,
 }
 
-// AutoMap maps exact normalized header aliases. Ambiguous aliases remain
-// unmapped so the caller must choose explicitly.
+// AutoMap leaves ambiguous header aliases unmapped.
 func AutoMap(headers []string) Mapping {
 	m := emptyMapping()
 	claimed := make(map[int]bool)
@@ -106,9 +105,7 @@ func aliasSet(values ...string) map[string]struct{} {
 	return set
 }
 
-// NormalizeRosterText canonicalizes user-entered roster text for exact-match
-// comparisons. Persistence uses the same normalization when re-checking
-// duplicates at commit time.
+// NormalizeRosterText matches the duplicate check used at commit time.
 func NormalizeRosterText(value string) string {
 	return models.NormalizeRosterField(value)
 }

@@ -21,7 +21,7 @@ import (
 const (
 	xlsxUnzipSizeLimit    = 64 << 20
 	xlsxUnzipXMLSizeLimit = 8 << 20
-	// MaxFormulaMetadataXMLBytes caps each inflated XLSX XML part inspected for formulas.
+	// MaxFormulaMetadataXMLBytes limits inflated XLSX metadata.
 	MaxFormulaMetadataXMLBytes int64 = 32 << 20
 
 	formulaMetadataWarning = "Formula information could not be read from this workbook; values calculated by formulas may not be flagged."
@@ -47,8 +47,7 @@ func Parse(r io.Reader, format Format, sheet string) (*Grid, error) {
 	}
 }
 
-// Sheets returns the names of XLSX worksheets containing at least one visible
-// row. The reader must contain XLSX data.
+// Sheets lists XLSX sheets with visible rows.
 func Sheets(r io.Reader) (names []string, err error) {
 	if r == nil {
 		return nil, errors.New("roster file is empty")

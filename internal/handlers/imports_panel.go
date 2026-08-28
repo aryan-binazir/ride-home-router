@@ -10,19 +10,12 @@ import (
 )
 
 const (
-	// importIgnoreValue is the mapping dropdown value for a column that is not imported.
-	importIgnoreValue = "ignore"
-	// importPanelViewValue opts a request into server-rendered panel fragments.
-	importPanelViewValue = "panel"
-	// maxImportPanelFormBytes caps the form-encoded bodies the panel posts back
-	// (at most one selection value per staged row).
+	importIgnoreValue             = "ignore"
+	importPanelViewValue          = "panel"
 	maxImportPanelFormBytes int64 = 1 << 20
 )
 
-// wantsImportPanel reports whether the caller expects a server-rendered import
-// panel fragment instead of JSON. The upload route requires HX-Request from
-// every caller, so the HTMX header alone cannot separate the panel from a JSON
-// client; the panel opts in with view=panel on top of the usual HTMX check.
+// wantsImportPanel needs view=panel because JSON uploads also set HX-Request.
 func (h *Handler) wantsImportPanel(r *http.Request) bool {
 	return h.isHTMX(r) && r.URL.Query().Get("view") == importPanelViewValue
 }
@@ -207,9 +200,7 @@ func setImportMappingColumn(mapping *importer.Mapping, field importer.Field, col
 	}
 }
 
-// importMappingFromForm reads one dropdown per file column. The panel form is
-// authoritative for every column, so an unlisted column is ignored and no
-// ambiguity survives the round trip.
+// importMappingFromForm treats every unlisted column as ignored.
 func importMappingFromForm(r *http.Request, snapshot importer.Snapshot) (importer.Mapping, []string) {
 	isDriver := snapshot.Kind == importer.KindDriver
 	mapping := importer.Mapping{
@@ -282,8 +273,7 @@ func newImportPreviewView(snapshot importer.Snapshot) importPreviewView {
 		}
 	}
 
-	// Count only rows the preview still offers a checkbox for: a geocode
-	// failure can turn a selected row into an error row after selection.
+	// Geocoding can make a previously selected row unselectable.
 	selectedCount := 0
 	for _, row := range rows {
 		if row.Selected && row.Selectable {
@@ -349,11 +339,7 @@ func importCommitMessage(result importer.CommitResult) string {
 	return fmt.Sprintf("%d imported, %d skipped as duplicates", result.Created, result.SkippedDuplicate)
 }
 
-// writeImportError reports a user-facing import failure. JSON callers get the
-// usual error envelope; the panel gets a message fragment whose Cancel button
-// still tears down sessionID when the failure belongs to a live session. The
-// fragment is written with 200 because htmx does not swap error responses, so
-// the returned status stays truthful for request logging.
+// writeImportError returns the emitted status; HTMX errors use 200 so htmx swaps.
 func (h *Handler) writeImportError(w http.ResponseWriter, r *http.Request, sessionID string, status int, code, message string, details any) int {
 	if h.wantsImportPanel(r) {
 		h.setHTMXToast(w, message, toastTypeError)
@@ -364,7 +350,6 @@ func (h *Handler) writeImportError(w http.ResponseWriter, r *http.Request, sessi
 	return status
 }
 
-// renderImportStep renders the panel fragment matching the session's lifecycle state.
 func (h *Handler) renderImportStep(w http.ResponseWriter, snapshot importer.Snapshot) {
 	switch snapshot.Status {
 	case importer.StatusMapping:
@@ -391,7 +376,6 @@ func (h *Handler) renderImportMessage(w http.ResponseWriter, sessionID, message 
 	h.renderTemplate(w, "import_message", importMessageView{SessionID: sessionID, Message: message})
 }
 
-// renderImportPanelSnapshot answers the preview poller with the current step.
 func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Request, id string) (int, int) {
 	snapshot, ok := h.ImportSession.Snapshot(id)
 	if !ok {
@@ -401,8 +385,6 @@ func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Reque
 	return http.StatusOK, len(snapshot.Rows)
 }
 
-// applyImportPanelMapping reads the mapping dropdowns and advances to preview.
-// Mapping problems re-render the mapping step with the messages above the table.
 func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request, id string) (int, int) {
 	snapshot, ok := h.ImportSession.Snapshot(id)
 	if !ok {
@@ -424,7 +406,6 @@ func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request
 	return http.StatusOK, len(updated.Rows)
 }
 
-// applyImportPanelSelection stores the checked rows and re-renders the commit bar.
 func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Request, id string) (int, int) {
 	snapshot, ok := h.ImportSession.Snapshot(id)
 	if !ok {
@@ -441,8 +422,6 @@ func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Reque
 	return http.StatusOK, len(updated.Rows)
 }
 
-// commitImportPanel commits exactly the rows the preview form submitted; Commit
-// stores that selection itself, so the panel never needs a separate selection call.
 func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id string) int {
 	snapshot, ok := h.ImportSession.Snapshot(id)
 	if !ok {
@@ -459,8 +438,6 @@ func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id s
 	return http.StatusOK
 }
 
-// cancelImportPanel always clears the panel, so cancelling an already expired
-// session is not an error the user has to read.
 func (h *Handler) cancelImportPanel(w http.ResponseWriter, id string) int {
 	h.ImportSession.Cancel(id)
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
@@ -468,8 +445,6 @@ func (h *Handler) cancelImportPanel(w http.ResponseWriter, id string) int {
 	return http.StatusOK
 }
 
-// renderImportCommitted renders the commit summary plus an out-of-band refresh
-// of the roster list, the same list fragment the add-forms swap in.
 func (h *Handler) renderImportCommitted(w http.ResponseWriter, r *http.Request, kind importer.Kind, result importer.CommitResult) {
 	view := importCommitView{
 		Message:  importCommitMessage(result),

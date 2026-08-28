@@ -7,8 +7,7 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// prepareSolveDistances collects and prewarms the directed pairs needed by one
-// solve, then returns an isolated lookup that loads each pair at most once.
+// prepareSolveDistances prewarms and memoizes one solve's directed pairs.
 func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {
 	pairs := collectSolveDistancePairs(normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
 	if len(pairs) > 0 {

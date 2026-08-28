@@ -31,8 +31,7 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
 });
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
-    // 23:30 local on 14 March: in any zone west of UTC toISOString() reports
-    // 15 March, which is the bug the event-date default must not have.
+    // toISOString reports the next date in zones west of UTC at this time.
     const lateEvening = new Date(2026, 2, 14, 23, 30);
     assert.equal(localISODate(lateEvening), '2026-03-14');
     assert.equal(localISODate(new Date(2026, 0, 5, 0, 10)), '2026-01-05');

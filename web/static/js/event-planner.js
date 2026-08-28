@@ -527,13 +527,6 @@
     }
 
     function bootBrowser() {
-        // Route copy and editing functionality for ride-home-router
-
-        // ============= Toast Notification System =============
-
-        /**
-         * Gets or creates the toast container
-         */
         function getToastContainer() {
             let container = document.getElementById('toast-container');
             if (!container) {
@@ -545,24 +538,16 @@
             return container;
         }
 
-        /**
-         * Shows a toast notification
-         * @param {string} message - The message to display
-         * @param {string} type - 'error' (default), 'warning', or 'success'
-         * @param {number} duration - Auto-dismiss time in ms (default 5000)
-         */
         function showToast(message, type = 'error', duration = 5000) {
             const container = getToastContainer();
 
             const toast = document.createElement('div');
             toast.className = 'toast' + (type === 'warning' ? ' toast-warning' : type === 'success' ? ' toast-success' : '');
 
-            // Icon based on type
             const iconSvg = type === 'success'
                 ? '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>'
                 : '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
 
-            // Build toast content safely to prevent XSS
             toast.innerHTML = iconSvg;
 
             const messageSpan = document.createElement('span');
@@ -575,12 +560,10 @@
             closeSpan.innerHTML = '&times;';
             toast.appendChild(closeSpan);
 
-            // Click to dismiss
             toast.addEventListener('click', () => dismissToast(toast));
 
             container.appendChild(toast);
 
-            // Auto-dismiss
             if (duration > 0) {
                 setTimeout(() => dismissToast(toast), duration);
             }
@@ -588,20 +571,12 @@
             return toast;
         }
 
-        /**
-         * Dismisses a toast with animation
-         */
         function dismissToast(toast) {
             if (!toast || toast.classList.contains('toast-out')) return;
             toast.classList.add('toast-out');
             setTimeout(() => toast.remove(), 200);
         }
 
-        /**
-         * HTMX event listener for showToast trigger
-         * Allows backend to trigger toasts via HX-Trigger header
-         * Note: Using document instead of document.body because script loads in <head>
-         */
         document.addEventListener('showToast', function(evt) {
             const detail = evt.detail;
             if (detail && detail.message) {
@@ -609,30 +584,21 @@
             }
         });
 
-        /**
-         * Extracts error message from HTML or JSON response
-         */
         function extractErrorMessage(response) {
-            // If it looks like HTML with an alert div, extract the text
             if (response.includes('class="alert')) {
                 const match = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
                 if (match) return match[1].trim();
             }
-            // Try to parse as JSON
             try {
                 const json = JSON.parse(response);
                 if (json.error && json.error.message) return json.error.message;
                 if (json.message) return json.message;
             } catch (e) {
-                // Not JSON, use as-is
+                // Ignore the parse failure; strip HTML below.
             }
-            // Strip HTML tags as fallback
             return response.replace(/<[^>]*>/g, '').trim() || 'An error occurred';
         }
 
-        /**
-         * Shows an error toast from an API response
-         */
         function showRouteError(response) {
             const message = extractErrorMessage(response);
             showToast(message, 'error');
@@ -649,10 +615,7 @@
                     }
                 },
                 openUrl: async url => {
-                    // Opened synchronously within the click gesture so popup
-                    // blockers allow it. With noopener the spec requires
-                    // window.open to return null even on success, so the
-                    // return value carries no signal and is ignored.
+                    // Open synchronously; noopener returns null even on success.
                     window.open(url, '_blank', 'noopener,noreferrer');
                 },
                 notify: showToast,
@@ -663,13 +626,6 @@
             routeHandoff.populateEtas(document.querySelector('.routes-container'));
         }
 
-        // ============= Helper Functions =============
-
-        // ============= Route Editing Functions =============
-
-        /**
-         * Gets the session ID from the routes container
-         */
         function getSessionId() {
             const container = document.querySelector('.routes-container');
             return container ? container.dataset.sessionId : null;
@@ -691,9 +647,6 @@
             refreshEtas,
         });
 
-        /**
-         * Moves a participant from one route to another
-         */
         participantMoveBatcher = createParticipantMoveBatcher({
             sendBatch: async function(payload) {
                 try {
@@ -753,9 +706,6 @@
             await routeSessionOrchestrator.submitSaveWithQueuedMoves(form);
         }, true);
 
-        /**
-         * Swaps drivers between two routes
-         */
         async function swapDrivers(routeIndex1) {
             const selectElement = document.getElementById('swap-select-' + routeIndex1);
             const routeIndex2 = selectElement ? selectElement.value : null;
@@ -797,9 +747,6 @@
             }
         }
 
-        /**
-         * Resets routes to the original calculated values
-         */
         async function resetRoutes() {
             const sessionId = getSessionId();
             if (!sessionId) {
@@ -827,9 +774,6 @@
             }
         }
 
-        /**
-         * Adds an unused driver to the routes as an empty route
-         */
         async function addUnusedDriver(driverId) {
             const sessionId = getSessionId();
             if (!sessionId) {
@@ -861,8 +805,6 @@
                 showRouteError('Failed to add driver: ' + err.message);
             }
         }
-
-        // ============= Route Copy Functions =============
 
         function showCopied(button, baseClass) {
             if (!button) return;
@@ -1462,11 +1404,7 @@
             if (restoreController) restoreController.abort();
             restoreController = new AbortController();
 
-            // Fetch rendered route results from the server session.
-            // The response is trusted server-rendered HTML (same origin, same
-            // template used by the initial HTMX calculate flow), so injecting
-            // it via innerHTML is safe — identical to how HTMX itself swaps
-            // content and how the existing edit functions in event-planner.js work.
+            // This same-origin HTML uses the same trusted templates as HTMX swaps.
             fetch('/api/v1/routes/session?session_id=' + encodeURIComponent(sessionId), {
                 headers: { 'HX-Request': 'true' },
                 signal: restoreController.signal
@@ -1592,21 +1530,13 @@
     }
 
 
-    /**
-     * Formats a Date as YYYY-MM-DD in the browser's local calendar, unlike
-     * toISOString() which shifts to UTC and can land on the wrong day.
-     */
+    // Avoid the UTC date shift caused by toISOString.
     function localISODate(date) {
         const pad = value => String(value).padStart(2, '0');
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
-    /**
-     * The server renders {{currentDate}} in its own (UTC) timezone; the
-     * coordinator's calendar day is only known in the browser. Every path that
-     * injects the save-event form (initial load, htmx swaps, route calculation,
-     * session restore) must call this on the injected scope.
-     */
+    // Set the browser's date on load, route results, session restore, and swaps.
     function applyLocalEventDate(scope, now = new Date()) {
         if (!scope || typeof scope.querySelectorAll !== 'function') return 0;
         const inputs = scope.querySelectorAll('input[type="date"][name="event_date"]');

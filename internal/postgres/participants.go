@@ -136,8 +136,7 @@ func (r *participantRepository) CreateBatch(ctx context.Context, participants []
 	return batchResult, nil
 }
 
-// lockRoster serializes roster writes inside tx so the duplicate recheck in
-// CreateBatch cannot interleave with another batch or a manual create.
+// lockRoster keeps duplicate checks and roster writes in one serial order.
 func lockRoster(ctx context.Context, tx *sql.Tx, table string) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "ride-home-router:"+table); err != nil {
 		return fmt.Errorf("failed to lock %s for writing: %w", table, err)
@@ -145,8 +144,7 @@ func lockRoster(ctx context.Context, tx *sql.Tx, table string) error {
 	return nil
 }
 
-// rosterKeys returns the normalized name+address keys already stored in the
-// participants or drivers table.
+// rosterKeys loads normalized name and address keys from a roster table.
 func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]struct{}, error) {
 	var query string
 	switch table {

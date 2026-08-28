@@ -26,12 +26,9 @@ func (c *countingSolveDistanceCalculator) GetDistance(ctx context.Context, origi
 
 func TestGroupParticipantsByAddress(t *testing.T) {
 	participants := []*models.Participant{
-		// Household 1: Alice and Bob at the same address
 		{ID: 1, Name: "Alice", Address: "123 Main St", Lat: 40.12345, Lng: -74.12345},
 		{ID: 2, Name: "Bob", Address: "123 Main St", Lat: 40.12345, Lng: -74.12345},
-		// Household 2: Charlie alone
 		{ID: 3, Name: "Charlie", Address: "456 Oak Ave", Lat: 40.23456, Lng: -74.23456},
-		// Household 3: David, Eve, and Frank at the same address
 		{ID: 4, Name: "David", Address: "789 Elm St", Lat: 40.34567, Lng: -74.34567},
 		{ID: 5, Name: "Eve", Address: "789 Elm St", Lat: 40.34567, Lng: -74.34567},
 		{ID: 6, Name: "Frank", Address: "789 Elm St", Lat: 40.34567, Lng: -74.34567},
@@ -39,12 +36,10 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 
 	groups := groupParticipantsByAddress(participants)
 
-	// Should have 3 groups
 	if len(groups) != 3 {
 		t.Errorf("expected 3 groups, got %d", len(groups))
 	}
 
-	// Check group sizes (should be sorted by size, largest first)
 	expectedSizes := []int{3, 2, 1}
 	for i, expectedSize := range expectedSizes {
 		if len(groups[i].members) != expectedSize {
@@ -52,7 +47,6 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 		}
 	}
 
-	// Verify that participants from the same address are in the same group
 	for _, group := range groups {
 		if len(group.members) > 1 {
 			firstLat := models.RoundCoordinate(group.members[0].Lat)
@@ -70,8 +64,6 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 }
 
 func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
-	// Test that participants with slightly different coordinates (beyond rounding precision)
-	// are placed in different groups
 	participants := []*models.Participant{
 		{ID: 1, Name: "Alice", Lat: 40.123450, Lng: -74.123450},
 		{ID: 2, Name: "Bob", Lat: 40.123454, Lng: -74.123454},     // Within rounding precision (rounds to same value)
@@ -80,8 +72,6 @@ func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
 
 	groups := groupParticipantsByAddress(participants)
 
-	// Alice and Bob should be in the same group (both round to 40.12345, -74.12345)
-	// Charlie should be in a different group (rounds to 40.12355, -74.12355)
 	if len(groups) != 2 {
 		t.Errorf("expected 2 groups, got %d", len(groups))
 	}
@@ -186,17 +176,13 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	router := NewBalancedRouter(mock)
 
-	// Create participants from 2 households
 	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
 		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
 		Participants: []models.Participant{
-			// Household 1: Alice and Bob
 			{ID: 1, Name: "Alice", Lat: 0.01, Lng: 0.01},
 			{ID: 2, Name: "Bob", Lat: 0.01, Lng: 0.01},
-			// Household 2: Charlie and David
 			{ID: 3, Name: "Charlie", Lat: 0.02, Lng: 0.02},
 			{ID: 4, Name: "David", Lat: 0.02, Lng: 0.02},
-			// Individual: Eve
 			{ID: 5, Name: "Eve", Lat: 0.03, Lng: 0.03},
 		},
 		Drivers: []models.Driver{
@@ -209,7 +195,6 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// All participants should be assigned
 	if result.Summary.TotalParticipants != 5 {
 		t.Errorf("expected 5 participants, got %d", result.Summary.TotalParticipants)
 	}
@@ -218,7 +203,6 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 		t.Errorf("expected 0 unassigned participants, got %d", len(result.Summary.UnassignedParticipants))
 	}
 
-	// Verify household members are on the same route
 	participantToRoute := make(map[int64]int)
 	for routeIdx, route := range result.Routes {
 		for _, stop := range route.Stops {
@@ -226,12 +210,10 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 		}
 	}
 
-	// Alice (1) and Bob (2) should be on the same route
 	if participantToRoute[1] != participantToRoute[2] {
 		t.Errorf("Alice and Bob should be on the same route")
 	}
 
-	// Charlie (3) and David (4) should be on the same route
 	if participantToRoute[3] != participantToRoute[4] {
 		t.Errorf("Charlie and David should be on the same route")
 	}
@@ -241,11 +223,9 @@ func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	router := NewBalancedRouter(mock)
 
-	// Create a household with 4 members but driver capacity is only 3
 	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
 		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
 		Participants: []models.Participant{
-			// Large household: 4 members
 			{ID: 1, Name: "Alice", Lat: 0.01, Lng: 0.01},
 			{ID: 2, Name: "Bob", Lat: 0.01, Lng: 0.01},
 			{ID: 3, Name: "Charlie", Lat: 0.01, Lng: 0.01},
@@ -261,7 +241,6 @@ func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// All participants should be assigned (group should be split if necessary)
 	if result.Summary.TotalParticipants != 4 {
 		t.Errorf("expected 4 participants, got %d", result.Summary.TotalParticipants)
 	}
@@ -270,7 +249,6 @@ func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
 		t.Errorf("expected 0 unassigned participants, got %d", len(result.Summary.UnassignedParticipants))
 	}
 
-	// Should use both drivers
 	if result.Summary.TotalDriversUsed != 2 {
 		t.Errorf("expected 2 drivers used, got %d", result.Summary.TotalDriversUsed)
 	}
@@ -280,9 +258,6 @@ func TestBalancedRouter_LargeHouseholdSplit(t *testing.T) {
 	mock := newMockDistanceAdapter()
 	router := NewBalancedRouter(mock)
 
-	// 10-person household, 2 cars with 5 seats each
-	// Previously this would fail because maxRounds was based on group count (1)
-	// instead of participant count (10), causing the loop to exit early
 	participants := make([]models.Participant, 10)
 	for i := range participants {
 		participants[i] = models.Participant{
