@@ -165,7 +165,6 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load database config
 	h.renderTemplate(w, "settings.html", SettingsPageView{
 		Title:      "Settings",
 		ActivePage: ActivePageSettings,

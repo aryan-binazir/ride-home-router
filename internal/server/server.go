@@ -27,7 +27,7 @@ import (
 	"time"
 )
 
-// Server wraps the HTTP server and all dependencies
+// Server owns the HTTP server and its dependencies.
 type Server struct {
 	httpServer   *http.Server
 	handler      *handlers.Handler
@@ -37,14 +37,12 @@ type Server struct {
 	allowedHosts []string
 }
 
-// Config holds server configuration
+// Config defines server startup settings.
 type Config struct {
 	Addr string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
-	// AllowedHosts lists the public hostnames a proxy or tunnel forwards in
-	// Host/Origin. Required when Addr is not a loopback address.
+	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
 	AllowedHosts []string
-	// DatabaseURL is the Postgres connection string. Pending migrations are
-	// applied before the server starts serving.
+	// DatabaseURL points to the Postgres database to migrate and serve.
 	DatabaseURL string
 	// GoogleMapsAPIKey enables Google Routes distances; empty disables routing.
 	GoogleMapsAPIKey string
@@ -64,7 +62,7 @@ const (
 	serverMessageRequestBodyTooLarge = "Request body too large"
 )
 
-// New migrates the database and initializes a new server (does not start it).
+// New migrates the database and prepares a stopped server.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, errors.New("database URL is required")
@@ -121,7 +119,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}, nil
 }
 
-// Start starts the server and returns the actual address (useful for random port)
+// Start begins serving and returns the listener address.
 func (s *Server) Start() (string, error) {
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
@@ -147,7 +145,7 @@ func (s *Server) Start() (string, error) {
 	return actualAddr, nil
 }
 
-// Shutdown gracefully shuts down the server
+// Shutdown stops sessions, HTTP serving, and database access.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.handler != nil && s.handler.RouteSession != nil {
 		s.handler.RouteSession.Close()
@@ -221,11 +219,9 @@ func handleResourcePath(emptyPath, editSuffix string, editHandler, get, put, del
 	}
 }
 
-// setupRoutes configures all HTTP routes
 func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// Serve static files from embedded filesystem
 	staticSubFS, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		log.Fatalf("failed to create static sub-filesystem: %v", err)
@@ -265,7 +261,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/events", handleMethods(handler.HandleListEvents, handler.HandleCreateEvent, nil, nil))
 	mux.HandleFunc("/api/v1/events/", handleResourcePath("/api/v1/events/", "", nil, handler.HandleGetEvent, nil, handler.HandleDeleteEvent))
 
-	// Page routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -319,11 +314,8 @@ type requestAllowlist struct {
 	hosts map[string]struct{}
 }
 
-// newRequestAllowlist builds the Host allowlist for a listener bound to
-// actualAddr. Loopback names and a loopback bind host are always accepted.
-// Any other name must be configured explicitly (--allowed-hosts): this
-// unauthenticated server sits behind a tunnel or proxy that forwards the public
-// hostname, so a non-loopback bind with no configured hosts is a misconfiguration.
+// newRequestAllowlist always permits loopback names.
+// A public listener requires an explicit proxy hostname.
 func newRequestAllowlist(actualAddr string, allowedHosts []string) (requestAllowlist, error) {
 	bindHost, port, err := net.SplitHostPort(actualAddr)
 	if err != nil {
@@ -348,14 +340,12 @@ func newRequestAllowlist(actualAddr string, allowedHosts []string) (requestAllow
 	hosts := make(map[string]struct{})
 	for _, name := range names {
 		hosts[strings.ToLower(net.JoinHostPort(name, port))] = struct{}{}
-		// Browsers omit the port from Host and Origin only on the scheme
-		// default, so the port-less forms are valid solely on port 80.
+		// A bare HTTP host implies port 80.
 		if port == "80" {
 			hosts[strings.ToLower(bareHost(name))] = struct{}{}
 		}
 	}
-	// Configured hosts arrive through a proxy or tunnel that terminates TLS, so
-	// they are valid bare (default port) and on this listener's port.
+	// Proxy hosts are valid bare and on the listener port.
 	for _, name := range allowedHosts {
 		name = strings.ToLower(strings.TrimSpace(name))
 		if name == "" {

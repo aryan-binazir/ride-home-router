@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// CalculateRoutesRequest represents the request for route calculation
+// CalculateRoutesRequest is the route calculation payload.
 type CalculateRoutesRequest struct {
 	ParticipantIDs     []int64 `json:"participant_ids"`
 	DriverIDs          []int64 `json:"driver_ids"`
@@ -38,7 +38,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	contentType := r.Header.Get(httpx.HeaderContentType)
 
-	// Handle form data (from htmx)
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/routes/calculate: form_parse_error err=%v", err)
@@ -46,7 +45,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		// Parse participant_ids (multiple values with same name)
 		for _, idStr := range r.Form["participant_ids"] {
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err == nil {
@@ -54,7 +52,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
-		// Parse driver_ids (multiple values with same name)
 		for _, idStr := range r.Form["driver_ids"] {
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err == nil {
@@ -75,7 +72,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
 	} else {
-		// Handle JSON
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/routes/calculate: invalid_json err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
@@ -174,7 +170,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	session := outcome.Session
 	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
 
-	// Return HTML for htmx, JSON for API calls
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
 		h.renderTemplate(w, "route_results", buildRouteResultsView(session))
@@ -189,8 +184,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// HandleCalculateRoutesWithOrgVehicles handles POST /api/v1/routes/calculate-with-org-vehicles
-// This endpoint is called when the user assigns org vehicles to drivers to overcome capacity shortage
+// HandleCalculateRoutesWithOrgVehicles retries a route with van assignments.
 func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: form_parse_error err=%v", err)
@@ -198,7 +192,6 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	// Parse participant_ids
 	var participantIDs []int64
 	for _, idStr := range r.Form["participant_ids"] {
 		id, err := strconv.ParseInt(idStr, 10, 64)
@@ -207,7 +200,6 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		}
 	}
 
-	// Parse driver_ids
 	var driverIDs []int64
 	for _, idStr := range r.Form["driver_ids"] {
 		id, err := strconv.ParseInt(idStr, 10, 64)

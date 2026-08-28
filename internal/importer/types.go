@@ -45,9 +45,7 @@ const (
 	FieldCapacity    Field = "capacity"
 )
 
-// Mapping binds roster fields to zero-based Grid header columns. A value of
-// UnmappedColumn leaves the field unbound. Callers may edit these fields after
-// AutoMap returns.
+// Mapping binds roster fields to zero-based columns.
 type Mapping struct {
 	NameColumn        int
 	AddressColumn     int
@@ -60,8 +58,7 @@ type Mapping struct {
 	Ignored   []int
 }
 
-// Grid is the normalized contents of a parsed roster file. Its data rows stay
-// private so callers must pass them through Validate before use.
+// Grid holds parsed headers and private rows that require validation.
 type Grid struct {
 	Headers  []string
 	Warnings []string
@@ -84,8 +81,7 @@ type gridRow struct {
 	xlsx      bool
 }
 
-// Existing is the duplicate and household-coordinate information for one
-// current roster entry.
+// Existing identifies one current roster entry.
 type Existing struct {
 	Name    string
 	Address string
@@ -93,8 +89,7 @@ type Existing struct {
 	Lng     float64
 }
 
-// Row is one validated roster row. HasCoordinates distinguishes valid zero
-// coordinates from missing coordinates.
+// Row is one validated roster row.
 type Row struct {
 	SourceRow int
 

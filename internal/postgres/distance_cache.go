@@ -128,9 +128,7 @@ func (r *distanceCacheRepository) SetBatch(ctx context.Context, entries []models
 		distances[i] = entry.DistanceMeters
 		durations[i] = entry.DurationSecs
 	}
-	// One round trip for the whole matrix. Duplicate keys within the batch
-	// are collapsed to the last occurrence before the upsert, because ON
-	// CONFLICT cannot touch the same row twice in one statement.
+	// Collapse duplicate keys because one upsert cannot touch a row twice.
 	if _, err := r.db.ExecContext(ctx, `
 		INSERT INTO distance_cache (`+cacheColumns+`)
 		SELECT DISTINCT ON (origin_lat, origin_lng, dest_lat, dest_lng)

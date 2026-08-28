@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// recordingSolveSource observes the public routing seam without duplicating
-// solve-distance behavior in the fake.
+// recordingSolveSource records calls made through the public routing seam.
 type recordingSolveSource struct {
 	stableDistanceCalculator
 	prewarmPairsCalls int

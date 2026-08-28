@@ -16,7 +16,7 @@ import (
 	"ride-home-router/internal/templates"
 )
 
-// Handler provides common handler utilities and dependencies
+// Handler owns the HTTP layer's dependencies.
 type Handler struct {
 	DB            database.DataStore
 	Geocoder      geocoding.Geocoder
@@ -26,12 +26,12 @@ type Handler struct {
 	ImportSession *importer.Store
 }
 
-// ErrorResponse represents an API error
+// ErrorResponse is the API error envelope.
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`
 }
 
-// ErrorDetail contains error information
+// ErrorDetail describes an API error.
 type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -75,19 +75,16 @@ func (p htmxTriggerPayload) MarshalJSON() ([]byte, error) {
 	return fmt.Appendf(nil, "{%s:true,%s", eventNameJSON, string(baseJSON[1:])), nil
 }
 
-// isHTMX checks if the request is an htmx request
 func (h *Handler) isHTMX(r *http.Request) bool {
 	return httpx.IsHTMX(r)
 }
 
-// writeJSON writes a JSON response
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// writeError writes a JSON error response
 func (h *Handler) writeError(w http.ResponseWriter, status int, code, message string, details any) {
 	h.writeJSON(w, status, ErrorResponse{
 		Error: ErrorDetail{
@@ -98,12 +95,10 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code, message st
 	})
 }
 
-// handleNotFound handles 404 errors
 func (h *Handler) handleNotFound(w http.ResponseWriter, message string) {
 	h.writeError(w, http.StatusNotFound, "NOT_FOUND", message, nil)
 }
 
-// handleNotFoundHTMX handles 404 errors with htmx support
 func (h *Handler) handleNotFoundHTMX(w http.ResponseWriter, r *http.Request, message string) {
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
@@ -114,12 +109,10 @@ func (h *Handler) handleNotFoundHTMX(w http.ResponseWriter, r *http.Request, mes
 	h.handleNotFound(w, message)
 }
 
-// handleValidationError handles 400 errors
 func (h *Handler) handleValidationError(w http.ResponseWriter, message string) {
 	h.writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", message, nil)
 }
 
-// handleValidationErrorHTMX handles 400 errors with htmx support
 func (h *Handler) handleValidationErrorHTMX(w http.ResponseWriter, r *http.Request, message string) {
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, message, toastTypeError)
@@ -171,12 +164,10 @@ func (h *Handler) setHTMXTrigger(w http.ResponseWriter, payload htmxTriggerPaylo
 	w.Header().Set(httpx.HeaderHXTrigger, string(bytes))
 }
 
-// handleGeocodingError handles 422 errors for geocoding failures
 func (h *Handler) handleGeocodingError(w http.ResponseWriter, err error) {
 	h.writeError(w, http.StatusUnprocessableEntity, "GEOCODING_FAILED", err.Error(), nil)
 }
 
-// handleRoutingError handles 422 errors for routing failures
 func (h *Handler) handleRoutingError(w http.ResponseWriter, err error) {
 	if rerr, ok := err.(*routing.ErrRoutingFailed); ok {
 		h.writeError(w, http.StatusUnprocessableEntity, "ROUTING_FAILED", rerr.Reason, RoutingErrorDetails{
@@ -189,18 +180,15 @@ func (h *Handler) handleRoutingError(w http.ResponseWriter, err error) {
 	h.writeError(w, http.StatusUnprocessableEntity, "ROUTING_FAILED", err.Error(), nil)
 }
 
-// handleInternalError handles 500 errors
 func (h *Handler) handleInternalError(w http.ResponseWriter, err error) {
 	log.Printf("[ERROR] Internal error: %v", err)
 	h.writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError, nil)
 }
 
-// checkNotFound checks if an error is a not found error
 func (h *Handler) checkNotFound(err error) bool {
 	return errors.Is(err, database.ErrNotFound)
 }
 
-// renderTemplate renders an HTML template
 func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 
@@ -210,7 +198,6 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// renderError renders an error response (JSON for API, HTML for htmx)
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error) {
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)

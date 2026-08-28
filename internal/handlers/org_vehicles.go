@@ -44,7 +44,6 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	contentType := r.Header.Get(httpx.HeaderContentType)
 
-	// Handle form data (from htmx)
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/org-vehicles: form_parse_error err=%v", err)
@@ -61,7 +60,6 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 			req.Capacity = cap
 		}
 	} else {
-		// Handle JSON
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/org-vehicles: invalid_json err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
@@ -99,7 +97,6 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		createdVehicle.ID, createdVehicle.Name, createdVehicle.Capacity)
 
 	if h.isHTMX(r) {
-		// Return the new vehicle row HTML and trigger a success toast
 		h.setHTMXToast(w, messageEntityAdded("Van", createdVehicle.Name), toastTypeSuccess)
 		h.renderTemplate(w, "org_vehicle_row", createdVehicle)
 		return
@@ -259,7 +256,6 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 	log.Printf("[HTTP] Deleted organization vehicle: id=%d", id)
 
 	if h.isHTMX(r) {
-		// Return 200 with empty body so htmx will swap (remove) the element
 		h.setHTMXToast(w, messageEntityDeleted("Van"), toastTypeSuccess)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)

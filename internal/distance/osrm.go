@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// ErrDistanceCalculationFailed is returned when OSRM API fails
+// ErrDistanceCalculationFailed reports an OSRM failure.
 type ErrDistanceCalculationFailed struct {
 	Origin models.Coordinates
 	Dest   models.Coordinates
@@ -49,7 +49,7 @@ type missingMatrixPlan struct {
 	count        int
 }
 
-// NewOSRMCalculator creates a new OSRM distance calculator with caching
+// NewOSRMCalculator creates a cached OSRM calculator.
 func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculator {
 	return &osrmCalculator{
 		baseURL: "https://router.project-osrm.org",
@@ -61,8 +61,6 @@ func NewOSRMCalculator(cache database.DistanceCacheRepository) DistanceCalculato
 }
 
 func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error) {
-	// Quick check: same point to same point = 0 (with rounding tolerance)
-	// Round to 5 decimal places (~1m precision) to match cache key rounding
 	if SamePoint(origin, dest) {
 		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
 	}
@@ -72,7 +70,6 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 		return nil, err
 	}
 	if cached != nil {
-		// Don't log every cache hit - too noisy
 		return &DistanceResult{
 			DistanceMeters: cached.DistanceMeters,
 			DurationSecs:   cached.DurationSecs,
@@ -99,7 +96,7 @@ func (c *osrmCalculator) GetDistance(ctx context.Context, origin, dest models.Co
 }
 
 const (
-	// maxOSRMCoordinates is the maximum number of coordinates OSRM public API accepts
+	// maxOSRMCoordinates is the public OSRM limit.
 	maxOSRMCoordinates = 80
 	osrmClientTimeout  = 30 * time.Second
 	osrmBatchRateDelay = 100 * time.Millisecond
@@ -128,17 +125,15 @@ func (c *osrmCalculator) GetDistanceMatrix(ctx context.Context, points []models.
 
 	log.Printf("[OSRM] Distance matrix request: points=%d cached=%d missing=%d", n, n*n-missingPlan.count, missingPlan.count)
 
-	// If points fit in one request, do single request
 	if n <= maxOSRMCoordinates {
 		return c.fetchDistanceMatrixSingle(ctx, points, matrix, missingPlan)
 	}
 
-	// Otherwise, batch requests
 	log.Printf("[OSRM] Using batched requests: points=%d batches=%d", n, (n+maxOSRMCoordinates-1)/maxOSRMCoordinates)
 	return c.fetchDistanceMatrixBatched(ctx, points, matrix, missingPlan)
 }
 
-// fetchDistanceMatrixSingle fetches distance matrix in a single OSRM request
+// fetchDistanceMatrixSingle fetches one OSRM matrix.
 func (c *osrmCalculator) fetchDistanceMatrixSingle(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult, missingPlan *missingMatrixPlan) ([][]DistanceResult, error) {
 	n := len(points)
 	fullCells := n * (n - 1)
@@ -170,11 +165,10 @@ func (c *osrmCalculator) fetchDistanceMatrixSingle(ctx context.Context, points [
 	return matrix, nil
 }
 
-// fetchDistanceMatrixBatched fetches distance matrix using multiple batched OSRM requests
+// fetchDistanceMatrixBatched fetches a matrix in OSRM-sized batches.
 func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult, missingPlan *missingMatrixPlan) ([][]DistanceResult, error) {
 	n := len(points)
 
-	// Create batches of point indices
 	var batches [][]int
 	for i := 0; i < n; i += maxOSRMCoordinates {
 		end := min(i+maxOSRMCoordinates, n)
@@ -187,7 +181,6 @@ func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points 
 
 	log.Printf("[OSRM] Created %d batches for %d points", len(batches), n)
 
-	// For each pair of batches (including same batch), fetch distances
 	var allCacheEntries []models.DistanceCacheEntry
 	requestCount := 0
 
@@ -226,7 +219,6 @@ func (c *osrmCalculator) fetchDistanceMatrixBatched(ctx context.Context, points 
 			requestCount++
 			allCacheEntries = append(allCacheEntries, cacheEntries...)
 
-			// Rate limit between batch requests
 			if bi < len(batches)-1 || bj < len(batches)-1 {
 				time.Sleep(osrmBatchRateDelay)
 			}

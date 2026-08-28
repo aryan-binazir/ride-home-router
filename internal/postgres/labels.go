@@ -15,8 +15,7 @@ type labelRepository struct {
 	db *sql.DB
 }
 
-// membershipTable names one of the two label membership tables. Table and
-// column names are interpolated into SQL, so only these two values exist.
+// membershipTable limits interpolated SQL names to two fixed values.
 type membershipTable struct {
 	table, ownerColumn string
 }

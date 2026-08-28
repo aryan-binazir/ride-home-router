@@ -73,7 +73,6 @@ func (c *mockDistanceCache) Count() int {
 func TestGetDistanceMatrix_AllCached(t *testing.T) {
 	cache := newMockDistanceCache()
 
-	// Pre-populate cache with all pairs
 	points := []models.Coordinates{
 		{Lat: 0, Lng: 0},
 		{Lat: 0.1, Lng: 0},
@@ -93,7 +92,6 @@ func TestGetDistanceMatrix_AllCached(t *testing.T) {
 		}
 	}
 
-	// Create server that should NOT be called
 	serverCalled := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverCalled = true
@@ -117,19 +115,16 @@ func TestGetDistanceMatrix_AllCached(t *testing.T) {
 		t.Error("server was called when all data should be cached")
 	}
 
-	// Verify matrix has correct values from cache
 	if len(matrix) != 3 {
 		t.Fatalf("expected 3x3 matrix, got %dx%d", len(matrix), len(matrix))
 	}
 
-	// Check diagonal is zero
 	for i := range 3 {
 		if matrix[i][i].DistanceMeters != 0 {
 			t.Errorf("diagonal [%d][%d] should be 0, got %f", i, i, matrix[i][i].DistanceMeters)
 		}
 	}
 
-	// Check a specific cached value
 	if matrix[0][1].DistanceMeters != 1100 { // (0+1)*1000 + 1*100
 		t.Errorf("expected matrix[0][1] = 1100, got %f", matrix[0][1].DistanceMeters)
 	}
@@ -143,7 +138,6 @@ func TestGetDistanceMatrix_PartialCache(t *testing.T) {
 		{Lat: 0.1, Lng: 0},
 	}
 
-	// Only cache the reverse direction.
 	_ = cache.Set(context.Background(), &models.DistanceCacheEntry{
 		Origin:         points[1],
 		Destination:    points[0],
@@ -397,7 +391,6 @@ func TestGetDistanceMatrix_MostlyColdFallsBackToFullRequest(t *testing.T) {
 func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 	cache := newMockDistanceCache()
 
-	// Create more points than maxOSRMCoordinates (80)
 	numPoints := 85
 	points := make([]models.Coordinates, numPoints)
 	for i := range numPoints {
@@ -411,13 +404,11 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 
-		// Parse the coordinates to determine response size
 		path := r.URL.Path
 		coordStr := strings.TrimPrefix(path, "/table/v1/driving/")
 		coords := strings.Split(coordStr, ";")
 		n := len(coords)
 
-		// Build response matrix of appropriate size
 		distances := make([][]float64, n)
 		durations := make([][]float64, n)
 		for i := range n {
@@ -431,11 +422,9 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 			}
 		}
 
-		// Check for sources/destinations parameters (batched request)
 		sources := r.URL.Query().Get("sources")
 		dests := r.URL.Query().Get("destinations")
 		if sources != "" && dests != "" {
-			// Batched request - adjust matrix size
 			srcIndices := strings.Split(sources, ";")
 			destIndices := strings.Split(dests, ";")
 
@@ -473,19 +462,15 @@ func TestGetDistanceMatrix_BatchSplitting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify matrix dimensions
 	if len(matrix) != numPoints {
 		t.Fatalf("expected %dx%d matrix, got %dx%d", numPoints, numPoints, len(matrix), len(matrix))
 	}
 
-	// With 85 points and max 80 per request, should need multiple batches
-	// The batching creates batches of indices and makes requests for batch pairs
 	if requestCount < 2 {
 		t.Errorf("expected multiple requests for %d points (max %d per request), got %d requests",
 			numPoints, maxOSRMCoordinates, requestCount)
 	}
 
-	// Verify diagonal is zero
 	for i := range numPoints {
 		if matrix[i][i].DistanceMeters != 0 {
 			t.Errorf("diagonal [%d][%d] should be 0, got %f", i, i, matrix[i][i].DistanceMeters)
@@ -571,7 +556,6 @@ func TestGetDistanceMatrix_BatchedPartialCache(t *testing.T) {
 }
 
 func TestCoordinateRounding_Consistency(t *testing.T) {
-	// Test that coordinate rounding is consistent across the codebase
 	testCases := []struct {
 		input    float64
 		expected float64
@@ -611,7 +595,6 @@ func TestGetDistance_SamePoint(t *testing.T) {
 		cache:      cache,
 	}
 
-	// Points that round to the same value
 	origin := models.Coordinates{Lat: 0.123456, Lng: 0.654321}
 	dest := models.Coordinates{Lat: 0.123456, Lng: 0.654321}
 
