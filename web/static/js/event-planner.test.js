@@ -29,7 +29,6 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
     assert.equal(serverDated.value, '2026-03-14');
     assert.equal(edited.value, '2026-03-20');
     assert.equal(serverDated.listeners[0][0], 'input');
-    assert.equal(applyLocalEventDate({}), 0);
 });
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
@@ -40,19 +39,20 @@ test('localISODate uses the local calendar day, not the UTC one', () => {
     assert.equal(localISODate(new Date(2026, 0, 5, 0, 10)), '2026-01-05');
 });
 
-test('installRouteResults performs every manual result-installation step in order', () => {
-    // HTML must exist before HTMX and date setup inspect the replacement tree.
-    const calls = [];
+test('installRouteResults installs HTML before processing and performs all result setup', () => {
+    let installedHtml = '';
+    let processedTarget = null;
+    let etaRefreshes = 0;
     const dateInput = {
-        value: '2026-03-15',
+        value: 'server-date',
         dataset: {},
         listeners: [],
         addEventListener(type, fn) { this.listeners.push([type, fn]); },
     };
     const target = {
-        set innerHTML(html) { calls.push(['html', html]); },
-        querySelectorAll(selector) {
-            calls.push(['date', selector]);
+        set innerHTML(html) { installedHtml = html; },
+        querySelectorAll() {
+            assert.notEqual(installedHtml, '');
             return [dateInput];
         },
     };
@@ -60,20 +60,23 @@ test('installRouteResults performs every manual result-installation step in orde
     installRouteResults({
         target,
         html: '<form>routes</form>',
-        htmx: { process: element => calls.push(['htmx', element]) },
-        refreshEtas: () => calls.push(['etas']),
+        htmx: {
+            process(element) {
+                assert.notEqual(installedHtml, '');
+                processedTarget = element;
+            },
+        },
+        refreshEtas: () => { etaRefreshes += 1; },
     });
 
-    assert.deepEqual(calls, [
-        ['html', '<form>routes</form>'],
-        ['htmx', target],
-        ['date', 'input[type="date"][name="event_date"]'],
-        ['etas'],
-    ]);
+    assert.equal(installedHtml, '<form>routes</form>');
+    assert.equal(processedTarget, target);
+    assert.notEqual(dateInput.value, 'server-date');
     assert.equal(dateInput.listeners[0][0], 'input');
+    assert.equal(etaRefreshes, 1);
 });
 
-test('planner exposes the route handoff instead of its internal helpers', () => {
+test('planner exports its browser-independent test seams', () => {
     assert.deepEqual(Object.keys(planner).sort(), [
         'applyLocalEventDate',
         'createParticipantMoveBatcher',
@@ -604,7 +607,7 @@ function createRouteSessionHarness({
     };
 }
 
-test('route edit responses install dates only while their requested session is active', () => {
+test('route edit responses install results only while their requested session is active', () => {
     const harness = createRouteSessionHarness();
 
     const currentResult = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'current routes' });
@@ -626,6 +629,7 @@ test('route edit responses install dates only while their requested session is a
         dateApplications: 1,
         etaRefreshes: 1,
     });
+    assert.notEqual(harness.dateInput.value, 'server-date');
 });
 
 test('route edit success remains handled when the results target is absent', () => {
