@@ -141,6 +141,29 @@ func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
 	}
 }
 
+func TestImportMappingFromFormParticipantIgnoresCapacityValue(t *testing.T) {
+	request := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/session/mapping?view=panel", url.Values{
+		"column_0": {"name"}, "column_1": {"address"}, "column_2": {"capacity"},
+	})
+	if err := request.ParseForm(); err != nil {
+		t.Fatalf("ParseForm: %v", err)
+	}
+	mapping, problems := importMappingFromForm(request, importer.Snapshot{
+		Kind: importer.KindParticipant,
+		Grid: importer.Grid{Headers: []string{"name", "address", "capacity"}},
+	})
+
+	if len(problems) != 0 {
+		t.Fatalf("problems = %#v, want none", problems)
+	}
+	if mapping.CapacityColumn != importer.UnmappedColumn {
+		t.Fatalf("CapacityColumn = %d, want unmapped", mapping.CapacityColumn)
+	}
+	if len(mapping.Ignored) != 1 || mapping.Ignored[0] != 2 {
+		t.Fatalf("Ignored = %#v, want [2]", mapping.Ignored)
+	}
+}
+
 func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
