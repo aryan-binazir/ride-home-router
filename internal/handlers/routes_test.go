@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -156,6 +157,159 @@ func TestHandleCalculateRoutes_InvalidModeReturnsValidationError(t *testing.T) {
 	}
 	if router.lastRequest != nil {
 		t.Fatalf("expected router to not receive a request, got %#v", router.lastRequest)
+	}
+}
+
+func TestRouteCalculationEndpoints_PreserveValidationOrder(t *testing.T) {
+	form := url.Values{}
+	form.Add("driver_ids", "1")
+	form.Set("activity_location_id", "1")
+	form.Set("route_time", "not-a-time")
+
+	tests := []struct {
+		name        string
+		path        string
+		handle      func(*Handler, http.ResponseWriter, *http.Request)
+		wantMessage string
+	}{
+		{
+			name:        "initial validates selections before route options",
+			path:        "/api/v1/routes/calculate",
+			handle:      (*Handler).HandleCalculateRoutes,
+			wantMessage: messageSelectAtLeastOneParticipant,
+		},
+		{
+			name:        "retry validates route options before selections",
+			path:        "/api/v1/routes/calculate-with-org-vehicles",
+			handle:      (*Handler).HandleCalculateRoutesWithOrgVehicles,
+			wantMessage: messageChooseValidRouteTime,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, test.path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			test.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			wantTrigger := `{"showToast":{"message":"` + test.wantMessage + `","type":"error"}}`
+			if got := rr.Header().Get("HX-Trigger"); got != wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, wantTrigger)
+			}
+		})
+	}
+}
+
+func TestRouteCalculationEndpoints_PreserveMalformedFormResponses(t *testing.T) {
+	tests := []struct {
+		name            string
+		path            string
+		handle          func(*Handler, http.ResponseWriter, *http.Request)
+		wantContentType string
+		wantTrigger     string
+	}{
+		{
+			name:            "initial returns JSON without a toast",
+			path:            "/api/v1/routes/calculate",
+			handle:          (*Handler).HandleCalculateRoutes,
+			wantContentType: "application/json",
+		},
+		{
+			name:            "retry returns HTML with a toast",
+			path:            "/api/v1/routes/calculate-with-org-vehicles",
+			handle:          (*Handler).HandleCalculateRoutesWithOrgVehicles,
+			wantContentType: "text/html",
+			wantTrigger:     `{"showToast":{"message":"Invalid form data","type":"error"}}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, test.path, strings.NewReader("participant_ids=%zz"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			test.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			if got := rr.Header().Get("Content-Type"); !strings.Contains(got, test.wantContentType) {
+				t.Fatalf("Content-Type = %q, want %q", got, test.wantContentType)
+			}
+			if got := rr.Header().Get("HX-Trigger"); got != test.wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, test.wantTrigger)
+			}
+		})
+	}
+}
+
+func TestRouteCalculationEndpoints_EquivalentFormInputReachesRouter(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Blue Van", Capacity: 8})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+
+	form := url.Values{}
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+	form.Set("mode", "pickup")
+	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
+
+	requests := make([]*routing.RoutingRequest, 0, 2)
+	for _, endpoint := range []struct {
+		path   string
+		handle func(*Handler, http.ResponseWriter, *http.Request)
+	}{
+		{path: "/api/v1/routes/calculate", handle: (*Handler).HandleCalculateRoutes},
+		{path: "/api/v1/routes/calculate-with-org-vehicles", handle: (*Handler).HandleCalculateRoutesWithOrgVehicles},
+	} {
+		router := &captureRouter{result: &models.RoutingResult{}}
+		handler.Router = router
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		rr := httptest.NewRecorder()
+
+		endpoint.handle(handler, rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d body=%q", endpoint.path, rr.Code, http.StatusOK, rr.Body.String())
+		}
+		if router.lastRequest == nil {
+			t.Fatalf("%s did not reach router", endpoint.path)
+		}
+		requests = append(requests, router.lastRequest)
+	}
+
+	if !reflect.DeepEqual(requests[0], requests[1]) {
+		t.Fatalf("router requests differ:\ninitial = %#v\nretry = %#v", requests[0], requests[1])
 	}
 }
 
@@ -330,21 +484,35 @@ func TestHandleCalculateRoutesWithOrgVehicles_ShortageRendersHTMLWithoutWarningT
 	form.Set("route_time", "18:30")
 	form.Set("mode", "dropoff")
 	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
-	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
+	for _, htmx := range []bool{true, false} {
+		t.Run(fmt.Sprintf("htmx=%t", htmx), func(t *testing.T) {
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if htmx {
+				req.Header.Set("HX-Request", "true")
+			}
+			rr := httptest.NewRecorder()
 
-	handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+			handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if got := rr.Header().Get("HX-Trigger"); got != "" {
-		t.Fatalf("HX-Trigger = %q, want no warning toast", got)
-	}
-	if body := rr.Body.String(); !strings.Contains(body, `class="capacity-shortage-container"`) || !strings.Contains(body, "Not Enough Available Capacity") {
-		t.Fatalf("expected capacity shortage HTML, body=%q", body)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+			}
+			if got := rr.Header().Get("HX-Trigger"); got != "" {
+				t.Fatalf("HX-Trigger = %q, want no warning toast", got)
+			}
+			body := rr.Body.String()
+			for _, fragment := range []string{
+				`class="capacity-shortage-container"`,
+				"Not Enough Available Capacity",
+				`name="participant_ids" value="` + int64ToString(participant.ID) + `"`,
+				`name="driver_ids" value="` + int64ToString(driver.ID) + `"`,
+			} {
+				if !strings.Contains(body, fragment) {
+					t.Fatalf("expected capacity shortage HTML to contain %q, body=%q", fragment, body)
+				}
+			}
+		})
 	}
 }
 
@@ -474,6 +642,47 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 				t.Fatalf("router received request %#v for stale %s", router.lastRequest, test.name)
 			}
 		})
+	}
+}
+
+func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithoutToast(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	handler.Router = &captureRouter{}
+
+	form := url.Values{}
+	form.Add("participant_ids", "999999")
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+	form.Set("mode", "dropoff")
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	if got := rr.Header().Get("HX-Trigger"); got != "" {
+		t.Fatalf("HX-Trigger = %q, want no toast", got)
+	}
+	if !strings.Contains(rr.Body.String(), `"message":"Some participants not found"`) {
+		t.Fatalf("body = %q, want stale participant message", rr.Body.String())
 	}
 }
 
@@ -886,6 +1095,15 @@ func TestHandleCalculateRoutes_PreservesVanAssignmentsInShortageFlow(t *testing.
 	}
 	if !strings.Contains(body, "2 available seats") {
 		t.Fatalf("expected shortage flow to render updated capacity, body=%q", body)
+	}
+	for _, fragment := range []string{
+		`name="participant_ids" value="` + int64ToString(participantOne.ID) + `"`,
+		`name="participant_ids" value="` + int64ToString(participantTwo.ID) + `"`,
+		`name="driver_ids" value="` + int64ToString(driver.ID) + `"`,
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("expected shortage flow to preserve %q, body=%q", fragment, body)
+		}
 	}
 }
 
