@@ -4,10 +4,70 @@ import (
 	"context"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	"sync"
 	"testing"
+	"time"
 )
+
+type rosterBatchSpec[T any] struct {
+	noun        string
+	newEntity   func(name, address string) *T
+	createOne   func(context.Context, *postgres.Store, *T) error
+	createBatch func(context.Context, *postgres.Store, []*T, []bool) (database.BatchCreateResult, error)
+	id          func(*T) int64
+	timestamps  func(*T) (time.Time, time.Time)
+	count       func(context.Context, *postgres.Store) (int, error)
+}
+
+func participantBatchSpec() rosterBatchSpec[models.Participant] {
+	return rosterBatchSpec[models.Participant]{
+		noun: "participant",
+		newEntity: func(name, address string) *models.Participant {
+			return &models.Participant{Name: name, Address: address, Lat: 40, Lng: -73}
+		},
+		createOne: func(ctx context.Context, store *postgres.Store, participant *models.Participant) error {
+			_, err := store.Participants().Create(ctx, participant)
+			return err
+		},
+		createBatch: func(ctx context.Context, store *postgres.Store, participants []*models.Participant, allow []bool) (database.BatchCreateResult, error) {
+			return store.Participants().CreateBatch(ctx, participants, allow)
+		},
+		id: func(participant *models.Participant) int64 { return participant.ID },
+		timestamps: func(participant *models.Participant) (time.Time, time.Time) {
+			return participant.CreatedAt, participant.UpdatedAt
+		},
+		count: func(ctx context.Context, store *postgres.Store) (int, error) {
+			participants, err := store.Participants().List(ctx, "")
+			return len(participants), err
+		},
+	}
+}
+
+func driverBatchSpec() rosterBatchSpec[models.Driver] {
+	return rosterBatchSpec[models.Driver]{
+		noun: "driver",
+		newEntity: func(name, address string) *models.Driver {
+			return &models.Driver{Name: name, Address: address, Lat: 40, Lng: -73, VehicleCapacity: 4}
+		},
+		createOne: func(ctx context.Context, store *postgres.Store, driver *models.Driver) error {
+			_, err := store.Drivers().Create(ctx, driver)
+			return err
+		},
+		createBatch: func(ctx context.Context, store *postgres.Store, drivers []*models.Driver, allow []bool) (database.BatchCreateResult, error) {
+			return store.Drivers().CreateBatch(ctx, drivers, allow)
+		},
+		id: func(driver *models.Driver) int64 { return driver.ID },
+		timestamps: func(driver *models.Driver) (time.Time, time.Time) {
+			return driver.CreatedAt, driver.UpdatedAt
+		},
+		count: func(ctx context.Context, store *postgres.Store) (int, error) {
+			drivers, err := store.Drivers().List(ctx, "")
+			return len(drivers), err
+		},
+	}
+}
 
 const failOnNameTrigger = `
 	CREATE FUNCTION fail_on_name() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -50,6 +110,11 @@ func TestCreateBatchRollsBackOnMidBatchFailure(t *testing.T) {
 	}
 	if list, err := store.Drivers().List(ctx, ""); err != nil || len(list) != 0 {
 		t.Fatalf("drivers after failed batch = %#v, %v; want none", list, err)
+	}
+	for i, driver := range drivers {
+		if driver.ID != 0 {
+			t.Errorf("drivers[%d].ID = %d after rollback, want 0", i, driver.ID)
+		}
 	}
 }
 
@@ -103,33 +168,54 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 }
 
 func TestCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t *testing.T) {
+	t.Run("participants", func(t *testing.T) {
+		testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t, participantBatchSpec())
+	})
+	t.Run("drivers", func(t *testing.T) {
+		testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t, driverBatchSpec())
+	})
+}
+
+func testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides[T any](t *testing.T, spec rosterBatchSpec[T]) {
+	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
-	for _, participant := range []*models.Participant{
-		{Name: "Known At Preview", Address: "1 Main St", Lat: 40, Lng: -73},
-		{Name: "Appeared Later", Address: "2 Main St", Lat: 41, Lng: -74},
+	for _, entity := range []*T{
+		spec.newEntity("Skip Existing", "1 Main St"),
+		spec.newEntity("Known At Preview", "2 Main St"),
 	} {
-		if _, err := store.Participants().Create(ctx, participant); err != nil {
-			t.Fatalf("seed participant: %v", err)
+		if err := spec.createOne(ctx, store, entity); err != nil {
+			t.Fatalf("seed %s: %v", spec.noun, err)
 		}
 	}
-	batch := []*models.Participant{
-		{Name: " known at preview ", Address: "1 MAIN ST", Lat: 40, Lng: -73},
-		{Name: "appeared later", Address: " 2 MAIN ST ", Lat: 41, Lng: -74},
+	batch := []*T{
+		spec.newEntity(" skip existing ", " 1 MAIN ST "),
+		spec.newEntity(" known at preview ", " 2 MAIN ST "),
+		spec.newEntity("New Entry", "3 Main St"),
 	}
-	result, err := store.Participants().CreateBatch(ctx, batch, []bool{true, false})
+	result, err := spec.createBatch(ctx, store, batch, []bool{false, true, false})
 	if err != nil {
 		t.Fatalf("CreateBatch() error = %v", err)
 	}
-	if result != (database.BatchCreateResult{Created: 1, SkippedDuplicate: 1}) {
+	if result != (database.BatchCreateResult{Created: 2, SkippedDuplicate: 1}) {
 		t.Fatalf("CreateBatch() result = %#v", result)
 	}
-	if batch[0].ID == 0 || batch[1].ID != 0 {
-		t.Fatalf("batch IDs = [%d %d], want [created 0]", batch[0].ID, batch[1].ID)
+	if spec.id(batch[0]) != 0 || spec.id(batch[1]) == 0 || spec.id(batch[2]) == 0 {
+		t.Fatalf("batch IDs = [%d %d %d], want [0 created created]", spec.id(batch[0]), spec.id(batch[1]), spec.id(batch[2]))
 	}
 }
 
 func TestCreateBatchSerializesConcurrentDuplicateRechecks(t *testing.T) {
+	t.Run("participants", func(t *testing.T) {
+		testCreateBatchSerializesConcurrentDuplicateRechecks(t, participantBatchSpec())
+	})
+	t.Run("drivers", func(t *testing.T) {
+		testCreateBatchSerializesConcurrentDuplicateRechecks(t, driverBatchSpec())
+	})
+}
+
+func testCreateBatchSerializesConcurrentDuplicateRechecks[T any](t *testing.T, spec rosterBatchSpec[T]) {
+	t.Helper()
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	const workers = 8
@@ -139,8 +225,8 @@ func TestCreateBatchSerializesConcurrentDuplicateRechecks(t *testing.T) {
 	errs := make([]error, workers)
 	for i := range workers {
 		wg.Go(func() {
-			results[i], errs[i] = store.Participants().CreateBatch(ctx, []*models.Participant{
-				{Name: "Same Rider", Address: "1 Main St", Lat: 40, Lng: -73},
+			results[i], errs[i] = spec.createBatch(ctx, store, []*T{
+				spec.newEntity("Same Entry", "1 Main St"),
 			}, nil)
 		})
 	}
@@ -157,7 +243,98 @@ func TestCreateBatchSerializesConcurrentDuplicateRechecks(t *testing.T) {
 	if created != 1 || skipped != workers-1 {
 		t.Fatalf("created = %d skipped = %d, want exactly one insert across %d concurrent batches", created, skipped, workers)
 	}
-	if list, err := store.Participants().List(ctx, ""); err != nil || len(list) != 1 {
-		t.Fatalf("participants = %d, err=%v, want 1", len(list), err)
+	if count, err := spec.count(ctx, store); err != nil || count != 1 {
+		t.Fatalf("%ss = %d, err=%v, want 1", spec.noun, count, err)
+	}
+}
+
+func TestCreateBatchBackfillsOnlyCommittedRows(t *testing.T) {
+	t.Run("participants", func(t *testing.T) {
+		testCreateBatchBackfillsOnlyCommittedRows(t, participantBatchSpec())
+	})
+	t.Run("drivers", func(t *testing.T) {
+		testCreateBatchBackfillsOnlyCommittedRows(t, driverBatchSpec())
+	})
+}
+
+func testCreateBatchBackfillsOnlyCommittedRows[T any](t *testing.T, spec rosterBatchSpec[T]) {
+	t.Helper()
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	batch := []*T{
+		spec.newEntity("First", "1 Main St"),
+		spec.newEntity("Second", "2 Main St"),
+	}
+	result, err := spec.createBatch(ctx, store, batch, nil)
+	if err != nil {
+		t.Fatalf("CreateBatch() error = %v", err)
+	}
+	if result != (database.BatchCreateResult{Created: 2}) {
+		t.Fatalf("CreateBatch() result = %#v, want 2 created", result)
+	}
+	for i, entity := range batch {
+		createdAt, updatedAt := spec.timestamps(entity)
+		if spec.id(entity) == 0 || createdAt.IsZero() || !createdAt.Equal(updatedAt) {
+			t.Errorf("batch[%d] id=%d created=%v updated=%v, want committed ID and equal non-zero timestamps", i, spec.id(entity), createdAt, updatedAt)
+		}
+	}
+}
+
+func TestCreateBatchPreservesWithinBatchDuplicates(t *testing.T) {
+	t.Run("participants", func(t *testing.T) {
+		testCreateBatchPreservesWithinBatchDuplicates(t, participantBatchSpec())
+	})
+	t.Run("drivers", func(t *testing.T) {
+		testCreateBatchPreservesWithinBatchDuplicates(t, driverBatchSpec())
+	})
+}
+
+func testCreateBatchPreservesWithinBatchDuplicates[T any](t *testing.T, spec rosterBatchSpec[T]) {
+	t.Helper()
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	batch := []*T{
+		spec.newEntity("Same Entry", "1 Main St"),
+		spec.newEntity(" same entry ", " 1 MAIN ST "),
+	}
+	result, err := spec.createBatch(ctx, store, batch, nil)
+	if err != nil {
+		t.Fatalf("CreateBatch() error = %v", err)
+	}
+	if result != (database.BatchCreateResult{Created: 2}) {
+		t.Fatalf("CreateBatch() result = %#v, want both incoming duplicates created", result)
+	}
+	if spec.id(batch[0]) == 0 || spec.id(batch[1]) == 0 {
+		t.Fatalf("batch IDs = [%d %d], want both created", spec.id(batch[0]), spec.id(batch[1]))
+	}
+}
+
+func TestCreateBatchNilEntityRollsBackWithoutBackfill(t *testing.T) {
+	t.Run("participants", func(t *testing.T) {
+		testCreateBatchNilEntityRollsBackWithoutBackfill(t, participantBatchSpec())
+	})
+	t.Run("drivers", func(t *testing.T) {
+		testCreateBatchNilEntityRollsBackWithoutBackfill(t, driverBatchSpec())
+	})
+}
+
+func testCreateBatchNilEntityRollsBackWithoutBackfill[T any](t *testing.T, spec rosterBatchSpec[T]) {
+	t.Helper()
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	first := spec.newEntity("First", "1 Main St")
+	result, err := spec.createBatch(ctx, store, []*T{first, nil}, nil)
+	if err == nil || err.Error() != spec.noun+" batch contains a nil "+spec.noun {
+		t.Fatalf("CreateBatch() error = %v, want nil %s error", err, spec.noun)
+	}
+	if result != (database.BatchCreateResult{}) {
+		t.Fatalf("CreateBatch() result = %#v, want zero value", result)
+	}
+	createdAt, updatedAt := spec.timestamps(first)
+	if spec.id(first) != 0 || !createdAt.IsZero() || !updatedAt.IsZero() {
+		t.Fatalf("first entity mutated after rollback: id=%d created=%v updated=%v", spec.id(first), createdAt, updatedAt)
+	}
+	if count, countErr := spec.count(ctx, store); countErr != nil || count != 0 {
+		t.Fatalf("%ss after rollback = %d, err=%v, want 0", spec.noun, count, countErr)
 	}
 }
