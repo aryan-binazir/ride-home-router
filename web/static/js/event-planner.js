@@ -16,6 +16,10 @@
 
     const SAVE_EVENT_ENDPOINT = '/api/v1/events';
 
+    // Manual HTML injection does not fire HTMX's swap/settle events, so these
+    // callers must perform the matching result setup themselves. Native HTMX
+    // swaps keep their existing lifecycle because they also scroll and persist
+    // newly calculated sessions.
     function installRouteResults({ target, html, htmx, refreshEtas }) {
         target.innerHTML = html;
         htmx.process(target);

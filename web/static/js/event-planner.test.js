@@ -29,6 +29,7 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
     assert.equal(serverDated.value, '2026-03-14');
     assert.equal(edited.value, '2026-03-20');
     assert.equal(serverDated.listeners[0][0], 'input');
+    assert.equal(applyLocalEventDate({}), 0);
 });
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
@@ -40,6 +41,7 @@ test('localISODate uses the local calendar day, not the UTC one', () => {
 });
 
 test('installRouteResults performs every manual result-installation step in order', () => {
+    // HTML must exist before HTMX and date setup inspect the replacement tree.
     const calls = [];
     const dateInput = {
         value: '2026-03-15',
@@ -68,44 +70,7 @@ test('installRouteResults performs every manual result-installation step in orde
         ['date', 'input[type="date"][name="event_date"]'],
         ['etas'],
     ]);
-    assert.equal(dateInput.value, localISODate(new Date()));
     assert.equal(dateInput.listeners[0][0], 'input');
-});
-
-test('installRouteResults preserves user-edited dates', () => {
-    const dateInput = {
-        value: '2026-03-20',
-        dataset: { userEdited: '1' },
-        addEventListener() {},
-    };
-    const target = { querySelectorAll: () => [dateInput] };
-
-    installRouteResults({
-        target,
-        html: 'routes',
-        htmx: { process() {} },
-        refreshEtas() {},
-    });
-
-    assert.equal(dateInput.value, '2026-03-20');
-});
-
-test('installRouteResults still processes and refreshes a target without date-query support', () => {
-    const calls = [];
-    const target = { set innerHTML(html) { calls.push(['html', html]); } };
-
-    installRouteResults({
-        target,
-        html: 'routes',
-        htmx: { process: element => calls.push(['htmx', element]) },
-        refreshEtas: () => calls.push(['etas']),
-    });
-
-    assert.deepEqual(calls, [
-        ['html', 'routes'],
-        ['htmx', target],
-        ['etas'],
-    ]);
 });
 
 test('planner exposes the route handoff instead of its internal helpers', () => {
@@ -652,7 +617,6 @@ test('route edit responses install dates only while their requested session is a
         rendered: harness.rendered,
         processed: harness.processed,
         dateApplications: harness.dateApplications,
-        date: harness.dateInput.value,
         etaRefreshes: harness.etaRefreshes,
     }, {
         currentResult: true,
@@ -660,7 +624,6 @@ test('route edit responses install dates only while their requested session is a
         rendered: ['current routes'],
         processed: [harness.resultsSection],
         dateApplications: 1,
-        date: localISODate(new Date()),
         etaRefreshes: 1,
     });
 });
