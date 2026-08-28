@@ -66,7 +66,10 @@ test('installRouteResults installs HTML before processing and performs all resul
                 processedTarget = element;
             },
         },
-        refreshEtas: () => { etaRefreshes += 1; },
+        refreshEtas: () => {
+            assert.notEqual(installedHtml, '');
+            etaRefreshes += 1;
+        },
     });
 
     assert.equal(installedHtml, '<form>routes</form>');
