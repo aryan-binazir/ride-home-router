@@ -11,7 +11,7 @@ type BatchCreateResult struct {
 	SkippedDuplicate int
 }
 
-// DataStore is the interface for data persistence
+// DataStore provides persistent application storage.
 type DataStore interface {
 	Close() error
 	HealthCheck(ctx context.Context) error
@@ -25,15 +25,14 @@ type DataStore interface {
 	Labels() LabelRepository
 }
 
-// ParticipantRepository handles participant persistence
+// ParticipantRepository stores participants.
 type ParticipantRepository interface {
 	List(ctx context.Context, search string) ([]models.Participant, error)
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
-	// CreateBatch atomically creates participants, allowing explicitly selected
-	// preview-known duplicates while skipping rows that became duplicates after preview.
-	// Missing allowExistingDuplicate entries are treated as false.
+	// CreateBatch is atomic. It allows selected preview-known duplicates and
+	// skips rows that become duplicates after preview. Missing flags are false.
 	CreateBatch(ctx context.Context, participants []*models.Participant, allowExistingDuplicate []bool) (BatchCreateResult, error)
 	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
@@ -41,15 +40,14 @@ type ParticipantRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// DriverRepository handles driver persistence
+// DriverRepository stores drivers.
 type DriverRepository interface {
 	List(ctx context.Context, search string) ([]models.Driver, error)
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
-	// CreateBatch atomically creates drivers, allowing explicitly selected
-	// preview-known duplicates while skipping rows that became duplicates after preview.
-	// Missing allowExistingDuplicate entries are treated as false.
+	// CreateBatch is atomic. It allows selected preview-known duplicates and
+	// skips rows that become duplicates after preview. Missing flags are false.
 	CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (BatchCreateResult, error)
 	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
@@ -57,7 +55,7 @@ type DriverRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// LabelRepository handles label persistence and memberships.
+// LabelRepository stores labels and memberships.
 type LabelRepository interface {
 	List(ctx context.Context) ([]models.Label, error)
 	GetByID(ctx context.Context, id int64) (*models.Label, error)
@@ -77,13 +75,13 @@ type LabelRepository interface {
 	ListLabelIDsForDrivers(ctx context.Context) (map[int64][]int64, error)
 }
 
-// SettingsRepository handles settings persistence
+// SettingsRepository stores shared settings.
 type SettingsRepository interface {
 	Get(ctx context.Context) (*models.Settings, error)
 	Update(ctx context.Context, s *models.Settings) error
 }
 
-// ActivityLocationRepository handles activity location persistence
+// ActivityLocationRepository stores activity locations.
 type ActivityLocationRepository interface {
 	List(ctx context.Context) ([]models.ActivityLocation, error)
 	GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error)
@@ -92,7 +90,7 @@ type ActivityLocationRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// OrganizationVehicleRepository handles organization vehicle persistence
+// OrganizationVehicleRepository stores organization vehicles.
 type OrganizationVehicleRepository interface {
 	List(ctx context.Context) ([]models.OrganizationVehicle, error)
 	GetByID(ctx context.Context, id int64) (*models.OrganizationVehicle, error)
@@ -102,7 +100,7 @@ type OrganizationVehicleRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// EventRepository handles event/history persistence
+// EventRepository stores event history.
 type EventRepository interface {
 	List(ctx context.Context, limit, offset int) ([]models.Event, int, error)
 	GetSummariesByEventIDs(ctx context.Context, eventIDs []int64) (map[int64]*models.EventSummary, error)
@@ -111,7 +109,7 @@ type EventRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// DistanceCacheRepository handles distance cache persistence
+// DistanceCacheRepository stores route distances.
 type DistanceCacheRepository interface {
 	Get(ctx context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error)
 	GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error)

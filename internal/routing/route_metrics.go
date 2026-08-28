@@ -164,8 +164,7 @@ func (rc routeContext) groupInsertionDeltaRiderScoreFrom(ctx context.Context, dr
 	return after - before, nil
 }
 
-// applyMetrics updates route display fields from metrics evaluated for the
-// participants in route.Stops, in the same order.
+// applyMetrics copies stop-order metrics into display fields.
 func (rc routeContext) applyMetrics(route *models.CalculatedRoute, metrics *routeMetrics) {
 	for i := range route.Stops {
 		route.Stops[i].Order = i
@@ -208,8 +207,8 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.Lookup, ins
 	return nil
 }
 
-// OptimizeRouteOrder reorders one calculated route using the participant-first
-// lexicographic objective, then refreshes its displayed metrics.
+// OptimizeRouteOrder uses the participant-first lexicographic objective,
+// then refreshes the route's metrics.
 func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
 	if route == nil {
 		return fmt.Errorf("route is required")

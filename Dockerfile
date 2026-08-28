@@ -19,8 +19,6 @@ COPY --from=build /out/ride-home-router /usr/local/bin/ride-home-router
 USER router
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/api/v1/health" || exit 1
-# The server has no authentication: ALLOWED_HOSTS must name the public hostname
-# served by the Cloudflare Tunnel (or proxy) in front of it, and the container
-# must not be given a public domain of its own. Shell form expands $PORT; exec
-# keeps the server as PID 1 so it receives SIGTERM for graceful shutdown.
+# Keep this service private; ALLOWED_HOSTS only validates Host and Origin.
+# Shell expansion supplies PORT; exec preserves signal handling.
 CMD ["sh", "-c", "exec ride-home-router --addr 0.0.0.0:${PORT:-8080} --allowed-hosts \"${ALLOWED_HOSTS:?set ALLOWED_HOSTS to the public hostname(s)}\""]

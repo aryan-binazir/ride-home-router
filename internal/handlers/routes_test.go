@@ -1145,7 +1145,6 @@ func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
 
 	session := handler.RouteSession.Create(routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: activityLoc, RouteTime: "18:30", Mode: "dropoff"})
 
-	// Modify current routes to simulate editing (move a participant).
 	if _, err := handler.RouteSession.ApplyMoves(context.Background(), session.ID, []routesession.Move{{ParticipantID: 2, FromRouteIndex: 0, ToRouteIndex: 1, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{RequireClaimedSource: true}); err != nil {
 		t.Fatalf("move participant: %v", err)
 	}

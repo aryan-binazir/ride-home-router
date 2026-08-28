@@ -5,7 +5,7 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// DistanceResult contains the result of a distance calculation.
+// DistanceResult holds a distance and travel time.
 type DistanceResult struct {
 	DistanceMeters float64
 	DurationSecs   float64
@@ -16,14 +16,13 @@ type Lookup interface {
 	GetDistance(ctx context.Context, origin, dest models.Coordinates) (*DistanceResult, error)
 }
 
-// SolveSource provides the distance operations needed to prepare and run one
-// routing solve.
+// SolveSource prepares distances for one routing solve.
 type SolveSource interface {
 	Lookup
 	PrewarmPairs(ctx context.Context, pairs []DistancePair) error
 }
 
-// DistanceCalculator provides the full distance-provider surface.
+// DistanceCalculator calculates and prewarms distances.
 type DistanceCalculator interface {
 	SolveSource
 	GetDistanceMatrix(ctx context.Context, points []models.Coordinates) ([][]DistanceResult, error)

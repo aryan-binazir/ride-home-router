@@ -130,8 +130,7 @@ func newStore(geocoder geocoding.Geocoder, db database.DataStore, ttl, cleanupIn
 	return store
 }
 
-// Create stages a parsed file for mapping. The generated 128-bit ID is also
-// the consume-once commit token.
+// Create stages a file under a consume-once 128-bit token.
 func (s *Store) Create(kind Kind, filename string, grid *Grid) (Snapshot, error) {
 	if grid == nil {
 		return Snapshot{}, errors.New("import grid is required")
@@ -233,8 +232,7 @@ func (s *Store) SelectRows(id string, selected []bool) (Snapshot, error) {
 	return snapshotOf(state), nil
 }
 
-// Commit consumes the session token before attempting the atomic batch. A
-// failed or retried commit can never create a second batch.
+// Commit consumes the token before writing, so retries cannot duplicate a batch.
 func (s *Store) Commit(ctx context.Context, id string, selected []bool) (CommitResult, error) {
 	state, err := s.lockSession(id)
 	if err != nil {
@@ -307,8 +305,7 @@ func (s *Store) Cancel(id string) bool {
 	return true
 }
 
-// Close stops cleanup, cancels all jobs, releases staged data, and waits for
-// background jobs to observe cancellation.
+// Close cancels jobs, releases sessions, and waits for workers to stop.
 func (s *Store) Close() {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()

@@ -42,8 +42,7 @@ func Open(t testing.TB) *postgres.Store {
 	return store
 }
 
-// DatabaseURL creates a fresh schema, migrates it, and returns a URL whose
-// search_path points at it. The schema is dropped when the test ends.
+// DatabaseURL returns a migrated test schema that is dropped after the test.
 func DatabaseURL(t testing.TB) string {
 	t.Helper()
 	base := strings.TrimSpace(os.Getenv(EnvVar))

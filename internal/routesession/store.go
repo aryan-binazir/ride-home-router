@@ -254,10 +254,8 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 	return snapshotOf(state), nil
 }
 
-// Commit persists a balanced session and removes it after persistence succeeds.
-// The persist callback receives the persistence context and runs while the target
-// session is locked. It must not call any Store method. Calls waiting on the same
-// session cannot be canceled.
+// Commit persists under the session lock, then removes the session.
+// The callback must not call Store methods; lock waiters cannot cancel.
 func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, models.RoutingResult) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {

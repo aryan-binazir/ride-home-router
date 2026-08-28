@@ -248,8 +248,7 @@ func TestXLSXErrorTextIsCheckedOnlyInMappedColumns(t *testing.T) {
 		t.Fatalf("ignored notes column errors = %#v", row.Errors)
 	}
 
-	// Streaming XLSX reads cannot cheaply distinguish an actual error cell from
-	// literal error text, so mapped columns deliberately treat both as errors.
+	// Streaming reads treat literal error text like an XLSX error cell.
 	mapping.AddressNameColumn = 2
 	row = Validate(grid, mapping, KindParticipant, nil)[0]
 	if !hasMessage(row.Errors, "cell C2 contains spreadsheet error #N/A") {
@@ -345,9 +344,7 @@ func TestXLSXParseWithManyMergedCellsCompletesQuickly(t *testing.T) {
 	if grid.Len() != dataRows {
 		t.Fatalf("Len() = %d, want %d", grid.Len(), dataRows)
 	}
-	// Allow heavily contended CI runners ample headroom while retaining a guard
-	// against the merged-cell regression, which took more than 85 seconds and
-	// scaled with the unchanged 10,000-merge pathology.
+	// The prior merged-cell regression took more than 85 seconds.
 	if elapsed >= 60*time.Second {
 		t.Fatalf("Parse() took %s, want under 60s", elapsed)
 	}

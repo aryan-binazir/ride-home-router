@@ -1,11 +1,3 @@
-// Minimal UI helpers (custom selects, etc.) for ride-home-router.
-
-/**
- * Filter table rows based on search query.
- * Rows should have a data-search attribute containing searchable text.
- * @param {HTMLInputElement} input - The search input element
- * @param {string} tbodyId - The ID of the tbody to filter
- */
 function filterTable(input, tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
@@ -74,21 +66,14 @@ function toggleBulkDropdown(button) {
   wrapper.classList.toggle('is-open');
 }
 
-/**
- * Toggle event detail expansion in history view.
- * @param {HTMLElement} eventItem - The event item element
- * @param {number} eventId - The event ID
- */
 function toggleEventDetail(eventItem, eventId) {
   const detailDiv = document.getElementById('event-detail-' + eventId);
   if (!detailDiv) return;
 
   if (detailDiv.innerHTML.trim()) {
-    // Collapse - clear content
     detailDiv.innerHTML = '';
     eventItem.classList.remove('expanded');
   } else {
-    // Expand - fetch content via HTMX
     eventItem.classList.add('expanded');
     htmx.ajax('GET', '/api/v1/events/' + eventId, { target: detailDiv, swap: 'innerHTML' });
   }
@@ -220,8 +205,7 @@ function toggleEventDetail(eventItem, eventId) {
     ).toLowerCase();
     const ua = (navigator.userAgent || "").toLowerCase();
 
-    // Be conservative: only replace native selects on Linux where the native
-    // dropdown popup is often unstyleable and can clash with app themes.
+    // Replace native selects only where Linux themes make them inconsistent.
     return platform.includes("linux") || uaPlatform.includes("linux") || ua.includes("linux");
   }
 
@@ -296,7 +280,6 @@ function toggleEventDetail(eventItem, eventId) {
     container.dataset.uiSelectInit = "true";
     container.classList.add("is-enhanced");
 
-    // Ensure selected state matches the native select.
     syncSelectValue(container);
 
     nativeSelect.addEventListener("change", () => {
@@ -445,7 +428,6 @@ function toggleEventDetail(eventItem, eventId) {
 
       if (!input || !suggestionsContainer) return;
 
-      // Handle suggestion click
       suggestionsContainer.addEventListener("click", (e) => {
         const suggestion = e.target.closest(".address-suggestion");
         if (!suggestion) return;
@@ -454,11 +436,10 @@ function toggleEventDetail(eventItem, eventId) {
         input.value = address;
         suggestionsContainer.innerHTML = "";
 
-        // Trigger change event for form validation (but not input to avoid re-triggering search)
+        // Avoid an input event, which would restart the search.
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
 
-      // Handle Escape key
       input.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           suggestionsContainer.innerHTML = "";
@@ -466,7 +447,6 @@ function toggleEventDetail(eventItem, eventId) {
         }
       });
 
-      // Close on click outside wrapper
       document.addEventListener("click", (e) => {
         if (!wrapper.contains(e.target)) {
           suggestionsContainer.innerHTML = "";

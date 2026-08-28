@@ -21,9 +21,7 @@ const (
 	coordinatesInvalid
 )
 
-// Validate maps and validates every grid row. File-level parsing failures are
-// returned by Parse; mapping-level failures are copied onto every returned row
-// so no row can accidentally enter a commit pipeline.
+// Validate maps every row and copies mapping errors onto each result.
 func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 	if g == nil {
 		return nil
@@ -262,7 +260,7 @@ func reconcileWithExisting(rows []Row, states []coordinateState, indices []int, 
 		case coordinatesMissing:
 			inheritCoordinates(&rows[index], winning.Lat, winning.Lng, "coordinates copied from an existing roster entry with the same address")
 		case coordinatesInvalid:
-			// The coordinate parser already attached the row-level validation error.
+			// Parsing already recorded the error.
 		}
 	}
 }
@@ -323,8 +321,7 @@ func mappedCell(cells []string, column int) string {
 	return cells[column]
 }
 
-// DuplicateKey returns the canonical exact-match key used for roster duplicate
-// detection. An empty key means either name or address is blank.
+// DuplicateKey returns the roster key, or blank for incomplete rows.
 func DuplicateKey(name, address string) string {
 	return models.RosterKey(name, address)
 }
