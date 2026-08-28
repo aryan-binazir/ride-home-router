@@ -30,6 +30,8 @@ type routeIntakePolicy struct {
 	staleEntityErrorsUseJSON bool
 }
 
+var errInvalidRouteActivityLocation = errors.New("invalid route activity location")
+
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -57,7 +59,7 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 	if idStr := form.Get("activity_location_id"); idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			return CalculateRoutesRequest{}, err
+			return CalculateRoutesRequest{}, errInvalidRouteActivityLocation
 		}
 		req.ActivityLocationID = id
 	}
@@ -65,6 +67,13 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 	req.Mode = form.Get("mode")
 
 	return req, nil
+}
+
+func routeFormValidationMessage(err error) string {
+	if errors.Is(err, errInvalidRouteActivityLocation) {
+		return messageChooseValidActivityLocation
+	}
+	return messageInvalidFormData
 }
 
 // HandleCalculateRoutes handles POST /api/v1/routes/calculate
@@ -82,7 +91,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		var err error
 		req, err = parseRouteForm(r.Form)
 		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
+			h.handleValidationErrorHTMX(w, r, routeFormValidationMessage(err))
 			return
 		}
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
@@ -112,7 +121,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 
 	req, err := parseRouteForm(r.Form)
 	if err != nil {
-		h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
+		h.handleValidationErrorHTMX(w, r, routeFormValidationMessage(err))
 		return
 	}
 
