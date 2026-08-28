@@ -204,7 +204,7 @@ func importMappingFromForm(r *http.Request, snapshot importer.Snapshot) (importe
 	}
 
 	transition := importer.NewMapping().Assign(assignments, len(snapshot.Grid.Headers))
-	problems := make([]string, 0, len(transition.DuplicateFields)+len(transition.MissingRequired))
+	var problems []string
 	for _, field := range transition.DuplicateFields {
 		problems = append(problems, fmt.Sprintf("%s is mapped to more than one column — pick one.", importFieldLabel(field)))
 	}

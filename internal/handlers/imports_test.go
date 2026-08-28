@@ -129,6 +129,25 @@ func TestImportHTTPPartialMappingResolvesAmbiguityAndRecomputesIgnored(t *testin
 	}
 }
 
+func TestMergeImportMappingPartialUpdateResolvesAmbiguityAndRecomputesIgnored(t *testing.T) {
+	headers := []string{"name", "full name", "address", "notes"}
+	nameColumn := 1
+	updated := mergeImportMapping(importer.Snapshot{
+		Grid:    importer.Grid{Headers: headers},
+		Mapping: importer.AutoMap(headers),
+	}, importMappingRequest{NameColumn: &nameColumn})
+
+	if updated.NameColumn != 1 || updated.AddressColumn != 2 {
+		t.Fatalf("mapping = %#v, want updated name and untouched address", updated)
+	}
+	if _, ok := updated.Ambiguous[importer.FieldName]; ok {
+		t.Fatalf("resolved name ambiguity remains: %#v", updated.Ambiguous)
+	}
+	if !slices.Equal(updated.Ignored, []int{0, 3}) {
+		t.Fatalf("Ignored = %#v, want [0 3]", updated.Ignored)
+	}
+}
+
 func TestImportHTTPXLSXSheetPicker(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	contents := twoSheetWorkbook(t)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -141,26 +142,61 @@ func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
 	}
 }
 
-func TestImportMappingFromFormParticipantIgnoresCapacityValue(t *testing.T) {
-	request := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/session/mapping?view=panel", url.Values{
-		"column_0": {"name"}, "column_1": {"address"}, "column_2": {"capacity"},
-	})
-	if err := request.ParseForm(); err != nil {
-		t.Fatalf("ParseForm: %v", err)
+func TestImportMappingFromFormCapacityByRosterKind(t *testing.T) {
+	tests := []struct {
+		name         string
+		kind         importer.Kind
+		wantCapacity int
+		wantIgnored  []int
+	}{
+		{name: "participant ignores forged capacity", kind: importer.KindParticipant, wantCapacity: importer.UnmappedColumn, wantIgnored: []int{2}},
+		{name: "driver maps capacity", kind: importer.KindDriver, wantCapacity: 2},
 	}
-	mapping, problems := importMappingFromForm(request, importer.Snapshot{
-		Kind: importer.KindParticipant,
-		Grid: importer.Grid{Headers: []string{"name", "address", "capacity"}},
-	})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
+				"column_0": {"name"}, "column_1": {"address"}, "column_2": {"capacity"},
+			})
+			mapping, problems := importMappingFromForm(request, importer.Snapshot{
+				Kind: test.kind,
+				Grid: importer.Grid{Headers: []string{"name", "address", "capacity"}},
+			})
 
-	if len(problems) != 0 {
-		t.Fatalf("problems = %#v, want none", problems)
+			if problems != nil {
+				t.Fatalf("problems = %#v, want nil", problems)
+			}
+			if mapping.CapacityColumn != test.wantCapacity {
+				t.Fatalf("CapacityColumn = %d, want %d", mapping.CapacityColumn, test.wantCapacity)
+			}
+			if !slices.Equal(mapping.Ignored, test.wantIgnored) {
+				t.Fatalf("Ignored = %#v, want %#v", mapping.Ignored, test.wantIgnored)
+			}
+		})
 	}
-	if mapping.CapacityColumn != importer.UnmappedColumn {
-		t.Fatalf("CapacityColumn = %d, want unmapped", mapping.CapacityColumn)
+}
+
+func TestImportMappingFromFormProblemsPreserveSnapshotView(t *testing.T) {
+	headers := []string{"name", "address"}
+	snapshot := importer.Snapshot{
+		Kind:    importer.KindParticipant,
+		Grid:    importer.Grid{Headers: headers},
+		Mapping: importer.AutoMap(headers),
 	}
-	if len(mapping.Ignored) != 1 || mapping.Ignored[0] != 2 {
-		t.Fatalf("Ignored = %#v, want [2]", mapping.Ignored)
+	request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
+		"column_0": {"name"}, "column_1": {"name"},
+	})
+	_, problems := importMappingFromForm(request, snapshot)
+
+	wantProblems := []string{
+		"Name is mapped to more than one column — pick one.",
+		"Choose a column for Address.",
+	}
+	if !slices.Equal(problems, wantProblems) {
+		t.Fatalf("problems = %#v, want %#v", problems, wantProblems)
+	}
+	view := newImportMappingView(snapshot, problems)
+	if view.Columns[1].Selected != string(importer.FieldAddress) {
+		t.Fatalf("address selection = %q, want snapshot selection %q", view.Columns[1].Selected, importer.FieldAddress)
 	}
 }
 
