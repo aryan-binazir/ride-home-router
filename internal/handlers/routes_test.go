@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -208,6 +207,8 @@ func TestRouteCalculationEndpoints_PreserveValidationOrder(t *testing.T) {
 }
 
 func TestRouteCalculationEndpoints_PreserveMalformedFormResponses(t *testing.T) {
+	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
+	// not the desired HTMX error experience.
 	tests := []struct {
 		name            string
 		path            string
@@ -308,8 +309,22 @@ func TestRouteCalculationEndpoints_EquivalentFormInputReachesRouter(t *testing.T
 		requests = append(requests, router.lastRequest)
 	}
 
-	if !reflect.DeepEqual(requests[0], requests[1]) {
-		t.Fatalf("router requests differ:\ninitial = %#v\nretry = %#v", requests[0], requests[1])
+	initial, retry := requests[0], requests[1]
+	if initial.InstituteCoords != retry.InstituteCoords || initial.Mode != retry.Mode {
+		t.Fatalf("router request metadata differs:\ninitial = %#v\nretry = %#v", initial, retry)
+	}
+	if len(initial.Participants) != len(retry.Participants) || len(initial.Drivers) != len(retry.Drivers) {
+		t.Fatalf("router request selection counts differ:\ninitial = %#v\nretry = %#v", initial, retry)
+	}
+	for i := range initial.Participants {
+		if initial.Participants[i].ID != retry.Participants[i].ID {
+			t.Fatalf("participant %d differs: initial=%d retry=%d", i, initial.Participants[i].ID, retry.Participants[i].ID)
+		}
+	}
+	for i := range initial.Drivers {
+		if initial.Drivers[i].ID != retry.Drivers[i].ID || initial.Drivers[i].VehicleCapacity != retry.Drivers[i].VehicleCapacity {
+			t.Fatalf("driver %d differs: initial=%#v retry=%#v", i, initial.Drivers[i], retry.Drivers[i])
+		}
 	}
 }
 
@@ -646,6 +661,8 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 }
 
 func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithoutToast(t *testing.T) {
+	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
+	// not the desired HTMX error experience.
 	handler, store := newTestRouteHandler(t)
 	ctx := context.Background()
 

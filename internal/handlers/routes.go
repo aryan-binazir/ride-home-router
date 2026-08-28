@@ -24,7 +24,6 @@ type CalculateRoutesRequest struct {
 
 // routeIntakePolicy names the observable differences kept for endpoint compatibility.
 type routeIntakePolicy struct {
-	logPath                  string
 	validateSelectionsFirst  bool
 	alwaysRenderResultsHTML  bool
 	warnOnShortage           bool
@@ -71,7 +70,6 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 // HandleCalculateRoutes handles POST /api/v1/routes/calculate
 func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) {
 	var req CalculateRoutesRequest
-	var form url.Values
 
 	contentType := r.Header.Get(httpx.HeaderContentType)
 	if httpx.HasFormContentType(contentType) {
@@ -81,9 +79,8 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			h.handleValidationError(w, messageInvalidFormData)
 			return
 		}
-		form = r.Form
 		var err error
-		req, err = parseRouteForm(form)
+		req, err = parseRouteForm(r.Form)
 		if err != nil {
 			h.handleValidationErrorHTMX(w, r, err.Error())
 			return
@@ -97,8 +94,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	h.runRouteIntake(w, r, req, form, routeIntakePolicy{
-		logPath:                  "/api/v1/routes/calculate",
+	h.runRouteIntake(w, r, req, routeIntakePolicy{
 		validateSelectionsFirst:  true,
 		alwaysRenderResultsHTML:  false,
 		warnOnShortage:           true,
@@ -120,8 +116,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 		return
 	}
 
-	h.runRouteIntake(w, r, req, r.Form, routeIntakePolicy{
-		logPath:                  "/api/v1/routes/calculate-with-org-vehicles",
+	h.runRouteIntake(w, r, req, routeIntakePolicy{
 		validateSelectionsFirst:  false,
 		alwaysRenderResultsHTML:  true,
 		warnOnShortage:           false,
@@ -129,15 +124,15 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 	})
 }
 
-func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req CalculateRoutesRequest, form url.Values, policy routeIntakePolicy) {
+func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req CalculateRoutesRequest, policy routeIntakePolicy) {
 	validateSelections := func() bool {
 		if len(req.ParticipantIDs) == 0 {
-			log.Printf("[HTTP] POST %s: missing participants", policy.logPath)
+			log.Printf("[HTTP] POST %s: missing participants", r.URL.Path)
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
 			return false
 		}
 		if len(req.DriverIDs) == 0 {
-			log.Printf("[HTTP] POST %s: missing drivers", policy.logPath)
+			log.Printf("[HTTP] POST %s: missing drivers", r.URL.Path)
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 			return false
 		}
@@ -157,7 +152,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
 	}
-	orgVehicleAssignments, err := parseOrgVehicleAssignments(form, req.DriverIDs)
+	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, req.DriverIDs)
 	if err != nil {
 		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
@@ -172,7 +167,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 	}
 
 	log.Printf("[HTTP] POST %s: participants=%d drivers=%d org_assignments=%d mode=%s",
-		policy.logPath, len(req.ParticipantIDs), len(req.DriverIDs), len(orgVehicleAssignments), mode)
+		r.URL.Path, len(req.ParticipantIDs), len(req.DriverIDs), len(orgVehicleAssignments), mode)
 
 	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
 		ParticipantIDs:        req.ParticipantIDs,
@@ -198,14 +193,14 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		return
 	}
 	if outcome.Kind == routeCalculationRouteFailure {
-		log.Printf("[ERROR] POST %s: route calculation failed: err=%v", policy.logPath, outcome.Err)
+		log.Printf("[ERROR] POST %s: route calculation failed: err=%v", r.URL.Path, outcome.Err)
 		h.handleRouteCalculationError(w, r, outcome.Err)
 		return
 	}
 	if outcome.Kind == routeCalculationShortage {
 		shortage := outcome.Shortage
 		log.Printf("[ERROR] POST %s: routing failed: participants=%d unassigned=%d capacity=%d reason=%s",
-			policy.logPath, shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, shortage.RoutingError.Reason)
+			r.URL.Path, shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, shortage.RoutingError.Reason)
 		if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 			if policy.warnOnShortage {
 				h.setHTMXToast(w, messageNotEnoughCapacity(shortage.RoutingError.TotalParticipants-shortage.RoutingError.TotalCapacity), toastTypeWarning)
@@ -232,7 +227,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 	result := outcome.Result
 	session := outcome.Session
 	log.Printf("[HTTP] POST %s: routes calculated: drivers=%d org_vehicles=%d total_distance=%.0f",
-		policy.logPath, result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
+		r.URL.Path, result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
 	if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
