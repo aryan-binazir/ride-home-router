@@ -20,10 +20,27 @@ var fieldOrder = []Field{
 	FieldCapacity,
 }
 
+var requiredFields = []Field{FieldName, FieldAddress}
+
+// FieldColumn binds one roster field to a zero-based grid column.
+type FieldColumn struct {
+	Field  Field
+	Column int
+}
+
+// MappingTransition describes a mapping after ordered assignments. DuplicateFields
+// and MissingRequired are advisory facts for adapters; Validate remains the final
+// authority for whether a mapping can produce importable rows.
+type MappingTransition struct {
+	Mapping         Mapping
+	DuplicateFields []Field
+	MissingRequired []Field
+}
+
 // AutoMap maps exact normalized header aliases. Ambiguous aliases remain
 // unmapped so the caller must choose explicitly.
 func AutoMap(headers []string) Mapping {
-	m := emptyMapping()
+	m := NewMapping()
 	claimed := make(map[int]bool)
 	for _, field := range fieldOrder {
 		var matches []int
@@ -52,7 +69,8 @@ func AutoMap(headers []string) Mapping {
 	return m
 }
 
-func emptyMapping() Mapping {
+// NewMapping returns a mapping with every field unbound.
+func NewMapping() Mapping {
 	return Mapping{
 		NameColumn:        UnmappedColumn,
 		AddressColumn:     UnmappedColumn,
@@ -61,6 +79,64 @@ func emptyMapping() Mapping {
 		LongitudeColumn:   UnmappedColumn,
 		CapacityColumn:    UnmappedColumn,
 		Ambiguous:         make(map[Field][]int),
+	}
+}
+
+// Assign applies field assignments in order to a copy of the mapping and
+// recomputes which in-range columns are ignored. The first assignment for a
+// field wins. Column range and cross-field ownership remain Validate concerns.
+func (m Mapping) Assign(assignments []FieldColumn, width int) MappingTransition {
+	next := copyMapping(m)
+	assigned := make(map[Field]bool, len(assignments))
+	reportedDuplicate := make(map[Field]bool)
+	var duplicateFields []Field
+
+	for _, assignment := range assignments {
+		if !knownField(assignment.Field) {
+			continue
+		}
+		if assigned[assignment.Field] {
+			if !reportedDuplicate[assignment.Field] {
+				reportedDuplicate[assignment.Field] = true
+				duplicateFields = append(duplicateFields, assignment.Field)
+			}
+			continue
+		}
+		assigned[assignment.Field] = true
+		next.set(assignment.Field, assignment.Column)
+		if assignment.Column != UnmappedColumn {
+			delete(next.Ambiguous, assignment.Field)
+		}
+	}
+
+	claimed := make(map[int]bool)
+	for _, binding := range next.columns() {
+		if binding.column >= 0 {
+			claimed[binding.column] = true
+		}
+	}
+	for _, columns := range next.Ambiguous {
+		for _, column := range columns {
+			claimed[column] = true
+		}
+	}
+	next.Ignored = nil
+	for column := range width {
+		if !claimed[column] {
+			next.Ignored = append(next.Ignored, column)
+		}
+	}
+
+	var missingRequired []Field
+	for _, field := range requiredFields {
+		if next.column(field) == UnmappedColumn {
+			missingRequired = append(missingRequired, field)
+		}
+	}
+	return MappingTransition{
+		Mapping:         next,
+		DuplicateFields: duplicateFields,
+		MissingRequired: missingRequired,
 	}
 }
 
@@ -78,6 +154,25 @@ func (m *Mapping) set(field Field, column int) {
 		m.LongitudeColumn = column
 	case FieldCapacity:
 		m.CapacityColumn = column
+	}
+}
+
+func (m Mapping) column(field Field) int {
+	switch field {
+	case FieldName:
+		return m.NameColumn
+	case FieldAddress:
+		return m.AddressColumn
+	case FieldAddressName:
+		return m.AddressNameColumn
+	case FieldLatitude:
+		return m.LatitudeColumn
+	case FieldLongitude:
+		return m.LongitudeColumn
+	case FieldCapacity:
+		return m.CapacityColumn
+	default:
+		return UnmappedColumn
 	}
 }
 
@@ -104,6 +199,15 @@ func aliasSet(values ...string) map[string]struct{} {
 		set[value] = struct{}{}
 	}
 	return set
+}
+
+func knownField(field Field) bool {
+	switch field {
+	case FieldName, FieldAddress, FieldAddressName, FieldLatitude, FieldLongitude, FieldCapacity:
+		return true
+	default:
+		return false
+	}
 }
 
 // NormalizeRosterText canonicalizes user-entered roster text for exact-match

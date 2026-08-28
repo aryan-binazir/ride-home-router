@@ -13,6 +13,7 @@ import (
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -94,6 +95,37 @@ func TestImportHTTPHappyPath(t *testing.T) {
 	}
 	if len(participants) != 2 || participants[0].Name != "Alex" || participants[1].Name != "Blair" {
 		t.Fatalf("committed participants = %#v", participants)
+	}
+}
+
+func TestImportHTTPPartialMappingResolvesAmbiguityAndRecomputesIgnored(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	upload := newImportUploadRequest(t, "participants.csv", "name,full name,address,notes\nAlex,Alex Ruiz,1 Main St,friend\n", importer.KindParticipant, "")
+	uploadRecorder := httptest.NewRecorder()
+	handler.HandleCreateImport(uploadRecorder, upload)
+	if uploadRecorder.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d body=%q", uploadRecorder.Code, uploadRecorder.Body.String())
+	}
+	created := decodeImportSnapshot(t, uploadRecorder)
+	if !slices.Equal(created.Mapping.Ambiguous[importer.FieldName], []int{0, 1}) {
+		t.Fatalf("initial name ambiguity = %#v, want [0 1]", created.Mapping.Ambiguous[importer.FieldName])
+	}
+
+	request := newImportJSONRequest(t, http.MethodPut, "/api/v1/imports/"+created.ID+"/mapping", map[string]int{"name_column": 1})
+	recorder := httptest.NewRecorder()
+	handler.HandleImportSession(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("mapping status = %d body=%q", recorder.Code, recorder.Body.String())
+	}
+	updated := decodeImportSnapshot(t, recorder)
+	if updated.Mapping.NameColumn != 1 || updated.Mapping.AddressColumn != 2 {
+		t.Fatalf("partial mapping = %#v", updated.Mapping)
+	}
+	if _, ok := updated.Mapping.Ambiguous[importer.FieldName]; ok {
+		t.Fatalf("resolved ambiguity remains: %#v", updated.Mapping.Ambiguous)
+	}
+	if !slices.Equal(updated.Mapping.Ignored, []int{0, 3}) {
+		t.Fatalf("ignored = %#v, want [0 3]", updated.Mapping.Ignored)
 	}
 }
 

@@ -417,47 +417,24 @@ func newImportCommitResultJSON(result importer.CommitResult) importCommitResultJ
 }
 
 func mergeImportMapping(snapshot importer.Snapshot, request importMappingRequest) importer.Mapping {
-	mapping := snapshot.Mapping
 	updates := []struct {
-		field  importer.Field
-		value  *int
-		target *int
+		field importer.Field
+		value *int
 	}{
-		{importer.FieldName, request.NameColumn, &mapping.NameColumn},
-		{importer.FieldAddress, request.AddressColumn, &mapping.AddressColumn},
-		{importer.FieldAddressName, request.AddressNameColumn, &mapping.AddressNameColumn},
-		{importer.FieldLatitude, request.LatitudeColumn, &mapping.LatitudeColumn},
-		{importer.FieldLongitude, request.LongitudeColumn, &mapping.LongitudeColumn},
-		{importer.FieldCapacity, request.CapacityColumn, &mapping.CapacityColumn},
+		{importer.FieldName, request.NameColumn},
+		{importer.FieldAddress, request.AddressColumn},
+		{importer.FieldAddressName, request.AddressNameColumn},
+		{importer.FieldLatitude, request.LatitudeColumn},
+		{importer.FieldLongitude, request.LongitudeColumn},
+		{importer.FieldCapacity, request.CapacityColumn},
 	}
+	assignments := make([]importer.FieldColumn, 0, len(updates))
 	for _, update := range updates {
-		if update.value == nil {
-			continue
-		}
-		*update.target = *update.value
-		if *update.value != importer.UnmappedColumn {
-			delete(mapping.Ambiguous, update.field)
+		if update.value != nil {
+			assignments = append(assignments, importer.FieldColumn{Field: update.field, Column: *update.value})
 		}
 	}
-
-	claimed := make(map[int]bool)
-	for _, column := range []int{mapping.NameColumn, mapping.AddressColumn, mapping.AddressNameColumn, mapping.LatitudeColumn, mapping.LongitudeColumn, mapping.CapacityColumn} {
-		if column >= 0 {
-			claimed[column] = true
-		}
-	}
-	for _, columns := range mapping.Ambiguous {
-		for _, column := range columns {
-			claimed[column] = true
-		}
-	}
-	mapping.Ignored = mapping.Ignored[:0]
-	for column := range snapshot.Grid.Headers {
-		if !claimed[column] {
-			mapping.Ignored = append(mapping.Ignored, column)
-		}
-	}
-	return mapping
+	return snapshot.Mapping.Assign(assignments, len(snapshot.Grid.Headers)).Mapping
 }
 
 func decodeImportJSON(r *http.Request, destination any) error {
