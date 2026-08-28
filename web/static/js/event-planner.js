@@ -1536,7 +1536,7 @@
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
-    // Replace the server date with the browser's calendar date after every swap.
+    // Set the browser's date on load, route results, session restore, and swaps.
     function applyLocalEventDate(scope, now = new Date()) {
         if (!scope || typeof scope.querySelectorAll !== 'function') return 0;
         const inputs = scope.querySelectorAll('input[type="date"][name="event_date"]');

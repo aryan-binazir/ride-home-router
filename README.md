@@ -26,7 +26,7 @@ GOOGLE_MAPS_API_KEY=... make serve
 
 Open <http://127.0.0.1:8080>.
 
-`make postgres-up` creates development and test databases on port 5434. `make postgres-down` removes the container.
+`make postgres-up` creates development and test databases on port 5434. `make postgres-down` deletes the container and both databases.
 
 ## Configuration
 
@@ -47,7 +47,7 @@ The Docker image runs one static binary as a non-root user and checks `/api/v1/h
 
 Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
 
-Keep the app and Postgres private. Put `cloudflared` or another authenticating proxy in front. Back up Postgres with your provider's tools.
+Keep the app and Postgres private. Use Cloudflare Tunnel with Access configured, or another authenticating proxy. Back up Postgres with your provider's tools.
 
 ## Use
 
@@ -57,7 +57,7 @@ Keep the app and Postgres private. Put `cloudflared` or another authenticating p
 4. Select riders, drivers, mode, time, and van assignments.
 5. Calculate, adjust, copy, and optionally save the routes.
 
-Pickup routes end at the activity. Dropoff routes start there. The solver respects capacity, keeps households together when possible, uses selected drivers, groups routes by direction, then compares completion time, detour, and drive time. It is deterministic, not globally optimal.
+Pickup routes end at the activity. Dropoff routes start there. The solver respects capacity, keeps households together when possible, uses selected drivers, minimizes corridor spread, then compares completion time, detour, and drive time. It is deterministic, not globally optimal.
 
 ## Verify
 

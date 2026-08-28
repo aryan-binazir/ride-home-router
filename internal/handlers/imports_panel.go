@@ -339,7 +339,7 @@ func importCommitMessage(result importer.CommitResult) string {
 	return fmt.Sprintf("%d imported, %d skipped as duplicates", result.Created, result.SkippedDuplicate)
 }
 
-// writeImportError returns the logical status even when HTMX needs HTTP 200 to swap.
+// writeImportError returns the emitted status; HTMX errors use 200 so htmx swaps.
 func (h *Handler) writeImportError(w http.ResponseWriter, r *http.Request, sessionID string, status int, code, message string, details any) int {
 	if h.wantsImportPanel(r) {
 		h.setHTMXToast(w, message, toastTypeError)

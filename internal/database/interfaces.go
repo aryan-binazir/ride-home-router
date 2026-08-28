@@ -31,8 +31,8 @@ type ParticipantRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
-	// CreateBatch allows selected preview-known duplicates and skips new ones.
-	// Missing allowExistingDuplicate entries are false.
+	// CreateBatch is atomic. It allows selected preview-known duplicates and
+	// skips rows that become duplicates after preview. Missing flags are false.
 	CreateBatch(ctx context.Context, participants []*models.Participant, allowExistingDuplicate []bool) (BatchCreateResult, error)
 	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
@@ -46,8 +46,8 @@ type DriverRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
-	// CreateBatch allows selected preview-known duplicates and skips new ones.
-	// Missing allowExistingDuplicate entries are false.
+	// CreateBatch is atomic. It allows selected preview-known duplicates and
+	// skips rows that become duplicates after preview. Missing flags are false.
 	CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (BatchCreateResult, error)
 	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)

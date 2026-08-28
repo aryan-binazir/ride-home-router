@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// ErrDistanceCalculationFailed reports an OSRM failure.
+// ErrDistanceCalculationFailed reports a distance-provider failure.
 type ErrDistanceCalculationFailed struct {
 	Origin models.Coordinates
 	Dest   models.Coordinates

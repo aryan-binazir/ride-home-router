@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// BalancedRouter prioritizes driver use, route direction, then time tiers.
+// BalancedRouter prioritizes driver use, corridor spread, then time tiers.
 type BalancedRouter struct {
 	distanceCalc distance.SolveSource
 }
