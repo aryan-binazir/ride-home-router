@@ -57,7 +57,7 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 	if idStr := form.Get("activity_location_id"); idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			return CalculateRoutesRequest{}, errors.New(messageChooseValidActivityLocation)
+			return CalculateRoutesRequest{}, err
 		}
 		req.ActivityLocationID = id
 	}
@@ -82,7 +82,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		var err error
 		req, err = parseRouteForm(r.Form)
 		if err != nil {
-			h.handleValidationErrorHTMX(w, r, err.Error())
+			h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
 			return
 		}
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
@@ -112,7 +112,7 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 
 	req, err := parseRouteForm(r.Form)
 	if err != nil {
-		h.handleValidationErrorHTMX(w, r, err.Error())
+		h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
 		return
 	}
 
