@@ -93,8 +93,15 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 			).Scan(&id)
 			return id, err
 		},
-		createdFields: func(p *models.Participant) rosterCreatedFields {
-			return rosterCreatedFields{id: &p.ID, createdAt: &p.CreatedAt, updatedAt: &p.UpdatedAt}
+		updateRow: func(ctx context.Context, tx *sql.Tx, p *models.Participant, now time.Time) (sql.Result, error) {
+			return tx.ExecContext(ctx, `
+				UPDATE participants
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6
+				WHERE id = $7`,
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID)
+		},
+		fields: func(p *models.Participant) rosterFields {
+			return rosterFields{id: &p.ID, createdAt: &p.CreatedAt, updatedAt: &p.UpdatedAt}
 		},
 	}
 }
@@ -112,41 +119,11 @@ func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.
 }
 
 func (r *participantRepository) Update(ctx context.Context, p *models.Participant) (*models.Participant, error) {
-	return r.update(ctx, p, nil, false)
+	return r.writes().updateWithLabels(ctx, p, nil, false)
 }
 
 func (r *participantRepository) UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error) {
-	return r.update(ctx, p, labelIDs, true)
-}
-
-func (r *participantRepository) update(ctx context.Context, p *models.Participant, labelIDs []int64, replaceLabels bool) (*models.Participant, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin participant transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	p.UpdatedAt = time.Now()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE participants
-		SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6
-		WHERE id = $7`,
-		p.Name, p.Address, p.AddressName, p.Lat, p.Lng, p.UpdatedAt, p.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update participant: %w", err)
-	}
-	if err := rowsAffectedOrNotFound(result); err != nil {
-		return nil, err
-	}
-	if replaceLabels {
-		if err := replaceLabelMemberships(ctx, tx, participantLabels, p.ID, labelIDs); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit participant transaction: %w", err)
-	}
-	return p, nil
+	return r.writes().updateWithLabels(ctx, p, labelIDs, true)
 }
 
 func (r *participantRepository) Delete(ctx context.Context, id int64) error {

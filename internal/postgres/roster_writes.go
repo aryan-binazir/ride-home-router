@@ -10,22 +10,23 @@ import (
 	"time"
 )
 
-type rosterCreatedFields struct {
+type rosterFields struct {
 	id        *int64
 	createdAt *time.Time
 	updatedAt *time.Time
 }
 
-// rosterWriteCore owns the advisory-locked transaction sequence shared by
-// participant and driver creates. Entity-specific SQL stays in each repository.
+// rosterWriteCore owns the transaction sequences shared by participant and
+// driver writes. Entity-specific SQL stays in each repository.
 type rosterWriteCore[T any] struct {
-	db            *sql.DB
-	noun          string
-	table         string
-	labels        membershipTable
-	key           func(*T) string
-	insert        func(context.Context, *sql.Tx, *T, time.Time) (int64, error)
-	createdFields func(*T) rosterCreatedFields
+	db        *sql.DB
+	noun      string
+	table     string
+	labels    membershipTable
+	key       func(*T) string
+	insert    func(context.Context, *sql.Tx, *T, time.Time) (int64, error)
+	updateRow func(context.Context, *sql.Tx, *T, time.Time) (sql.Result, error)
+	fields    func(*T) rosterFields
 }
 
 func (w rosterWriteCore[T]) createBatch(ctx context.Context, entities []*T, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
@@ -77,7 +78,7 @@ func (w rosterWriteCore[T]) createBatch(ctx context.Context, entities []*T, allo
 		return database.BatchCreateResult{}, fmt.Errorf("failed to commit %s batch transaction: %w", w.noun, err)
 	}
 	for _, row := range createdRows {
-		fields := w.createdFields(row.entity)
+		fields := w.fields(row.entity)
 		*fields.id = row.id
 		*fields.createdAt = row.createdAt
 		*fields.updatedAt = row.createdAt
@@ -96,7 +97,7 @@ func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, lab
 		return nil, err
 	}
 	now := time.Now()
-	fields := w.createdFields(entity)
+	fields := w.fields(entity)
 	*fields.createdAt = now
 	*fields.updatedAt = now
 	id, err := w.insert(ctx, tx, entity, now)
@@ -106,6 +107,34 @@ func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, lab
 	*fields.id = id
 	if err := insertLabelMemberships(ctx, tx, w.labels, id, labelIDs); err != nil {
 		return nil, fmt.Errorf("failed to insert %s label memberships: %w", w.noun, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit %s transaction: %w", w.noun, err)
+	}
+	return entity, nil
+}
+
+func (w rosterWriteCore[T]) updateWithLabels(ctx context.Context, entity *T, labelIDs []int64, replaceLabels bool) (*T, error) {
+	tx, err := w.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin %s transaction: %w", w.noun, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now()
+	fields := w.fields(entity)
+	*fields.updatedAt = now
+	result, err := w.updateRow(ctx, tx, entity, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update %s: %w", w.noun, err)
+	}
+	if err := rowsAffectedOrNotFound(result); err != nil {
+		return nil, err
+	}
+	if replaceLabels {
+		if err := replaceLabelMemberships(ctx, tx, w.labels, *fields.id, labelIDs); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit %s transaction: %w", w.noun, err)

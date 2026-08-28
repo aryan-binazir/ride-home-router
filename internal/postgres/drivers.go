@@ -93,8 +93,15 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 			).Scan(&id)
 			return id, err
 		},
-		createdFields: func(d *models.Driver) rosterCreatedFields {
-			return rosterCreatedFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}
+		updateRow: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (sql.Result, error) {
+			return tx.ExecContext(ctx, `
+				UPDATE drivers
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
+				WHERE id = $8`,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
+		},
+		fields: func(d *models.Driver) rosterFields {
+			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}
 		},
 	}
 }
@@ -112,41 +119,11 @@ func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Drive
 }
 
 func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*models.Driver, error) {
-	return r.update(ctx, d, nil, false)
+	return r.writes().updateWithLabels(ctx, d, nil, false)
 }
 
 func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
-	return r.update(ctx, d, labelIDs, true)
-}
-
-func (r *driverRepository) update(ctx context.Context, d *models.Driver, labelIDs []int64, replaceLabels bool) (*models.Driver, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin driver transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	d.UpdatedAt = time.Now()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE drivers
-		SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
-		WHERE id = $8`,
-		d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update driver: %w", err)
-	}
-	if err := rowsAffectedOrNotFound(result); err != nil {
-		return nil, err
-	}
-	if replaceLabels {
-		if err := replaceLabelMemberships(ctx, tx, driverLabels, d.ID, labelIDs); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit driver transaction: %w", err)
-	}
-	return d, nil
+	return r.writes().updateWithLabels(ctx, d, labelIDs, true)
 }
 
 func (r *driverRepository) Delete(ctx context.Context, id int64) error {
