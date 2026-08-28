@@ -56,7 +56,7 @@ func LoopbackHostnames() []string {
 	return slices.Clone(loopbackHostnames[:])
 }
 
-// HasSameOrigin requires Origin to match Host when Origin is present.
+// HasSameOrigin requires Origin's host to match Host when Origin is present.
 // It accepts HTTP and HTTPS for TLS-terminating proxies.
 func HasSameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")

@@ -45,7 +45,7 @@ const (
 	FieldCapacity    Field = "capacity"
 )
 
-// Mapping binds roster fields to zero-based columns.
+// Mapping binds fields to columns; UnmappedColumn leaves a field unbound.
 type Mapping struct {
 	NameColumn        int
 	AddressColumn     int
@@ -89,7 +89,7 @@ type Existing struct {
 	Lng     float64
 }
 
-// Row is one validated roster row.
+// Row is validated; HasCoordinates distinguishes (0,0) from missing values.
 type Row struct {
 	SourceRow int
 

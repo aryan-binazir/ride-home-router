@@ -594,7 +594,7 @@
                 if (json.error && json.error.message) return json.error.message;
                 if (json.message) return json.message;
             } catch (e) {
-                // Use the plain response.
+                // Ignore the parse failure; strip HTML below.
             }
             return response.replace(/<[^>]*>/g, '').trim() || 'An error occurred';
         }
@@ -615,7 +615,7 @@
                     }
                 },
                 openUrl: async url => {
-                    // Open synchronously so popup blockers allow the new tab.
+                    // Open synchronously; noopener returns null even on success.
                     window.open(url, '_blank', 'noopener,noreferrer');
                 },
                 notify: showToast,

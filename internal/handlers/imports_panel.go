@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	importIgnoreValue = "ignore"
-	importPanelViewValue = "panel"
+	importIgnoreValue             = "ignore"
+	importPanelViewValue          = "panel"
 	maxImportPanelFormBytes int64 = 1 << 20
 )
 
+// wantsImportPanel needs view=panel because JSON uploads also set HX-Request.
 func (h *Handler) wantsImportPanel(r *http.Request) bool {
 	return h.isHTMX(r) && r.URL.Query().Get("view") == importPanelViewValue
 }

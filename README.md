@@ -11,13 +11,13 @@ Self-hosted pickup and dropoff route planning for events.
 
 The browser is the client. A Go server provides the UI and API. Postgres stores rosters, settings, cached distances, and saved events. There is no Wails app or offline client.
 
-The server sends address searches to Nominatim and coordinates to Google Routes. Active route edits and spreadsheet imports stay in server memory and are lost on restart.
+The server sends address searches to Nominatim and coordinates to Google Routes. Settings are shared per deployment. Active route edits and spreadsheet imports stay in memory and are lost on restart.
 
 There are no user accounts. Run the server behind an authenticating proxy such as Cloudflare Access. Do not expose it directly to the internet.
 
 ## Run locally
 
-Requires Go 1.27 and either Postgres 18 or Podman. Node 22 is only needed for tests.
+Requires Go 1.27. Podman runs the local Postgres 18 container. Node 22 is only needed for tests.
 
 ```bash
 make postgres-up
@@ -26,33 +26,26 @@ GOOGLE_MAPS_API_KEY=... make serve
 
 Open <http://127.0.0.1:8080>.
 
-`make postgres-up` creates development and test databases on port 5434. `make postgres-down` deletes the container and its data.
+`make postgres-up` creates development and test databases on port 5434. `make postgres-down` removes the container.
 
 ## Configuration
 
 | Value | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. The Makefile supplies a local default. |
-| `GOOGLE_MAPS_API_KEY` | Google Routes API key. Required to calculate routes. |
+| `GOOGLE_MAPS_API_KEY` | Key from a project with the Routes API enabled. Required to calculate routes. |
 | `PORT` | Loopback port when `--addr` is absent. Default: `8080`. |
 | `--addr` | Listen address. |
 | `--allowed-hosts` | Proxy hostnames or IPs accepted in `Host` and `Origin`. Required for non-loopback listeners. |
 | `ALLOWED_HOSTS` | Docker entrypoint value for `--allowed-hosts`. |
 
-Allowed hosts omit schemes, ports, and paths. Host checks are not authentication.
+Allowed hosts omit schemes, ports, and paths. Unlisted hosts get `403`; add the platform health-check hostname when needed. Host checks are not authentication.
 
 ## Deploy
 
 The Docker image runs one static binary as a non-root user and checks `/api/v1/health`.
 
-Set:
-
-```text
-DATABASE_URL
-ALLOWED_HOSTS
-GOOGLE_MAPS_API_KEY
-PORT
-```
+Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
 
 Keep the app and Postgres private. Put `cloudflared` or another authenticating proxy in front. Back up Postgres with your provider's tools.
 
@@ -64,7 +57,7 @@ Keep the app and Postgres private. Put `cloudflared` or another authenticating p
 4. Select riders, drivers, mode, time, and van assignments.
 5. Calculate, adjust, copy, and optionally save the routes.
 
-Pickup routes end at the activity. Dropoff routes start there. The solver respects capacity, keeps households together when possible, and balances participant completion time before driver detour and total drive time. It is deterministic, not globally optimal.
+Pickup routes end at the activity. Dropoff routes start there. The solver respects capacity, keeps households together when possible, uses selected drivers, groups routes by direction, then compares completion time, detour, and drive time. It is deterministic, not globally optimal.
 
 ## Verify
 
@@ -75,7 +68,7 @@ make check-unit  # skips database-backed tests
 
 ## Data
 
-Postgres stores names, addresses, coordinates, settings, cached distances, and event history. Spreadsheet parsing happens on the server. Ride Home Router has no analytics or tracking.
+Postgres stores names, addresses, coordinates, settings, cached distances, and event history. Spreadsheet parsing happens on the server; rows with coordinates skip geocoding. Ride Home Router has no analytics or tracking.
 
 The public Nominatim service limits requests to one per second. Google Routes billing and quotas apply.
 

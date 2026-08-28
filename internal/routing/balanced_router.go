@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// BalancedRouter assigns riders, then improves the complete route set.
+// BalancedRouter prioritizes driver use, route direction, then time tiers.
 type BalancedRouter struct {
 	distanceCalc distance.SolveSource
 }
@@ -25,7 +25,7 @@ const (
 	maxNonemptyRouteSearchNodes       = 10000
 )
 
-// NewBalancedRouter creates a bounded-search router.
+// NewBalancedRouter creates a bounded search with the same priority order.
 func NewBalancedRouter(distanceCalc distance.SolveSource) Router {
 	return &BalancedRouter{
 		distanceCalc: distanceCalc,
