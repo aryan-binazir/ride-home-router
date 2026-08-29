@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
@@ -529,11 +528,6 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Driver not found for restore: id=%d", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
-			return
-		}
-		if errors.Is(err, database.ErrDuplicate) {
-			log.Printf("[HTTP] Driver restore conflicts with live duplicate: id=%d", id)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "CONFLICT", messageDriverRestoreDuplicate)
 			return
 		}
 		log.Printf("[ERROR] Failed to restore driver: id=%d err=%v", id, err)

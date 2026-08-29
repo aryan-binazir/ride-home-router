@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
@@ -495,11 +494,6 @@ func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Reques
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found for restore: id=%d", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
-			return
-		}
-		if errors.Is(err, database.ErrDuplicate) {
-			log.Printf("[HTTP] Participant restore conflicts with live duplicate: id=%d", id)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "CONFLICT", messageParticipantRestoreDuplicate)
 			return
 		}
 		log.Printf("[ERROR] Failed to restore participant: id=%d err=%v", id, err)

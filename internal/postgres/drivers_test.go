@@ -118,7 +118,7 @@ func TestDriverRepositorySoftDeleteAndRestore(t *testing.T) {
 	}
 }
 
-func TestDriverRepositoryRestoreRejectsLiveDuplicate(t *testing.T) {
+func TestDriverRepositoryRestoreAllowsLiveDuplicate(t *testing.T) {
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	driver, err := store.Drivers().Create(ctx, &models.Driver{
@@ -131,17 +131,26 @@ func TestDriverRepositoryRestoreRejectsLiveDuplicate(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	result, err := store.Drivers().CreateBatch(ctx, []*models.Driver{{
+	imported := &models.Driver{
 		Name: "  ARCHIVED driver ", Address: "1  Archive Way", Lat: 41, Lng: -72, VehicleCapacity: 6,
-	}}, nil)
+	}
+	result, err := store.Drivers().CreateBatch(ctx, []*models.Driver{imported}, nil)
 	if err != nil || result.Created != 1 {
 		t.Fatalf("CreateBatch() = %#v, %v; want one imported live duplicate", result, err)
 	}
-	if err := store.Drivers().Restore(ctx, driver.ID); !errors.Is(err, database.ErrDuplicate) {
-		t.Fatalf("Restore() error = %v, want ErrDuplicate", err)
+	if err := store.Drivers().Restore(ctx, driver.ID); err != nil {
+		t.Fatalf("Restore() error = %v", err)
 	}
-	deleted, err := store.Drivers().ListDeleted(ctx)
-	if err != nil || len(deleted) != 1 || deleted[0].ID != driver.ID {
-		t.Fatalf("ListDeleted() = %#v, %v; want original row to remain archived", deleted, err)
+	live, err := store.Drivers().List(ctx, "")
+	if err != nil || len(live) != 2 {
+		t.Fatalf("List() = %#v, %v; want imported and restored rows live", live, err)
+	}
+	for _, id := range []int64{driver.ID, imported.ID} {
+		if _, err := store.Drivers().GetByID(ctx, id); err != nil {
+			t.Fatalf("GetByID(%d) error = %v; want live row", id, err)
+		}
+	}
+	if deleted, err := store.Drivers().ListDeleted(ctx); err != nil || len(deleted) != 0 {
+		t.Fatalf("ListDeleted() = %#v, %v; want none", deleted, err)
 	}
 }

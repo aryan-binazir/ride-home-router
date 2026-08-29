@@ -158,19 +158,18 @@ func TestSoftDeleteRosterRestore_RejectsNonPositiveIDs(t *testing.T) {
 	}
 }
 
-func TestSoftDeleteRosterRestore_LiveDuplicateReturnsConflict(t *testing.T) {
+func TestSoftDeleteRosterRestore_AllowsLiveDuplicate(t *testing.T) {
 	tests := []struct {
-		name    string
-		message string
-		prepare func(*testing.T, *postgres.Store) int64
-		restore func(*Handler, http.ResponseWriter, *http.Request)
-		path    string
+		name       string
+		prepare    func(*testing.T, *postgres.Store) (int64, int64)
+		assertLive func(*testing.T, *postgres.Store, int64, int64)
+		restore    func(*Handler, http.ResponseWriter, *http.Request)
+		path       string
 	}{
 		{
-			name:    "participant",
-			message: messageParticipantRestoreDuplicate,
-			path:    "/api/v1/participants/restore",
-			prepare: func(t *testing.T, store *postgres.Store) int64 {
+			name: "participant",
+			path: "/api/v1/participants/restore",
+			prepare: func(t *testing.T, store *postgres.Store) (int64, int64) {
 				participant, err := store.Participants().Create(t.Context(), &models.Participant{
 					Name: "Duplicate Rider", Address: "1 Duplicate Road", Lat: 40, Lng: -73,
 				})
@@ -180,20 +179,32 @@ func TestSoftDeleteRosterRestore_LiveDuplicateReturnsConflict(t *testing.T) {
 				if err := store.Participants().Delete(t.Context(), participant.ID); err != nil {
 					t.Fatalf("archive participant: %v", err)
 				}
-				if _, err := store.Participants().Create(t.Context(), &models.Participant{
+				imported := &models.Participant{
 					Name: participant.Name, Address: participant.Address, Lat: 41, Lng: -72,
-				}); err != nil {
-					t.Fatalf("create live participant duplicate: %v", err)
 				}
-				return participant.ID
+				result, err := store.Participants().CreateBatch(t.Context(), []*models.Participant{imported}, nil)
+				if err != nil || result.Created != 1 {
+					t.Fatalf("import live participant duplicate = %#v, %v", result, err)
+				}
+				return participant.ID, imported.ID
+			},
+			assertLive: func(t *testing.T, store *postgres.Store, restoredID, importedID int64) {
+				participants, err := store.Participants().List(t.Context(), "")
+				if err != nil || len(participants) != 2 {
+					t.Fatalf("live participants = %#v, %v; want restored and imported rows", participants, err)
+				}
+				for _, id := range []int64{restoredID, importedID} {
+					if _, err := store.Participants().GetByID(t.Context(), id); err != nil {
+						t.Fatalf("GetByID(%d) error = %v; want live participant", id, err)
+					}
+				}
 			},
 			restore: (*Handler).HandleRestoreParticipant,
 		},
 		{
-			name:    "driver",
-			message: messageDriverRestoreDuplicate,
-			path:    "/api/v1/drivers/restore",
-			prepare: func(t *testing.T, store *postgres.Store) int64 {
+			name: "driver",
+			path: "/api/v1/drivers/restore",
+			prepare: func(t *testing.T, store *postgres.Store) (int64, int64) {
 				driver, err := store.Drivers().Create(t.Context(), &models.Driver{
 					Name: "Duplicate Driver", Address: "2 Duplicate Road", Lat: 40, Lng: -73, VehicleCapacity: 4,
 				})
@@ -203,12 +214,25 @@ func TestSoftDeleteRosterRestore_LiveDuplicateReturnsConflict(t *testing.T) {
 				if err := store.Drivers().Delete(t.Context(), driver.ID); err != nil {
 					t.Fatalf("archive driver: %v", err)
 				}
-				if _, err := store.Drivers().Create(t.Context(), &models.Driver{
+				imported := &models.Driver{
 					Name: driver.Name, Address: driver.Address, Lat: 41, Lng: -72, VehicleCapacity: 6,
-				}); err != nil {
-					t.Fatalf("create live driver duplicate: %v", err)
 				}
-				return driver.ID
+				result, err := store.Drivers().CreateBatch(t.Context(), []*models.Driver{imported}, nil)
+				if err != nil || result.Created != 1 {
+					t.Fatalf("import live driver duplicate = %#v, %v", result, err)
+				}
+				return driver.ID, imported.ID
+			},
+			assertLive: func(t *testing.T, store *postgres.Store, restoredID, importedID int64) {
+				drivers, err := store.Drivers().List(t.Context(), "")
+				if err != nil || len(drivers) != 2 {
+					t.Fatalf("live drivers = %#v, %v; want restored and imported rows", drivers, err)
+				}
+				for _, id := range []int64{restoredID, importedID} {
+					if _, err := store.Drivers().GetByID(t.Context(), id); err != nil {
+						t.Fatalf("GetByID(%d) error = %v; want live driver", id, err)
+					}
+				}
 			},
 			restore: (*Handler).HandleRestoreDriver,
 		},
@@ -222,24 +246,19 @@ func TestSoftDeleteRosterRestore_LiveDuplicateReturnsConflict(t *testing.T) {
 			}
 			t.Run(tt.name+"_"+branch, func(t *testing.T) {
 				handler, store := newTestManagementHandler(t)
-				id := tt.prepare(t, store)
+				id, importedID := tt.prepare(t, store)
 				req := newRestoreRequest(tt.path, id, htmx)
 				rr := httptest.NewRecorder()
 				tt.restore(handler, rr, req)
 
-				if rr.Code != http.StatusConflict {
-					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusConflict, rr.Body.String())
-				}
+				wantStatus := http.StatusNoContent
 				if htmx {
-					if got := rr.Header().Get("HX-Reswap"); got != "none" {
-						t.Fatalf("HX-Reswap = %q, want none", got)
-					}
-					if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, tt.message) {
-						t.Fatalf("HX-Trigger = %q, want %q", got, tt.message)
-					}
-				} else if !strings.Contains(rr.Body.String(), `"code":"CONFLICT"`) || !strings.Contains(rr.Body.String(), tt.message) {
-					t.Fatalf("body = %q, want JSON conflict response", rr.Body.String())
+					wantStatus = http.StatusOK
 				}
+				if rr.Code != wantStatus {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, wantStatus, rr.Body.String())
+				}
+				tt.assertLive(t, store, id, importedID)
 			})
 		}
 	}

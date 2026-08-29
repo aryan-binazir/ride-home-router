@@ -134,7 +134,7 @@ func TestParticipantRepositorySoftDeleteAndRestore(t *testing.T) {
 	}
 }
 
-func TestParticipantRepositoryRestoreRejectsLiveDuplicate(t *testing.T) {
+func TestParticipantRepositoryRestoreAllowsLiveDuplicate(t *testing.T) {
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	participant, err := store.Participants().Create(ctx, &models.Participant{
@@ -147,17 +147,26 @@ func TestParticipantRepositoryRestoreRejectsLiveDuplicate(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	result, err := store.Participants().CreateBatch(ctx, []*models.Participant{{
+	imported := &models.Participant{
 		Name: "  ARCHIVED rider ", Address: "1  Archive Way", Lat: 41, Lng: -72,
-	}}, nil)
+	}
+	result, err := store.Participants().CreateBatch(ctx, []*models.Participant{imported}, nil)
 	if err != nil || result.Created != 1 {
 		t.Fatalf("CreateBatch() = %#v, %v; want one imported live duplicate", result, err)
 	}
-	if err := store.Participants().Restore(ctx, participant.ID); !errors.Is(err, database.ErrDuplicate) {
-		t.Fatalf("Restore() error = %v, want ErrDuplicate", err)
+	if err := store.Participants().Restore(ctx, participant.ID); err != nil {
+		t.Fatalf("Restore() error = %v", err)
 	}
-	deleted, err := store.Participants().ListDeleted(ctx)
-	if err != nil || len(deleted) != 1 || deleted[0].ID != participant.ID {
-		t.Fatalf("ListDeleted() = %#v, %v; want original row to remain archived", deleted, err)
+	live, err := store.Participants().List(ctx, "")
+	if err != nil || len(live) != 2 {
+		t.Fatalf("List() = %#v, %v; want imported and restored rows live", live, err)
+	}
+	for _, id := range []int64{participant.ID, imported.ID} {
+		if _, err := store.Participants().GetByID(ctx, id); err != nil {
+			t.Fatalf("GetByID(%d) error = %v; want live row", id, err)
+		}
+	}
+	if deleted, err := store.Participants().ListDeleted(ctx); err != nil || len(deleted) != 0 {
+		t.Fatalf("ListDeleted() = %#v, %v; want none", deleted, err)
 	}
 }
