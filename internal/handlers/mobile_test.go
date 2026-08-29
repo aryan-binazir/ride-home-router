@@ -500,7 +500,7 @@ func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Count(body, `href="/m/history/`) != defaultEventListPageSize {
 		t.Fatalf("first history page = %d, event links=%d body=%q", response.Code, strings.Count(body, `href="/m/history/`), body)
 	}
-	for _, want := range []string{"Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20"`, "Load more"} {
+	for _, want := range []string{"Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20&previous_month=2026-08"`, "Load more"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("first history page missing %q: %s", want, body)
 		}
@@ -513,6 +513,48 @@ func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
 	body = response.Body.String()
 	if response.Code != http.StatusOK || strings.Count(body, `href="/m/history/`) != 1 || !strings.Contains(body, "Showing 21 of 21 events") || strings.Contains(body, "Load more") {
 		t.Fatalf("second history page = %d body=%q", response.Code, body)
+	}
+}
+
+func TestMobileHistoryPaginationDoesNotRepeatMonthHeadings(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	ctx := context.Background()
+	dates := make([]time.Time, 0, defaultEventListPageSize+2)
+	dates = append(dates, time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC))
+	for day := 31; day >= 12; day-- {
+		dates = append(dates, time.Date(2026, time.August, day, 0, 0, 0, 0, time.UTC))
+	}
+	dates = append(dates, time.Date(2026, time.July, 31, 0, 0, 0, 0, time.UTC))
+	for index, date := range dates {
+		if _, err := store.Events().Create(ctx, &models.Event{
+			EventDate: date, Notes: fmt.Sprintf("Month boundary event %02d", index), Mode: models.RouteModeDropoff,
+		}, nil, &models.EventSummary{Mode: models.RouteModeDropoff}); err != nil {
+			t.Fatalf("create month boundary event %d: %v", index, err)
+		}
+	}
+
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/m/history", nil)
+	response := httptest.NewRecorder()
+	handler.HandleMobileHistory(response, request)
+	firstPage := response.Body.String()
+	if response.Code != http.StatusOK {
+		t.Fatalf("first history page = %d body=%q", response.Code, firstPage)
+	}
+
+	request = httptest.NewRequestWithContext(ctx, http.MethodGet, "/m/history?offset=20&limit=20&previous_month=2026-08", nil)
+	request.Header.Set("HX-Request", "true")
+	response = httptest.NewRecorder()
+	handler.HandleMobileHistory(response, request)
+	secondPage := response.Body.String()
+	if response.Code != http.StatusOK {
+		t.Fatalf("second history page = %d body=%q", response.Code, secondPage)
+	}
+
+	merged := firstPage + secondPage
+	for _, month := range []string{"September 2026", "August 2026", "July 2026"} {
+		if count := strings.Count(merged, `<h2 class="mobile-section-title">`+month+`</h2>`); count != 1 {
+			t.Fatalf("%s heading count = %d, first=%q second=%q", month, count, firstPage, secondPage)
+		}
 	}
 }
 

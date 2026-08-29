@@ -1,6 +1,8 @@
 {{define "mobile_history_items"}}
 {{range .Groups}}
+{{if not .HideLabel}}
 <h2 class="mobile-section-title">{{.Label}}</h2>
+{{end}}
 <div class="mobile-group">
   {{range .Events}}
   <a class="mobile-row" href="/m/history/{{.ID}}">
@@ -22,7 +24,7 @@
 {{define "mobile_history_pagination"}}
 {{if gt .Total .DisplayedCount}}
 <button class="mobile-button mobile-button-secondary"
-  hx-get="/m/history?offset={{.NextOffset}}&limit={{.PageSize}}"
+  hx-get="/m/history?offset={{.NextOffset}}&limit={{.PageSize}}&previous_month={{.LastMonth}}"
   hx-target="#mobile-history-items" hx-swap="beforeend">
   Load more
 </button>

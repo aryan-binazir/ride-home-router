@@ -128,11 +128,13 @@ type mobileHistoryView struct {
 	DisplayedCount int
 	NextOffset     int
 	PageSize       int
+	LastMonth      string
 }
 
 type mobileHistoryGroup struct {
-	Label  string
-	Events []EventWithSummary
+	Label     string
+	HideLabel bool
+	Events    []EventWithSummary
 }
 
 type mobileHistoryDetailView struct {

@@ -31,6 +31,16 @@
 
     document.addEventListener('change', event => {
         const checkbox = event.target;
+        if (checkbox.matches?.('input[name="mode"]')) {
+            const pickup = checkbox.value === 'pickup';
+            const label = pickup ? 'Arrive at activity location by' : 'Depart activity location at';
+            document.getElementById('route-time-label').textContent = label;
+            document.getElementById('route-time-help').textContent = pickup
+                ? 'Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.'
+                : 'Used to calculate the expected arrival time at each stop in copied driver and parent lists.';
+            checkbox.closest('form')?.querySelector('input[name="route_time"]')?.setAttribute('aria-label', label);
+            return;
+        }
         if (!checkbox.matches?.('input[name="driver_ids"]') || checkbox.checked) return;
         const select = checkbox.closest('.mobile-driver-choice')?.querySelector('select[name^="org_vehicle_"]');
         if (select) select.value = '';

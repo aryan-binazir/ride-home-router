@@ -110,6 +110,47 @@ test('rapid copy taps always restore the original label', async () => {
     assert.equal(fixture.button.textContent, 'Copy route');
 });
 
+test('route mode updates the time copy in both directions', () => {
+    const handlers = {};
+    const label = { textContent: '' };
+    const help = { textContent: '' };
+    const timeInput = {
+        ariaLabel: '',
+        setAttribute(name, value) {
+            if (name === 'aria-label') this.ariaLabel = value;
+        },
+    };
+    const form = { querySelector: () => timeInput };
+    const mode = {
+        value: 'pickup',
+        matches: selector => selector === 'input[name="mode"]',
+        closest: selector => selector === 'form' ? form : null,
+    };
+    const context = {
+        document: {
+            addEventListener(type, handler) { handlers[type] = handler; },
+            getElementById(id) {
+                return { 'route-time-label': label, 'route-time-help': help }[id] || null;
+            },
+            execCommand() { return false; },
+        },
+        navigator: {},
+        window: { setTimeout() {} },
+    };
+    vm.runInNewContext(mobileScript, context, { filename: 'mobile.js' });
+
+    handlers.change({ target: mode });
+    assert.equal(label.textContent, 'Arrive at activity location by');
+    assert.equal(help.textContent, 'Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.');
+    assert.equal(timeInput.ariaLabel, 'Arrive at activity location by');
+
+    mode.value = 'dropoff';
+    handlers.change({ target: mode });
+    assert.equal(label.textContent, 'Depart activity location at');
+    assert.equal(help.textContent, 'Used to calculate the expected arrival time at each stop in copied driver and parent lists.');
+    assert.equal(timeInput.ariaLabel, 'Depart activity location at');
+});
+
 test('deselecting a driver clears and omits its van assignment on Done', () => {
     const handlers = {};
     const select = { name: 'org_vehicle_7', value: '99', disabled: false };

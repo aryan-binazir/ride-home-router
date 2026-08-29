@@ -25,13 +25,21 @@ func (h *Handler) HandleMobileHistory(w http.ResponseWriter, r *http.Request) {
 	for _, event := range view.Events {
 		label := event.EventDate.Format("January 2006")
 		if len(groups) == 0 || groups[len(groups)-1].Label != label {
-			groups = append(groups, mobileHistoryGroup{Label: label})
+			groups = append(groups, mobileHistoryGroup{
+				Label:     label,
+				HideLabel: offset > 0 && len(groups) == 0 && event.EventDate.Format("2006-01") == r.URL.Query().Get("previous_month"),
+			})
 		}
 		groups[len(groups)-1].Events = append(groups[len(groups)-1].Events, event)
+	}
+	lastMonth := ""
+	if len(view.Events) > 0 {
+		lastMonth = view.Events[len(view.Events)-1].EventDate.Format("2006-01")
 	}
 	mobileView := mobileHistoryView{
 		mobileBaseView: newMobileBase("History", "history", ""), Groups: groups, UseMiles: view.UseMiles,
 		Total: view.Total, DisplayedCount: view.DisplayedCount, NextOffset: view.NextOffset, PageSize: view.PageSize,
+		LastMonth: lastMonth,
 	}
 	if h.isHTMX(r) && offset > 0 {
 		h.renderTemplate(w, "mobile_history_page", mobileView)
