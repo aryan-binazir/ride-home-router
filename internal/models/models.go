@@ -18,38 +18,42 @@ const (
 // RosterKey returns the canonical exact-match key for a roster identity.
 // An empty key means either the name or address is blank.
 func RosterKey(name, address string) string {
-	name = normalizeRosterName(name)
-	address = normalizeRosterAddress(address)
+	name = normalizeRosterKeyField(name, true)
+	address = normalizeRosterKeyField(address, false)
 	if name == "" || address == "" {
 		return ""
 	}
 	return name + "\x00" + address
 }
 
-func normalizeRosterName(value string) string {
-	return normalizeRosterKeyField(value, true)
-}
-
-func normalizeRosterAddress(value string) string {
-	return normalizeRosterKeyField(value, false)
-}
-
+// normalizeRosterKeyField treats name hyphens as formatting, so Anne-Marie
+// matches Anne Marie. Address hyphens and slashes remain meaningful because
+// 12-14 can identify two buildings and 1/2 can identify a fractional address.
+// Periods are deleted so J.R. matches JR, with the deliberate tradeoff that
+// 123.5 Main also matches 1235 Main.
 func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
-	value = strings.ToLower(norm.NFC.String(value))
-	value = strings.Map(func(r rune) rune {
+	original := value
+	normalized := strings.ToLower(norm.NFC.String(value))
+	normalized = strings.Map(func(r rune) rune {
 		switch r {
-		case '\'', '\u2018', '\u2019', '\u02bc', '.':
+		case '\'', '\u2018', '\u2019', '\u02bc', '\u02bb', '\u00b4', '`', '\u2032',
+			'\u200b', '\u200c', '\u200d', '\ufeff', '\u00ad', '.':
 			return -1
 		case ',':
 			return ' '
-		case '-':
+		case '-', '\u2010', '\u2011', '\u2013', '\u2014':
 			if hyphensAsWhitespace {
 				return ' '
 			}
+			return '-'
 		}
 		return r
-	}, value)
-	return strings.Join(strings.Fields(value), " ")
+	}, normalized)
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	if normalized == "" && strings.TrimSpace(original) != "" {
+		return NormalizeRosterField(original)
+	}
+	return normalized
 }
 
 // NormalizeRosterField canonicalizes a roster identity field for exact-match

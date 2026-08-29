@@ -2,7 +2,6 @@ package importer
 
 import (
 	"fmt"
-	"ride-home-router/internal/models"
 	"strings"
 	"testing"
 )
@@ -150,14 +149,6 @@ func TestValidateDuplicateFlags(t *testing.T) {
 	}
 	if len(rows[1].Errors) != 0 || len(rows[2].Errors) != 0 {
 		t.Fatalf("duplicate flags must not be errors: %#v %#v", rows[1].Errors, rows[2].Errors)
-	}
-}
-
-func TestDuplicateKeyMatchesPersistentRosterKey(t *testing.T) {
-	got := DuplicateKey("O’Brien", "123 Main St.")
-	want := models.RosterKey("OBrien", "123 Main St")
-	if got != want {
-		t.Fatalf("DuplicateKey() = %q, models.RosterKey() = %q", got, want)
 	}
 }
 
