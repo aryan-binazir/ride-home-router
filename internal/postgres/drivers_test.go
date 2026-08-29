@@ -57,3 +57,63 @@ func TestDriverRepositoryRoundTrip(t *testing.T) {
 		t.Fatalf("Update() after delete error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestDriverRepositorySoftDeleteAndRestore(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	label, err := store.Labels().Create(ctx, &models.Label{Name: "Retained"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	driver, err := store.Drivers().CreateWithLabels(ctx, &models.Driver{
+		Name: "Archived Driver", Address: "1 Archive Way", Lat: 40, Lng: -73, VehicleCapacity: 4,
+	}, []int64{label.ID})
+	if err != nil {
+		t.Fatalf("CreateWithLabels() error = %v", err)
+	}
+	if err := store.Drivers().Restore(ctx, driver.ID); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("Restore() live row error = %v, want ErrNotFound", err)
+	}
+	if err := store.Drivers().Delete(ctx, driver.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := store.Drivers().Delete(ctx, driver.ID); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("second Delete() error = %v, want ErrNotFound", err)
+	}
+
+	for _, search := range []string{"", "Archived"} {
+		drivers, err := store.Drivers().List(ctx, search)
+		if err != nil || len(drivers) != 0 {
+			t.Fatalf("List(%q) = %#v, %v; want no archived rows", search, drivers, err)
+		}
+	}
+	if _, err := store.Drivers().GetByID(ctx, driver.ID); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("GetByID() archived row error = %v, want ErrNotFound", err)
+	}
+	if drivers, err := store.Drivers().GetByIDs(ctx, []int64{driver.ID}); err != nil || len(drivers) != 0 {
+		t.Fatalf("GetByIDs() archived row = %#v, %v; want none", drivers, err)
+	}
+	deleted, err := store.Drivers().ListDeleted(ctx)
+	if err != nil || len(deleted) != 1 || deleted[0].ID != driver.ID || deleted[0].DeletedAt == nil {
+		t.Fatalf("ListDeleted() = %#v, %v; want archived row with DeletedAt", deleted, err)
+	}
+
+	driver.Name = "Should Not Change"
+	if _, err := store.Drivers().UpdateWithLabels(ctx, driver, nil); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("UpdateWithLabels() archived row error = %v, want ErrNotFound", err)
+	}
+	if err := store.Drivers().Restore(ctx, driver.ID); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	restored, err := store.Drivers().GetByID(ctx, driver.ID)
+	if err != nil || restored.Name != "Archived Driver" || restored.DeletedAt != nil {
+		t.Fatalf("GetByID() restored row = %#v, %v", restored, err)
+	}
+	labels, err := store.Labels().ListLabelsForDriver(ctx, driver.ID)
+	if err != nil || len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("restored labels = %#v, %v; want retained label", labels, err)
+	}
+	if deleted, err := store.Drivers().ListDeleted(ctx); err != nil || len(deleted) != 0 {
+		t.Fatalf("ListDeleted() after restore = %#v, %v; want none", deleted, err)
+	}
+}

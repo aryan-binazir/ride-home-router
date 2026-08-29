@@ -301,3 +301,89 @@ func TestRepositories_UpdatePreservesOrClearsLabelsAsRequested(t *testing.T) {
 		t.Fatalf("driver labels after UpdateWithLabels(nil) = %#v, %v; want none", labels, err)
 	}
 }
+
+func TestLabelRepositorySoftDeletedOwnersKeepMembershipsButCannotMutateThem(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	assigned, err := store.Labels().Create(ctx, &models.Label{Name: "Assigned"})
+	if err != nil {
+		t.Fatalf("create assigned label: %v", err)
+	}
+	other, err := store.Labels().Create(ctx, &models.Label{Name: "Other"})
+	if err != nil {
+		t.Fatalf("create other label: %v", err)
+	}
+	liveParticipant := createTestParticipant(t, store, "Live Rider")
+	archivedParticipant := createTestParticipant(t, store, "Archived Rider")
+	liveDriver := createTestDriver(t, store, "Live Driver")
+	archivedDriver := createTestDriver(t, store, "Archived Driver")
+
+	for _, participantID := range []int64{liveParticipant.ID, archivedParticipant.ID} {
+		if err := store.Labels().SetLabelsForParticipant(ctx, participantID, []int64{assigned.ID}); err != nil {
+			t.Fatalf("SetLabelsForParticipant(%d) error = %v", participantID, err)
+		}
+	}
+	for _, driverID := range []int64{liveDriver.ID, archivedDriver.ID} {
+		if err := store.Labels().SetLabelsForDriver(ctx, driverID, []int64{assigned.ID}); err != nil {
+			t.Fatalf("SetLabelsForDriver(%d) error = %v", driverID, err)
+		}
+	}
+	if err := store.Participants().Delete(ctx, archivedParticipant.ID); err != nil {
+		t.Fatalf("delete participant: %v", err)
+	}
+	if err := store.Drivers().Delete(ctx, archivedDriver.ID); err != nil {
+		t.Fatalf("delete driver: %v", err)
+	}
+
+	got, err := store.Labels().GetByID(ctx, assigned.ID)
+	if err != nil || got.ParticipantCount != 1 || got.DriverCount != 1 {
+		t.Fatalf("label counts after delete = %#v, %v; want 1/1", got, err)
+	}
+	participantMemberships, err := store.Labels().ListLabelIDsForParticipants(ctx)
+	if err != nil || len(participantMemberships[archivedParticipant.ID]) != 1 {
+		t.Fatalf("archived participant memberships = %#v, %v; want retained", participantMemberships, err)
+	}
+	driverMemberships, err := store.Labels().ListLabelIDsForDrivers(ctx)
+	if err != nil || len(driverMemberships[archivedDriver.ID]) != 1 {
+		t.Fatalf("archived driver memberships = %#v, %v; want retained", driverMemberships, err)
+	}
+
+	if err := store.Labels().AddLabelToParticipants(ctx, other.ID, []int64{liveParticipant.ID, archivedParticipant.ID}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("AddLabelToParticipants() error = %v, want ErrNotFound", err)
+	}
+	if err := store.Labels().RemoveLabelFromParticipants(ctx, assigned.ID, []int64{liveParticipant.ID, archivedParticipant.ID}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("RemoveLabelFromParticipants() error = %v, want ErrNotFound", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(ctx, archivedParticipant.ID, []int64{other.ID}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("SetLabelsForParticipant() archived owner error = %v, want ErrNotFound", err)
+	}
+	participantMemberships, err = store.Labels().ListLabelIDsForParticipants(ctx)
+	if err != nil || len(participantMemberships[liveParticipant.ID]) != 1 || participantMemberships[liveParticipant.ID][0] != assigned.ID || len(participantMemberships[archivedParticipant.ID]) != 1 || participantMemberships[archivedParticipant.ID][0] != assigned.ID {
+		t.Fatalf("participant memberships after rejected bulk writes = %#v, %v; want unchanged", participantMemberships, err)
+	}
+
+	if err := store.Labels().AddLabelToDrivers(ctx, other.ID, []int64{liveDriver.ID, archivedDriver.ID}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("AddLabelToDrivers() error = %v, want ErrNotFound", err)
+	}
+	if err := store.Labels().RemoveLabelFromDrivers(ctx, assigned.ID, []int64{liveDriver.ID, archivedDriver.ID}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("RemoveLabelFromDrivers() error = %v, want ErrNotFound", err)
+	}
+	if err := store.Labels().SetLabelsForDriver(ctx, archivedDriver.ID, []int64{other.ID}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("SetLabelsForDriver() archived owner error = %v, want ErrNotFound", err)
+	}
+	driverMemberships, err = store.Labels().ListLabelIDsForDrivers(ctx)
+	if err != nil || len(driverMemberships[liveDriver.ID]) != 1 || driverMemberships[liveDriver.ID][0] != assigned.ID || len(driverMemberships[archivedDriver.ID]) != 1 || driverMemberships[archivedDriver.ID][0] != assigned.ID {
+		t.Fatalf("driver memberships after rejected bulk writes = %#v, %v; want unchanged", driverMemberships, err)
+	}
+
+	if err := store.Participants().Restore(ctx, archivedParticipant.ID); err != nil {
+		t.Fatalf("restore participant: %v", err)
+	}
+	if err := store.Drivers().Restore(ctx, archivedDriver.ID); err != nil {
+		t.Fatalf("restore driver: %v", err)
+	}
+	got, err = store.Labels().GetByID(ctx, assigned.ID)
+	if err != nil || got.ParticipantCount != 2 || got.DriverCount != 2 {
+		t.Fatalf("label counts after restore = %#v, %v; want 2/2", got, err)
+	}
+}

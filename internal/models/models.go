@@ -66,14 +66,15 @@ func RoundCoordinate(coord float64) float64 {
 
 // Participant represents a person to be driven home
 type Participant struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Address     string    `json:"address"`
-	AddressName string    `json:"address_name"`
-	Lat         float64   `json:"lat"`
-	Lng         float64   `json:"lng"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Address     string     `json:"address"`
+	AddressName string     `json:"address_name"`
+	Lat         float64    `json:"lat"`
+	Lng         float64    `json:"lng"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 // GetCoords returns the coordinates of the participant
@@ -83,15 +84,16 @@ func (p *Participant) GetCoords() Coordinates {
 
 // Driver represents a person who can drive participants home
 type Driver struct {
-	ID              int64     `json:"id"`
-	Name            string    `json:"name"`
-	Address         string    `json:"address"`
-	AddressName     string    `json:"address_name"`
-	Lat             float64   `json:"lat"`
-	Lng             float64   `json:"lng"`
-	VehicleCapacity int       `json:"vehicle_capacity"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Address         string     `json:"address"`
+	AddressName     string     `json:"address_name"`
+	Lat             float64    `json:"lat"`
+	Lng             float64    `json:"lng"`
+	VehicleCapacity int        `json:"vehicle_capacity"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 }
 
 // GetCoords returns the coordinates of the driver
@@ -111,11 +113,12 @@ type Label struct {
 
 // ActivityLocation represents a location where activities take place
 type ActivityLocation struct {
-	ID      int64   `json:"id"`
-	Name    string  `json:"name"`
-	Address string  `json:"address"`
-	Lat     float64 `json:"lat"`
-	Lng     float64 `json:"lng"`
+	ID        int64      `json:"id"`
+	Name      string     `json:"name"`
+	Address   string     `json:"address"`
+	Lat       float64    `json:"lat"`
+	Lng       float64    `json:"lng"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // GetCoords returns the coordinates of the activity location

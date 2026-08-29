@@ -73,3 +73,63 @@ func TestParticipantRepositoryRoundTrip(t *testing.T) {
 		t.Fatalf("Update() after delete error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestParticipantRepositorySoftDeleteAndRestore(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	label, err := store.Labels().Create(ctx, &models.Label{Name: "Retained"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	participant, err := store.Participants().CreateWithLabels(ctx, &models.Participant{
+		Name: "Archived Rider", Address: "1 Archive Way", Lat: 40, Lng: -73,
+	}, []int64{label.ID})
+	if err != nil {
+		t.Fatalf("CreateWithLabels() error = %v", err)
+	}
+	if err := store.Participants().Restore(ctx, participant.ID); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("Restore() live row error = %v, want ErrNotFound", err)
+	}
+	if err := store.Participants().Delete(ctx, participant.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := store.Participants().Delete(ctx, participant.ID); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("second Delete() error = %v, want ErrNotFound", err)
+	}
+
+	for _, search := range []string{"", "Archived"} {
+		participants, err := store.Participants().List(ctx, search)
+		if err != nil || len(participants) != 0 {
+			t.Fatalf("List(%q) = %#v, %v; want no archived rows", search, participants, err)
+		}
+	}
+	if _, err := store.Participants().GetByID(ctx, participant.ID); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("GetByID() archived row error = %v, want ErrNotFound", err)
+	}
+	if participants, err := store.Participants().GetByIDs(ctx, []int64{participant.ID}); err != nil || len(participants) != 0 {
+		t.Fatalf("GetByIDs() archived row = %#v, %v; want none", participants, err)
+	}
+	deleted, err := store.Participants().ListDeleted(ctx)
+	if err != nil || len(deleted) != 1 || deleted[0].ID != participant.ID || deleted[0].DeletedAt == nil {
+		t.Fatalf("ListDeleted() = %#v, %v; want archived row with DeletedAt", deleted, err)
+	}
+
+	participant.Name = "Should Not Change"
+	if _, err := store.Participants().UpdateWithLabels(ctx, participant, nil); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("UpdateWithLabels() archived row error = %v, want ErrNotFound", err)
+	}
+	if err := store.Participants().Restore(ctx, participant.ID); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	restored, err := store.Participants().GetByID(ctx, participant.ID)
+	if err != nil || restored.Name != "Archived Rider" || restored.DeletedAt != nil {
+		t.Fatalf("GetByID() restored row = %#v, %v", restored, err)
+	}
+	labels, err := store.Labels().ListLabelsForParticipant(ctx, participant.ID)
+	if err != nil || len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("restored labels = %#v, %v; want retained label", labels, err)
+	}
+	if deleted, err := store.Participants().ListDeleted(ctx); err != nil || len(deleted) != 0 {
+		t.Fatalf("ListDeleted() after restore = %#v, %v; want none", deleted, err)
+	}
+}

@@ -34,6 +34,7 @@ type RouteFeedbackRepository interface {
 // ParticipantRepository stores participants.
 type ParticipantRepository interface {
 	List(ctx context.Context, search string) ([]models.Participant, error)
+	ListDeleted(ctx context.Context) ([]models.Participant, error)
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
@@ -44,11 +45,13 @@ type ParticipantRepository interface {
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
 	UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Delete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
 }
 
 // DriverRepository stores drivers.
 type DriverRepository interface {
 	List(ctx context.Context, search string) ([]models.Driver, error)
+	ListDeleted(ctx context.Context) ([]models.Driver, error)
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
@@ -59,6 +62,7 @@ type DriverRepository interface {
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
 }
 
 // LabelRepository stores labels and memberships.
@@ -90,10 +94,12 @@ type SettingsRepository interface {
 // ActivityLocationRepository stores activity locations.
 type ActivityLocationRepository interface {
 	List(ctx context.Context) ([]models.ActivityLocation, error)
+	ListDeleted(ctx context.Context) ([]models.ActivityLocation, error)
 	GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error)
 	Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error)
 	Update(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error)
 	Delete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
 }
 
 // OrganizationVehicleRepository stores organization vehicles.

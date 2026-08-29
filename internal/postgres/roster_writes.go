@@ -155,9 +155,9 @@ func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]struc
 	var query string
 	switch table {
 	case "participants":
-		query = `SELECT name, address FROM participants`
+		query = `SELECT name, address FROM participants WHERE deleted_at IS NULL`
 	case "drivers":
-		query = `SELECT name, address FROM drivers`
+		query = `SELECT name, address FROM drivers WHERE deleted_at IS NULL`
 	default:
 		return nil, fmt.Errorf("invalid roster table %q", table)
 	}

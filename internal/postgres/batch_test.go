@@ -167,6 +167,37 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 	}
 }
 
+func TestCreateBatchIgnoresArchivedDuplicates(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+
+	participant := &models.Participant{Name: "Archived Rider", Address: "1 Main St", Lat: 40, Lng: -73}
+	if _, err := store.Participants().Create(ctx, participant); err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Participants().Delete(ctx, participant.ID); err != nil {
+		t.Fatalf("delete participant: %v", err)
+	}
+	participantImport := &models.Participant{Name: participant.Name, Address: participant.Address, Lat: 41, Lng: -74}
+	participantResult, err := store.Participants().CreateBatch(ctx, []*models.Participant{participantImport}, nil)
+	if err != nil || participantResult.Created != 1 || participantImport.ID == 0 || participantImport.ID == participant.ID {
+		t.Fatalf("participant CreateBatch() = %#v, id=%d, err=%v; want new row", participantResult, participantImport.ID, err)
+	}
+
+	driver := &models.Driver{Name: "Archived Driver", Address: "2 Main St", Lat: 40, Lng: -73, VehicleCapacity: 4}
+	if _, err := store.Drivers().Create(ctx, driver); err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	if err := store.Drivers().Delete(ctx, driver.ID); err != nil {
+		t.Fatalf("delete driver: %v", err)
+	}
+	driverImport := &models.Driver{Name: driver.Name, Address: driver.Address, Lat: 41, Lng: -74, VehicleCapacity: 5}
+	driverResult, err := store.Drivers().CreateBatch(ctx, []*models.Driver{driverImport}, nil)
+	if err != nil || driverResult.Created != 1 || driverImport.ID == 0 || driverImport.ID == driver.ID {
+		t.Fatalf("driver CreateBatch() = %#v, id=%d, err=%v; want new row", driverResult, driverImport.ID, err)
+	}
+}
+
 func TestCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t *testing.T) {
 	t.Run("participants", func(t *testing.T) {
 		testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t, participantBatchSpec())

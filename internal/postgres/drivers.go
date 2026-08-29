@@ -14,11 +14,11 @@ type driverRepository struct {
 	db *sql.DB
 }
 
-const driverColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at`
+const driverColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at, deleted_at`
 
 func scanDriver(scanner interface{ Scan(dest ...any) error }) (models.Driver, error) {
 	var d models.Driver
-	err := scanner.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt)
+	err := scanner.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
 	return d, err
 }
 
@@ -26,7 +26,7 @@ func (r *driverRepository) List(ctx context.Context, search string) ([]models.Dr
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+driverColumns+`
 		FROM drivers
-		WHERE $1 = '' OR name ILIKE '%' || $1 || '%'
+		WHERE deleted_at IS NULL AND ($1 = '' OR name ILIKE '%' || $1 || '%')
 		ORDER BY name`, search)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query drivers: %w", err)
@@ -34,8 +34,20 @@ func (r *driverRepository) List(ctx context.Context, search string) ([]models.Dr
 	return collectDrivers(rows)
 }
 
+func (r *driverRepository) ListDeleted(ctx context.Context) ([]models.Driver, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+driverColumns+`
+		FROM drivers
+		WHERE deleted_at IS NOT NULL
+		ORDER BY deleted_at DESC, id`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deleted drivers: %w", err)
+	}
+	return collectDrivers(rows)
+}
+
 func (r *driverRepository) GetByID(ctx context.Context, id int64) (*models.Driver, error) {
-	d, err := scanDriver(r.db.QueryRowContext(ctx, `SELECT `+driverColumns+` FROM drivers WHERE id = $1`, id))
+	d, err := scanDriver(r.db.QueryRowContext(ctx, `SELECT `+driverColumns+` FROM drivers WHERE id = $1 AND deleted_at IS NULL`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, database.ErrNotFound
 	}
@@ -49,7 +61,7 @@ func (r *driverRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.
 	if len(ids) == 0 {
 		return []models.Driver{}, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+driverColumns+` FROM drivers WHERE id = ANY($1)`, ids)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+driverColumns+` FROM drivers WHERE id = ANY($1) AND deleted_at IS NULL`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query drivers by IDs: %w", err)
 	}
@@ -97,7 +109,7 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 			return tx.ExecContext(ctx, `
 				UPDATE drivers
 				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
-				WHERE id = $8`,
+				WHERE id = $8 AND deleted_at IS NULL`,
 				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
 		},
 		fields: func(d *models.Driver) rosterFields {
@@ -127,9 +139,17 @@ func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Drive
 }
 
 func (r *driverRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM drivers WHERE id = $1`, id)
+	result, err := r.db.ExecContext(ctx, `UPDATE drivers SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete driver: %w", err)
+	}
+	return rowsAffectedOrNotFound(result)
+}
+
+func (r *driverRepository) Restore(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE drivers SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("failed to restore driver: %w", err)
 	}
 	return rowsAffectedOrNotFound(result)
 }
