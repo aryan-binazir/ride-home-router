@@ -159,6 +159,257 @@ func TestHandleCalculateRoutes_InvalidModeReturnsValidationError(t *testing.T) {
 	}
 }
 
+func TestRouteCalculationEndpoints_PreserveValidationOrder(t *testing.T) {
+	form := url.Values{}
+	form.Add("driver_ids", "1")
+	form.Set("activity_location_id", "1")
+	form.Set("route_time", "not-a-time")
+
+	tests := []struct {
+		name        string
+		path        string
+		handle      func(*Handler, http.ResponseWriter, *http.Request)
+		wantMessage string
+	}{
+		{
+			name:        "initial validates selections before route options",
+			path:        "/api/v1/routes/calculate",
+			handle:      (*Handler).HandleCalculateRoutes,
+			wantMessage: messageSelectAtLeastOneParticipant,
+		},
+		{
+			name:        "retry validates route options before selections",
+			path:        "/api/v1/routes/calculate-with-org-vehicles",
+			handle:      (*Handler).HandleCalculateRoutesWithOrgVehicles,
+			wantMessage: messageChooseValidRouteTime,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, test.path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			test.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			wantTrigger := `{"showToast":{"message":"` + test.wantMessage + `","type":"error"}}`
+			if got := rr.Header().Get("HX-Trigger"); got != wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, wantTrigger)
+			}
+		})
+	}
+}
+
+func TestRouteCalculationEndpoints_PreserveAssignmentValidationOrder(t *testing.T) {
+	form := url.Values{}
+	form.Set("activity_location_id", "1")
+	form.Set("route_time", "18:30")
+	form.Set("mode", "dropoff")
+	form.Set("org_vehicle_1", "1")
+
+	tests := []struct {
+		name        string
+		path        string
+		handle      func(*Handler, http.ResponseWriter, *http.Request)
+		wantMessage string
+	}{
+		{
+			name:        "initial validates selections before assignments",
+			path:        "/api/v1/routes/calculate",
+			handle:      (*Handler).HandleCalculateRoutes,
+			wantMessage: messageSelectAtLeastOneParticipant,
+		},
+		{
+			name:        "retry validates assignments before selections",
+			path:        "/api/v1/routes/calculate-with-org-vehicles",
+			handle:      (*Handler).HandleCalculateRoutesWithOrgVehicles,
+			wantMessage: unselectedDriverVanAssignmentMessage,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, test.path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			test.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			wantTrigger := `{"showToast":{"message":"` + test.wantMessage + `","type":"error"}}`
+			if got := rr.Header().Get("HX-Trigger"); got != wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, wantTrigger)
+			}
+		})
+	}
+}
+
+func TestRouteCalculationEndpoints_InvalidActivityLocationMessage(t *testing.T) {
+	form := url.Values{}
+	form.Add("participant_ids", "1")
+	form.Add("driver_ids", "1")
+	form.Set("activity_location_id", "not-an-id")
+	form.Set("route_time", "18:30")
+
+	for _, endpoint := range []struct {
+		path   string
+		handle func(*Handler, http.ResponseWriter, *http.Request)
+	}{
+		{path: "/api/v1/routes/calculate", handle: (*Handler).HandleCalculateRoutes},
+		{path: "/api/v1/routes/calculate-with-org-vehicles", handle: (*Handler).HandleCalculateRoutesWithOrgVehicles},
+	} {
+		t.Run(endpoint.path, func(t *testing.T) {
+			handler := &Handler{}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			endpoint.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			wantTrigger := `{"showToast":{"message":"` + messageChooseValidActivityLocation + `","type":"error"}}`
+			if got := rr.Header().Get("HX-Trigger"); got != wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, wantTrigger)
+			}
+		})
+	}
+}
+
+func TestRouteCalculationEndpoints_PreserveMalformedFormResponses(t *testing.T) {
+	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
+	// not the desired HTMX error experience.
+	tests := []struct {
+		name            string
+		path            string
+		handle          func(*Handler, http.ResponseWriter, *http.Request)
+		wantContentType string
+		wantTrigger     string
+	}{
+		{
+			name:            "initial returns JSON without a toast",
+			path:            "/api/v1/routes/calculate",
+			handle:          (*Handler).HandleCalculateRoutes,
+			wantContentType: "application/json",
+		},
+		{
+			name:            "retry returns HTML with a toast",
+			path:            "/api/v1/routes/calculate-with-org-vehicles",
+			handle:          (*Handler).HandleCalculateRoutesWithOrgVehicles,
+			wantContentType: "text/html",
+			wantTrigger:     `{"showToast":{"message":"Invalid form data","type":"error"}}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, test.path, strings.NewReader("participant_ids=%zz"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			test.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			if got := rr.Header().Get("Content-Type"); !strings.Contains(got, test.wantContentType) {
+				t.Fatalf("Content-Type = %q, want %q", got, test.wantContentType)
+			}
+			if got := rr.Header().Get("HX-Trigger"); got != test.wantTrigger {
+				t.Fatalf("HX-Trigger = %q, want %q", got, test.wantTrigger)
+			}
+		})
+	}
+}
+
+func TestRouteCalculationEndpoints_EquivalentFormInputReachesRouter(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Blue Van", Capacity: 8})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+
+	form := url.Values{}
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+	form.Set("mode", "pickup")
+	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
+
+	requests := make([]*routing.RoutingRequest, 0, 2)
+	for _, endpoint := range []struct {
+		path   string
+		handle func(*Handler, http.ResponseWriter, *http.Request)
+	}{
+		{path: "/api/v1/routes/calculate", handle: (*Handler).HandleCalculateRoutes},
+		{path: "/api/v1/routes/calculate-with-org-vehicles", handle: (*Handler).HandleCalculateRoutesWithOrgVehicles},
+	} {
+		router := &captureRouter{result: &models.RoutingResult{}}
+		handler.Router = router
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		rr := httptest.NewRecorder()
+
+		endpoint.handle(handler, rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d body=%q", endpoint.path, rr.Code, http.StatusOK, rr.Body.String())
+		}
+		if router.lastRequest == nil {
+			t.Fatalf("%s did not reach router", endpoint.path)
+		}
+		requests = append(requests, router.lastRequest)
+	}
+
+	initial, retry := requests[0], requests[1]
+	if initial.InstituteCoords != retry.InstituteCoords || initial.Mode != retry.Mode {
+		t.Fatalf("router request metadata differs:\ninitial = %#v\nretry = %#v", initial, retry)
+	}
+	if len(initial.Participants) != len(retry.Participants) || len(initial.Drivers) != len(retry.Drivers) {
+		t.Fatalf("router request selection counts differ:\ninitial = %#v\nretry = %#v", initial, retry)
+	}
+	for i := range initial.Participants {
+		if initial.Participants[i].ID != retry.Participants[i].ID {
+			t.Fatalf("participant %d differs: initial=%d retry=%d", i, initial.Participants[i].ID, retry.Participants[i].ID)
+		}
+	}
+	for i := range initial.Drivers {
+		if initial.Drivers[i].ID != retry.Drivers[i].ID || initial.Drivers[i].VehicleCapacity != retry.Drivers[i].VehicleCapacity {
+			t.Fatalf("driver %d differs: initial=%#v retry=%#v", i, initial.Drivers[i], retry.Drivers[i])
+		}
+	}
+}
+
 func TestHandleCalculateRoutes_DistanceProviderFailureReturnsVisibleError(t *testing.T) {
 	handler, store := newTestRouteHandler(t)
 
@@ -330,21 +581,35 @@ func TestHandleCalculateRoutesWithOrgVehicles_ShortageRendersHTMLWithoutWarningT
 	form.Set("route_time", "18:30")
 	form.Set("mode", "dropoff")
 	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
-	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
+	for _, htmx := range []bool{true, false} {
+		t.Run(fmt.Sprintf("htmx=%t", htmx), func(t *testing.T) {
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if htmx {
+				req.Header.Set("HX-Request", "true")
+			}
+			rr := httptest.NewRecorder()
 
-	handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+			handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if got := rr.Header().Get("HX-Trigger"); got != "" {
-		t.Fatalf("HX-Trigger = %q, want no warning toast", got)
-	}
-	if body := rr.Body.String(); !strings.Contains(body, `class="capacity-shortage-container"`) || !strings.Contains(body, "Not Enough Available Capacity") {
-		t.Fatalf("expected capacity shortage HTML, body=%q", body)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+			}
+			if got := rr.Header().Get("HX-Trigger"); got != "" {
+				t.Fatalf("HX-Trigger = %q, want no warning toast", got)
+			}
+			body := rr.Body.String()
+			for _, fragment := range []string{
+				`class="capacity-shortage-container"`,
+				"Not Enough Available Capacity",
+				`name="participant_ids" value="` + int64ToString(participant.ID) + `"`,
+				`name="driver_ids" value="` + int64ToString(driver.ID) + `"`,
+			} {
+				if !strings.Contains(body, fragment) {
+					t.Fatalf("expected capacity shortage HTML to contain %q, body=%q", fragment, body)
+				}
+			}
+		})
 	}
 }
 
@@ -368,15 +633,6 @@ func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSessio
 	if err != nil {
 		t.Fatalf("create organization vehicle: %v", err)
 	}
-	handler.Router = &captureRouter{result: &models.RoutingResult{
-		Routes: []models.CalculatedRoute{{
-			Driver: driver,
-			Stops:  []models.RouteStop{{Participant: participant}},
-			Mode:   models.RouteModeDropoff,
-		}},
-		Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1},
-	}}
-
 	form := url.Values{}
 	form.Add("participant_ids", int64ToString(participant.ID))
 	form.Add("driver_ids", int64ToString(driver.ID))
@@ -384,39 +640,53 @@ func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSessio
 	form.Set("route_time", "18:30")
 	form.Set("mode", "dropoff")
 	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
-	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
+	for _, htmx := range []bool{true, false} {
+		t.Run(fmt.Sprintf("htmx=%t", htmx), func(t *testing.T) {
+			handler.Router = &captureRouter{result: &models.RoutingResult{
+				Routes: []models.CalculatedRoute{{
+					Driver: driver,
+					Stops:  []models.RouteStop{{Participant: participant}},
+					Mode:   models.RouteModeDropoff,
+				}},
+				Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1},
+			}}
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if htmx {
+				req.Header.Set("HX-Request", "true")
+			}
+			rr := httptest.NewRecorder()
 
-	handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+			handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"Routes calculated! 1 drivers assigned.","type":"success"}}`; got != want {
-		t.Fatalf("HX-Trigger = %q, want %q", got, want)
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, `class="routes-container"`) {
-		t.Fatalf("expected route-result HTML, body=%q", body)
-	}
-	sessionIDMarker := `data-session-id="`
-	start := strings.Index(body, sessionIDMarker)
-	if start < 0 {
-		t.Fatalf("expected rendered session ID, body=%q", body)
-	}
-	start += len(sessionIDMarker)
-	end := strings.Index(body[start:], `"`)
-	if end < 0 {
-		t.Fatalf("expected rendered session ID terminator, body=%q", body)
-	}
-	session, ok := handler.RouteSession.Snapshot(body[start : start+end])
-	if !ok {
-		t.Fatal("expected route session to be restorable")
-	}
-	if got := session.Routes[0].OrgVehicleID; got != van.ID {
-		t.Fatalf("session organization vehicle ID = %d, want %d", got, van.ID)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+			}
+			if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"Routes calculated! 1 drivers assigned.","type":"success"}}`; got != want {
+				t.Fatalf("HX-Trigger = %q, want %q", got, want)
+			}
+			body := rr.Body.String()
+			if !strings.Contains(body, `class="routes-container"`) {
+				t.Fatalf("expected route-result HTML, body=%q", body)
+			}
+			sessionIDMarker := `data-session-id="`
+			start := strings.Index(body, sessionIDMarker)
+			if start < 0 {
+				t.Fatalf("expected rendered session ID, body=%q", body)
+			}
+			start += len(sessionIDMarker)
+			end := strings.Index(body[start:], `"`)
+			if end < 0 {
+				t.Fatalf("expected rendered session ID terminator, body=%q", body)
+			}
+			session, ok := handler.RouteSession.Snapshot(body[start : start+end])
+			if !ok {
+				t.Fatal("expected route session to be restorable")
+			}
+			if got := session.Routes[0].OrgVehicleID; got != van.ID {
+				t.Fatalf("session organization vehicle ID = %d, want %d", got, van.ID)
+			}
+		})
 	}
 }
 
@@ -472,6 +742,65 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 			}
 			if router.lastRequest != nil {
 				t.Fatalf("router received request %#v for stale %s", router.lastRequest, test.name)
+			}
+		})
+	}
+}
+
+func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithoutToast(t *testing.T) {
+	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
+	// not the desired HTMX error experience.
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	tests := []struct {
+		name          string
+		participantID int64
+		driverID      int64
+		wantMessage   string
+	}{
+		{name: "participant", participantID: participant.ID + 1000, driverID: driver.ID, wantMessage: "Some participants not found"},
+		{name: "driver", participantID: participant.ID, driverID: driver.ID + 1000, wantMessage: "Some drivers not found"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler.Router = &captureRouter{}
+			form := url.Values{}
+			form.Add("participant_ids", int64ToString(test.participantID))
+			form.Add("driver_ids", int64ToString(test.driverID))
+			form.Set("activity_location_id", int64ToString(location.ID))
+			form.Set("route_time", "18:30")
+			form.Set("mode", "dropoff")
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			handler.HandleCalculateRoutes(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+				t.Fatalf("Content-Type = %q, want application/json", got)
+			}
+			if got := rr.Header().Get("HX-Trigger"); got != "" {
+				t.Fatalf("HX-Trigger = %q, want no toast", got)
+			}
+			if !strings.Contains(rr.Body.String(), `"message":"`+test.wantMessage+`"`) {
+				t.Fatalf("body = %q, want %q", rr.Body.String(), test.wantMessage)
 			}
 		})
 	}
@@ -886,6 +1215,15 @@ func TestHandleCalculateRoutes_PreservesVanAssignmentsInShortageFlow(t *testing.
 	}
 	if !strings.Contains(body, "2 available seats") {
 		t.Fatalf("expected shortage flow to render updated capacity, body=%q", body)
+	}
+	for _, fragment := range []string{
+		`name="participant_ids" value="` + int64ToString(participantOne.ID) + `"`,
+		`name="participant_ids" value="` + int64ToString(participantTwo.ID) + `"`,
+		`name="driver_ids" value="` + int64ToString(driver.ID) + `"`,
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("expected shortage flow to preserve %q, body=%q", fragment, body)
+		}
 	}
 }
 

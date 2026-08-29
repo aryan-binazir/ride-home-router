@@ -5,6 +5,7 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"net/url"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
 	"strconv"
@@ -21,6 +22,16 @@ type CalculateRoutesRequest struct {
 	Mode               string  `json:"mode"`
 }
 
+// routeIntakePolicy names the observable differences kept for endpoint compatibility.
+type routeIntakePolicy struct {
+	validateSelectionsFirst  bool
+	alwaysRenderResultsHTML  bool
+	warnOnShortage           bool
+	staleEntityErrorsUseJSON bool
+}
+
+var errInvalidRouteActivityLocation = errors.New("invalid route activity location")
+
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -32,44 +43,57 @@ func parseRouteTime(value string) (string, error) {
 	return trimmed, nil
 }
 
+func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
+	var req CalculateRoutesRequest
+
+	for _, idStr := range form["participant_ids"] {
+		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+			req.ParticipantIDs = append(req.ParticipantIDs, id)
+		}
+	}
+	for _, idStr := range form["driver_ids"] {
+		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+			req.DriverIDs = append(req.DriverIDs, id)
+		}
+	}
+	if idStr := form.Get("activity_location_id"); idStr != "" {
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return CalculateRoutesRequest{}, errInvalidRouteActivityLocation
+		}
+		req.ActivityLocationID = id
+	}
+	req.RouteTime = form.Get("route_time")
+	req.Mode = form.Get("mode")
+
+	return req, nil
+}
+
+func routeFormValidationMessage(err error) string {
+	if errors.Is(err, errInvalidRouteActivityLocation) {
+		return messageChooseValidActivityLocation
+	}
+	return messageInvalidFormData
+}
+
 // HandleCalculateRoutes handles POST /api/v1/routes/calculate
 func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) {
 	var req CalculateRoutesRequest
 
 	contentType := r.Header.Get(httpx.HeaderContentType)
-
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/routes/calculate: form_parse_error err=%v", err)
+			// Preserve the existing JSON response for malformed initial HTMX forms.
 			h.handleValidationError(w, messageInvalidFormData)
 			return
 		}
-
-		for _, idStr := range r.Form["participant_ids"] {
-			id, err := strconv.ParseInt(idStr, 10, 64)
-			if err == nil {
-				req.ParticipantIDs = append(req.ParticipantIDs, id)
-			}
+		var err error
+		req, err = parseRouteForm(r.Form)
+		if err != nil {
+			h.handleValidationErrorHTMX(w, r, routeFormValidationMessage(err))
+			return
 		}
-
-		for _, idStr := range r.Form["driver_ids"] {
-			id, err := strconv.ParseInt(idStr, 10, 64)
-			if err == nil {
-				req.DriverIDs = append(req.DriverIDs, id)
-			}
-		}
-
-		if idStr := r.FormValue("activity_location_id"); idStr != "" {
-			id, err := strconv.ParseInt(idStr, 10, 64)
-			if err != nil {
-				h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
-				return
-			}
-			req.ActivityLocationID = id
-		}
-		req.RouteTime = r.FormValue("route_time")
-		req.Mode = r.FormValue("mode")
-
 		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -79,15 +103,51 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if len(req.ParticipantIDs) == 0 {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing participants")
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
+	h.runRouteIntake(w, r, req, routeIntakePolicy{
+		validateSelectionsFirst:  true,
+		alwaysRenderResultsHTML:  false,
+		warnOnShortage:           true,
+		staleEntityErrorsUseJSON: true,
+	})
+}
+
+// HandleCalculateRoutesWithOrgVehicles handles POST /api/v1/routes/calculate-with-org-vehicles.
+func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: form_parse_error err=%v", err)
+		h.handleValidationErrorHTMX(w, r, messageInvalidFormData)
 		return
 	}
 
-	if len(req.DriverIDs) == 0 {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: missing drivers")
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
+	req, err := parseRouteForm(r.Form)
+	if err != nil {
+		h.handleValidationErrorHTMX(w, r, routeFormValidationMessage(err))
+		return
+	}
+
+	h.runRouteIntake(w, r, req, routeIntakePolicy{
+		validateSelectionsFirst:  false,
+		alwaysRenderResultsHTML:  true,
+		warnOnShortage:           false,
+		staleEntityErrorsUseJSON: false,
+	})
+}
+
+func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req CalculateRoutesRequest, policy routeIntakePolicy) {
+	validateSelections := func() bool {
+		if len(req.ParticipantIDs) == 0 {
+			log.Printf("[HTTP] POST %s: missing participants", r.URL.Path)
+			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
+			return false
+		}
+		if len(req.DriverIDs) == 0 {
+			log.Printf("[HTTP] POST %s: missing drivers", r.URL.Path)
+			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
+			return false
+		}
+		return true
+	}
+	if policy.validateSelectionsFirst && !validateSelections() {
 		return
 	}
 
@@ -96,37 +156,41 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
 	}
-
 	mode, err := normalizeRouteMode(req.Mode)
 	if err != nil {
 		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
 	}
-
 	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, req.DriverIDs)
 	if err != nil {
 		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/routes/calculate: participants=%d drivers=%d mode=%s", len(req.ParticipantIDs), len(req.DriverIDs), mode)
-
-	activityLocationID := req.ActivityLocationID
-	if activityLocationID == 0 {
+	if !policy.validateSelectionsFirst && !validateSelections() {
+		return
+	}
+	if req.ActivityLocationID == 0 {
 		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent)
 		return
 	}
+
+	log.Printf("[HTTP] POST %s: participants=%d drivers=%d org_assignments=%d mode=%s",
+		r.URL.Path, len(req.ParticipantIDs), len(req.DriverIDs), len(orgVehicleAssignments), mode)
+
 	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
 		ParticipantIDs:        req.ParticipantIDs,
 		DriverIDs:             req.DriverIDs,
-		ActivityLocationID:    activityLocationID,
+		ActivityLocationID:    req.ActivityLocationID,
 		RouteTime:             routeTime,
 		Mode:                  mode,
 		OrgVehicleAssignments: orgVehicleAssignments,
 	})
 	if outcome.Kind == routeCalculationValidationFailure {
 		message := routeCalculationValidationMessage(outcome.Err)
-		if errors.Is(outcome.Err, errSomeParticipantsNotFound) || errors.Is(outcome.Err, errSomeDriversNotFound) {
+		staleEntity := errors.Is(outcome.Err, errSomeParticipantsNotFound) || errors.Is(outcome.Err, errSomeDriversNotFound)
+		if policy.staleEntityErrorsUseJSON && staleEntity {
+			// Preserve the initial endpoint's existing JSON response for stale HTMX selections.
 			h.handleValidationError(w, message)
 		} else {
 			h.handleValidationErrorHTMX(w, r, message)
@@ -138,15 +202,18 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if outcome.Kind == routeCalculationRouteFailure {
-		log.Printf("[ERROR] Route calculation failed: err=%v", outcome.Err)
+		log.Printf("[ERROR] POST %s: route calculation failed: err=%v", r.URL.Path, outcome.Err)
 		h.handleRouteCalculationError(w, r, outcome.Err)
 		return
 	}
 	if outcome.Kind == routeCalculationShortage {
 		shortage := outcome.Shortage
-		log.Printf("[ERROR] Routing failed: participants=%d unassigned=%d capacity=%d reason=%s", shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, shortage.RoutingError.Reason)
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, messageNotEnoughCapacity(shortage.RoutingError.TotalParticipants-shortage.RoutingError.TotalCapacity), toastTypeWarning)
+		log.Printf("[ERROR] POST %s: routing failed: participants=%d unassigned=%d capacity=%d reason=%s",
+			r.URL.Path, shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, shortage.RoutingError.Reason)
+		if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
+			if policy.warnOnShortage {
+				h.setHTMXToast(w, messageNotEnoughCapacity(shortage.RoutingError.TotalParticipants-shortage.RoutingError.TotalCapacity), toastTypeWarning)
+			}
 			h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
 				shortage.RoutingError,
 				shortage.Drivers,
@@ -168,136 +235,20 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 	result := outcome.Result
 	session := outcome.Session
-	log.Printf("[HTTP] Routes calculated successfully: drivers=%d total_distance=%.0f", result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
+	log.Printf("[HTTP] POST %s: routes calculated: drivers=%d org_vehicles=%d total_distance=%.0f",
+		r.URL.Path, result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
-	if h.isHTMX(r) {
+	if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
 		h.renderTemplate(w, "route_results", buildRouteResultsView(session))
 		return
 	}
-
 	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
 		Routes:    result.Routes,
 		Summary:   result.Summary,
 		SessionID: session.ID,
 		Mode:      mode,
 	})
-}
-
-// HandleCalculateRoutesWithOrgVehicles handles POST /api/v1/routes/calculate-with-org-vehicles.
-func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: form_parse_error err=%v", err)
-		h.handleValidationErrorHTMX(w, r, messageInvalidFormData)
-		return
-	}
-
-	var participantIDs []int64
-	for _, idStr := range r.Form["participant_ids"] {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err == nil {
-			participantIDs = append(participantIDs, id)
-		}
-	}
-
-	var driverIDs []int64
-	for _, idStr := range r.Form["driver_ids"] {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err == nil {
-			driverIDs = append(driverIDs, id)
-		}
-	}
-
-	activityLocationID := int64(0)
-	if idStr := r.FormValue("activity_location_id"); idStr != "" {
-		parsedID, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageChooseValidActivityLocation)
-			return
-		}
-		activityLocationID = parsedID
-	}
-	routeTime, err := parseRouteTime(r.FormValue("route_time"))
-	if err != nil {
-		h.handleValidationErrorHTMX(w, r, err.Error())
-		return
-	}
-
-	mode, err := normalizeRouteMode(r.FormValue("mode"))
-	if err != nil {
-		h.handleValidationErrorHTMX(w, r, err.Error())
-		return
-	}
-
-	orgVehicleAssignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
-	if err != nil {
-		h.handleValidationErrorHTMX(w, r, err.Error())
-		return
-	}
-
-	log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: participants=%d drivers=%d org_assignments=%d mode=%s",
-		len(participantIDs), len(driverIDs), len(orgVehicleAssignments), mode)
-
-	if len(participantIDs) == 0 {
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
-		return
-	}
-
-	if len(driverIDs) == 0 {
-		h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
-		return
-	}
-
-	if activityLocationID == 0 {
-		h.handleValidationErrorHTMX(w, r, messageChooseActivityLocationForEvent)
-		return
-	}
-	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
-		ParticipantIDs:        participantIDs,
-		DriverIDs:             driverIDs,
-		ActivityLocationID:    activityLocationID,
-		RouteTime:             routeTime,
-		Mode:                  mode,
-		OrgVehicleAssignments: orgVehicleAssignments,
-	})
-	if outcome.Kind == routeCalculationValidationFailure {
-		h.handleValidationErrorHTMX(w, r, routeCalculationValidationMessage(outcome.Err))
-		return
-	}
-	if outcome.Kind == routeCalculationInternalFailure {
-		h.handleInternalError(w, outcome.Err)
-		return
-	}
-	if outcome.Kind == routeCalculationRouteFailure {
-		h.handleRouteCalculationError(w, r, outcome.Err)
-		return
-	}
-	if outcome.Kind == routeCalculationShortage {
-		shortage := outcome.Shortage
-		h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
-			shortage.RoutingError,
-			shortage.Drivers,
-			shortage.AvailableOrgVehicles,
-			shortage.ParticipantIDs,
-			shortage.DriverIDs,
-			shortage.ActivityLocation,
-			string(shortage.Mode),
-			shortage.UseMiles,
-			shortage.RouteTime,
-			shortage.OrgVehicleAssignments,
-			shortage.DriverOrgVehicles,
-		))
-		return
-	}
-
-	result := outcome.Result
-	session := outcome.Session
-
-	log.Printf("[HTTP] Routes calculated with org vehicles: drivers=%d org_vehicles=%d total_distance=%.0f",
-		result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
-
-	h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-	h.renderTemplate(w, "route_results", buildRouteResultsView(session))
 }
 
 func routeCalculationValidationMessage(err error) string {
