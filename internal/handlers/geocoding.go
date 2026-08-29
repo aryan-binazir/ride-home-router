@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 )
@@ -33,7 +34,7 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	seenLabels := make(map[string]struct{}, len(results))
-	uniqueResults := results[:0]
+	uniqueResults := make([]geocoding.GeocodingResult, 0, len(results))
 	for _, result := range results {
 		label := result.Label()
 		if _, exists := seenLabels[label]; exists {

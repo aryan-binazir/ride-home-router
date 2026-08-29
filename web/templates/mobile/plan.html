@@ -35,7 +35,7 @@
   </a>
   {{end}}
   <form class="mobile-primary-zone" action="/m/calculate" method="post">
-    <button class="mobile-button" type="submit" {{if or (not .Location) (eq (len .Participants) 0) (eq (len .Drivers) 0)}}disabled{{end}}>Calculate routes</button>
+    <button class="mobile-button" type="submit" {{if or .InvalidVanAssignments (not .Location) (eq (len .Participants) 0) (eq (len .Drivers) 0)}}disabled{{end}}>Calculate routes</button>
   </form>
 </section>
 {{end}}

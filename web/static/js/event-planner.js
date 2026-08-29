@@ -913,7 +913,12 @@
                     ? parsed.vanAssignments
                     : {};
                 const sanitized = sanitizeVanAssignments(parsed.driverIds, assignments);
-                if (JSON.stringify(assignments) !== JSON.stringify(sanitized)) {
+                const assignmentKeys = Object.keys(assignments);
+                const sanitizedKeys = Object.keys(sanitized);
+                const assignmentsChanged = assignmentKeys.length !== sanitizedKeys.length
+                    || sanitizedKeys.some(key => String(assignments[key]) !== sanitized[key]);
+                // Persist the repair so later reads cannot revive the stale conflict.
+                if (assignmentsChanged) {
                     parsed.vanAssignments = sanitized;
                     window.localStorage.setItem(EVENT_PLANNER_DRAFT_KEY, JSON.stringify(parsed));
                 }

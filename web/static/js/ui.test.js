@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { filterTable, switchRosterTab } = require('./ui.js');
+const { filterTable, switchRosterTab, toggleEventDetail } = require('./ui.js');
 
 function element(classes = []) {
   const values = new Set(classes);
@@ -75,4 +75,32 @@ test('filterTable shows a filtered-empty row only when no data rows match', () =
   assert.equal(alpha.classList.contains('hidden'), false);
   assert.equal(beta.classList.contains('hidden'), true);
   assert.equal(empty.classList.contains('hidden'), true);
+});
+
+test('event history toggle updates expanded state and visible label', () => {
+  const eventItem = element([]);
+  const detail = { innerHTML: '' };
+  const label = { textContent: 'View details' };
+  const toggle = {
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    querySelector() { return label; },
+  };
+  global.document = { getElementById: () => detail };
+  global.htmx = { ajax() {} };
+  test.after(() => {
+    delete global.document;
+    delete global.htmx;
+  });
+
+  toggleEventDetail(eventItem, 7, toggle);
+  assert.equal(eventItem.classList.contains('expanded'), true);
+  assert.equal(toggle.attributes['aria-expanded'], 'true');
+  assert.equal(label.textContent, 'Hide details');
+
+  detail.innerHTML = '<p>Loaded</p>';
+  toggleEventDetail(eventItem, 7, toggle);
+  assert.equal(eventItem.classList.contains('expanded'), false);
+  assert.equal(toggle.attributes['aria-expanded'], 'false');
+  assert.equal(label.textContent, 'View details');
 });

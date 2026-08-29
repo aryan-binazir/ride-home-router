@@ -437,6 +437,19 @@ func TestMobileDriversRejectsDuplicateVanAssignment(t *testing.T) {
 	if draft.RouteSessionID != "" {
 		t.Fatalf("route session after validation = %q, want cleared", draft.RouteSessionID)
 	}
+	planRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m", nil)
+	planRequest.AddCookie(mobileTestCookie(id))
+	planResponse := httptest.NewRecorder()
+	handler.HandleMobilePlan(planResponse, planRequest)
+	planBody := planResponse.Body.String()
+	if planResponse.Code != http.StatusOK || !strings.Contains(planBody, duplicateVanAssignmentMessage) || !strings.Contains(planBody, "12 seats") || strings.Contains(planBody, "16 seats") {
+		t.Fatalf("plan with duplicate van = %d body=%q", planResponse.Code, planBody)
+	}
+	calculateResponse := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+	calculateTarget, err := url.Parse(calculateResponse.Header().Get("Location"))
+	if err != nil || calculateResponse.Code != http.StatusSeeOther || calculateTarget.Path != "/m/plan/drivers" || calculateTarget.Query().Get("error") != duplicateVanAssignmentMessage {
+		t.Fatalf("calculate with duplicate van = %d location=%q err=%v", calculateResponse.Code, calculateResponse.Header().Get("Location"), err)
+	}
 }
 
 func TestMobilePickerValidationRedirectsRenderAlerts(t *testing.T) {
@@ -500,7 +513,7 @@ func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
 		_, err := store.Events().Create(ctx, &models.Event{
 			EventDate: time.Date(2026, time.August, 29-index, 0, 0, 0, 0, time.UTC),
 			Notes:     fmt.Sprintf("History event %02d", index), Mode: models.RouteModeDropoff,
-		}, nil, &models.EventSummary{Mode: models.RouteModeDropoff})
+		}, nil, &models.EventSummary{TotalParticipants: 1, TotalDrivers: 1, Mode: models.RouteModeDropoff})
 		if err != nil {
 			t.Fatalf("create history event %d: %v", index, err)
 		}
@@ -513,7 +526,7 @@ func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Count(body, `href="/m/history/`) != defaultEventListPageSize {
 		t.Fatalf("first history page = %d, event links=%d body=%q", response.Code, strings.Count(body, `href="/m/history/`), body)
 	}
-	for _, want := range []string{"Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20&previous_month=2026-08"`, "Load more"} {
+	for _, want := range []string{"1 rider · 1 driver", "Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20&previous_month=2026-08"`, "Load more"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("first history page missing %q: %s", want, body)
 		}

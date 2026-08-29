@@ -46,7 +46,7 @@ function switchRosterTab(button, prefix) {
 }
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { filterTable, switchRosterTab };
+  module.exports = { filterTable, switchRosterTab, toggleEventDetail };
 }
 
 function updateBulkSelectionCount(tbodyId) {
@@ -114,9 +114,13 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     detailDiv.innerHTML = '';
     eventItem.classList.remove('expanded');
     if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    const label = toggle && toggle.querySelector('.event-toggle-label');
+    if (label) label.textContent = 'View details';
   } else {
     eventItem.classList.add('expanded');
     if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    const label = toggle && toggle.querySelector('.event-toggle-label');
+    if (label) label.textContent = 'Hide details';
     htmx.ajax('GET', '/api/v1/events/' + eventId, { target: detailDiv, swap: 'innerHTML' });
   }
 }

@@ -19,6 +19,8 @@ const (
 
 var errSelectedVanNotFound = errors.New(selectedVanNotFoundMessage)
 
+// parseOrgVehicleAssignments returns submitted choices with validation errors so
+// the form can re-render them. Callers must not use the map when err is non-nil.
 func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map[int64]int64, error) {
 	assignments := make(map[int64]int64)
 	if len(form) == 0 {
@@ -40,9 +42,9 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		}
 		assignmentKeys = append(assignmentKeys, key)
 	}
+	// Stable key validation avoids map-order-dependent errors for malformed forms.
 	slices.Sort(assignmentKeys)
 	for _, key := range assignmentKeys {
-
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)
 		if err != nil {
 			return assignments, errors.New(invalidVanAssignmentMessage)
@@ -52,7 +54,6 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		}
 	}
 
-	vehicleOwners := make(map[int64]int64)
 	for _, driverID := range selectedDriverIDs {
 		values := form["org_vehicle_"+strconv.FormatInt(driverID, 10)]
 		if len(values) == 0 || values[0] == "" {
@@ -64,14 +65,42 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		}
 
 		assignments[driverID] = vehicleID
-		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
-			return assignments, errors.New(duplicateVanAssignmentMessage)
-		}
-
-		vehicleOwners[vehicleID] = driverID
 	}
 
-	return assignments, nil
+	return assignments, validateUniqueOrgVehicleAssignments(assignments)
+}
+
+func validateUniqueOrgVehicleAssignments(assignments map[int64]int64) error {
+	vehicleOwners := make(map[int64]int64, len(assignments))
+	for driverID, vehicleID := range assignments {
+		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
+			return errors.New(duplicateVanAssignmentMessage)
+		}
+		vehicleOwners[vehicleID] = driverID
+	}
+	return nil
+}
+
+func orgVehicleSeatCount(drivers []models.Driver, assignments map[int64]int64, vehiclesByID map[int64]models.OrganizationVehicle) int {
+	total := 0
+	usedVehicles := make(map[int64]struct{}, len(assignments))
+	for _, driver := range drivers {
+		total += driver.VehicleCapacity
+		vehicleID, assigned := assignments[driver.ID]
+		if !assigned {
+			continue
+		}
+		if _, used := usedVehicles[vehicleID]; used {
+			continue
+		}
+		vehicle, exists := vehiclesByID[vehicleID]
+		if !exists {
+			continue
+		}
+		total += vehicle.Capacity - driver.VehicleCapacity
+		usedVehicles[vehicleID] = struct{}{}
+	}
+	return total
 }
 
 func applyOrgVehicleAssignments(drivers []models.Driver, assignments map[int64]int64, vehicleMap map[int64]*models.OrganizationVehicle) ([]models.Driver, map[int64]*models.OrganizationVehicle) {
