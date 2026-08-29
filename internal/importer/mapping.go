@@ -210,7 +210,9 @@ func knownField(field Field) bool {
 	}
 }
 
-// NormalizeRosterText matches the duplicate check used at commit time.
+// NormalizeRosterText applies the normalization used for header matching and
+// address grouping during household coordinate reconciliation and geocoding.
+// Duplicate detection uses models.RosterKey.
 func NormalizeRosterText(value string) string {
 	return models.NormalizeRosterField(value)
 }

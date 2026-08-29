@@ -124,12 +124,19 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 	if _, err := store.Participants().Create(ctx, &models.Participant{Name: "Jane Doe", Address: "1 Main St", Lat: 40, Lng: -73}); err != nil {
 		t.Fatalf("seed participant: %v", err)
 	}
+	if _, err := store.Participants().Create(ctx, &models.Participant{Name: "Anne-Marie O'Brien", Address: "4 Main St.", Lat: 43, Lng: -76}); err != nil {
+		t.Fatalf("seed participant: %v", err)
+	}
 	if _, err := store.Drivers().Create(ctx, &models.Driver{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74, VehicleCapacity: 4}); err != nil {
+		t.Fatalf("seed driver: %v", err)
+	}
+	if _, err := store.Drivers().Create(ctx, &models.Driver{Name: "J.R. Smith-Jones", Address: "6 Main St, Apt 2", Lat: 45, Lng: -78, VehicleCapacity: 4}); err != nil {
 		t.Fatalf("seed driver: %v", err)
 	}
 
 	participants := []*models.Participant{
 		{Name: " jane   DOE ", Address: " 1 MAIN st ", Lat: 40, Lng: -73},
+		{Name: "Anne Marie O’Brien", Address: "4 Main St", Lat: 43, Lng: -76},
 		{Name: "New Rider", Address: "3 Main St", Lat: 42, Lng: -75},
 		{Name: "Another Rider", Address: "5 Main St", Lat: 44, Lng: -77},
 	}
@@ -137,33 +144,34 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 	if err != nil {
 		t.Fatalf("participant CreateBatch() error = %v", err)
 	}
-	if participantResult != (database.BatchCreateResult{Created: 2, SkippedDuplicate: 1}) {
+	if participantResult != (database.BatchCreateResult{Created: 2, SkippedDuplicate: 2}) {
 		t.Fatalf("participant CreateBatch() result = %#v", participantResult)
 	}
-	if participants[0].ID != 0 || participants[1].ID == 0 || participants[2].ID == 0 {
-		t.Fatalf("participant IDs = [%d %d %d], want [0 created created]", participants[0].ID, participants[1].ID, participants[2].ID)
+	if participants[0].ID != 0 || participants[1].ID != 0 || participants[2].ID == 0 || participants[3].ID == 0 {
+		t.Fatalf("participant IDs = [%d %d %d %d], want [0 0 created created]", participants[0].ID, participants[1].ID, participants[2].ID, participants[3].ID)
 	}
 
 	drivers := []*models.Driver{
 		{Name: " JOHN doe ", Address: "2   MAIN ST", Lat: 41, Lng: -74, VehicleCapacity: 4},
+		{Name: "JR Smith Jones", Address: "6 Main St Apt 2", Lat: 45, Lng: -78, VehicleCapacity: 4},
 		{Name: "New Driver", Address: "4 Main St", Lat: 43, Lng: -76, VehicleCapacity: 5},
 	}
 	driverResult, err := store.Drivers().CreateBatch(ctx, drivers, nil)
 	if err != nil {
 		t.Fatalf("driver CreateBatch() error = %v", err)
 	}
-	if driverResult != (database.BatchCreateResult{Created: 1, SkippedDuplicate: 1}) {
+	if driverResult != (database.BatchCreateResult{Created: 1, SkippedDuplicate: 2}) {
 		t.Fatalf("driver CreateBatch() result = %#v", driverResult)
 	}
-	if drivers[0].ID != 0 || drivers[1].ID == 0 {
-		t.Fatalf("driver IDs = [%d %d], want [0 created]", drivers[0].ID, drivers[1].ID)
+	if drivers[0].ID != 0 || drivers[1].ID != 0 || drivers[2].ID == 0 {
+		t.Fatalf("driver IDs = [%d %d %d], want [0 0 created]", drivers[0].ID, drivers[1].ID, drivers[2].ID)
 	}
 
-	if list, err := store.Participants().List(ctx, ""); err != nil || len(list) != 3 {
-		t.Fatalf("participants after batch = %d, err=%v, want 3", len(list), err)
+	if list, err := store.Participants().List(ctx, ""); err != nil || len(list) != 4 {
+		t.Fatalf("participants after batch = %d, err=%v, want 4", len(list), err)
 	}
-	if list, err := store.Drivers().List(ctx, ""); err != nil || len(list) != 2 {
-		t.Fatalf("drivers after batch = %d, err=%v, want 2", len(list), err)
+	if list, err := store.Drivers().List(ctx, ""); err != nil || len(list) != 3 {
+		t.Fatalf("drivers after batch = %d, err=%v, want 3", len(list), err)
 	}
 }
 
