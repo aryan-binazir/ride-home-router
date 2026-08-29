@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// The sticky action bar must stay compact on phones, so the route time and
-// mode inputs render above it — but still inside #event-form so
-// hx-include="#event-form" keeps posting them.
 func TestHandleIndexPage_RouteOptionsRenderInsideFormBeforeActionBar(t *testing.T) {
 	handler, _ := newTestPageHandler(t)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
@@ -49,9 +46,6 @@ func TestHandleIndexPage_RouteOptionsRenderInsideFormBeforeActionBar(t *testing.
 	}
 }
 
-// Card layout on phones hides the table header, which holds the only
-// select-all-visible control, so the bulk toolbar needs its own button. (The
-// toolbar only renders when labels exist, since labels are the only bulk action.)
 func TestRosterPages_RenderSelectVisibleButtonInBulkToolbar(t *testing.T) {
 	handler, store := newTestPageHandler(t)
 	ctx := context.Background()

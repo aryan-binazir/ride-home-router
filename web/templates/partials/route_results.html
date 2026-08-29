@@ -88,7 +88,6 @@
             </div>
         </div>
 
-        <!-- Driver Swap Controls -->
         {{if gt $routeCount 1}}
         <div class="route-tools">
             <select class="form-select form-input-sm form-input-inline" id="swap-select-{{$routeIndex}}">
@@ -171,7 +170,6 @@
     </div>
     {{end}}
 
-    <!-- Unused Drivers Section -->
     {{if .UnusedDrivers}}
     <details class="unused-drivers-section mt-3">
         <summary class="unused-drivers-header">
@@ -197,7 +195,6 @@
     </details>
     {{end}}
 
-    <!-- Summary -->
     <div class="route-summary">
         <h3>Summary</h3>
         <div class="summary-grid">
@@ -251,7 +248,6 @@
 
     </div>
 
-    <!-- Save Event Form -->
     <div class="card mt-4">
         <h3>Save This Event</h3>
         <form {{if not .IsOutOfBalance}}hx-post="/api/v1/events"{{end}}

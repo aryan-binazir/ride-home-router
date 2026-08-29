@@ -56,10 +56,8 @@ func LoopbackHostnames() []string {
 	return slices.Clone(loopbackHostnames[:])
 }
 
-// HasSameOrigin reports whether the request has no Origin header or an http(s)
-// Origin whose host exactly matches the request Host. Both schemes are accepted
-// because a TLS-terminating proxy or tunnel forwards https origins to this
-// plain-HTTP listener.
+// HasSameOrigin requires Origin's host to match Host when Origin is present.
+// It accepts HTTP and HTTPS for TLS-terminating proxies.
 func HasSameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {

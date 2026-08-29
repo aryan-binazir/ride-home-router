@@ -44,7 +44,6 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 
 	contentType := r.Header.Get(httpx.HeaderContentType)
 
-	// Handle form data (from htmx)
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: form_parse_error err=%v", err)
@@ -54,7 +53,6 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		req.Name = r.FormValue("name")
 		req.Address = r.FormValue("address")
 	} else {
-		// Handle JSON
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: invalid_json err=%v", err)
 			h.handleValidationError(w, messageInvalidRequestBody)
@@ -76,7 +74,6 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 
 	log.Printf("[HTTP] POST /api/v1/activity-locations: name=%s address=%s", req.Name, req.Address)
 
-	// Geocode the address
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
 		log.Printf("[ERROR] Failed to geocode address: address=%s err=%v", req.Address, err)
@@ -102,7 +99,6 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		createdLocation.ID, createdLocation.Name, createdLocation.Lat, createdLocation.Lng)
 
 	if h.isHTMX(r) {
-		// Return the new location row HTML and trigger a success toast
 		h.setHTMXToast(w, messageEntityAdded("Location", createdLocation.Name), toastTypeSuccess)
 		h.renderTemplate(w, "activity_location_row", createdLocation)
 		return
@@ -290,7 +286,6 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 	log.Printf("[HTTP] Deleted activity location: id=%d", id)
 
 	if h.isHTMX(r) {
-		// Return 200 with empty body so htmx will swap (remove) the element
 		h.setHTMXToast(w, messageEntityDeleted("Location"), toastTypeSuccess)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)

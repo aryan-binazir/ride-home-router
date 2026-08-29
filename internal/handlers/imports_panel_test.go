@@ -407,8 +407,7 @@ func startImportPanelSession(t *testing.T, handler *Handler, contents string, ki
 	return importPanelSessionID(t, recorder.Body.String())
 }
 
-// importPanelSessionID reads the session ID out of the rendered fragment's
-// htmx URLs, which is the only place the panel carries it.
+// importPanelSessionID reads the session ID from the fragment's HTMX URLs.
 func importPanelSessionID(t *testing.T, fragment string) string {
 	t.Helper()
 	const prefix = "/api/v1/imports/"

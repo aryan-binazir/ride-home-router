@@ -1,8 +1,4 @@
-# Ride Home Router — server build and verification targets.
-#
-# Local development assumes the podman Postgres started by `make postgres-up`
-# on port 5434. Override DATABASE_URL / TEST_DATABASE_URL in the environment
-# for anything else.
+# Local development uses the Podman Postgres on port 5434 by default.
 
 POSTGRES_CONTAINER ?= ride-home-router-postgres
 POSTGRES_PORT ?= 5434
@@ -40,8 +36,7 @@ verify:
 vet:
 	go vet ./...
 
-# Database-backed tests run against TEST_DATABASE_URL (defaulted above to the
-# local podman Postgres); test-unit blanks it so those tests skip.
+# test-unit clears TEST_DATABASE_URL to skip database tests.
 test:
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
@@ -61,7 +56,6 @@ serve:
 clean:
 	rm -rf bin coverage.out
 
-# Local Postgres 18 in podman, with both the dev and test databases.
 postgres-up:
 	podman run -d --name $(POSTGRES_CONTAINER) -p $(POSTGRES_PORT):5432 \
 		-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ride_home_router \

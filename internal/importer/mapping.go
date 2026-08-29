@@ -37,8 +37,8 @@ type MappingTransition struct {
 	MissingRequired []Field
 }
 
-// AutoMap maps exact normalized header aliases. Ambiguous aliases remain
-// unmapped so the caller must choose explicitly.
+// AutoMap maps exact normalized header aliases and leaves ambiguous aliases
+// unmapped.
 func AutoMap(headers []string) Mapping {
 	m := NewMapping()
 	claimed := make(map[int]bool)
@@ -210,9 +210,7 @@ func knownField(field Field) bool {
 	}
 }
 
-// NormalizeRosterText canonicalizes user-entered roster text for exact-match
-// comparisons. Persistence uses the same normalization when re-checking
-// duplicates at commit time.
+// NormalizeRosterText matches the duplicate check used at commit time.
 func NormalizeRosterText(value string) string {
 	return models.NormalizeRosterField(value)
 }

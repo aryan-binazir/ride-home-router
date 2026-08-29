@@ -19,7 +19,6 @@
               hx-target="#results-section"
               hx-indicator="#recalc-loading">
 
-            <!-- Pass through original selection -->
             {{range .ParticipantIDs}}
             <input type="hidden" name="participant_ids" value="{{.}}">
             {{end}}

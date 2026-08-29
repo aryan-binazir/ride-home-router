@@ -40,8 +40,7 @@ func run(args []string) error {
 		return err
 	}
 
-	// Installed before migrations run so a SIGTERM during startup is not the
-	// default handler killing the process mid-migration.
+	// Catch signals before migrations so shutdown cannot terminate them midway.
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
@@ -75,12 +74,7 @@ func run(args []string) error {
 	return nil
 }
 
-// parseArgs resolves the listen address, the public hostnames this server may
-// be addressed by, and the environment-provided secrets. The address defaults
-// to loopback on $PORT (or 8080); binding anywhere else requires
-// --allowed-hosts because the server has no authentication of its own and
-// relies on a tunnel or proxy in front of it. DATABASE_URL is required;
-// GOOGLE_MAPS_API_KEY is optional.
+// parseArgs rejects public listeners without an explicit host allowlist.
 func parseArgs(args []string) (options, error) {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -136,8 +130,7 @@ func parseArgs(args []string) (options, error) {
 
 var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
 
-// validAllowedHost accepts a DNS hostname or an IP literal, exactly as a
-// browser would send it in Host without a port.
+// validAllowedHost accepts a DNS name or IP without a port.
 func validAllowedHost(host string) bool {
 	if hostnamePattern.MatchString(host) {
 		return true

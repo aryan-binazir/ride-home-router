@@ -38,7 +38,6 @@ func TestSettingsActivityLocationsAndVehicles(t *testing.T) {
 		t.Fatalf("ActivityLocations().List() = %#v, %v", locations, err)
 	}
 
-	// Deleting the selected location clears the selection instead of failing.
 	if err := store.ActivityLocations().Delete(ctx, location.ID); err != nil {
 		t.Fatalf("ActivityLocations().Delete() error = %v", err)
 	}

@@ -22,8 +22,7 @@ const (
 	connMaxIdleTime = 5 * time.Minute
 )
 
-// Store is a PostgreSQL-backed data store. The schema must already be migrated
-// (see the migrations package).
+// Store is a PostgreSQL-backed data store for a migrated schema.
 type Store struct {
 	db *sql.DB
 }
@@ -38,8 +37,7 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		config.ConnectTimeout = connectTimeout
 	}
 	db := stdlib.OpenDB(*config)
-	// Bound the pool: managed Postgres tiers cap connections, and route
-	// calculations fan out many small queries per request.
+	// Bound the pool for managed Postgres connection limits.
 	db.SetMaxOpenConns(maxOpenConns)
 	db.SetMaxIdleConns(maxOpenConns)
 	db.SetConnMaxLifetime(connMaxLifetime)

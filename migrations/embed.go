@@ -23,9 +23,7 @@ const (
 //go:embed *.sql
 var files embed.FS
 
-// Run applies every pending migration to the database at databaseURL. The
-// search_path of the URL decides which schema is migrated, which is how tests
-// isolate themselves.
+// Run applies pending migrations to the URL's search path.
 func Run(ctx context.Context, databaseURL string) (err error) {
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {

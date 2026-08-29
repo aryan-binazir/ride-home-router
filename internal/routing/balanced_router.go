@@ -14,9 +14,7 @@ import (
 	"time"
 )
 
-// BalancedRouter assigns participants under vehicle and household constraints,
-// then improves the complete solution with driver utilization first, corridor
-// coherence second, and time tiers last.
+// BalancedRouter prioritizes driver use, corridor spread, then time tiers.
 type BalancedRouter struct {
 	distanceCalc distance.SolveSource
 }
@@ -27,8 +25,7 @@ const (
 	maxNonemptyRouteSearchNodes       = 10000
 )
 
-// NewBalancedRouter creates a bounded-search router that prioritizes driver
-// utilization first, corridor coherence second, and time tiers last.
+// NewBalancedRouter creates a bounded search with the same priority order.
 func NewBalancedRouter(distanceCalc distance.SolveSource) Router {
 	return &BalancedRouter{
 		distanceCalc: distanceCalc,
@@ -43,7 +40,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s",
 		len(req.Participants), len(req.Drivers), mode)
 
-	// Handle empty participants
 	if len(req.Participants) == 0 {
 		return &models.RoutingResult{
 			Routes:  []models.CalculatedRoute{},
@@ -52,7 +48,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}, nil
 	}
 
-	// Handle empty drivers
 	if len(req.Drivers) == 0 {
 		return nil, &ErrRoutingFailed{
 			Reason:            "No drivers available",
@@ -62,7 +57,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}
 	}
 
-	// Prewarm distance cache with only the directed pairs needed for this solve.
 	prewarmStart := time.Now()
 	distanceLookup, err := prepareSolveDistances(ctx, r.distanceCalc, req)
 	if err != nil {
@@ -71,7 +65,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	log.Printf("[TIMING] Prewarm cache: %v", time.Since(prewarmStart))
 	rc := newRouteContext(distanceLookup, req.InstituteCoords, mode)
 
-	// Initialize routes for each driver
 	routes := make(map[int64]*balancedRoute)
 	driverIDs := make([]int64, 0, len(req.Drivers))
 	for i := range req.Drivers {
@@ -83,14 +76,12 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		driverIDs = append(driverIDs, driver.ID)
 	}
 
-	// Build unassigned list
 	unassigned := make([]*models.Participant, len(req.Participants))
 	for i := range req.Participants {
 		unassigned[i] = &req.Participants[i]
 	}
 
-	// Phase 1: Build a feasible bearing-sweep seed. Later phases apply driver
-	// utilization first, corridor coherence second, and time tiers last.
+	// Phase 1 builds a feasible bearing-sweep seed.
 	phase1Start := time.Now()
 	seedName := "bearing-sweep"
 	if r.bearingSweepInsertion(req.InstituteCoords, routes, driverIDs, unassigned) {
@@ -115,15 +106,14 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	log.Printf("[BALANCED] Phase 1 seed: %s", seedName)
 	log.Printf("[TIMING] Phase 1 (%s): %v", seedName, time.Since(phase1Start))
 
-	// Phase 2: Improve route order in the context of the complete solution.
+	// Phase 2 improves stop order across the complete solution.
 	phase2Start := time.Now()
 	if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
 		return nil, err
 	}
 	log.Printf("[TIMING] Phase 2 (route ordering): %v", time.Since(phase2Start))
 
-	// Phase 3: Always search relocations and household swaps, including swaps
-	// between saturated vehicles.
+	// Phase 3 tries household moves and swaps.
 	phase3Start := time.Now()
 	iterations, err := optimizeAssignments(ctx, rc, routes, driverIDs)
 	if err != nil {
@@ -131,7 +121,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 	log.Printf("[TIMING] Phase 3 (assignment search): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
-	// Check for unassigned participants
 	if len(unassigned) > 0 {
 		totalCapacity := 0
 		for _, d := range req.Drivers {
@@ -145,7 +134,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}
 	}
 
-	// Build result
 	result, err := buildResult(ctx, rc, routes, len(req.Participants))
 	if err != nil {
 		return nil, err
@@ -164,9 +152,8 @@ type balancedRoute struct {
 	stops  []*models.Participant
 }
 
-// bearingSweepInsertion partitions household groups into contiguous bearing
-// arcs and matches each arc to the unused driver whose home bearing is nearest.
-// It commits assignments only when the entire sweep succeeds.
+// bearingSweepInsertion matches household arcs to nearby driver bearings.
+// It commits only a complete sweep.
 func (r *BalancedRouter) bearingSweepInsertion(institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) bool {
 	if len(unassigned) == 0 {
 		return true
@@ -347,10 +334,8 @@ type nonemptyRouteRepair struct {
 	found bool
 }
 
-// maximizeNonemptyRoutes augments the seed through chains of household-block
-// relocations. A chain may temporarily transfer the empty route between
-// drivers, but every committed chain ends at a route with multiple blocks and
-// therefore increases the number of nonempty routes by one.
+// maximizeNonemptyRoutes moves household blocks until one more route is used.
+// A chain may transfer the empty route, but commits only when usage increases.
 func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
 	orderedDriverIDs := slices.Clone(driverIDs)
 	slices.Sort(orderedDriverIDs)
@@ -479,13 +464,10 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 	}
 }
 
-// roundRobinInsertion assigns participants by cycling through drivers
-// Groups participants from the same household and assigns them together
+// roundRobinInsertion cycles household groups through drivers.
 func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) ([]*models.Participant, error) {
-	// Sort drivers by ID for consistent ordering
 	slices.Sort(driverIDs)
 
-	// Group participants by address
 	groups := groupParticipantsByAddress(unassigned)
 	maxVehicleCapacity := maxRouteVehicleCapacity(routes)
 	splittableHouseholds := make(map[string]struct{})
@@ -499,14 +481,12 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 	log.Printf("[BALANCED] Distributing %d participants (%d household groups) across %d drivers",
 		totalParticipants, len(groups), len(driverIDs))
 
-	// Round-robin through drivers, assigning best-fit group to each
 	driverIndex := 0
 	maxRounds := totalParticipants * len(driverIDs) * 2 // Safety limit (based on participants, not groups, to handle household splitting)
 
 	for len(groups) > 0 && maxRounds > 0 {
 		maxRounds--
 
-		// Find next driver with capacity for at least 1 participant
 		foundDriver := false
 		startIndex := driverIndex
 		for {
@@ -536,7 +516,6 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 			return nil, err
 		}
 
-		// Find best group and position for this driver (minimize insertion cost)
 		bestCost := math.Inf(1)
 		var bestGroup *participantGroup
 		var bestGroupIndex int
@@ -545,16 +524,13 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 		for groupIdx, group := range groups {
 			groupSize := len(group.members)
 
-			// Check if group fits in remaining capacity
 			if groupSize > remainingCapacity {
-				// Group too large - skip; we'll try splitting individuals below
 				continue
 			}
 			if !assignmentPreservesCapacityFeasibility(routes, currentDriverID, groups, groupIdx, groupSize, splittableHouseholds) {
 				continue
 			}
 
-			// Try all insertion positions for this group
 			for _, pos := range householdBoundaryPositions(route.stops) {
 				cost, err := rc.groupInsertionDeltaRiderScoreFrom(ctx, route.driver, route.stops, group, pos, routeScore)
 				if err != nil {
@@ -570,8 +546,7 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 			}
 		}
 
-		// If no whole group fits this vehicle, split only households that cannot
-		// fit in any selected vehicle.
+		// Split only households too large for every selected vehicle.
 		if bestGroup == nil {
 			for groupIdx, group := range groups {
 				if len(group.members) == 0 {
@@ -584,8 +559,7 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 					continue
 				}
 
-				// Try just the first member of the group, but still only at
-				// household boundaries so existing same-address riders stay adjacent.
+				// Keep existing household blocks adjacent when splitting a group.
 				for _, pos := range householdBoundaryPositions(route.stops) {
 					singleGroup := &participantGroup{
 						members: []*models.Participant{group.members[0]},
@@ -616,7 +590,6 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 			continue
 		}
 
-		// Insert the group
 		route.stops = insertGroupAt(route.stops, bestGroup, bestPosition)
 
 		memberNames := make([]string, len(bestGroup.members))
@@ -632,14 +605,10 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 				memberNames, route.driver.Name, bestPosition, bestCost, len(bestGroup.members))
 		}
 
-		// Remove assigned participants from the group
 		originalGroup := groups[bestGroupIndex]
 		if len(bestGroup.members) == len(originalGroup.members) {
-			// Entire group was assigned - remove from groups list
 			groups = append(groups[:bestGroupIndex], groups[bestGroupIndex+1:]...)
 		} else {
-			// Partial assignment - remove assigned member from original group
-			// This handles the case where we split a group
 			assignedID := bestGroup.members[0].ID
 			newMembers := make([]*models.Participant, 0, len(originalGroup.members)-1)
 			for _, m := range originalGroup.members {
@@ -650,11 +619,9 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 			originalGroup.members = newMembers
 		}
 
-		// Move to next driver (round-robin)
 		driverIndex = (driverIndex + 1) % len(driverIDs)
 	}
 
-	// Build list of unassigned participants from remaining groups
 	unassignedResult := make([]*models.Participant, 0)
 	for _, group := range groups {
 		unassignedResult = append(unassignedResult, group.members...)
@@ -807,8 +774,7 @@ func (rc routeContext) optimizeRouteOrders(ctx context.Context, routes map[int64
 	return nil
 }
 
-// optimizeStopsForSolution reorders only the supplied routes, but evaluates
-// every reversal against the complete solution including unchanged peer routes.
+// optimizeStopsForSolution scores each reversal against every route.
 func (rc routeContext) optimizeStopsForSolution(
 	ctx context.Context,
 	routes map[int64]*balancedRoute,
@@ -888,10 +854,8 @@ type assignmentChange struct {
 	found                         bool
 }
 
-// optimizeAssignments performs deterministic, bounded local search over whole
-// household relocations and pairwise swaps. Every candidate is judged against
-// the complete solution so route-local improvements cannot worsen a higher
-// priority objective on a peer route.
+// optimizeAssignments tries bounded household moves and swaps.
+// It scores every candidate against the complete solution.
 func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
 	slices.Sort(driverIDs)
 	candidateEvaluations := 0
@@ -947,9 +911,7 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			return nil
 		}
 
-		// These relocations necessarily increase usedDrivers. Evaluate them before
-		// the bounded lower-tier neighborhood so the candidate budget can never
-		// hide the objective's highest-priority improvement.
+		// Check route-activating moves before the bounded candidate budget.
 		for _, sourceDriverID := range driverIDs {
 			sourceRoute := routes[sourceDriverID]
 			sourceBlocks := routeHouseholdBlocks(sourceRoute.stops)
@@ -1047,10 +1009,8 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 		firstRoute.stops = best.firstStops
 		secondRoute.stops = best.secondStops
 
-		// The accepted assignment can expose an ordering improvement on an
-		// untouched peer route by changing which route sets the global maximum.
-		// Re-establish a full-solution ordering fixed point before evaluating the
-		// next assignment neighborhood.
+		// A move can expose a stop-order improvement on an untouched route.
+		// Restore the full-solution ordering fixed point before the next move.
 		if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
 			return iteration, err
 		}
@@ -1073,7 +1033,6 @@ func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *p
 	return insertGroupAt(removeRange(stops, start, end), group, start)
 }
 
-// buildResult creates the final routing result
 func buildResult(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, totalParticipants int) (*models.RoutingResult, error) {
 	calculatedRoutes := make([]models.CalculatedRoute, 0)
 	totalDropoff := 0.0
@@ -1090,8 +1049,7 @@ func buildResult(ctx context.Context, rc routeContext, routes map[int64]*balance
 
 	for _, driverID := range driverIDs {
 		route := routes[driverID]
-		// Defensive: keep same-household riders adjacent in the final payload even
-		// if a future optimizer path forgets to normalize before build.
+		// Keep household stops adjacent even if an optimizer misses normalization.
 		route.stops = coalesceHouseholdStops(route.stops)
 		if len(route.stops) == 0 {
 			continue
@@ -1141,7 +1099,6 @@ func buildResult(ctx context.Context, rc routeContext, routes map[int64]*balance
 	}, nil
 }
 
-// participantGroup represents participants from the same household
 type participantGroup struct {
 	members []*models.Participant
 	address string
@@ -1149,8 +1106,7 @@ type participantGroup struct {
 	lng     float64
 }
 
-// groupParticipantsByAddress groups participants by normalized address, falling
-// back to rounded coordinates when an address is unavailable.
+// groupParticipantsByAddress falls back to coordinates when address is blank.
 func groupParticipantsByAddress(participants []*models.Participant) []*participantGroup {
 	householdMap := make(map[string]*participantGroup)
 
@@ -1158,21 +1114,17 @@ func groupParticipantsByAddress(participants []*models.Participant) []*participa
 		key := householdKey(p)
 
 		if group, exists := householdMap[key]; exists {
-			// Add to existing group
 			group.members = append(group.members, p)
 		} else {
-			// Create new group
 			householdMap[key] = newParticipantGroup(p)
 		}
 	}
 
-	// Convert map to slice
 	groups := make([]*participantGroup, 0, len(householdMap))
 	for _, group := range householdMap {
 		groups = append(groups, group)
 	}
 
-	// Sort groups by size (larger groups first) for better initial assignment
 	sort.Slice(groups, func(i, j int) bool {
 		if len(groups[i].members) != len(groups[j].members) {
 			return len(groups[i].members) > len(groups[j].members)
@@ -1183,7 +1135,6 @@ func groupParticipantsByAddress(participants []*models.Participant) []*participa
 	return groups
 }
 
-// coordinateKey creates a unique key for a coordinate pair
 func coordinateKey(lat, lng float64) string {
 	return fmt.Sprintf("%.5f,%.5f", lat, lng)
 }
@@ -1372,18 +1323,13 @@ func canPackAtomicGroupSizes(groupSizes []int, capacities []int) bool {
 	return pack(0)
 }
 
-// insertGroupAt inserts all members of a group consecutively at the specified position
 func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int) []*models.Participant {
-	// Create new slice with room for the group
 	newStops := make([]*models.Participant, len(stops)+len(group.members))
 
-	// Copy elements before insertion point
 	copy(newStops, stops[:pos])
 
-	// Insert group members
 	copy(newStops[pos:], group.members)
 
-	// Copy elements after insertion point
 	copy(newStops[pos+len(group.members):], stops[pos:])
 
 	return newStops

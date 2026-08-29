@@ -148,7 +148,6 @@ func TestRequestSecurityMiddlewareHostAllowlist(t *testing.T) {
 		})
 	}
 
-	// Port-less forms imply port 80, which is not where this server listens.
 	for _, host := range []string{
 		"evil.com:8080", "192.168.1.20:8080",
 		"localhost", "127.0.0.1", "[::1]",
