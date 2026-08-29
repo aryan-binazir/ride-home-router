@@ -22,6 +22,12 @@ func FuncMap() template.FuncMap {
 		"formatDate": func(t time.Time) string {
 			return t.UTC().Format("2006-01-02")
 		},
+		"formatDeletedAt": func(t *time.Time) string {
+			if t == nil {
+				return ""
+			}
+			return t.UTC().Format("Jan 2, 2006 at 3:04 PM UTC")
+		},
 		"add": func(a, b int) int {
 			return a + b
 		},

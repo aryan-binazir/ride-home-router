@@ -14,11 +14,11 @@ type participantRepository struct {
 	db *sql.DB
 }
 
-const participantColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at`
+const participantColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at, deleted_at`
 
 func scanParticipant(scanner interface{ Scan(dest ...any) error }) (models.Participant, error) {
 	var p models.Participant
-	err := scanner.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt)
+	err := scanner.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt)
 	return p, err
 }
 
@@ -26,7 +26,7 @@ func (r *participantRepository) List(ctx context.Context, search string) ([]mode
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+participantColumns+`
 		FROM participants
-		WHERE $1 = '' OR name ILIKE '%' || $1 || '%'
+		WHERE deleted_at IS NULL AND ($1 = '' OR name ILIKE '%' || $1 || '%')
 		ORDER BY name`, search)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query participants: %w", err)
@@ -34,8 +34,20 @@ func (r *participantRepository) List(ctx context.Context, search string) ([]mode
 	return collectParticipants(rows)
 }
 
+func (r *participantRepository) ListDeleted(ctx context.Context) ([]models.Participant, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+participantColumns+`
+		FROM participants
+		WHERE deleted_at IS NOT NULL
+		ORDER BY deleted_at DESC, id`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deleted participants: %w", err)
+	}
+	return collectParticipants(rows)
+}
+
 func (r *participantRepository) GetByID(ctx context.Context, id int64) (*models.Participant, error) {
-	p, err := scanParticipant(r.db.QueryRowContext(ctx, `SELECT `+participantColumns+` FROM participants WHERE id = $1`, id))
+	p, err := scanParticipant(r.db.QueryRowContext(ctx, `SELECT `+participantColumns+` FROM participants WHERE id = $1 AND deleted_at IS NULL`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, database.ErrNotFound
 	}
@@ -49,7 +61,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []int64) ([]mo
 	if len(ids) == 0 {
 		return []models.Participant{}, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+participantColumns+` FROM participants WHERE id = ANY($1)`, ids)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+participantColumns+` FROM participants WHERE id = ANY($1) AND deleted_at IS NULL`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query participants by IDs: %w", err)
 	}
@@ -97,14 +109,14 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 			return tx.ExecContext(ctx, `
 				UPDATE participants
 				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6
-				WHERE id = $7`,
+				WHERE id = $7 AND deleted_at IS NULL`,
 				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID)
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, p *models.Participant, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE participants
 				SET address_name = COALESCE(NULLIF($1, ''), address_name), updated_at = $2
-				WHERE id = $3`,
+				WHERE id = $3 AND deleted_at IS NULL`,
 				p.AddressName, now, id)
 		},
 		fields: func(p *models.Participant) rosterFields {
@@ -134,9 +146,9 @@ func (r *participantRepository) UpdateWithLabels(ctx context.Context, p *models.
 }
 
 func (r *participantRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM participants WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete participant: %w", err)
-	}
-	return rowsAffectedOrNotFound(result)
+	return r.writes().delete(ctx, id)
+}
+
+func (r *participantRepository) Restore(ctx context.Context, id int64) error {
+	return r.writes().restore(ctx, id)
 }

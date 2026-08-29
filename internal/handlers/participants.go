@@ -64,6 +64,44 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// HandleListDeletedParticipants handles GET /api/v1/participants/deleted.
+func (h *Handler) HandleListDeletedParticipants(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HTTP] GET /api/v1/participants/deleted")
+
+	participants, err := h.DB.Participants().ListDeleted(r.Context())
+	if err != nil {
+		log.Printf("[ERROR] Failed to list deleted participants: err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Listed deleted participants: count=%d", len(participants))
+	if h.isHTMX(r) {
+		view, err := h.participantListView(r, participants)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "participant_deleted_list", view)
+		return
+	}
+
+	responseParticipants, err := h.participantResponses(r.Context(), participants)
+	if err != nil {
+		log.Printf("[ERROR] Failed to load deleted participant labels: err=%v", err)
+		h.handleInternalError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, ParticipantListResponse{
+		Participants: responseParticipants,
+		Total:        len(participants),
+	})
+}
+
 // HandleGetParticipant handles GET /api/v1/participants/{id}
 func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
@@ -439,6 +477,41 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleRestoreParticipant handles POST /api/v1/participants/restore.
+func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Request) {
+	id, err := parseRestoreID(r)
+	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/participants/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
+		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
+		return
+	}
+
+	log.Printf("[HTTP] POST /api/v1/participants/restore: id=%d", id)
+	if err := h.DB.Participants().Restore(r.Context(), id); err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Participant not found for restore: id=%d", id)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
+			return
+		}
+		log.Printf("[ERROR] Failed to restore participant: id=%d err=%v", id, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Restored participant: id=%d", id)
+	if h.isHTMX(r) {
+		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Participant"), toastTypeSuccess)
+		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

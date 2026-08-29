@@ -6,10 +6,64 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
 	"strings"
 	"testing"
 )
+
+type archiveSelectedOwnerStore struct {
+	database.DataStore
+	participantID int64
+	driverID      int64
+}
+
+func (s archiveSelectedOwnerStore) Participants() database.ParticipantRepository {
+	return archiveParticipantAfterGetRepository{
+		ParticipantRepository: s.DataStore.Participants(),
+		archiveID:             s.participantID,
+	}
+}
+
+func (s archiveSelectedOwnerStore) Drivers() database.DriverRepository {
+	return archiveDriverAfterGetRepository{
+		DriverRepository: s.DataStore.Drivers(),
+		archiveID:        s.driverID,
+	}
+}
+
+type archiveParticipantAfterGetRepository struct {
+	database.ParticipantRepository
+	archiveID int64
+}
+
+func (r archiveParticipantAfterGetRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error) {
+	participants, err := r.ParticipantRepository.GetByIDs(ctx, ids)
+	if err != nil || r.archiveID == 0 {
+		return participants, err
+	}
+	if err := r.Delete(ctx, r.archiveID); err != nil {
+		return nil, err
+	}
+	return participants, nil
+}
+
+type archiveDriverAfterGetRepository struct {
+	database.DriverRepository
+	archiveID int64
+}
+
+func (r archiveDriverAfterGetRepository) GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error) {
+	drivers, err := r.DriverRepository.GetByIDs(ctx, ids)
+	if err != nil || r.archiveID == 0 {
+		return drivers, err
+	}
+	if err := r.Delete(ctx, r.archiveID); err != nil {
+		return nil, err
+	}
+	return drivers, nil
+}
 
 func TestHandleCreateLabel_HTMXTrimsAndRendersList(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
@@ -1230,5 +1284,97 @@ func TestHandleCreateDriver_JSONInvalidLabelDoesNotCreateDriver(t *testing.T) {
 	}
 	if len(drivers) != 0 {
 		t.Fatalf("drivers = %#v, want none created", drivers)
+	}
+}
+
+func TestHandleAddLabelOwnerArchivedAfterPrecheckReturnsNotFound(t *testing.T) {
+	tests := []struct {
+		name       string
+		field      string
+		notFound   string
+		create     func(*testing.T, *postgres.Store) int64
+		archiveDB  func(database.DataStore, int64) database.DataStore
+		handleAdd  func(*Handler, http.ResponseWriter, *http.Request)
+		requestURL string
+	}{
+		{
+			name:       "participant",
+			field:      "participant_ids",
+			notFound:   messageParticipantNotFound,
+			requestURL: "/api/v1/participants/labels/add",
+			create: func(t *testing.T, store *postgres.Store) int64 {
+				participant, err := store.Participants().Create(t.Context(), &models.Participant{
+					Name: "Race Rider", Address: "1 Race Road", Lat: 40, Lng: -73,
+				})
+				if err != nil {
+					t.Fatalf("create participant: %v", err)
+				}
+				return participant.ID
+			},
+			archiveDB: func(store database.DataStore, id int64) database.DataStore {
+				return archiveSelectedOwnerStore{DataStore: store, participantID: id}
+			},
+			handleAdd: (*Handler).HandleAddParticipantsToLabel,
+		},
+		{
+			name:       "driver",
+			field:      "driver_ids",
+			notFound:   messageDriverNotFound,
+			requestURL: "/api/v1/drivers/labels/add",
+			create: func(t *testing.T, store *postgres.Store) int64 {
+				driver, err := store.Drivers().Create(t.Context(), &models.Driver{
+					Name: "Race Driver", Address: "2 Race Road", Lat: 40, Lng: -73, VehicleCapacity: 4,
+				})
+				if err != nil {
+					t.Fatalf("create driver: %v", err)
+				}
+				return driver.ID
+			},
+			archiveDB: func(store database.DataStore, id int64) database.DataStore {
+				return archiveSelectedOwnerStore{DataStore: store, driverID: id}
+			},
+			handleAdd: (*Handler).HandleAddDriversToLabel,
+		},
+	}
+
+	for _, tt := range tests {
+		for _, htmx := range []bool{true, false} {
+			branch := "json"
+			if htmx {
+				branch = "htmx"
+			}
+			t.Run(tt.name+"_"+branch, func(t *testing.T) {
+				handler, store := newTestManagementHandler(t)
+				label, err := store.Labels().Create(t.Context(), &models.Label{Name: "Race Label"})
+				if err != nil {
+					t.Fatalf("create label: %v", err)
+				}
+				ownerID := tt.create(t, store)
+				handler.DB = tt.archiveDB(store, ownerID)
+
+				form := url.Values{"label_id": {int64ToString(label.ID)}, tt.field: {int64ToString(ownerID)}}
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.requestURL, strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				if htmx {
+					req.Header.Set("HX-Request", "true")
+				}
+				rr := httptest.NewRecorder()
+				tt.handleAdd(handler, rr, req)
+
+				if rr.Code != http.StatusNotFound {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNotFound, rr.Body.String())
+				}
+				if htmx {
+					if got := rr.Header().Get("HX-Reswap"); got != "none" {
+						t.Fatalf("HX-Reswap = %q, want none", got)
+					}
+					if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, tt.notFound) {
+						t.Fatalf("HX-Trigger = %q, want %q", got, tt.notFound)
+					}
+				} else if !strings.Contains(rr.Body.String(), `"code":"NOT_FOUND"`) || !strings.Contains(rr.Body.String(), tt.notFound) {
+					t.Fatalf("body = %q, want JSON not-found response", rr.Body.String())
+				}
+			})
+		}
 	}
 }

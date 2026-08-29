@@ -1,0 +1,25 @@
+{{define "participant_deleted_list"}}
+{{if .Participants}}
+<table data-cards>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Address</th>
+            <th>Labels</th>
+            <th>Deleted</th>
+            <th style="width: 110px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Participants}}
+        {{template "participant_deleted_row" dict "Participant" . "LabelNames" (labelNamesFor $.Labels $.LabelIDs .ID)}}
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <h3>No deleted participants</h3>
+    <p>Participants removed from the roster will appear here.</p>
+</div>
+{{end}}
+{{end}}

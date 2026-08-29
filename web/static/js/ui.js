@@ -11,6 +11,38 @@ function filterTable(input, tbodyId) {
   });
 }
 
+function switchRosterTab(button, prefix) {
+  const activeContainer = document.getElementById(prefix + '-active') || document.getElementById(prefix + '-list');
+  const deletedContainer = document.getElementById(prefix + '-deleted') || document.getElementById(prefix + '-deleted-list');
+  const activeButton = document.getElementById(prefix + '-active-tab');
+  const deletedButton = document.getElementById(prefix + '-deleted-tab');
+
+  if (!activeContainer || !deletedContainer || !activeButton || !deletedButton) return;
+
+  const showDeleted = button === deletedButton;
+  if (showDeleted) {
+    activeContainer.classList.add('hidden');
+    deletedContainer.classList.remove('hidden');
+    activeButton.classList.remove('btn-primary');
+    activeButton.classList.add('btn-outline');
+    deletedButton.classList.remove('btn-outline');
+    deletedButton.classList.add('btn-primary');
+  } else {
+    activeContainer.classList.remove('hidden');
+    deletedContainer.classList.add('hidden');
+    activeButton.classList.remove('btn-outline');
+    activeButton.classList.add('btn-primary');
+    deletedButton.classList.remove('btn-primary');
+    deletedButton.classList.add('btn-outline');
+  }
+  activeButton.setAttribute('aria-pressed', String(!showDeleted));
+  deletedButton.setAttribute('aria-pressed', String(showDeleted));
+}
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = { switchRosterTab };
+}
+
 function updateBulkSelectionCount(tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
@@ -45,15 +77,17 @@ function clearTableSelection(tbodyId) {
   updateBulkSelectionCount(tbodyId);
 }
 
-document.body.addEventListener('htmx:afterSwap', event => {
-  const targetId = event.target && event.target.id;
-  if (targetId === 'participants-list') {
-    updateBulkSelectionCount('participants-tbody');
-  }
-  if (targetId === 'drivers-list') {
-    updateBulkSelectionCount('drivers-tbody');
-  }
-});
+if (typeof document !== 'undefined') {
+  document.body.addEventListener('htmx:afterSwap', event => {
+    const targetId = event.target && event.target.id;
+    if (targetId === 'participants-list') {
+      updateBulkSelectionCount('participants-tbody');
+    }
+    if (targetId === 'drivers-list') {
+      updateBulkSelectionCount('drivers-tbody');
+    }
+  });
+}
 
 function toggleBulkDropdown(button) {
   const wrapper = button.closest('.btn-dropdown');
@@ -80,6 +114,8 @@ function toggleEventDetail(eventItem, eventId) {
 }
 
 (function () {
+  if (typeof document === 'undefined') return;
+
   let confirmDialog = null;
   let confirmResolve = null;
   let confirmLastFocused = null;

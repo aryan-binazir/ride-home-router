@@ -26,8 +26,28 @@
             <h3 class="panel-title">Roster</h3>
             <p class="panel-subtitle">Search, edit, and maintain the rider pool used during event planning.</p>
         </div>
+        <div class="d-flex gap-2" role="group" aria-label="Participant roster view">
+            <button type="button"
+                    id="participants-active-tab"
+                    class="btn btn-sm btn-primary"
+                    aria-pressed="true"
+                    onclick="switchRosterTab(this, 'participants')">
+                Active
+            </button>
+            <button type="button"
+                    id="participants-deleted-tab"
+                    class="btn btn-sm btn-outline"
+                    aria-pressed="false"
+                    hx-get="/api/v1/participants/deleted"
+                    hx-target="#participants-deleted"
+                    hx-swap="innerHTML"
+                    onclick="switchRosterTab(this, 'participants')">
+                Deleted
+            </button>
+        </div>
     </div>
 
+    <div id="participants-active">
     <form id="participant-bulk-form" onsubmit="return false">
     <div class="panel-toolbar panel-toolbar-stack">
         {{if .Labels}}
@@ -78,9 +98,19 @@
                oninput="filterTable(this, 'participants-tbody')">
     </div>
 
-    <div id="participants-list" class="table-container mb-0">
+    <div id="participants-list"
+         class="table-container mb-0"
+         hx-get="/api/v1/participants"
+         hx-trigger="rosterRestored from:body"
+         hx-swap="innerHTML">
         {{template "participant_list" .}}
     </div>
     </form>
+    </div>
+    <div id="participants-deleted"
+         class="table-container mb-0 hidden"
+         hx-get="/api/v1/participants/deleted"
+         hx-trigger="rosterRestored from:body"
+         hx-swap="innerHTML"></div>
 </section>
 {{end}}

@@ -1,0 +1,31 @@
+{{define "participant_deleted_row"}}
+<tr id="deleted-participant-{{.Participant.ID}}">
+    <td data-col="Name">{{.Participant.Name}}</td>
+    <td data-col="Address">
+        {{if .Participant.AddressName}}
+        <div>{{.Participant.AddressName}}</div>
+        <div class="text-muted" style="font-size: 0.85em;">{{.Participant.Address}}</div>
+        {{else}}
+        {{.Participant.Address}}
+        {{end}}
+    </td>
+    <td {{if .LabelNames}}data-col="Labels"{{end}}>
+        {{if .LabelNames}}
+        <div class="table-labels">
+            {{range .LabelNames}}<span class="badge badge-muted">{{.}}</span>{{end}}
+        </div>
+        {{end}}
+    </td>
+    <td data-col="Deleted">{{if .Participant.DeletedAt}}{{formatDeletedAt .Participant.DeletedAt}}{{end}}</td>
+    <td class="table-actions-cell">
+        <button type="button"
+                class="btn btn-sm btn-outline"
+                hx-post="/api/v1/participants/restore"
+                hx-vals='{"id":"{{.Participant.ID}}"}'
+                hx-target="closest tr"
+                hx-swap="outerHTML">
+            Restore
+        </button>
+    </td>
+</tr>
+{{end}}

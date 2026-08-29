@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -32,6 +33,32 @@ func (h *Handler) HandleListActivityLocations(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "activity_location_list", locations)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, locations)
+}
+
+// HandleListDeletedActivityLocations handles GET /api/v1/activity-locations/deleted.
+func (h *Handler) HandleListDeletedActivityLocations(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HTTP] GET /api/v1/activity-locations/deleted")
+	locations, err := h.DB.ActivityLocations().ListDeleted(r.Context())
+	if err != nil {
+		log.Printf("[ERROR] Failed to list deleted activity locations: err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Listed deleted activity locations: count=%d", len(locations))
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "activity_location_deleted_list", locations)
+		return
+	}
 	h.writeJSON(w, http.StatusOK, locations)
 }
 
@@ -292,5 +319,40 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleRestoreActivityLocation handles POST /api/v1/activity-locations/restore.
+func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.Request) {
+	id, err := parseRestoreID(r)
+	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/activity-locations/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
+		h.handleValidationErrorHTMX(w, r, "Invalid activity location ID")
+		return
+	}
+
+	log.Printf("[HTTP] POST /api/v1/activity-locations/restore: id=%d", id)
+	if err := h.DB.ActivityLocations().Restore(r.Context(), id); err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Activity location not found for restore: id=%d", id)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
+			return
+		}
+		log.Printf("[ERROR] Failed to restore activity location: id=%d err=%v", id, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Restored activity location: id=%d", id)
+	if h.isHTMX(r) {
+		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Location"), toastTypeSuccess)
+		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

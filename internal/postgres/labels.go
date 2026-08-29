@@ -17,12 +17,12 @@ type labelRepository struct {
 
 // membershipTable limits interpolated SQL names to two fixed values.
 type membershipTable struct {
-	table, ownerColumn string
+	table, ownerColumn, ownerTable string
 }
 
 var (
-	participantLabels = membershipTable{table: "participant_labels", ownerColumn: "participant_id"}
-	driverLabels      = membershipTable{table: "driver_labels", ownerColumn: "driver_id"}
+	participantLabels = membershipTable{table: "participant_labels", ownerColumn: "participant_id", ownerTable: "participants"}
+	driverLabels      = membershipTable{table: "driver_labels", ownerColumn: "driver_id", ownerTable: "drivers"}
 )
 
 const labelWithCounts = `
@@ -32,10 +32,18 @@ const labelWithCounts = `
 	       l.created_at, l.updated_at
 	FROM labels l
 	LEFT JOIN (
-		SELECT label_id, COUNT(*) AS participant_count FROM participant_labels GROUP BY label_id
+		SELECT membership.label_id, COUNT(*) AS participant_count
+		FROM participant_labels membership
+		INNER JOIN participants participant ON participant.id = membership.participant_id
+		WHERE participant.deleted_at IS NULL
+		GROUP BY membership.label_id
 	) pl ON pl.label_id = l.id
 	LEFT JOIN (
-		SELECT label_id, COUNT(*) AS driver_count FROM driver_labels GROUP BY label_id
+		SELECT membership.label_id, COUNT(*) AS driver_count
+		FROM driver_labels membership
+		INNER JOIN drivers driver ON driver.id = membership.driver_id
+		WHERE driver.deleted_at IS NULL
+		GROUP BY membership.label_id
 	) dl ON dl.label_id = l.id`
 
 func (r *labelRepository) List(ctx context.Context) ([]models.Label, error) {
@@ -227,11 +235,22 @@ func (r *labelRepository) addMemberships(ctx context.Context, m membershipTable,
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := r.db.ExecContext(ctx, fmt.Sprintf(`
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin label membership transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := validateLiveOwners(ctx, tx, m, ids); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (label_id, %s)
 		SELECT $1, owner FROM unnest($2::bigint[]) AS owner
 		ON CONFLICT DO NOTHING`, m.table, m.ownerColumn), labelID, ids); err != nil {
 		return fmt.Errorf("failed to add label memberships: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit label memberships: %w", err)
 	}
 	return nil
 }
@@ -244,8 +263,39 @@ func (r *labelRepository) removeMemberships(ctx context.Context, m membershipTab
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := r.db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE label_id = $1 AND %s = ANY($2)`, m.table, m.ownerColumn), labelID, ids); err != nil {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin label membership transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := validateLiveOwners(ctx, tx, m, ids); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE label_id = $1 AND %s = ANY($2)`, m.table, m.ownerColumn), labelID, ids); err != nil {
 		return fmt.Errorf("failed to remove label memberships: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit label memberships: %w", err)
+	}
+	return nil
+}
+
+func validateLiveOwners(ctx context.Context, tx *sql.Tx, m membershipTable, ownerIDs []int64) error {
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ANY($1) AND deleted_at IS NULL FOR SHARE`, m.ownerTable), ownerIDs)
+	if err != nil {
+		return fmt.Errorf("failed to validate label membership owners: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	count := 0
+	for rows.Next() {
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate label membership owners: %w", err)
+	}
+	if count != len(ownerIDs) {
+		return database.ErrNotFound
 	}
 	return nil
 }

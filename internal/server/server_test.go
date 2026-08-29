@@ -7,10 +7,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/importer"
+	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres/postgrestest"
+	appTemplates "ride-home-router/internal/templates"
 	"ride-home-router/web"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -80,6 +84,54 @@ func TestSetupRoutesRegistersImportEndpoints(t *testing.T) {
 	}
 	if got := recorder.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+}
+
+func TestSetupRoutesDispatchesParticipantRestoreAndDeletedCollectionActions(t *testing.T) {
+	store := postgrestest.Open(t)
+	renderer, err := appTemplates.New(web.Templates)
+	if err != nil {
+		t.Fatalf("load templates: %v", err)
+	}
+	handler := &handlers.Handler{DB: store, Renderer: renderer}
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name: "Route Dispatch Rider", Address: "1 Route Road", Lat: 40.1, Lng: -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Participants().Delete(context.Background(), participant.ID); err != nil {
+		t.Fatalf("delete participant: %v", err)
+	}
+
+	mux := setupRoutes(handler, web.Static)
+	form := url.Values{"id": {strconv.FormatInt(participant.ID, 10)}}
+	restoreReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/restore", strings.NewReader(form.Encode()))
+	restoreReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	restoreReq.Header.Set("HX-Request", "true")
+	restoreRR := httptest.NewRecorder()
+	mux.ServeHTTP(restoreRR, restoreReq)
+	if restoreRR.Code != http.StatusOK {
+		t.Fatalf("restore status = %d, want %d body=%q", restoreRR.Code, http.StatusOK, restoreRR.Body.String())
+	}
+	if !strings.Contains(restoreRR.Header().Get("HX-Trigger"), `"rosterRestored":true`) {
+		t.Fatalf("restore HX-Trigger = %q, want rosterRestored", restoreRR.Header().Get("HX-Trigger"))
+	}
+
+	if err := store.Participants().Delete(context.Background(), participant.ID); err != nil {
+		t.Fatalf("delete participant again: %v", err)
+	}
+	deletedReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/deleted", nil)
+	deletedReq.Header.Set("HX-Request", "true")
+	deletedRR := httptest.NewRecorder()
+	mux.ServeHTTP(deletedRR, deletedReq)
+	if deletedRR.Code != http.StatusOK {
+		t.Fatalf("deleted list status = %d, want %d body=%q", deletedRR.Code, http.StatusOK, deletedRR.Body.String())
+	}
+	for _, want := range []string{"Route Dispatch Rider", "/api/v1/participants/restore"} {
+		if !strings.Contains(deletedRR.Body.String(), want) {
+			t.Fatalf("deleted list missing %q, body=%q", want, deletedRR.Body.String())
+		}
 	}
 }
 

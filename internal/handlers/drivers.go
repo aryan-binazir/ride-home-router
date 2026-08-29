@@ -64,6 +64,44 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleListDeletedDrivers handles GET /api/v1/drivers/deleted.
+func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HTTP] GET /api/v1/drivers/deleted")
+
+	drivers, err := h.DB.Drivers().ListDeleted(r.Context())
+	if err != nil {
+		log.Printf("[ERROR] Failed to list deleted drivers: err=%v", err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Listed deleted drivers: count=%d", len(drivers))
+	if h.isHTMX(r) {
+		view, err := h.driverListView(r, drivers)
+		if err != nil {
+			h.renderError(w, r, err)
+			return
+		}
+		h.renderTemplate(w, "driver_deleted_list", view)
+		return
+	}
+
+	responseDrivers, err := h.driverResponses(r.Context(), drivers)
+	if err != nil {
+		log.Printf("[ERROR] Failed to load deleted driver labels: err=%v", err)
+		h.handleInternalError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, DriverListResponse{
+		Drivers: responseDrivers,
+		Total:   len(drivers),
+	})
+}
+
 // HandleGetDriver handles GET /api/v1/drivers/{id}
 func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
@@ -473,6 +511,41 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleRestoreDriver handles POST /api/v1/drivers/restore.
+func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
+	id, err := parseRestoreID(r)
+	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/drivers/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
+		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
+		return
+	}
+
+	log.Printf("[HTTP] POST /api/v1/drivers/restore: id=%d", id)
+	if err := h.DB.Drivers().Restore(r.Context(), id); err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] Driver not found for restore: id=%d", id)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
+			return
+		}
+		log.Printf("[ERROR] Failed to restore driver: id=%d err=%v", id, err)
+		if h.isHTMX(r) {
+			h.renderError(w, r, err)
+			return
+		}
+		h.handleInternalError(w, err)
+		return
+	}
+
+	log.Printf("[HTTP] Restored driver: id=%d", id)
+	if h.isHTMX(r) {
+		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Driver"), toastTypeSuccess)
+		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

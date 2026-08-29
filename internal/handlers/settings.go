@@ -77,13 +77,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			location, err = h.DB.ActivityLocations().GetByID(r.Context(), selectedActivityLocationID)
 			if err != nil {
 				if h.checkNotFound(err) {
-					log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", selectedActivityLocationID)
-					if h.isHTMX(r) {
-						h.setHTMXToast(w, messageSelectedActivityLocationNotFound, toastTypeError)
-						w.WriteHeader(http.StatusNotFound)
-						return
-					}
-					h.handleNotFound(w, "Activity location not found")
+					h.handleSelectedActivityLocationNotFound(w, r, selectedActivityLocationID)
 					return
 				}
 				log.Printf("[ERROR] Failed to get activity location: err=%v", err)
@@ -108,6 +102,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
+		if h.checkNotFound(err) {
+			h.handleSelectedActivityLocationNotFound(w, r, selectedActivityLocationID)
+			return
+		}
 		log.Printf("[ERROR] Failed to update settings: err=%v", err)
 		if h.isHTMX(r) {
 			h.setHTMXToast(w, err.Error(), toastTypeError)
@@ -130,4 +128,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, settings)
+}
+
+func (h *Handler) handleSelectedActivityLocationNotFound(w http.ResponseWriter, r *http.Request, id int64) {
+	log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", id)
+	h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageSelectedActivityLocationNotFound)
 }

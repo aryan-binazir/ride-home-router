@@ -34,14 +34,36 @@
         </div>
     </form>
 
-    <div id="location-list">
-        {{if .ActivityLocations}}
-        {{range .ActivityLocations}}
-        {{template "activity_location_row" .}}
-        {{end}}
-        {{else}}
-        <p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
-        {{end}}
+    <div class="d-flex gap-2 mb-4" role="group" aria-label="Activity location view">
+        <button type="button"
+                id="location-active-tab"
+                class="btn btn-sm btn-primary"
+                aria-pressed="true"
+                onclick="switchRosterTab(this, 'location')">
+            Active
+        </button>
+        <button type="button"
+                id="location-deleted-tab"
+                class="btn btn-sm btn-outline"
+                aria-pressed="false"
+                hx-get="/api/v1/activity-locations/deleted"
+                hx-target="#location-deleted-list"
+                hx-swap="innerHTML"
+                onclick="switchRosterTab(this, 'location')">
+            Deleted locations
+        </button>
     </div>
+
+    <div id="location-list"
+         hx-get="/api/v1/activity-locations"
+         hx-trigger="rosterRestored from:body"
+         hx-swap="innerHTML">
+        {{template "activity_location_list" .ActivityLocations}}
+    </div>
+    <div id="location-deleted-list"
+         class="table-container mb-0 hidden"
+         hx-get="/api/v1/activity-locations/deleted"
+         hx-trigger="rosterRestored from:body"
+         hx-swap="innerHTML"></div>
 </div>
 {{end}}

@@ -57,6 +57,10 @@ func messageEntityDeleted(entity string) string {
 	return fmt.Sprintf("%s deleted", entity)
 }
 
+func messageEntityRestored(entity string) string {
+	return fmt.Sprintf("%s restored", entity)
+}
+
 func messageEntityUpdated(entity, name string) string {
 	return fmt.Sprintf("%s '%s' updated!", entity, name)
 }

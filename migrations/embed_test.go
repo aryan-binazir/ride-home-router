@@ -17,6 +17,93 @@ import (
 var migrationFiles embed.FS
 
 func TestSMERouteFeedbackMigrationAppliesDownAndUp(t *testing.T) {
+	db, migrator := openMigrator(t)
+
+	assertFeedbackSchema(t, db, true)
+	if err := migrator.Migrate(20260826000000); err != nil {
+		t.Fatalf("migrate down: %v", err)
+	}
+	assertFeedbackSchema(t, db, false)
+	if err := migrator.Migrate(20260830000000); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+	assertFeedbackSchema(t, db, true)
+}
+
+func TestSoftDeleteRosterMigrationRemovesArchivedRowsOnDown(t *testing.T) {
+	db, migrator := openMigrator(t)
+	ctx := t.Context()
+
+	var liveParticipantID, archivedParticipantID int64
+	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng) VALUES ('Live Rider', '1 Main St', 40, -73) RETURNING id`).Scan(&liveParticipantID); err != nil {
+		t.Fatalf("insert live participant: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng, deleted_at) VALUES ('Archived Rider', '2 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedParticipantID); err != nil {
+		t.Fatalf("insert archived participant: %v", err)
+	}
+	var liveDriverID, archivedDriverID int64
+	if err := db.QueryRowContext(ctx, `INSERT INTO drivers (name, address, lat, lng) VALUES ('Live Driver', '3 Main St', 40, -73) RETURNING id`).Scan(&liveDriverID); err != nil {
+		t.Fatalf("insert live driver: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `INSERT INTO drivers (name, address, lat, lng, deleted_at) VALUES ('Archived Driver', '4 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedDriverID); err != nil {
+		t.Fatalf("insert archived driver: %v", err)
+	}
+	var archivedLocationID int64
+	if _, err := db.ExecContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng) VALUES ('Live Gym', '5 Main St', 40, -73)`); err != nil {
+		t.Fatalf("insert live activity location: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng, deleted_at) VALUES ('Archived Gym', '6 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedLocationID); err != nil {
+		t.Fatalf("insert archived activity location: %v", err)
+	}
+	var labelID int64
+	if err := db.QueryRowContext(ctx, `INSERT INTO labels (name) VALUES ('Retained') RETURNING id`).Scan(&labelID); err != nil {
+		t.Fatalf("insert label: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO participant_labels (label_id, participant_id) VALUES ($1, $2), ($1, $3)`, labelID, liveParticipantID, archivedParticipantID); err != nil {
+		t.Fatalf("insert participant labels: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO driver_labels (label_id, driver_id) VALUES ($1, $2), ($1, $3)`, labelID, liveDriverID, archivedDriverID); err != nil {
+		t.Fatalf("insert driver labels: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE settings SET selected_activity_location_id = $1 WHERE id = 1`, archivedLocationID); err != nil {
+		t.Fatalf("select archived activity location: %v", err)
+	}
+
+	if err := migrator.Migrate(20260829000000); err != nil {
+		t.Fatalf("migrate soft-delete roster down: %v", err)
+	}
+	for table, wantName := range map[string]string{
+		"participants":       "Live Rider",
+		"drivers":            "Live Driver",
+		"activity_locations": "Live Gym",
+	} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE name = $1`, wantName).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("live row in %s after down = %d, err=%v; want 1", table, count, err)
+		}
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("total rows in %s after down = %d, err=%v; want archived row removed", table, count, err)
+		}
+	}
+	for _, table := range []string{"participant_labels", "driver_labels"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("rows in %s after down = %d, err=%v; want archived membership cascaded", table, count, err)
+		}
+	}
+	var selectedLocationID sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT selected_activity_location_id FROM settings WHERE id = 1`).Scan(&selectedLocationID); err != nil || selectedLocationID.Valid {
+		t.Fatalf("selected location after down = %#v, err=%v; want NULL", selectedLocationID, err)
+	}
+
+	if err := migrator.Migrate(20260830000000); err != nil {
+		t.Fatalf("migrate soft-delete roster up: %v", err)
+	}
+	assertSoftDeleteColumns(t, db, true)
+}
+
+func openMigrator(t *testing.T) (*sql.DB, *migrate.Migrate) {
+	t.Helper()
 	databaseURL := postgrestest.DatabaseURL(t)
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
@@ -42,16 +129,7 @@ func TestSMERouteFeedbackMigrationAppliesDownAndUp(t *testing.T) {
 			t.Errorf("close migrator: source=%v database=%v", sourceErr, databaseErr)
 		}
 	})
-
-	assertFeedbackSchema(t, db, true)
-	if err := migrator.Steps(-1); err != nil {
-		t.Fatalf("migrate down: %v", err)
-	}
-	assertFeedbackSchema(t, db, false)
-	if err := migrator.Steps(1); err != nil {
-		t.Fatalf("migrate up: %v", err)
-	}
-	assertFeedbackSchema(t, db, true)
+	return db, migrator
 }
 
 func assertFeedbackSchema(t *testing.T, db *sql.DB, want bool) {
@@ -73,5 +151,22 @@ func assertFeedbackSchema(t *testing.T, db *sql.DB, want bool) {
 	}
 	if tableExists != want || columnExists != want {
 		t.Fatalf("feedback schema exists = table:%v column:%v, want %v", tableExists, columnExists, want)
+	}
+}
+
+func assertSoftDeleteColumns(t *testing.T, db *sql.DB, want bool) {
+	t.Helper()
+	for _, table := range []string{"participants", "drivers", "activity_locations"} {
+		var exists bool
+		if err := db.QueryRowContext(t.Context(), `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = current_schema() AND table_name = $1 AND column_name = 'deleted_at'
+			)`, table).Scan(&exists); err != nil {
+			t.Fatalf("query %s.deleted_at: %v", table, err)
+		}
+		if exists != want {
+			t.Fatalf("%s.deleted_at exists = %v, want %v", table, exists, want)
+		}
 	}
 }

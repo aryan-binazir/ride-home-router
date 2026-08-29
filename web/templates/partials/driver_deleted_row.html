@@ -1,0 +1,31 @@
+{{define "driver_deleted_row"}}
+<tr id="deleted-driver-{{.Driver.ID}}">
+    <td data-col="Name">{{.Driver.Name}}</td>
+    <td data-col="Address">
+        {{if .Driver.AddressName}}
+        <div>{{.Driver.AddressName}}</div>
+        <div class="text-muted" style="font-size: 0.85em;">{{.Driver.Address}}</div>
+        {{else}}
+        {{.Driver.Address}}
+        {{end}}
+    </td>
+    <td {{if .LabelNames}}data-col="Labels"{{end}}>
+        {{if .LabelNames}}
+        <div class="table-labels">
+            {{range .LabelNames}}<span class="badge badge-muted">{{.}}</span>{{end}}
+        </div>
+        {{end}}
+    </td>
+    <td data-col="Deleted">{{if .Driver.DeletedAt}}{{formatDeletedAt .Driver.DeletedAt}}{{end}}</td>
+    <td class="table-actions-cell">
+        <button type="button"
+                class="btn btn-sm btn-outline"
+                hx-post="/api/v1/drivers/restore"
+                hx-vals='{"id":"{{.Driver.ID}}"}'
+                hx-target="closest tr"
+                hx-swap="outerHTML">
+            Restore
+        </button>
+    </td>
+</tr>
+{{end}}

@@ -1,0 +1,9 @@
+{{define "activity_location_list"}}
+{{if .}}
+{{range .}}
+{{template "activity_location_row" .}}
+{{end}}
+{{else}}
+<p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
+{{end}}
+{{end}}

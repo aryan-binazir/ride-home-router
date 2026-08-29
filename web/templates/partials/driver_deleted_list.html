@@ -1,0 +1,25 @@
+{{define "driver_deleted_list"}}
+{{if .Drivers}}
+<table data-cards>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Address</th>
+            <th>Labels</th>
+            <th>Deleted</th>
+            <th style="width: 110px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Drivers}}
+        {{template "driver_deleted_row" dict "Driver" . "LabelNames" (labelNamesFor $.Labels $.LabelIDs .ID)}}
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <h3>No deleted drivers</h3>
+    <p>Drivers removed from the roster will appear here.</p>
+</div>
+{{end}}
+{{end}}

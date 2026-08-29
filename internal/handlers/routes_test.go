@@ -706,15 +706,40 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 	if err != nil {
 		t.Fatalf("create activity location: %v", err)
 	}
+	archivedParticipant, err := store.Participants().Create(ctx, &models.Participant{Name: "Archived Rider", Address: "4 Rider Rd", Lat: 40.3, Lng: -73.7})
+	if err != nil {
+		t.Fatalf("create archived participant: %v", err)
+	}
+	archivedDriver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Archived Driver", Address: "5 Driver Rd", Lat: 40.4, Lng: -73.6, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create archived driver: %v", err)
+	}
+	archivedLocation, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Archived Gym", Address: "6 Event Ave", Lat: 43, Lng: -76})
+	if err != nil {
+		t.Fatalf("create archived activity location: %v", err)
+	}
+	if err := store.Participants().Delete(ctx, archivedParticipant.ID); err != nil {
+		t.Fatalf("archive participant: %v", err)
+	}
+	if err := store.Drivers().Delete(ctx, archivedDriver.ID); err != nil {
+		t.Fatalf("archive driver: %v", err)
+	}
+	if err := store.ActivityLocations().Delete(ctx, archivedLocation.ID); err != nil {
+		t.Fatalf("archive activity location: %v", err)
+	}
 
 	tests := []struct {
-		name          string
-		participantID int64
-		driverID      int64
-		wantMessage   string
+		name               string
+		participantID      int64
+		driverID           int64
+		activityLocationID int64
+		wantMessage        string
 	}{
-		{name: "participant", participantID: participant.ID + 1000, driverID: driver.ID, wantMessage: "Some participants not found"},
-		{name: "driver", participantID: participant.ID, driverID: driver.ID + 1000, wantMessage: "Some drivers not found"},
+		{name: "unknown participant", participantID: participant.ID + 1000, driverID: driver.ID, activityLocationID: location.ID, wantMessage: "Some participants not found"},
+		{name: "unknown driver", participantID: participant.ID, driverID: driver.ID + 1000, activityLocationID: location.ID, wantMessage: "Some drivers not found"},
+		{name: "archived participant", participantID: archivedParticipant.ID, driverID: driver.ID, activityLocationID: location.ID, wantMessage: "Some participants not found"},
+		{name: "archived driver", participantID: participant.ID, driverID: archivedDriver.ID, activityLocationID: location.ID, wantMessage: "Some drivers not found"},
+		{name: "archived activity location", participantID: participant.ID, driverID: driver.ID, activityLocationID: archivedLocation.ID, wantMessage: messageSelectedActivityLocationNotFoundChooseAnother},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -723,7 +748,7 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 			form := url.Values{}
 			form.Add("participant_ids", int64ToString(test.participantID))
 			form.Add("driver_ids", int64ToString(test.driverID))
-			form.Set("activity_location_id", int64ToString(location.ID))
+			form.Set("activity_location_id", int64ToString(test.activityLocationID))
 			form.Set("route_time", "18:30")
 			form.Set("mode", "dropoff")
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))

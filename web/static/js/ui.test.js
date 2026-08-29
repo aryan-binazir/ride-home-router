@@ -1,0 +1,51 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { switchRosterTab } = require('./ui.js');
+
+function element(classes = []) {
+  const values = new Set(classes);
+  return {
+    attributes: {},
+    classList: {
+      add: value => values.add(value),
+      remove: value => values.delete(value),
+      toggle: (value, force) => force ? values.add(value) : values.delete(value),
+      contains: value => values.has(value),
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+}
+
+test('switchRosterTab toggles containers, styles, and pressed state', () => {
+  const elements = {
+    'participants-active': element([]),
+    'participants-deleted': element(['hidden']),
+    'participants-active-tab': element(['btn-primary']),
+    'participants-deleted-tab': element(['btn-outline']),
+  };
+  global.document = { getElementById: id => elements[id] || null };
+  test.after(() => { delete global.document; });
+
+  switchRosterTab(elements['participants-deleted-tab'], 'participants');
+
+  assert.equal(elements['participants-active'].classList.contains('hidden'), true);
+  assert.equal(elements['participants-deleted'].classList.contains('hidden'), false);
+  assert.equal(elements['participants-active-tab'].classList.contains('btn-outline'), true);
+  assert.equal(elements['participants-deleted-tab'].classList.contains('btn-primary'), true);
+  assert.equal(elements['participants-active-tab'].attributes['aria-pressed'], 'false');
+  assert.equal(elements['participants-deleted-tab'].attributes['aria-pressed'], 'true');
+
+  switchRosterTab(elements['participants-active-tab'], 'participants');
+
+  assert.equal(elements['participants-active'].classList.contains('hidden'), false);
+  assert.equal(elements['participants-deleted'].classList.contains('hidden'), true);
+  assert.equal(elements['participants-active-tab'].classList.contains('btn-primary'), true);
+  assert.equal(elements['participants-deleted-tab'].classList.contains('btn-outline'), true);
+  assert.equal(elements['participants-active-tab'].attributes['aria-pressed'], 'true');
+  assert.equal(elements['participants-deleted-tab'].attributes['aria-pressed'], 'false');
+});
