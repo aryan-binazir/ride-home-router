@@ -252,3 +252,52 @@ func TestRepositories_LabelWritesRollBackOnInvalidLabel(t *testing.T) {
 		t.Fatalf("driver memberships = %#v, %v; want none", ids, err)
 	}
 }
+
+func TestRepositories_UpdatePreservesOrClearsLabelsAsRequested(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	label, err := store.Labels().Create(ctx, &models.Label{Name: "Assigned"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+
+	participant, err := store.Participants().CreateWithLabels(ctx, &models.Participant{
+		Name: "Rider", Address: "1 Rider Way", Lat: 40.1, Lng: -73.9,
+	}, []int64{label.ID})
+	if err != nil {
+		t.Fatalf("participant CreateWithLabels() error = %v", err)
+	}
+	participant.Name = "Updated Rider"
+	if _, err := store.Participants().Update(ctx, participant); err != nil {
+		t.Fatalf("participant Update() error = %v", err)
+	}
+	if labels, err := store.Labels().ListLabelsForParticipant(ctx, participant.ID); err != nil || len(labels) != 1 {
+		t.Fatalf("participant labels after Update() = %#v, %v; want preserved", labels, err)
+	}
+	if _, err := store.Participants().UpdateWithLabels(ctx, participant, nil); err != nil {
+		t.Fatalf("participant UpdateWithLabels(nil) error = %v", err)
+	}
+	if labels, err := store.Labels().ListLabelsForParticipant(ctx, participant.ID); err != nil || len(labels) != 0 {
+		t.Fatalf("participant labels after UpdateWithLabels(nil) = %#v, %v; want none", labels, err)
+	}
+
+	driver, err := store.Drivers().CreateWithLabels(ctx, &models.Driver{
+		Name: "Driver", Address: "1 Driver Way", Lat: 40.1, Lng: -73.9, VehicleCapacity: 4,
+	}, []int64{label.ID})
+	if err != nil {
+		t.Fatalf("driver CreateWithLabels() error = %v", err)
+	}
+	driver.Name = "Updated Driver"
+	if _, err := store.Drivers().Update(ctx, driver); err != nil {
+		t.Fatalf("driver Update() error = %v", err)
+	}
+	if labels, err := store.Labels().ListLabelsForDriver(ctx, driver.ID); err != nil || len(labels) != 1 {
+		t.Fatalf("driver labels after Update() = %#v, %v; want preserved", labels, err)
+	}
+	if _, err := store.Drivers().UpdateWithLabels(ctx, driver, nil); err != nil {
+		t.Fatalf("driver UpdateWithLabels(nil) error = %v", err)
+	}
+	if labels, err := store.Labels().ListLabelsForDriver(ctx, driver.ID); err != nil || len(labels) != 0 {
+		t.Fatalf("driver labels after UpdateWithLabels(nil) = %#v, %v; want none", labels, err)
+	}
+}

@@ -77,128 +77,53 @@ const insertDriver = `
 	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8)
 	RETURNING id`
 
+func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
+	return rosterWriteCore[models.Driver]{
+		db:     r.db,
+		noun:   "driver",
+		table:  "drivers",
+		labels: driverLabels,
+		key: func(d *models.Driver) string {
+			return models.RosterKey(d.Name, d.Address)
+		},
+		insert: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (int64, error) {
+			var id int64
+			err := tx.QueryRowContext(ctx, insertDriver,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, now,
+			).Scan(&id)
+			return id, err
+		},
+		updateRow: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (sql.Result, error) {
+			return tx.ExecContext(ctx, `
+				UPDATE drivers
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
+				WHERE id = $8`,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
+		},
+		fields: func(d *models.Driver) rosterFields {
+			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}
+		},
+	}
+}
+
 func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*models.Driver, error) {
 	return r.CreateWithLabels(ctx, d, nil)
 }
 
 func (r *driverRepository) CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return database.BatchCreateResult{}, fmt.Errorf("failed to begin driver batch transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if err := lockRoster(ctx, tx, "drivers"); err != nil {
-		return database.BatchCreateResult{}, err
-	}
-	existing, err := rosterKeys(ctx, tx, "drivers")
-	if err != nil {
-		return database.BatchCreateResult{}, err
-	}
-	batchResult := database.BatchCreateResult{}
-
-	type created struct {
-		driver    *models.Driver
-		id        int64
-		createdAt time.Time
-	}
-	var createdRows []created
-	for i, driver := range drivers {
-		if driver == nil {
-			return database.BatchCreateResult{}, errors.New("driver batch contains a nil driver")
-		}
-		key := models.RosterKey(driver.Name, driver.Address)
-		_, duplicate := existing[key]
-		allowDuplicate := i < len(allowExistingDuplicate) && allowExistingDuplicate[i]
-		if key != "" && duplicate && !allowDuplicate {
-			batchResult.SkippedDuplicate++
-			continue
-		}
-		now := time.Now()
-		var id int64
-		if err := tx.QueryRowContext(ctx, insertDriver,
-			driver.Name, driver.Address, driver.AddressName, driver.Lat, driver.Lng, driver.VehicleCapacity, now, now,
-		).Scan(&id); err != nil {
-			return database.BatchCreateResult{}, fmt.Errorf("failed to create driver in batch: %w", err)
-		}
-		createdRows = append(createdRows, created{driver: driver, id: id, createdAt: now})
-		batchResult.Created++
-	}
-
-	if err := tx.Commit(); err != nil {
-		return database.BatchCreateResult{}, fmt.Errorf("failed to commit driver batch transaction: %w", err)
-	}
-	for _, item := range createdRows {
-		item.driver.ID = item.id
-		item.driver.CreatedAt = item.createdAt
-		item.driver.UpdatedAt = item.createdAt
-	}
-	return batchResult, nil
+	return r.writes().createBatch(ctx, drivers, allowExistingDuplicate)
 }
 
 func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin driver transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if err := lockRoster(ctx, tx, "drivers"); err != nil {
-		return nil, err
-	}
-	now := time.Now()
-	d.CreatedAt = now
-	d.UpdatedAt = now
-	if err := tx.QueryRowContext(ctx, insertDriver,
-		d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.CreatedAt, d.UpdatedAt,
-	).Scan(&d.ID); err != nil {
-		return nil, fmt.Errorf("failed to create driver: %w", err)
-	}
-	if err := insertLabelMemberships(ctx, tx, driverLabels, d.ID, labelIDs); err != nil {
-		return nil, fmt.Errorf("failed to insert driver label memberships: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit driver transaction: %w", err)
-	}
-	return d, nil
+	return r.writes().createWithLabels(ctx, d, labelIDs)
 }
 
 func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*models.Driver, error) {
-	return r.update(ctx, d, nil, false)
+	return r.writes().updateWithLabels(ctx, d, nil, false)
 }
 
 func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
-	return r.update(ctx, d, labelIDs, true)
-}
-
-func (r *driverRepository) update(ctx context.Context, d *models.Driver, labelIDs []int64, replaceLabels bool) (*models.Driver, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin driver transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	d.UpdatedAt = time.Now()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE drivers
-		SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
-		WHERE id = $8`,
-		d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, d.UpdatedAt, d.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update driver: %w", err)
-	}
-	if err := rowsAffectedOrNotFound(result); err != nil {
-		return nil, err
-	}
-	if replaceLabels {
-		if err := replaceLabelMemberships(ctx, tx, driverLabels, d.ID, labelIDs); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit driver transaction: %w", err)
-	}
-	return d, nil
+	return r.writes().updateWithLabels(ctx, d, labelIDs, true)
 }
 
 func (r *driverRepository) Delete(ctx context.Context, id int64) error {
