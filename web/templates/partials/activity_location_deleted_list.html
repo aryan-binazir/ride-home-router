@@ -1,0 +1,26 @@
+{{define "activity_location_deleted_list"}}
+{{if .}}
+<div class="table-container mb-0">
+<table data-cards>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Address</th>
+            <th>Deleted</th>
+            <th style="width: 110px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .}}
+        {{template "activity_location_deleted_row" .}}
+        {{end}}
+    </tbody>
+</table>
+</div>
+{{else}}
+<div class="empty-state">
+    <h3>No deleted locations</h3>
+    <p>Locations removed from the roster will appear here.</p>
+</div>
+{{end}}
+{{end}}

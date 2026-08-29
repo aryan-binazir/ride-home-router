@@ -108,6 +108,16 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
+		if h.checkNotFound(err) {
+			log.Printf("[HTTP] PUT /api/v1/settings: activity location not found during update: id=%d", selectedActivityLocationID)
+			if h.isHTMX(r) {
+				h.setHTMXToast(w, messageSelectedActivityLocationNotFound, toastTypeError)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			h.handleNotFound(w, "Activity location not found")
+			return
+		}
 		log.Printf("[ERROR] Failed to update settings: err=%v", err)
 		if h.isHTMX(r) {
 			h.setHTMXToast(w, err.Error(), toastTypeError)

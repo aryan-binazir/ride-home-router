@@ -34,14 +34,37 @@
         </div>
     </form>
 
-    <div id="location-list">
-        {{if .ActivityLocations}}
-        {{range .ActivityLocations}}
-        {{template "activity_location_row" .}}
-        {{end}}
-        {{else}}
-        <p class="text-muted" id="no-locations-message">No activity locations yet. Add one above.</p>
-        {{end}}
+    <div class="d-flex gap-2 mb-4" role="group" aria-label="Activity location view">
+        <button type="button"
+                id="locations-active-tab"
+                class="btn btn-sm btn-primary"
+                hx-get="/api/v1/activity-locations"
+                hx-target="#location-list"
+                hx-swap="innerHTML"
+                onclick="document.getElementById('location-list').classList.remove('hidden'); document.getElementById('location-deleted-list').classList.add('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('locations-deleted-tab').classList.replace('btn-primary', 'btn-outline')">
+            Active
+        </button>
+        <button type="button"
+                id="locations-deleted-tab"
+                class="btn btn-sm btn-outline"
+                hx-get="/api/v1/activity-locations/deleted"
+                hx-target="#location-deleted-list"
+                hx-swap="innerHTML"
+                onclick="document.getElementById('location-list').classList.add('hidden'); document.getElementById('location-deleted-list').classList.remove('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('locations-active-tab').classList.replace('btn-primary', 'btn-outline')">
+            Deleted locations
+        </button>
     </div>
+
+    <div id="location-list"
+         hx-get="/api/v1/activity-locations"
+         hx-trigger="rosterRestored from:body"
+         hx-swap="innerHTML">
+        {{template "activity_location_list" .ActivityLocations}}
+    </div>
+    <div id="location-deleted-list"
+         class="hidden"
+         hx-get="/api/v1/activity-locations/deleted"
+         hx-trigger="rosterRestored from:body"
+         hx-swap="innerHTML"></div>
 </div>
 {{end}}

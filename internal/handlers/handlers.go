@@ -14,6 +14,8 @@ import (
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
+	"strconv"
+	"strings"
 )
 
 // Handler owns the HTTP layer's dependencies.
@@ -187,6 +189,13 @@ func (h *Handler) handleInternalError(w http.ResponseWriter, err error) {
 
 func (h *Handler) checkNotFound(err error) bool {
 	return errors.Is(err, database.ErrNotFound)
+}
+
+func parseRestoreID(r *http.Request) (int64, error) {
+	if err := r.ParseForm(); err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
 }
 
 func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {

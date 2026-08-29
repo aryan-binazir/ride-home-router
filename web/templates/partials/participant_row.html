@@ -48,7 +48,7 @@
                     hx-delete="/api/v1/participants/{{.Participant.ID}}"
                     hx-target="#participant-{{.Participant.ID}}"
                     hx-swap="outerHTML swap:1s"
-                    hx-confirm="Are you sure you want to delete {{.Participant.Name}}?">
+                    hx-confirm="Remove {{.Participant.Name}} from the roster? It can be restored from Deleted.">
                 Delete
             </button>
         </div>
