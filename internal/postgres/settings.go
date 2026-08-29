@@ -14,8 +14,8 @@ type settingsRepository struct {
 func (r *settingsRepository) Get(ctx context.Context) (*models.Settings, error) {
 	var s models.Settings
 	var selectedLocationID sql.NullInt64
-	if err := r.db.QueryRowContext(ctx, `SELECT selected_activity_location_id, use_miles FROM settings WHERE id = 1`).
-		Scan(&selectedLocationID, &s.UseMiles); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT selected_activity_location_id, use_miles, sme_email FROM settings WHERE id = 1`).
+		Scan(&selectedLocationID, &s.UseMiles, &s.SMEEmail); err != nil {
 		return nil, fmt.Errorf("failed to get settings: %w", err)
 	}
 	if selectedLocationID.Valid {
@@ -29,8 +29,8 @@ func (r *settingsRepository) Update(ctx context.Context, s *models.Settings) err
 	if s.SelectedActivityLocationID != 0 {
 		selectedLocationID = &s.SelectedActivityLocationID
 	}
-	if _, err := r.db.ExecContext(ctx, `UPDATE settings SET selected_activity_location_id = $1, use_miles = $2 WHERE id = 1`,
-		selectedLocationID, s.UseMiles); err != nil {
+	if _, err := r.db.ExecContext(ctx, `UPDATE settings SET selected_activity_location_id = $1, use_miles = $2, sme_email = $3 WHERE id = 1`,
+		selectedLocationID, s.UseMiles, s.SMEEmail); err != nil {
 		return fmt.Errorf("failed to update settings: %w", err)
 	}
 	return nil

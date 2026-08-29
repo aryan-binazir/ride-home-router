@@ -3,7 +3,6 @@ package routesession
 import (
 	"context"
 	"errors"
-	"ride-home-router/internal/models"
 	"testing"
 	"time"
 )
@@ -63,7 +62,7 @@ func TestFailedCommitRefreshesSessionTTL(t *testing.T) {
 	created := store.Create(CreateInput{})
 	wantErr := errors.New("persistence failed")
 
-	err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+	err := store.Commit(context.Background(), created.ID, func(context.Context, CommitSnapshot) error {
 		now = now.Add(2 * time.Minute)
 		return wantErr
 	})
@@ -81,16 +80,16 @@ func TestCommittedMarkerExpiresWithSessionTTL(t *testing.T) {
 	t.Cleanup(store.Close)
 	created := store.Create(CreateInput{})
 
-	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); err != nil {
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, CommitSnapshot) error { return nil }); err != nil {
 		t.Fatalf("Commit error = %v", err)
 	}
-	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); !errors.Is(err, ErrAlreadyCommitted) {
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, CommitSnapshot) error { return nil }); !errors.Is(err, ErrAlreadyCommitted) {
 		t.Fatalf("second Commit error = %v, want ErrAlreadyCommitted", err)
 	}
 
 	now = now.Add(time.Minute + time.Second)
 	store.deleteExpired(now)
-	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); !errors.Is(err, ErrNotFound) {
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, CommitSnapshot) error { return nil }); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Commit after marker expiry error = %v, want ErrNotFound", err)
 	}
 }

@@ -139,6 +139,57 @@ type Settings struct {
 	InstituteLng               float64 `json:"institute_lng"`     // Deprecated: use SelectedActivityLocationID
 	SelectedActivityLocationID int64   `json:"selected_activity_location_id"`
 	UseMiles                   bool    `json:"use_miles"`
+	SMEEmail                   string  `json:"sme_email"`
+}
+
+// RouteFeedbackRecord is the event-linked payload used for offline route analysis.
+type RouteFeedbackRecord struct {
+	EventID       int64                `json:"event_id"`
+	SessionID     string               `json:"session_id"`
+	SMEEmail      string               `json:"sme_email"`
+	SchemaVersion int                  `json:"schema_version"`
+	Mode          RouteMode            `json:"mode"`
+	Input         RouteFeedbackInput   `json:"input"`
+	Proposed      []RouteFeedbackRoute `json:"proposed"`
+	Final         []RouteFeedbackRoute `json:"final"`
+}
+
+// RouteFeedbackInput is the allowlisted solver input retained for analysis.
+type RouteFeedbackInput struct {
+	Activity     RouteFeedbackActivity      `json:"activity"`
+	Drivers      []RouteFeedbackDriver      `json:"drivers"`
+	Participants []RouteFeedbackParticipant `json:"participants"`
+}
+
+type RouteFeedbackActivity struct {
+	ID  int64   `json:"id"`
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
+type RouteFeedbackDriver struct {
+	ID           int64   `json:"id"`
+	Address      string  `json:"address"`
+	Lat          float64 `json:"lat"`
+	Lng          float64 `json:"lng"`
+	Capacity     int     `json:"capacity"`
+	OrgVehicleID *int64  `json:"org_vehicle_id,omitempty"`
+}
+
+type RouteFeedbackParticipant struct {
+	ID      int64   `json:"id"`
+	Address string  `json:"address"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+}
+
+type RouteFeedbackRoute struct {
+	DriverID            int64   `json:"driver_id"`
+	OrgVehicleID        *int64  `json:"org_vehicle_id,omitempty"`
+	ParticipantIDs      []int64 `json:"participant_ids"`
+	TotalDistanceMeters float64 `json:"total_distance_meters"`
+	RouteDurationSecs   float64 `json:"route_duration_secs"`
+	DetourSecs          float64 `json:"detour_secs"`
 }
 
 // Event represents a historical event record

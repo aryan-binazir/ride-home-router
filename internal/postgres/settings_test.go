@@ -21,11 +21,11 @@ func TestSettingsActivityLocationsAndVehicles(t *testing.T) {
 	if err != nil || location.ID == 0 {
 		t.Fatalf("ActivityLocations().Create() = %#v, %v", location, err)
 	}
-	if err := store.Settings().Update(ctx, &models.Settings{SelectedActivityLocationID: location.ID, UseMiles: false}); err != nil {
+	if err := store.Settings().Update(ctx, &models.Settings{SelectedActivityLocationID: location.ID, UseMiles: false, SMEEmail: "sme@example.com"}); err != nil {
 		t.Fatalf("Settings().Update() error = %v", err)
 	}
 	settings, err = store.Settings().Get(ctx)
-	if err != nil || settings.UseMiles || settings.SelectedActivityLocationID != location.ID {
+	if err != nil || settings.UseMiles || settings.SelectedActivityLocationID != location.ID || settings.SMEEmail != "sme@example.com" {
 		t.Fatalf("Settings().Get() = %#v, %v", settings, err)
 	}
 

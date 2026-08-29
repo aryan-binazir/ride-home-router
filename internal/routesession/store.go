@@ -66,6 +66,27 @@ type Snapshot struct {
 	IsOutOfBalance   bool
 }
 
+// CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
+type CommitSnapshot struct {
+	SessionID         string
+	Original          []models.CalculatedRoute
+	Final             []models.CalculatedRoute
+	Summary           models.RoutingSummary
+	SelectedDrivers   []models.Driver
+	DriverOrgVehicles map[int64]*models.OrganizationVehicle
+	ActivityLocation  *models.ActivityLocation
+	Mode              models.RouteMode
+}
+
+// RoutingResult returns an independent event-persistence payload for the final routes.
+func (s CommitSnapshot) RoutingResult() models.RoutingResult {
+	return models.RoutingResult{
+		Routes:  copyRoutes(s.Final),
+		Summary: copySummary(s.Summary),
+		Mode:    s.Mode,
+	}
+}
+
 type session struct {
 	id                string
 	originalRoutes    []models.CalculatedRoute
@@ -256,7 +277,7 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 
 // Commit persists under the session lock, then removes the session.
 // The callback must not call Store methods; lock waiters cannot cancel.
-func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, models.RoutingResult) error) error {
+func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, CommitSnapshot) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) && s.wasCommitted(id) {
@@ -275,10 +296,15 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 	if unbalanced {
 		return ErrUnbalanced
 	}
-	payload := models.RoutingResult{
-		Routes:  copyRoutes(state.currentRoutes),
-		Summary: calculateSummary(state.currentRoutes),
-		Mode:    state.mode,
+	payload := CommitSnapshot{
+		SessionID:         state.id,
+		Original:          copyRoutes(state.originalRoutes),
+		Final:             copyRoutes(state.currentRoutes),
+		Summary:           calculateSummary(state.currentRoutes),
+		SelectedDrivers:   append([]models.Driver(nil), state.selectedDrivers...),
+		DriverOrgVehicles: copyVehicles(state.driverOrgVehicles),
+		ActivityLocation:  copyLocation(state.activityLocation),
+		Mode:              state.mode,
 	}
 	if err := persist(ctx, payload); err != nil {
 		return err
@@ -595,6 +621,12 @@ func copyLocation(location *models.ActivityLocation) *models.ActivityLocation {
 	}
 	result := *location
 	return &result
+}
+
+func copySummary(summary models.RoutingSummary) models.RoutingSummary {
+	result := summary
+	result.UnassignedParticipants = append([]int64(nil), summary.UnassignedParticipants...)
+	return result
 }
 
 func copyVehicles(source map[int64]*models.OrganizationVehicle) map[int64]*models.OrganizationVehicle {

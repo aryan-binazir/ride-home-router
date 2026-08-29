@@ -6,6 +6,7 @@ import (
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
+	"strings"
 )
 
 // HandleGetSettings handles GET /api/v1/settings
@@ -24,8 +25,9 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 // HandleUpdateSettings handles PUT /api/v1/settings
 func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SelectedActivityLocationID *int64 `json:"selected_activity_location_id"`
-		UseMiles                   bool   `json:"use_miles"`
+		SelectedActivityLocationID *int64  `json:"selected_activity_location_id"`
+		UseMiles                   bool    `json:"use_miles"`
+		SMEEmail                   *string `json:"sme_email"`
 	}
 
 	if h.isHTMX(r) {
@@ -41,6 +43,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
+		if r.Form.Has("sme_email") {
+			value := r.FormValue("sme_email")
+			req.SMEEmail = &value
+		}
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/settings: invalid_body err=%v", err)
@@ -95,6 +101,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	settings := &models.Settings{
 		SelectedActivityLocationID: selectedActivityLocationID,
 		UseMiles:                   req.UseMiles,
+		SMEEmail:                   currentSettings.SMEEmail,
+	}
+	if req.SMEEmail != nil {
+		settings.SMEEmail = strings.TrimSpace(*req.SMEEmail)
 	}
 
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {

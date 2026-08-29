@@ -10,6 +10,7 @@ import (
 	"ride-home-router/internal/eventsnapshot"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
@@ -278,7 +279,32 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.SessionID != "" {
-		sessionErr := h.RouteSession.Commit(r.Context(), req.SessionID, persist)
+		sessionErr := h.RouteSession.Commit(r.Context(), req.SessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot) error {
+			if err := persist(ctx, snapshot.RoutingResult()); err != nil {
+				return err
+			}
+			if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
+				return nil
+			}
+			feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			settings, err := h.DB.Settings().Get(feedbackCtx)
+			if err != nil {
+				log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+				return nil
+			}
+			email, ok := routefeedback.ShouldCapture(r, settings)
+			if !ok {
+				return nil
+			}
+			record := routefeedback.Build(snapshot)
+			record.EventID = createdEvent.ID
+			record.SMEEmail = email
+			if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
+				log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+			}
+			return nil
+		})
 		if h.handleEventValidationError(w, sessionErr) {
 			return
 		}

@@ -76,6 +76,10 @@ func (s *Store) OrganizationVehicles() database.OrganizationVehicleRepository {
 
 func (s *Store) Events() database.EventRepository { return &eventRepository{db: s.db} }
 
+func (s *Store) RouteFeedback() database.RouteFeedbackRepository {
+	return &routeFeedbackRepository{db: s.db}
+}
+
 func (s *Store) DistanceCache() database.DistanceCacheRepository {
 	return &distanceCacheRepository{db: s.db}
 }
