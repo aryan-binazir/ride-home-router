@@ -88,7 +88,7 @@ func participantsFromRoutes(routes []models.CalculatedRoute) []Participant {
 func routesFrom(routes []models.CalculatedRoute) []Route {
 	result := make([]Route, 0, len(routes))
 	for _, route := range routes {
-		if route.Driver == nil {
+		if route.Driver == nil || len(route.Stops) == 0 {
 			continue
 		}
 		feedbackRoute := Route{

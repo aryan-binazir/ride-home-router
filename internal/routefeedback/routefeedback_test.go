@@ -60,6 +60,17 @@ func TestBuildRecordsUnchangedSession(t *testing.T) {
 	}
 }
 
+func TestBuildOmitsRoutesWithoutParticipantsLikeEventSnapshot(t *testing.T) {
+	snapshot := feedbackSnapshot()
+	snapshot.Final[0].Stops = nil
+
+	record := Build(snapshot)
+
+	if len(record.Final) != 1 || record.Final[0].DriverID != snapshot.Final[1].Driver.ID {
+		t.Fatalf("final routes = %#v, want only the route saved in event history", record.Final)
+	}
+}
+
 func TestShouldCaptureMatchesConfiguredSMEEmail(t *testing.T) {
 	tests := []struct {
 		name     string
