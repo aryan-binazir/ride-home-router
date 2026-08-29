@@ -36,10 +36,10 @@ func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
 	normalized := strings.ToLower(norm.NFC.String(value))
 	normalized = strings.Map(func(r rune) rune {
 		switch r {
-		case '\'', '\u2018', '\u2019', '\u02bc', '\u02bb', '\u00b4', '`', '\u2032',
-			'\u200b', '\u200c', '\u200d', '\ufeff', '\u00ad', '.':
+		case '\'', '\u2018', '\u2019', '\u02bc', '\u00b4', '`', '\u2032',
+			'\ufeff', '\u00ad', '.':
 			return -1
-		case ',':
+		case ',', '\u200b':
 			return ' '
 		case '-', '\u2010', '\u2011', '\u2013', '\u2014':
 			if hyphensAsWhitespace {
