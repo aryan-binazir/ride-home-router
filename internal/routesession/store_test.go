@@ -400,7 +400,7 @@ func TestCommitRejectsUnbalancedWithoutPersistence(t *testing.T) {
 	created := store.Create(routesession.CreateInput{Routes: routes, ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
 	called := false
 
-	err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+	err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error {
 		called = true
 		return nil
 	})
@@ -419,8 +419,8 @@ func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testin
 	created := store.Create(testInput())
 	wantErr := errors.New("persistence failed")
 
-	err := store.Commit(context.Background(), created.ID, func(_ context.Context, payload models.RoutingResult) error {
-		payload.Routes[0].Driver.ID = 999
+	err := store.Commit(context.Background(), created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
+		payload.Final[0].Driver.ID = 999
 		return wantErr
 	})
 
@@ -434,7 +434,7 @@ func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testin
 	if got.Routes[0].Driver.ID != 1 {
 		t.Fatalf("session driver ID = %d, want independent value 1", got.Routes[0].Driver.ID)
 	}
-	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); err != nil {
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
 		t.Fatalf("retry Commit error = %v", err)
 	}
 }
@@ -444,13 +444,13 @@ func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
 	t.Cleanup(store.Close)
 	created := store.Create(testInput())
 
-	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error { return nil }); err != nil {
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
 		t.Fatalf("Commit error = %v", err)
 	}
 	if _, ok := store.Snapshot(created.ID); ok {
 		t.Fatal("session remains available after successful Commit")
 	}
-	if err := store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error {
 		t.Fatal("second Commit invoked persistence")
 		return nil
 	}); !errors.Is(err, routesession.ErrAlreadyCommitted) {
@@ -477,8 +477,8 @@ func TestCommitWaitsForInFlightEditAndPersistsItsResult(t *testing.T) {
 	commitDone := make(chan error, 1)
 	var persisted models.RoutingResult
 	go func() {
-		commitDone <- store.Commit(context.Background(), created.ID, func(_ context.Context, payload models.RoutingResult) error {
-			persisted = payload
+		commitDone <- store.Commit(context.Background(), created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
+			persisted = payload.RoutingResult()
 			return nil
 		})
 	}()
@@ -509,8 +509,8 @@ func TestCommitRejectsEditThatArrivesDuringPersistence(t *testing.T) {
 	commitDone := make(chan error, 1)
 	var persisted models.RoutingResult
 	go func() {
-		commitDone <- store.Commit(context.Background(), created.ID, func(_ context.Context, payload models.RoutingResult) error {
-			persisted = payload
+		commitDone <- store.Commit(context.Background(), created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
+			persisted = payload.RoutingResult()
 			close(persistStarted)
 			<-releasePersist
 			return nil
@@ -552,7 +552,7 @@ func TestCommitDoesNotBlockOtherSessions(t *testing.T) {
 	releasePersist := make(chan struct{})
 	commitDone := make(chan error, 1)
 	go func() {
-		commitDone <- store.Commit(context.Background(), committing.ID, func(context.Context, models.RoutingResult) error {
+		commitDone <- store.Commit(context.Background(), committing.ID, func(context.Context, routesession.CommitSnapshot) error {
 			close(persistStarted)
 			<-releasePersist
 			return nil
@@ -587,7 +587,7 @@ func TestCommitUnlocksSessionWhenPersistencePanics(t *testing.T) {
 	panicDone := make(chan any, 1)
 	go func() {
 		defer func() { panicDone <- recover() }()
-		_ = store.Commit(context.Background(), created.ID, func(context.Context, models.RoutingResult) error {
+		_ = store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error {
 			panic("persistence panic")
 		})
 	}()

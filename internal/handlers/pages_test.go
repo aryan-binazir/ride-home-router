@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"ride-home-router/internal/models"
@@ -61,6 +63,87 @@ func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="/vans"`) {
 		t.Fatalf("expected Settings page to link to Vans page, body=%q", body)
+	}
+}
+
+func TestHandleSettingsPage_RendersSMEEmailControl(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	if err := store.Settings().Update(context.Background(), &models.Settings{UseMiles: true, SMEEmail: "sme@example.com"}); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`name="sme_email"`,
+		`value="sme@example.com"`,
+		`SME email`,
+		`Route edits saved by this person are recorded for algorithm review. Leave blank to disable.`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("settings page missing %q, body=%q", want, body)
+		}
+	}
+}
+
+func TestHandleUpdateSettings_TrimsAndRoundTripsSMEEmail(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	payload, err := json.Marshal(map[string]any{"use_miles": true, "sme_email": "  SME@Example.com  "})
+	if err != nil {
+		t.Fatalf("marshal settings: %v", err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/settings", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.HandleUpdateSettings(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	settings, err := store.Settings().Get(context.Background())
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	if settings.SMEEmail != "SME@Example.com" {
+		t.Fatalf("SMEEmail = %q, want trimmed value", settings.SMEEmail)
+	}
+
+	var response models.Settings
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.SMEEmail != settings.SMEEmail {
+		t.Fatalf("response SMEEmail = %q, stored = %q", response.SMEEmail, settings.SMEEmail)
+	}
+}
+
+func TestHandleUpdateSettings_BlankFormSMEEmailDisablesCapture(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	if err := store.Settings().Update(context.Background(), &models.Settings{UseMiles: true, SMEEmail: "sme@example.com"}); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/settings", strings.NewReader("use_miles=on&sme_email=++"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+	handler.HandleUpdateSettings(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	settings, err := store.Settings().Get(context.Background())
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	if settings.SMEEmail != "" {
+		t.Fatalf("SMEEmail = %q, want blank", settings.SMEEmail)
 	}
 }
 

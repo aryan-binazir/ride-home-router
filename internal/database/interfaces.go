@@ -21,8 +21,14 @@ type DataStore interface {
 	ActivityLocations() ActivityLocationRepository
 	OrganizationVehicles() OrganizationVehicleRepository
 	Events() EventRepository
+	RouteFeedback() RouteFeedbackRepository
 	DistanceCache() DistanceCacheRepository
 	Labels() LabelRepository
+}
+
+// RouteFeedbackRepository stores privacy-safe route analysis records.
+type RouteFeedbackRepository interface {
+	Create(ctx context.Context, record *models.RouteFeedbackRecord) error
 }
 
 // ParticipantRepository stores participants.
