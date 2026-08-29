@@ -40,8 +40,6 @@ const (
 	FieldName        Field = "name"
 	FieldAddress     Field = "address"
 	FieldAddressName Field = "address_name"
-	FieldLatitude    Field = "lat"
-	FieldLongitude   Field = "lng"
 	FieldCapacity    Field = "capacity"
 )
 
@@ -50,8 +48,6 @@ type Mapping struct {
 	NameColumn        int
 	AddressColumn     int
 	AddressNameColumn int
-	LatitudeColumn    int
-	LongitudeColumn   int
 	CapacityColumn    int
 
 	Ambiguous map[Field][]int
@@ -85,8 +81,6 @@ type gridRow struct {
 type Existing struct {
 	Name    string
 	Address string
-	Lat     float64
-	Lng     float64
 }
 
 // Row is validated; HasCoordinates distinguishes (0,0) from missing values.
@@ -103,11 +97,10 @@ type Row struct {
 	// existing driver's capacity instead of resetting it to the default.
 	CapacityDefaulted bool
 
-	HasCoordinates       bool
-	NeedsGeocoding       bool
-	CoordinatesInherited bool
-	DuplicateInFile      bool
-	DuplicateOfExisting  bool
+	HasCoordinates      bool
+	NeedsGeocoding      bool
+	DuplicateInFile     bool
+	DuplicateOfExisting bool
 
 	Errors   []string
 	Warnings []string

@@ -97,8 +97,6 @@ func importFieldOptions(isDriver bool) []importFieldOption {
 		{Value: string(importer.FieldName), Label: "Name"},
 		{Value: string(importer.FieldAddress), Label: "Address"},
 		{Value: string(importer.FieldAddressName), Label: "Location name"},
-		{Value: string(importer.FieldLatitude), Label: "Latitude"},
-		{Value: string(importer.FieldLongitude), Label: "Longitude"},
 	}
 	if isDriver {
 		options = append(options, importFieldOption{Value: string(importer.FieldCapacity), Label: "Passenger capacity (excluding driver)"})
@@ -177,8 +175,6 @@ func importMappingColumns(mapping importer.Mapping) []importMappingBinding {
 		{importer.FieldName, mapping.NameColumn},
 		{importer.FieldAddress, mapping.AddressColumn},
 		{importer.FieldAddressName, mapping.AddressNameColumn},
-		{importer.FieldLatitude, mapping.LatitudeColumn},
-		{importer.FieldLongitude, mapping.LongitudeColumn},
 		{importer.FieldCapacity, mapping.CapacityColumn},
 	}
 }

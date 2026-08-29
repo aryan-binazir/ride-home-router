@@ -666,7 +666,7 @@ func newMiddlewareImportRequest(t *testing.T, paddingBytes int) *http.Request {
 	if err != nil {
 		t.Fatalf("create file field: %v", err)
 	}
-	if _, err := file.Write([]byte("name,address,lat,lng\nAlex,1 Main St,40,-73\n")); err != nil {
+	if _, err := file.Write([]byte("name,address\nAlex,1 Main St\n")); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	if err := writer.Close(); err != nil {

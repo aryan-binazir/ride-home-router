@@ -227,7 +227,7 @@ func TestImportHTTPUploadTooLarge(t *testing.T) {
 
 func TestImportHTTPSelectionBodyTooLarge(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	id := createCoordinateCompleteImport(t, handler)
+	id := createGeocodedImport(t, handler)
 	body := "[" + strings.Repeat("false,", int(MaxImportJSONBytes/6)+1) + "false]"
 	request := newImportRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection", bytes.NewReader([]byte(body)))
 	request.Header.Set("Content-Type", "application/json")
@@ -265,7 +265,7 @@ func TestImportHTTPWrongID(t *testing.T) {
 
 func TestImportHTTPDoubleCommit(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	id := createCoordinateCompleteImport(t, handler)
+	id := createGeocodedImport(t, handler)
 
 	first := httptest.NewRecorder()
 	handler.HandleImportSession(first, newImportRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit", nil))
@@ -317,9 +317,9 @@ func TestImportHTTPCommitDuringGeocoding(t *testing.T) {
 func TestImportHTTPOversizeRowCount(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	var csv strings.Builder
-	csv.WriteString("name,address,lat,lng\n")
+	csv.WriteString("name,address\n")
 	for i := 0; i <= importer.MaxDataRows; i++ {
-		fmt.Fprintf(&csv, "Rider %d,%d Main St,40,-73\n", i, i)
+		fmt.Fprintf(&csv, "Rider %d,%d Main St\n", i, i)
 	}
 	upload := newImportUploadRequest(t, "too-many.csv", csv.String(), importer.KindParticipant, "")
 	recorder := httptest.NewRecorder()
@@ -336,7 +336,7 @@ func TestImportHTTPOversizeRowCount(t *testing.T) {
 
 func TestImportHTTPCancel(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	upload := newImportUploadRequest(t, "participants.csv", "name,address,lat,lng\nAlex,1 Main St,40,-73\n", importer.KindParticipant, "")
+	upload := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
 	uploadRecorder := httptest.NewRecorder()
 	handler.HandleCreateImport(uploadRecorder, upload)
 	id := decodeImportSnapshot(t, uploadRecorder).ID
@@ -519,9 +519,9 @@ func waitForImportHTTPGeocoding(t *testing.T, handler *Handler, id string) impor
 	return importSnapshotJSON{}
 }
 
-func createCoordinateCompleteImport(t *testing.T, handler *Handler) string {
+func createGeocodedImport(t *testing.T, handler *Handler) string {
 	t.Helper()
-	upload := newImportUploadRequest(t, "participants.csv", "name,address,lat,lng\nAlex,1 Main St,40,-73\n", importer.KindParticipant, "")
+	upload := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
 	uploadRecorder := httptest.NewRecorder()
 	handler.HandleCreateImport(uploadRecorder, upload)
 	if uploadRecorder.Code != http.StatusCreated {
@@ -529,13 +529,14 @@ func createCoordinateCompleteImport(t *testing.T, handler *Handler) string {
 	}
 	created := decodeImportSnapshot(t, uploadRecorder)
 	mapping := newImportJSONRequest(t, http.MethodPut, "/api/v1/imports/"+created.ID+"/mapping", map[string]int{
-		"name_column": 0, "address_column": 1, "latitude_column": 2, "longitude_column": 3,
+		"name_column": 0, "address_column": 1,
 	})
 	mappingRecorder := httptest.NewRecorder()
 	handler.HandleImportSession(mappingRecorder, mapping)
 	if mappingRecorder.Code != http.StatusOK {
 		t.Fatalf("mapping status = %d body=%q", mappingRecorder.Code, mappingRecorder.Body.String())
 	}
+	waitForImportHTTPGeocoding(t, handler, created.ID)
 	return created.ID
 }
 

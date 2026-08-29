@@ -107,8 +107,8 @@ func TestXLSXSkipsHiddenRows(t *testing.T) {
 func TestXLSXUsesRawFormulaCacheAndWarns(t *testing.T) {
 	data := makeXLSX(t, func(f *excelize.File) {
 		setRows(t, f, "Sheet1", [][]any{
-			{"name", "address", "lat", "lng"},
-			{"Jane", "1 Main St", 0.0, -73.0},
+			{"name", "address", "capacity"},
+			{"Jane", "1 Main St", 4},
 		})
 		if err := f.SetCellFormula("Sheet1", "C2", "0/0"); err != nil {
 			t.Fatalf("SetCellFormula() error = %v", err)
@@ -119,12 +119,12 @@ func TestXLSXUsesRawFormulaCacheAndWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
+	row := Validate(grid, AutoMap(grid.Headers), KindDriver, nil)[0]
 	if !hasMessage(row.Warnings, "value comes from a formula; verify") {
 		t.Fatalf("warnings = %#v", row.Warnings)
 	}
-	if !hasMessage(row.Errors, "not finite") {
-		t.Fatalf("row = %#v, want NaN rejection", row)
+	if !hasMessage(row.Errors, "whole number") {
+		t.Fatalf("row = %#v, want invalid capacity rejection", row)
 	}
 }
 
@@ -165,48 +165,22 @@ func TestXLSXFormulaBackedHeaderWarnsAtFileLevel(t *testing.T) {
 	}
 }
 
-func TestXLSXUsesRawNumericValuesAndRejectsErrorCells(t *testing.T) {
-	t.Run("formatted numeric value", func(t *testing.T) {
-		data := makeXLSX(t, func(f *excelize.File) {
-			setRows(t, f, "Sheet1", [][]any{
-				{"name", "address", "lat", "lng"},
-				{"Jane", "1 Main St", 0.5, -73.0},
-			})
-			style, err := f.NewStyle(&excelize.Style{NumFmt: 10})
-			if err != nil {
-				t.Fatalf("NewStyle() error = %v", err)
-			}
-			if err := f.SetCellStyle("Sheet1", "C2", "C2", style); err != nil {
-				t.Fatalf("SetCellStyle() error = %v", err)
-			}
+func TestXLSXRejectsErrorCellsInMappedColumns(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{
+			{"name", "address", "location name"},
+			{"Jane", "1 Main St", "Home"},
 		})
-		grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
-		if err != nil {
-			t.Fatalf("Parse() error = %v", err)
-		}
-		row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
-		if len(row.Errors) != 0 || row.Lat != 0.5 {
-			t.Fatalf("row = %#v, want raw latitude 0.5", row)
-		}
 	})
-
-	t.Run("spreadsheet error", func(t *testing.T) {
-		data := makeXLSX(t, func(f *excelize.File) {
-			setRows(t, f, "Sheet1", [][]any{
-				{"name", "address", "lat", "lng"},
-				{"Jane", "1 Main St", 0.0, -73.0},
-			})
-		})
-		data = patchXLSXCell(t, data, "xl/worksheets/sheet1.xml", "C2", `<c r="C2" t="e"><v>#REF!</v></c>`)
-		grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
-		if err != nil {
-			t.Fatalf("Parse() error = %v", err)
-		}
-		row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
-		if !hasMessage(row.Errors, "spreadsheet error #REF!") {
-			t.Fatalf("errors = %#v", row.Errors)
-		}
-	})
+	data = patchXLSXCell(t, data, "xl/worksheets/sheet1.xml", "C2", `<c r="C2" t="e"><v>#REF!</v></c>`)
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
+	if !hasMessage(row.Errors, "spreadsheet error #REF!") {
+		t.Fatalf("errors = %#v", row.Errors)
+	}
 }
 
 func TestXLSXDriverCapacityAcceptsIntegralFloatOnly(t *testing.T) {
@@ -287,7 +261,7 @@ func TestXLSXErrorTextIsCheckedOnlyInMappedColumns(t *testing.T) {
 
 func TestXLSXNormalizesRaggedWidths(t *testing.T) {
 	data := makeXLSX(t, func(f *excelize.File) {
-		setRows(t, f, "Sheet1", [][]any{{"name", "address", "lat", "lng"}, {"Jane", "1 Main St"}})
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
 	})
 	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
 	if err != nil {

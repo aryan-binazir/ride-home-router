@@ -28,8 +28,6 @@ type importMappingJSON struct {
 	NameColumn        int                      `json:"name_column"`
 	AddressColumn     int                      `json:"address_column"`
 	AddressNameColumn int                      `json:"address_name_column"`
-	LatitudeColumn    int                      `json:"latitude_column"`
-	LongitudeColumn   int                      `json:"longitude_column"`
 	CapacityColumn    int                      `json:"capacity_column"`
 	Ambiguous         map[importer.Field][]int `json:"ambiguous"`
 	Ignored           []int                    `json:"ignored"`
@@ -39,8 +37,6 @@ type importMappingRequest struct {
 	NameColumn        *int `json:"name_column"`
 	AddressColumn     *int `json:"address_column"`
 	AddressNameColumn *int `json:"address_name_column"`
-	LatitudeColumn    *int `json:"latitude_column"`
-	LongitudeColumn   *int `json:"longitude_column"`
 	CapacityColumn    *int `json:"capacity_column"`
 }
 
@@ -60,12 +56,11 @@ type importRowJSON struct {
 	Longitude   float64 `json:"longitude"`
 	Capacity    int     `json:"capacity"`
 
-	HasCoordinates       bool `json:"has_coordinates"`
-	NeedsGeocoding       bool `json:"needs_geocoding"`
-	CoordinatesInherited bool `json:"coordinates_inherited"`
-	DuplicateInFile      bool `json:"duplicate_in_file"`
-	DuplicateOfExisting  bool `json:"duplicate_of_existing"`
-	Selected             bool `json:"selected"`
+	HasCoordinates      bool `json:"has_coordinates"`
+	NeedsGeocoding      bool `json:"needs_geocoding"`
+	DuplicateInFile     bool `json:"duplicate_in_file"`
+	DuplicateOfExisting bool `json:"duplicate_of_existing"`
+	Selected            bool `json:"selected"`
 
 	Errors   []string `json:"errors"`
 	Warnings []string `json:"warnings"`
@@ -388,8 +383,7 @@ func newImportSnapshotJSON(snapshot importer.Snapshot) importSnapshotJSON {
 			SourceRow: row.SourceRow, Name: row.Name, Address: row.Address, AddressName: row.AddressName,
 			Latitude: row.Lat, Longitude: row.Lng, Capacity: row.Capacity,
 			HasCoordinates: row.HasCoordinates, NeedsGeocoding: row.NeedsGeocoding,
-			CoordinatesInherited: row.CoordinatesInherited, DuplicateInFile: row.DuplicateInFile,
-			DuplicateOfExisting: row.DuplicateOfExisting, Selected: selected,
+			DuplicateInFile: row.DuplicateInFile, DuplicateOfExisting: row.DuplicateOfExisting, Selected: selected,
 			Errors: append([]string{}, row.Errors...), Warnings: append([]string{}, row.Warnings...),
 		}
 	}
@@ -407,8 +401,8 @@ func newImportSnapshotJSON(snapshot importer.Snapshot) importSnapshotJSON {
 func newImportMappingJSON(mapping importer.Mapping) importMappingJSON {
 	return importMappingJSON{
 		NameColumn: mapping.NameColumn, AddressColumn: mapping.AddressColumn, AddressNameColumn: mapping.AddressNameColumn,
-		LatitudeColumn: mapping.LatitudeColumn, LongitudeColumn: mapping.LongitudeColumn, CapacityColumn: mapping.CapacityColumn,
-		Ambiguous: mapping.Ambiguous, Ignored: append([]int{}, mapping.Ignored...),
+		CapacityColumn: mapping.CapacityColumn,
+		Ambiguous:      mapping.Ambiguous, Ignored: append([]int{}, mapping.Ignored...),
 	}
 }
 
@@ -424,8 +418,6 @@ func mergeImportMapping(snapshot importer.Snapshot, request importMappingRequest
 		{importer.FieldName, request.NameColumn},
 		{importer.FieldAddress, request.AddressColumn},
 		{importer.FieldAddressName, request.AddressNameColumn},
-		{importer.FieldLatitude, request.LatitudeColumn},
-		{importer.FieldLongitude, request.LongitudeColumn},
 		{importer.FieldCapacity, request.CapacityColumn},
 	}
 	assignments := make([]importer.FieldColumn, 0, len(updates))

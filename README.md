@@ -98,7 +98,7 @@ make check-unit  # skips database-backed tests
 
 ## Data
 
-Postgres stores names, addresses, coordinates, settings, cached distances, and event history. Spreadsheet parsing happens on the server; rows with coordinates skip geocoding. Ride Home Router has no analytics or tracking.
+Postgres stores names, addresses, coordinates, settings, cached distances, and event history. Spreadsheet parsing happens on the server, and imported addresses are geocoded automatically. Ride Home Router has no analytics or tracking.
 
 The public Nominatim service limits requests to one per second. Google Routes billing and quotas apply.
 

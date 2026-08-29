@@ -6,8 +6,6 @@ var fieldAliases = map[Field]map[string]struct{}{
 	FieldName:        aliasSet("name", "full name", "participant", "participant name", "driver", "driver name", "person"),
 	FieldAddress:     aliasSet("address", "street address", "home address", "location"),
 	FieldAddressName: aliasSet("location name", "address name", "place", "place name", "building", "complex"),
-	FieldLatitude:    aliasSet("lat", "latitude"),
-	FieldLongitude:   aliasSet("lng", "lon", "long", "longitude"),
 	FieldCapacity:    aliasSet("passenger capacity", "available seats", "capacity"),
 }
 
@@ -15,8 +13,6 @@ var fieldOrder = []Field{
 	FieldName,
 	FieldAddress,
 	FieldAddressName,
-	FieldLatitude,
-	FieldLongitude,
 	FieldCapacity,
 }
 
@@ -75,8 +71,6 @@ func NewMapping() Mapping {
 		NameColumn:        UnmappedColumn,
 		AddressColumn:     UnmappedColumn,
 		AddressNameColumn: UnmappedColumn,
-		LatitudeColumn:    UnmappedColumn,
-		LongitudeColumn:   UnmappedColumn,
 		CapacityColumn:    UnmappedColumn,
 		Ambiguous:         make(map[Field][]int),
 	}
@@ -148,10 +142,6 @@ func (m *Mapping) set(field Field, column int) {
 		m.AddressColumn = column
 	case FieldAddressName:
 		m.AddressNameColumn = column
-	case FieldLatitude:
-		m.LatitudeColumn = column
-	case FieldLongitude:
-		m.LongitudeColumn = column
 	case FieldCapacity:
 		m.CapacityColumn = column
 	}
@@ -165,10 +155,6 @@ func (m Mapping) column(field Field) int {
 		return m.AddressColumn
 	case FieldAddressName:
 		return m.AddressNameColumn
-	case FieldLatitude:
-		return m.LatitudeColumn
-	case FieldLongitude:
-		return m.LongitudeColumn
 	case FieldCapacity:
 		return m.CapacityColumn
 	default:
@@ -187,8 +173,6 @@ func (m Mapping) columns() []struct {
 		{FieldName, m.NameColumn},
 		{FieldAddress, m.AddressColumn},
 		{FieldAddressName, m.AddressNameColumn},
-		{FieldLatitude, m.LatitudeColumn},
-		{FieldLongitude, m.LongitudeColumn},
 		{FieldCapacity, m.CapacityColumn},
 	}
 }
@@ -203,7 +187,7 @@ func aliasSet(values ...string) map[string]struct{} {
 
 func knownField(field Field) bool {
 	switch field {
-	case FieldName, FieldAddress, FieldAddressName, FieldLatitude, FieldLongitude, FieldCapacity:
+	case FieldName, FieldAddress, FieldAddressName, FieldCapacity:
 		return true
 	default:
 		return false
@@ -211,7 +195,7 @@ func knownField(field Field) bool {
 }
 
 // NormalizeRosterText applies the normalization used for header matching and
-// address grouping during household coordinate reconciliation and geocoding.
+// address grouping during geocoding.
 // Duplicate detection uses models.RosterKey.
 func NormalizeRosterText(value string) string {
 	return models.NormalizeRosterField(value)

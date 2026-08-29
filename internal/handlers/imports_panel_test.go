@@ -30,6 +30,9 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	if strings.Contains(mappingBody, "Passenger capacity") {
 		t.Fatal("participant mapping should not offer the driver capacity field")
 	}
+	if strings.Contains(mappingBody, "Latitude") || strings.Contains(mappingBody, "Longitude") {
+		t.Fatal("mapping should not offer coordinate fields")
+	}
 	id := importPanelSessionID(t, mappingBody)
 
 	mapping := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{
@@ -96,26 +99,30 @@ func TestImportPanelPreviewRendersRowStates(t *testing.T) {
 		t.Fatalf("seed participant: %v", err)
 	}
 
-	contents := "name,address,lat,lng\n" +
-		"Alex,1 Main St,,\n" +
-		"Blair,2 Main St,33.9,-84.3\n" +
-		"Blair,2 Main St,33.9,-84.3\n" +
-		"Casey,,,\n" +
-		"Dana,4 Main St,,\n"
+	contents := "name,address\n" +
+		"Alex,1 Main St\n" +
+		"Blair,2 Main St\n" +
+		"Blair,2 Main St\n" +
+		"Casey,\n" +
+		"Dana,4 Main St\n"
 	id := startImportPanelSession(t, handler, contents, importer.KindParticipant)
 
 	mapping := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{
-		"column_0": {"name"}, "column_1": {"address"}, "column_2": {"lat"}, "column_3": {"lng"},
+		"column_0": {"name"}, "column_1": {"address"},
 	})
 	recorder := httptest.NewRecorder()
 	handler.HandleImportSession(recorder, mapping)
+	assertPanelFragment(t, recorder)
+	waitForImportHTTPGeocoding(t, handler, id)
+	recorder = httptest.NewRecorder()
+	handler.HandleImportSession(recorder, newImportPanelRequest(http.MethodGet, "/api/v1/imports/"+id+"?view=panel"))
 	assertPanelFragment(t, recorder)
 
 	body := recorder.Body.String()
 	for _, want := range []string{
 		"import-row-error", "import-row-duplicate",
 		"Duplicate row in this file", "Already in your roster",
-		"33.9000, -84.3000", "Pending lookup",
+		", -73.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("preview missing %q: %s", want, body)
@@ -296,12 +303,13 @@ func TestImportPanelUploadErrorRendersMessage(t *testing.T) {
 
 func TestImportPanelCommitConflictRendersServerMessage(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	id := startImportPanelSession(t, handler, "name,address,lat,lng\nAlex,1 Main St,40,-73\n", importer.KindParticipant)
+	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
 
 	mapping := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{
-		"column_0": {"name"}, "column_1": {"address"}, "column_2": {"lat"}, "column_3": {"lng"},
+		"column_0": {"name"}, "column_1": {"address"},
 	})
 	handler.HandleImportSession(httptest.NewRecorder(), mapping)
+	waitForImportHTTPGeocoding(t, handler, id)
 
 	commit := func() *httptest.ResponseRecorder {
 		recorder := httptest.NewRecorder()
@@ -486,11 +494,15 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				`steps.innerHTML = ''`,
 				`value="` + string(tt.kind) + `"`,
 				`id="import-steps"`,
+				"Addresses are geocoded automatically.",
 				tt.heading,
 			} {
 				if !strings.Contains(body, want) {
 					t.Fatalf("%s page missing %q", tt.name, want)
 				}
+			}
+			if strings.Contains(body, "Latitude, Longitude") {
+				t.Fatalf("%s import help still lists coordinate columns", tt.name)
 			}
 			if strings.Index(body, `cancel.click()`) > strings.Index(body, `steps.innerHTML = ''`) {
 				t.Fatalf("%s page must cancel the prior session before clearing import steps", tt.name)

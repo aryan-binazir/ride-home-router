@@ -17,7 +17,7 @@ func TestStoreSlidingTTLExpiry(t *testing.T) {
 	now := time.Unix(100, 0)
 	store := newStore(nil, newFakeDataStore(), time.Minute, time.Hour, func() time.Time { return now })
 	t.Cleanup(store.Close)
-	created, err := store.Create(KindParticipant, "riders.csv", testGrid(t, coordinateCSV("Rider", "1 Main St")))
+	created, err := store.Create(KindParticipant, "riders.csv", testGrid(t, addressCSV("Rider", "1 Main St")))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -42,7 +42,7 @@ func TestStoreEvictsLeastRecentlyAccessedNonCommittingSession(t *testing.T) {
 	now := time.Unix(100, 0)
 	store := newStore(nil, newFakeDataStore(), time.Hour, time.Hour, func() time.Time { return now })
 	t.Cleanup(store.Close)
-	grid := testGrid(t, coordinateCSV("Rider", "1 Main St"))
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
 	var ids []string
 	for i := range MaxConcurrentSessions {
 		created, err := store.Create(KindParticipant, fmt.Sprintf("%d.csv", i), grid)
@@ -72,20 +72,18 @@ func TestStoreEvictsLeastRecentlyAccessedNonCommittingSession(t *testing.T) {
 
 func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	db := newFakeDataStore()
-	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
 	t.Cleanup(store.Close)
-	grid := testGrid(t, "name,address,lat,lng\nFirst,1 Main St,40.1,-73.1\nSecond,2 Main St,40.2,-73.2\nThird,3 Main St,40.3,-73.3\n")
+	grid := testGrid(t, "name,address\nFirst,1 Main St\nSecond,2 Main St\nThird,3 Main St\n")
 	created, err := store.Create(KindParticipant, "riders.csv", grid)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	preview, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers))
+	_, err = store.ApplyMapping(created.ID, AutoMap(grid.Headers))
 	if err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
-	if preview.GeocodeProgress.Running {
-		t.Fatal("coordinate-complete rows unexpectedly started geocoding")
-	}
+	waitForGeocoding(t, store, created.ID)
 
 	// This duplicate appears after preview and gets updated instead of created.
 	db.participants.addExisting(models.Participant{Name: " second ", Address: "2   MAIN ST", Lat: 40.2, Lng: -73.2})
@@ -115,7 +113,7 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 	db := newFakeDataStore()
 	db.participants.addExisting(models.Participant{Name: "Existing Rider", Address: "1 Main St", Lat: 40.1, Lng: -73.1})
-	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
 	t.Cleanup(store.Close)
 	grid := testGrid(t, "name,address\nExisting Rider,1 Main St\n")
 	created, err := store.Create(KindParticipant, "duplicate.csv", grid)
@@ -129,6 +127,7 @@ func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 	if !preview.Rows[0].DuplicateOfExisting || !preview.Selected[0] {
 		t.Fatalf("duplicate preview row = %#v selected=%v, want flagged and selected", preview.Rows[0], preview.Selected[0])
 	}
+	waitForGeocoding(t, store, created.ID)
 	result, err := store.Commit(context.Background(), created.ID, []bool{true})
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
@@ -143,9 +142,9 @@ func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 
 func TestCommitCreatesDriverBatch(t *testing.T) {
 	db := newFakeDataStore()
-	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
 	t.Cleanup(store.Close)
-	grid := testGrid(t, "name,address,lat,lng,capacity\nDriver,1 Main St,40.1,-73.1,6\n")
+	grid := testGrid(t, "name,address,capacity\nDriver,1 Main St,6\n")
 	created, err := store.Create(KindDriver, "drivers.csv", grid)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -153,6 +152,7 @@ func TestCommitCreatesDriverBatch(t *testing.T) {
 	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
+	waitForGeocoding(t, store, created.ID)
 	result, err := store.Commit(context.Background(), created.ID, []bool{true})
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
@@ -169,9 +169,9 @@ func TestCommitCreatesDriverBatch(t *testing.T) {
 
 func TestCommitSendsZeroCapacityWhenColumnUnmapped(t *testing.T) {
 	db := newFakeDataStore()
-	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
 	t.Cleanup(store.Close)
-	grid := testGrid(t, "name,address,lat,lng\nDriver,1 Main St,40.1,-73.1\n")
+	grid := testGrid(t, "name,address\nDriver,1 Main St\n")
 	created, err := store.Create(KindDriver, "drivers.csv", grid)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -179,6 +179,7 @@ func TestCommitSendsZeroCapacityWhenColumnUnmapped(t *testing.T) {
 	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
+	waitForGeocoding(t, store, created.ID)
 	if _, err := store.Commit(context.Background(), created.ID, []bool{true}); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -227,6 +228,27 @@ func TestGeocodeJobDeduplicatesAndMarksFailures(t *testing.T) {
 	}
 	if finished.Selected[2] {
 		t.Fatal("failed geocode row remained selected")
+	}
+}
+
+func TestCommitSkipsRowsWithoutGeocodedCoordinates(t *testing.T) {
+	db := newFakeDataStore()
+	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &session{
+		id: "missing-coordinates", kind: KindParticipant, status: StatusPreviewing,
+		rows: []Row{{Name: "Rider", Address: "1 Main St"}}, selected: []bool{true},
+		createdAt: time.Now(), lastAccessedAt: time.Now(), ctx: ctx, cancel: cancel,
+	}
+	store.sessions[state.id] = state
+
+	result, err := store.Commit(context.Background(), state.id, []bool{true})
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if result != (CommitResult{NotSelected: 1}) || db.participants.batchCalls() != 1 {
+		t.Fatalf("Commit() result = %#v batch calls = %d, want row excluded from empty batch", result, db.participants.batchCalls())
 	}
 }
 
@@ -371,8 +393,14 @@ func testGrid(t *testing.T, csv string) *Grid {
 	return grid
 }
 
-func coordinateCSV(name, address string) string {
-	return fmt.Sprintf("name,address,lat,lng\n%s,%s,40,-73\n", name, address)
+func addressCSV(name, address string) string {
+	return fmt.Sprintf("name,address\n%s,%s\n", name, address)
+}
+
+func successfulTestGeocoder() *fakeGeocoder {
+	return &fakeGeocoder{result: func(context.Context, string, int) (*geocoding.GeocodingResult, error) {
+		return &geocoding.GeocodingResult{Coords: models.Coordinates{Lat: 40, Lng: -73}}, nil
+	}}
 }
 
 type fakeGeocoder struct {

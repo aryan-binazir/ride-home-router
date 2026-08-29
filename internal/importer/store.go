@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
@@ -338,7 +339,7 @@ func (s *Store) listExisting(ctx context.Context, kind Kind) ([]Existing, error)
 		}
 		existing := make([]Existing, len(rows))
 		for i := range rows {
-			existing[i] = Existing{Name: rows[i].Name, Address: rows[i].Address, Lat: rows[i].Lat, Lng: rows[i].Lng}
+			existing[i] = Existing{Name: rows[i].Name, Address: rows[i].Address}
 		}
 		return existing, nil
 	case KindDriver:
@@ -348,7 +349,7 @@ func (s *Store) listExisting(ctx context.Context, kind Kind) ([]Existing, error)
 		}
 		existing := make([]Existing, len(rows))
 		for i := range rows {
-			existing[i] = Existing{Name: rows[i].Name, Address: rows[i].Address, Lat: rows[i].Lat, Lng: rows[i].Lng}
+			existing[i] = Existing{Name: rows[i].Name, Address: rows[i].Address}
 		}
 		return existing, nil
 	default:
@@ -426,6 +427,11 @@ func geocodeGroups(rows []Row) []geocodeGroup {
 		groups = append(groups, geocodeGroup{address: rows[i].Address, rows: []int{i}})
 	}
 	return groups
+}
+
+func validCoordinatePair(lat, lng float64) bool {
+	return !math.IsNaN(lat) && !math.IsInf(lat, 0) && !math.IsNaN(lng) && !math.IsInf(lng, 0) &&
+		lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
 }
 
 func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
