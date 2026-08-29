@@ -37,11 +37,11 @@ func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
 	normalized = strings.Map(func(r rune) rune {
 		switch r {
 		case '\'', '\u2018', '\u2019', '\u02bc', '\u00b4', '`', '\u2032',
-			'\ufeff', '\u00ad', '.':
+			'\ufeff', '.':
 			return -1
 		case ',', '\u200b':
 			return ' '
-		case '-', '\u2010', '\u2011', '\u2013', '\u2014':
+		case '-', '\u00ad', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2212':
 			if hyphensAsWhitespace {
 				return ' '
 			}
@@ -56,8 +56,8 @@ func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
 	return normalized
 }
 
-// NormalizeRosterField canonicalizes a roster identity field for exact-match
-// comparisons.
+// NormalizeRosterField applies the loose normalization used for import header
+// matching and address grouping. Duplicate keys use RosterKey.
 func NormalizeRosterField(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }

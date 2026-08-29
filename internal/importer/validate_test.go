@@ -139,13 +139,22 @@ func TestValidateAmbiguousExistingCoordinatesWarnAndDoNotInherit(t *testing.T) {
 }
 
 func TestValidateDuplicateFlags(t *testing.T) {
-	grid := mustParseCSV(t, "name,address\nJane Doe,1 Main St\n  jane   doe , 1  MAIN st \nExisting,2 Main St\n")
-	rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, []Existing{{Name: " existing ", Address: "2  MAIN ST", Lat: 1, Lng: 2}})
+	grid := mustParseCSV(t, "name,address\nJane Doe,1 Main St\n  jane   doe , 1  MAIN st \nExisting,2 Main St\nO’Brien,123 Main St.\nJ.R. O’Brien,3 Main St.\nJR OBrien,3 Main St\n")
+	rows := Validate(grid, AutoMap(grid.Headers), KindParticipant, []Existing{
+		{Name: " existing ", Address: "2  MAIN ST", Lat: 1, Lng: 2},
+		{Name: "OBrien", Address: "123 Main St", Lat: 3, Lng: 4},
+	})
 	if rows[0].DuplicateInFile || !rows[1].DuplicateInFile {
 		t.Fatalf("in-file duplicate flags = %v, %v", rows[0].DuplicateInFile, rows[1].DuplicateInFile)
 	}
 	if !rows[2].DuplicateOfExisting {
 		t.Fatal("existing duplicate was not flagged")
+	}
+	if !rows[3].DuplicateOfExisting {
+		t.Fatal("apostrophe and period existing duplicate was not flagged")
+	}
+	if rows[4].DuplicateInFile || !rows[5].DuplicateInFile {
+		t.Fatalf("punctuation-normalized in-file duplicate flags = %v, %v", rows[4].DuplicateInFile, rows[5].DuplicateInFile)
 	}
 	if len(rows[1].Errors) != 0 || len(rows[2].Errors) != 0 {
 		t.Fatalf("duplicate flags must not be errors: %#v %#v", rows[1].Errors, rows[2].Errors)
