@@ -20,7 +20,7 @@ const (
 var errSelectedVanNotFound = errors.New(selectedVanNotFoundMessage)
 
 // parseOrgVehicleAssignments returns submitted choices with validation errors so
-// the form can re-render them. Callers must not use the map when err is non-nil.
+// failed input can be preserved. Callers must validate again before routing it.
 func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map[int64]int64, error) {
 	assignments := make(map[int64]int64)
 	if len(form) == 0 {
