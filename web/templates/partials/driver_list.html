@@ -21,6 +21,9 @@
         {{range .Drivers}}
         {{template "driver_row" dict "Driver" . "LabelIDs" (labelIDsFor $.LabelIDs .ID) "LabelNames" (labelNamesFor $.Labels $.LabelIDs .ID)}}
         {{end}}
+        <tr id="drivers-tbody-empty" class="hidden">
+            <td colspan="7" class="text-muted text-center">No drivers match this search.</td>
+        </tr>
     </tbody>
 </table>
 {{else}}

@@ -413,7 +413,7 @@ func TestMobileDriversRejectsDuplicateVanAssignment(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := handler.PlanDraft.NewID()
-	handler.PlanDraft.Update(id, func(*plandraft.Draft) {})
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = "stale-session" })
 	values := url.Values{
 		"driver_ids":                             {fmt.Sprint(first.ID), fmt.Sprint(second.ID)},
 		fmt.Sprintf("org_vehicle_%d", first.ID):  {fmt.Sprint(van.ID)},
@@ -423,6 +423,19 @@ func TestMobileDriversRejectsDuplicateVanAssignment(t *testing.T) {
 	target, err := url.Parse(response.Header().Get("Location"))
 	if err != nil || response.Code != http.StatusSeeOther || target.Query().Get("error") != duplicateVanAssignmentMessage {
 		t.Fatalf("duplicate van response = %d location=%q err=%v", response.Code, response.Header().Get("Location"), err)
+	}
+	draft, ok := handler.PlanDraft.Get(id)
+	if !ok {
+		t.Fatal("draft missing after duplicate van validation")
+	}
+	if len(draft.DriverIDs) != 2 || draft.DriverIDs[0] != first.ID || draft.DriverIDs[1] != second.ID {
+		t.Fatalf("driver IDs after validation = %v, want [%d %d]", draft.DriverIDs, first.ID, second.ID)
+	}
+	if draft.DriverVehicleIDs[first.ID] != van.ID || draft.DriverVehicleIDs[second.ID] != van.ID {
+		t.Fatalf("van assignments after validation = %v, want both drivers assigned van %d", draft.DriverVehicleIDs, van.ID)
+	}
+	if draft.RouteSessionID != "" {
+		t.Fatalf("route session after validation = %q, want cleared", draft.RouteSessionID)
 	}
 }
 

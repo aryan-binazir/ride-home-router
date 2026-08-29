@@ -155,4 +155,21 @@ func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
 			t.Fatalf("mobile empty response = %d body=%q", rec.Code, rec.Body.String())
 		}
 	})
+
+	t.Run("duplicate rendered addresses appear once", func(t *testing.T) {
+		handler.Geocoder = addressSearchGeocoder{results: []geocoding.GeocodingResult{
+			{FormattedAddress: "123 Main Street", DisplayName: "First source"},
+			{FormattedAddress: "123 Main Street", DisplayName: "Second source"},
+			{FormattedAddress: "456 Oak Avenue"},
+		}}
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
+		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
+		rec := httptest.NewRecorder()
+
+		handler.HandleAddressSearch(rec, req)
+
+		if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Count(body, `class="address-suggestion"`) != 2 {
+			t.Fatalf("deduplicated response = %d body=%q", rec.Code, body)
+		}
+	})
 }

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -29,7 +30,7 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		selectedDrivers[driverID] = struct{}{}
 	}
 
-	vehicleOwners := make(map[int64]int64)
+	assignmentKeys := make([]string, 0)
 	for key, values := range form {
 		if !strings.HasPrefix(key, "org_vehicle_") {
 			continue
@@ -37,25 +38,36 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		if len(values) == 0 || values[0] == "" {
 			continue
 		}
+		assignmentKeys = append(assignmentKeys, key)
+	}
+	slices.Sort(assignmentKeys)
+	for _, key := range assignmentKeys {
 
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)
 		if err != nil {
-			return nil, errors.New(invalidVanAssignmentMessage)
+			return assignments, errors.New(invalidVanAssignmentMessage)
 		}
 		if _, ok := selectedDrivers[driverID]; !ok {
-			return nil, errors.New(unselectedDriverVanAssignmentMessage)
+			return assignments, errors.New(unselectedDriverVanAssignmentMessage)
 		}
+	}
 
+	vehicleOwners := make(map[int64]int64)
+	for _, driverID := range selectedDriverIDs {
+		values := form["org_vehicle_"+strconv.FormatInt(driverID, 10)]
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
 		vehicleID, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil || vehicleID <= 0 {
-			return nil, errors.New(invalidVanAssignmentMessage)
-		}
-
-		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
-			return nil, errors.New(duplicateVanAssignmentMessage)
+			return assignments, errors.New(invalidVanAssignmentMessage)
 		}
 
 		assignments[driverID] = vehicleID
+		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
+			return assignments, errors.New(duplicateVanAssignmentMessage)
+		}
+
 		vehicleOwners[vehicleID] = driverID
 	}
 

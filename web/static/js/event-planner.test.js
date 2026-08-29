@@ -11,6 +11,7 @@ const {
     createRouteSessionOrchestrator,
     installRouteResults,
     localISODate,
+    sanitizeVanAssignments,
     saveDraft,
 } = planner;
 
@@ -86,8 +87,19 @@ test('planner exports its browser-independent test seams', () => {
         'createRouteSessionOrchestrator',
         'installRouteResults',
         'localISODate',
+        'sanitizeVanAssignments',
         'saveDraft',
     ]);
+});
+
+test('planner draft keeps the first selected driver for each van', () => {
+    assert.deepEqual(
+        sanitizeVanAssignments(
+            ['10', '20', '30'],
+            { 10: '7', 20: '7', 30: '8', 99: '9' },
+        ),
+        { 10: '7', 30: '8' },
+    );
 });
 
 function nodeList(items) {

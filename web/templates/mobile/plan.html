@@ -30,7 +30,7 @@
   {{with .LastEvent}}
   <h2 class="mobile-section-title">Last event</h2>
   <a class="mobile-group mobile-row" href="/m/history/{{.ID}}">
-    <span><b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b><small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers{{end}}</small></span>
+    <span><b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b><small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} {{pluralize .TotalParticipants "rider"}} · {{.TotalDrivers}} {{pluralize .TotalDrivers "driver"}}{{end}}</small></span>
     <i></i>
   </a>
   {{end}}

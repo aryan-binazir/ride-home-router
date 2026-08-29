@@ -20,11 +20,11 @@
         <span class="mobile-avatar">{{initials .Name}}</span>
         <span>
           <b>{{.Name}}</b>
-          <small>{{len $current.Route.Stops}} passengers · {{if $.Snapshot.IsOutOfBalance}}Metrics paused{{else}}{{formatDistance $current.Route.TotalDistanceMeters $.Snapshot.UseMiles}}{{end}}{{if $current.Route.OrgVehicleName}} · {{$current.Route.OrgVehicleName}}{{end}}</small>
+          <small>{{len $current.Route.Stops}} {{pluralize (len $current.Route.Stops) "passenger"}} · {{if $.Snapshot.IsOutOfBalance}}Metrics paused{{else}}{{formatDistance $current.Route.TotalDistanceMeters $.Snapshot.UseMiles}}{{end}}{{if $current.Route.OrgVehicleName}} · {{$current.Route.OrgVehicleName}}{{end}}</small>
         </span>
         {{else}}
         <span class="mobile-avatar">?</span>
-        <span><b>Unknown driver</b><small>{{len $current.Route.Stops}} passengers</small></span>
+        <span><b>Unknown driver</b><small>{{len $current.Route.Stops}} {{pluralize (len $current.Route.Stops) "passenger"}}</small></span>
         {{end}}
       </summary>
       <ol class="mobile-stops">

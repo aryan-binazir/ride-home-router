@@ -1,25 +1,30 @@
 {{define "event_list_items"}}
 {{$useMiles := .UseMiles}}
 {{range .Events}}
-<div class="event-item"
-     onclick="toggleEventDetail(this, {{.ID}})">
+<div class="event-item">
     <div class="event-header">
-        <div class="event-date">{{formatDate .EventDate}}</div>
+        <button type="button"
+                class="event-toggle"
+                aria-expanded="false"
+                aria-controls="event-detail-{{.ID}}"
+                onclick="toggleEventDetail(this.closest('.event-item'), {{.ID}}, this)">
+            <span class="event-date">{{formatDate .EventDate}}</span>
+            <span class="event-toggle-label">View details</span>
+        </button>
         <button class="btn btn-sm btn-danger"
                 hx-delete="/api/v1/events/{{.ID}}"
                 hx-vals='js:{limit: document.querySelectorAll("#event-list-items .event-item").length}'
                 hx-target="#events-list"
                 hx-swap="innerHTML"
-                hx-confirm="Are you sure you want to delete this event?"
-                onclick="event.stopPropagation()">
+                hx-confirm="Are you sure you want to delete this event?">
             Delete
         </button>
     </div>
 
     {{if .Summary}}
     <div class="event-meta">
-        <span>{{.Summary.TotalParticipants}} participants</span>
-        <span>{{.Summary.TotalDrivers}} drivers</span>
+        <span>{{.Summary.TotalParticipants}} {{pluralize .Summary.TotalParticipants "participant"}}</span>
+        <span>{{.Summary.TotalDrivers}} {{pluralize .Summary.TotalDrivers "driver"}}</span>
         <span>{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</span>
         {{if gt .Summary.OrgVehiclesUsed 0}}
         <span class="badge badge-warning">Van used</span>

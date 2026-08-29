@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"net/mail"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -99,6 +100,13 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SMEEmail != nil {
 		settings.SMEEmail = strings.TrimSpace(*req.SMEEmail)
+		if settings.SMEEmail != "" {
+			address, parseErr := mail.ParseAddress(settings.SMEEmail)
+			if parseErr != nil || address.Address != settings.SMEEmail {
+				h.handleValidationErrorHTMX(w, r, messageInvalidSMEEmail)
+				return
+			}
+		}
 	}
 
 	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {

@@ -84,6 +84,12 @@ func FuncMap() template.FuncMap {
 			}
 			return strings.ToUpper(string(first[0]) + string(last[0]))
 		},
+		"pluralize": func(count int, singular string) string {
+			if count == 1 {
+				return singular
+			}
+			return singular + "s"
+		},
 		"dict": func(keyvals ...any) map[string]any {
 			m := make(map[string]any, len(keyvals)/2)
 			for i := 0; i+1 < len(keyvals); i += 2 {

@@ -27,6 +27,7 @@ const (
 	messageInvalidRouteIndex                             = "Invalid route index"
 	messageInvalidRouteMode                              = "Please choose a valid route mode."
 	messageInvalidRoutesData                             = "Invalid routes data"
+	messageInvalidSMEEmail                               = "Please enter a valid SME email address."
 	messageNameAndAddressRequired                        = "name and address are required"
 	messageNameRequired                                  = "name is required"
 	messageOrganizationVehicleNotFound                   = "organization vehicle not found"

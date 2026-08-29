@@ -32,6 +32,17 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	seenLabels := make(map[string]struct{}, len(results))
+	uniqueResults := results[:0]
+	for _, result := range results {
+		label := result.Label()
+		if _, exists := seenLabels[label]; exists {
+			continue
+		}
+		seenLabels[label] = struct{}{}
+		uniqueResults = append(uniqueResults, result)
+	}
+	results = uniqueResults
 
 	log.Printf("[HTTP] GET /api/v1/address-search: query=%s results_count=%d", query, len(results))
 

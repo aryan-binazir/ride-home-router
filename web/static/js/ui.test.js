@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { switchRosterTab } = require('./ui.js');
+const { filterTable, switchRosterTab } = require('./ui.js');
 
 function element(classes = []) {
   const values = new Set(classes);
@@ -48,4 +48,31 @@ test('switchRosterTab toggles containers, styles, and pressed state', () => {
   assert.equal(elements['participants-deleted-tab'].classList.contains('btn-outline'), true);
   assert.equal(elements['participants-active-tab'].attributes['aria-pressed'], 'true');
   assert.equal(elements['participants-deleted-tab'].attributes['aria-pressed'], 'false');
+});
+
+test('filterTable shows a filtered-empty row only when no data rows match', () => {
+  const alpha = element([]);
+  alpha.dataset = { search: 'Alpha group' };
+  const beta = element([]);
+  beta.dataset = { search: 'Beta group' };
+  const empty = element(['hidden']);
+  const tbody = { querySelectorAll: () => [alpha, beta] };
+  global.document = {
+    getElementById(id) {
+      if (id === 'labels-tbody') return tbody;
+      if (id === 'labels-tbody-empty') return empty;
+      return null;
+    },
+  };
+  test.after(() => { delete global.document; });
+
+  filterTable({ value: 'Gamma' }, 'labels-tbody');
+  assert.equal(alpha.classList.contains('hidden'), true);
+  assert.equal(beta.classList.contains('hidden'), true);
+  assert.equal(empty.classList.contains('hidden'), false);
+
+  filterTable({ value: 'Alpha' }, 'labels-tbody');
+  assert.equal(alpha.classList.contains('hidden'), false);
+  assert.equal(beta.classList.contains('hidden'), true);
+  assert.equal(empty.classList.contains('hidden'), true);
 });

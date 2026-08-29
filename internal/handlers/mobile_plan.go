@@ -236,6 +236,11 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
 		if err != nil {
+			h.PlanDraft.Update(id, func(d *plandraft.Draft) {
+				d.DriverIDs = driverIDs
+				d.DriverVehicleIDs = assignments
+				d.RouteSessionID = ""
+			})
 			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
 			return
 		}

@@ -4,11 +4,17 @@ function filterTable(input, tbodyId) {
 
   const query = (input.value || '').trim().toLowerCase();
   const rows = tbody.querySelectorAll('tr[data-search]');
+  let visibleRows = 0;
 
   rows.forEach(row => {
     const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
-    row.classList.toggle('hidden', query.length > 0 && !haystack.includes(query));
+    const hidden = query.length > 0 && !haystack.includes(query);
+    row.classList.toggle('hidden', hidden);
+    if (!hidden) visibleRows += 1;
   });
+
+  const emptyRow = document.getElementById(tbodyId + '-empty');
+  if (emptyRow) emptyRow.classList.toggle('hidden', query.length === 0 || visibleRows > 0);
 }
 
 function switchRosterTab(button, prefix) {
@@ -40,7 +46,7 @@ function switchRosterTab(button, prefix) {
 }
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { switchRosterTab };
+  module.exports = { filterTable, switchRosterTab };
 }
 
 function updateBulkSelectionCount(tbodyId) {
@@ -100,15 +106,17 @@ function toggleBulkDropdown(button) {
   wrapper.classList.toggle('is-open');
 }
 
-function toggleEventDetail(eventItem, eventId) {
+function toggleEventDetail(eventItem, eventId, toggle) {
   const detailDiv = document.getElementById('event-detail-' + eventId);
   if (!detailDiv) return;
 
   if (detailDiv.innerHTML.trim()) {
     detailDiv.innerHTML = '';
     eventItem.classList.remove('expanded');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
   } else {
     eventItem.classList.add('expanded');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
     htmx.ajax('GET', '/api/v1/events/' + eventId, { target: detailDiv, swap: 'innerHTML' });
   }
 }
@@ -416,6 +424,7 @@ function toggleEventDetail(eventItem, eventId) {
     form.dataset.uiValidated = "true";
 
     const select = form.querySelector('select[name="selected_activity_location_id"]');
+    const email = form.querySelector('input[name="sme_email"]');
     if (select) {
       select.addEventListener("invalid", (e) => {
         e.preventDefault();
@@ -429,6 +438,14 @@ function toggleEventDetail(eventItem, eventId) {
         } else {
           select.focus();
         }
+      });
+    }
+
+    if (email) {
+      email.addEventListener("invalid", (e) => {
+        e.preventDefault();
+        showToast('Please enter a valid SME email address.', 'warning');
+        email.focus();
       });
     }
 
