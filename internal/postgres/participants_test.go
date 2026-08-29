@@ -150,9 +150,9 @@ func TestParticipantRepositoryRestoreAllowsLiveDuplicate(t *testing.T) {
 	imported := &models.Participant{
 		Name: "  ARCHIVED rider ", Address: "1  Archive Way", Lat: 41, Lng: -72,
 	}
-	result, err := store.Participants().CreateBatch(ctx, []*models.Participant{imported}, nil)
+	result, err := store.Participants().UpsertBatch(ctx, []*models.Participant{imported})
 	if err != nil || result.Created != 1 {
-		t.Fatalf("CreateBatch() = %#v, %v; want one imported live duplicate", result, err)
+		t.Fatalf("UpsertBatch() = %#v, %v; want one imported live duplicate", result, err)
 	}
 	if err := store.Participants().Restore(ctx, participant.ID); err != nil {
 		t.Fatalf("Restore() error = %v", err)

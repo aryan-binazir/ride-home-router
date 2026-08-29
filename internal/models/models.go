@@ -5,27 +5,61 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
 	MaxAddressNameLength = 200
 	MinVehicleCapacity   = 1
-	MaxVehicleCapacity   = 50
+	// DefaultVehicleCapacity applies when an import supplies no capacity.
+	DefaultVehicleCapacity = 4
+	MaxVehicleCapacity     = 50
 )
 
 // RosterKey returns the canonical exact-match key for a roster identity.
 // An empty key means either the name or address is blank.
 func RosterKey(name, address string) string {
-	name = NormalizeRosterField(name)
-	address = NormalizeRosterField(address)
+	name = normalizeRosterKeyField(name, true)
+	address = normalizeRosterKeyField(address, false)
 	if name == "" || address == "" {
 		return ""
 	}
 	return name + "\x00" + address
 }
 
-// NormalizeRosterField canonicalizes a roster identity field for exact-match
-// comparisons.
+// normalizeRosterKeyField treats name hyphens as formatting, so Anne-Marie
+// matches Anne Marie. Address hyphens and slashes remain meaningful because
+// 12-14 can identify two buildings and 1/2 can identify a fractional address.
+// Periods are deleted so J.R. matches JR, with the deliberate tradeoff that
+// 123.5 Main also matches 1235 Main.
+func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
+	original := value
+	normalized := strings.ToLower(norm.NFC.String(value))
+	normalized = strings.Map(func(r rune) rune {
+		switch r {
+		case '\'', '\u2018', '\u2019', '\u02bc', '\u00b4', '`', '\u2032',
+			'\ufeff', '.':
+			return -1
+		case ',', '\u200b':
+			return ' '
+		case '-', '\u00ad', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2212':
+			if hyphensAsWhitespace {
+				return ' '
+			}
+			return '-'
+		}
+		return r
+	}, normalized)
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	if normalized == "" && strings.TrimSpace(original) != "" {
+		return NormalizeRosterField(original)
+	}
+	return normalized
+}
+
+// NormalizeRosterField applies the loose normalization used for import header
+// matching and address grouping. Duplicate keys use RosterKey.
 func NormalizeRosterField(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }

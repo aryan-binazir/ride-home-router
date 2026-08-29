@@ -12,7 +12,7 @@ const (
 	MaxAddressNameLength = models.MaxAddressNameLength
 	MinCapacity          = models.MinVehicleCapacity
 	MaxCapacity          = models.MaxVehicleCapacity
-	DefaultCapacity      = 4
+	DefaultCapacity      = models.DefaultVehicleCapacity
 
 	UnmappedColumn = -1
 )
@@ -99,6 +99,9 @@ type Row struct {
 	Lat         float64
 	Lng         float64
 	Capacity    int
+	// CapacityDefaulted means no capacity column was mapped; updates keep the
+	// existing driver's capacity instead of resetting it to the default.
+	CapacityDefaulted bool
 
 	HasCoordinates       bool
 	NeedsGeocoding       bool

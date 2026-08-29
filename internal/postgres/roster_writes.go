@@ -26,64 +26,80 @@ type rosterWriteCore[T any] struct {
 	key       func(*T) string
 	insert    func(context.Context, *sql.Tx, *T, time.Time) (int64, error)
 	updateRow func(context.Context, *sql.Tx, *T, time.Time) (sql.Result, error)
-	fields    func(*T) rosterFields
+	// importUpdate applies the import-mutable fields of entity to the existing
+	// row id. Name, address, and coordinates are never overwritten by imports.
+	// Zero rows affected means the row was deleted since the key snapshot.
+	importUpdate func(context.Context, *sql.Tx, int64, *T, time.Time) (sql.Result, error)
+	fields       func(*T) rosterFields
 }
 
-func (w rosterWriteCore[T]) createBatch(ctx context.Context, entities []*T, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
+func (w rosterWriteCore[T]) upsertBatch(ctx context.Context, entities []*T) (database.BatchUpsertResult, error) {
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
-		return database.BatchCreateResult{}, fmt.Errorf("failed to begin %s batch transaction: %w", w.noun, err)
+		return database.BatchUpsertResult{}, fmt.Errorf("failed to begin %s batch transaction: %w", w.noun, err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	if err := lockRoster(ctx, tx, w.table); err != nil {
-		return database.BatchCreateResult{}, err
+		return database.BatchUpsertResult{}, err
 	}
 	existing, err := rosterKeys(ctx, tx, w.table)
 	if err != nil {
-		return database.BatchCreateResult{}, err
+		return database.BatchUpsertResult{}, err
 	}
 
-	type createdRow struct {
-		entity    *T
-		id        int64
-		createdAt time.Time
+	type writtenRow struct {
+		entity  *T
+		id      int64
+		at      time.Time
+		created bool
 	}
-	createdRows := make([]createdRow, 0, len(entities))
-	batchResult := database.BatchCreateResult{}
-	for i, entity := range entities {
+	written := make([]writtenRow, 0, len(entities))
+	result := database.BatchUpsertResult{}
+	for _, entity := range entities {
 		if entity == nil {
-			return database.BatchCreateResult{}, errors.New(w.noun + " batch contains a nil " + w.noun)
+			return database.BatchUpsertResult{}, errors.New(w.noun + " batch contains a nil " + w.noun)
 		}
-		key := w.key(entity)
-		_, duplicate := existing[key]
-		allowDuplicate := i < len(allowExistingDuplicate) && allowExistingDuplicate[i]
-		if key != "" && duplicate && !allowDuplicate {
-			batchResult.SkippedDuplicate++
-			continue
-		}
-
-		// Do not add inserted keys to existing. Duplicate handling intentionally
-		// applies only to rows that existed before this batch began.
 		now := time.Now()
+		key := w.key(entity)
+		if id, ok := existing[key]; ok && key != "" {
+			updated, err := w.importUpdate(ctx, tx, id, entity, now)
+			if err != nil {
+				return database.BatchUpsertResult{}, fmt.Errorf("failed to update %s in batch: %w", w.noun, err)
+			}
+			if n, err := updated.RowsAffected(); err != nil {
+				return database.BatchUpsertResult{}, fmt.Errorf("failed to update %s in batch: %w", w.noun, err)
+			} else if n > 0 {
+				written = append(written, writtenRow{entity: entity, id: id, at: now})
+				result.Updated++
+				continue
+			}
+			// The matched row was deleted concurrently; fall through and insert.
+		}
 		id, err := w.insert(ctx, tx, entity, now)
 		if err != nil {
-			return database.BatchCreateResult{}, fmt.Errorf("failed to create %s in batch: %w", w.noun, err)
+			return database.BatchUpsertResult{}, fmt.Errorf("failed to create %s in batch: %w", w.noun, err)
 		}
-		createdRows = append(createdRows, createdRow{entity: entity, id: id, createdAt: now})
-		batchResult.Created++
+		// Later rows with the same key update this row instead of inserting again.
+		if key != "" {
+			existing[key] = id
+		}
+		written = append(written, writtenRow{entity: entity, id: id, at: now, created: true})
+		result.Created++
 	}
 
 	if err := tx.Commit(); err != nil {
-		return database.BatchCreateResult{}, fmt.Errorf("failed to commit %s batch transaction: %w", w.noun, err)
+		return database.BatchUpsertResult{}, fmt.Errorf("failed to commit %s batch transaction: %w", w.noun, err)
 	}
-	for _, row := range createdRows {
+	for _, row := range written {
 		fields := w.fields(row.entity)
 		*fields.id = row.id
-		*fields.createdAt = row.createdAt
-		*fields.updatedAt = row.createdAt
+		*fields.updatedAt = row.at
+		if row.created {
+			*fields.createdAt = row.at
+		}
 	}
-	return batchResult, nil
+	return result, nil
 }
 
 func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, labelIDs []int64) (*T, error) {
@@ -121,6 +137,10 @@ func (w rosterWriteCore[T]) updateWithLabels(ctx context.Context, entity *T, lab
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Identity edits serialize with import upserts, which snapshot roster keys.
+	if err := lockRoster(ctx, tx, w.table); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	fields := w.fields(entity)
 	*fields.updatedAt = now
@@ -166,14 +186,14 @@ func lockRoster(ctx context.Context, tx *sql.Tx, table string) error {
 	return nil
 }
 
-// rosterKeys loads normalized name and address keys from a roster table.
-func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]struct{}, error) {
+// rosterKeys maps each normalized name+address key in a roster table to its row ID.
+func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]int64, error) {
 	var query string
 	switch table {
 	case "participants":
-		query = `SELECT name, address FROM participants WHERE deleted_at IS NULL`
+		query = `SELECT id, name, address FROM participants WHERE deleted_at IS NULL ORDER BY id`
 	case "drivers":
-		query = `SELECT name, address FROM drivers WHERE deleted_at IS NULL`
+		query = `SELECT id, name, address FROM drivers WHERE deleted_at IS NULL ORDER BY id`
 	default:
 		return nil, fmt.Errorf("invalid roster table %q", table)
 	}
@@ -183,14 +203,18 @@ func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]struc
 	}
 	defer func() { _ = rows.Close() }()
 
-	keys := make(map[string]struct{})
+	keys := make(map[string]int64)
 	for rows.Next() {
+		var id int64
 		var name, address string
-		if err := rows.Scan(&name, &address); err != nil {
+		if err := rows.Scan(&id, &name, &address); err != nil {
 			return nil, fmt.Errorf("failed to scan %s duplicate: %w", table, err)
 		}
+		// Pre-existing duplicates resolve to the oldest row.
 		if key := models.RosterKey(name, address); key != "" {
-			keys[key] = struct{}{}
+			if _, seen := keys[key]; !seen {
+				keys[key] = id
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

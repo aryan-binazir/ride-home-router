@@ -182,7 +182,7 @@ func TestSoftDeleteRosterRestore_AllowsLiveDuplicate(t *testing.T) {
 				imported := &models.Participant{
 					Name: participant.Name, Address: participant.Address, Lat: 41, Lng: -72,
 				}
-				result, err := store.Participants().CreateBatch(t.Context(), []*models.Participant{imported}, nil)
+				result, err := store.Participants().UpsertBatch(t.Context(), []*models.Participant{imported})
 				if err != nil || result.Created != 1 {
 					t.Fatalf("import live participant duplicate = %#v, %v", result, err)
 				}
@@ -217,7 +217,7 @@ func TestSoftDeleteRosterRestore_AllowsLiveDuplicate(t *testing.T) {
 				imported := &models.Driver{
 					Name: driver.Name, Address: driver.Address, Lat: 41, Lng: -72, VehicleCapacity: 6,
 				}
-				result, err := store.Drivers().CreateBatch(t.Context(), []*models.Driver{imported}, nil)
+				result, err := store.Drivers().UpsertBatch(t.Context(), []*models.Driver{imported})
 				if err != nil || result.Created != 1 {
 					t.Fatalf("import live driver duplicate = %#v, %v", result, err)
 				}

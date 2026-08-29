@@ -134,9 +134,9 @@ func TestDriverRepositoryRestoreAllowsLiveDuplicate(t *testing.T) {
 	imported := &models.Driver{
 		Name: "  ARCHIVED driver ", Address: "1  Archive Way", Lat: 41, Lng: -72, VehicleCapacity: 6,
 	}
-	result, err := store.Drivers().CreateBatch(ctx, []*models.Driver{imported}, nil)
+	result, err := store.Drivers().UpsertBatch(ctx, []*models.Driver{imported})
 	if err != nil || result.Created != 1 {
-		t.Fatalf("CreateBatch() = %#v, %v; want one imported live duplicate", result, err)
+		t.Fatalf("UpsertBatch() = %#v, %v; want one imported live duplicate", result, err)
 	}
 	if err := store.Drivers().Restore(ctx, driver.ID); err != nil {
 		t.Fatalf("Restore() error = %v", err)

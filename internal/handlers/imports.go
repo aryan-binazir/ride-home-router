@@ -72,9 +72,9 @@ type importRowJSON struct {
 }
 
 type importCommitResultJSON struct {
-	Created          int `json:"created"`
-	SkippedDuplicate int `json:"skipped_duplicate"`
-	NotSelected      int `json:"not_selected"`
+	Created     int `json:"created"`
+	Updated     int `json:"updated"`
+	NotSelected int `json:"not_selected"`
 }
 
 type importSnapshotJSON struct {
@@ -413,7 +413,7 @@ func newImportMappingJSON(mapping importer.Mapping) importMappingJSON {
 }
 
 func newImportCommitResultJSON(result importer.CommitResult) importCommitResultJSON {
-	return importCommitResultJSON{Created: result.Created, SkippedDuplicate: result.SkippedDuplicate, NotSelected: result.NotSelected}
+	return importCommitResultJSON{Created: result.Created, Updated: result.Updated, NotSelected: result.NotSelected}
 }
 
 func mergeImportMapping(snapshot importer.Snapshot, request importMappingRequest) importer.Mapping {
