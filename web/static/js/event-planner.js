@@ -16,6 +16,18 @@
 
     const SAVE_EVENT_ENDPOINT = '/api/v1/events';
 
+    // This target is #results-section in the manual edit and restore paths.
+    // innerHTML plus htmx.process does not fire HTMX's swap/settle events, so
+    // those paths must apply the local date and ETAs explicitly. Native HTMX
+    // swaps already swap/process, then their listeners settle dates, scroll,
+    // persist newly calculated sessions, and refresh ETAs.
+    function installRouteResults({ target, html, htmx, refreshEtas }) {
+        target.innerHTML = html;
+        htmx.process(target);
+        applyLocalEventDate(target);
+        refreshEtas();
+    }
+
     function createRouteSessionOrchestrator({ document, htmx, moves, reportError, refreshEtas }) {
         const savesInFlight = new Set();
 
@@ -28,10 +40,7 @@
             const resultsSection = document.getElementById('results-section');
             if (!resultsSection) return;
 
-            resultsSection.innerHTML = html;
-            htmx.process(resultsSection);
-            applyLocalEventDate(resultsSection);
-            refreshEtas();
+            installRouteResults({ target: resultsSection, html, htmx, refreshEtas });
         }
 
         function applyEditResult({ requestedSessionId, ok, html }) {
@@ -1418,10 +1427,7 @@
             })
             .then(function(html) {
                 if (html) {
-                    resultsSection.innerHTML = html;
-                    htmx.process(resultsSection);
-                    applyLocalEventDate(resultsSection);
-                    refreshEtas();
+                    installRouteResults({ target: resultsSection, html, htmx, refreshEtas });
                 }
             })
             .catch(function(err) {
@@ -1552,6 +1558,7 @@
         createRouteHandoff,
         applyLocalEventDate,
         createRouteSessionOrchestrator,
+        installRouteResults,
         localISODate,
         saveDraft,
     };
