@@ -286,7 +286,9 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
 				return nil
 			}
-			settings, err := h.DB.Settings().Get(ctx)
+			feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			settings, err := h.DB.Settings().Get(feedbackCtx)
 			if err != nil {
 				log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
 				return nil
@@ -298,8 +300,6 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			record := routefeedback.Build(snapshot)
 			record.EventID = createdEvent.ID
 			record.SMEEmail = email
-			feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
 			if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
 				log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
 			}

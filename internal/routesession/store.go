@@ -66,7 +66,7 @@ type Snapshot struct {
 	IsOutOfBalance   bool
 }
 
-// CommitSnapshot is an immutable view of a live route session at commit time.
+// CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
 type CommitSnapshot struct {
 	SessionID         string
 	Original          []models.CalculatedRoute

@@ -43,11 +43,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
-		if values, ok := r.Form["sme_email"]; ok {
-			value := ""
-			if len(values) > 0 {
-				value = values[0]
-			}
+		if r.Form.Has("sme_email") {
+			value := r.FormValue("sme_email")
 			req.SMEEmail = &value
 		}
 	} else {
