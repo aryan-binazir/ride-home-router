@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routefeedback"
@@ -81,6 +82,31 @@ func TestHandleCreateEvent_CapturesEditedSMERouteFeedback(t *testing.T) {
 				t.Fatalf("%s contains forbidden key %s: %s", label, forbidden, payload)
 			}
 		}
+	}
+}
+
+func TestHandleMobileSaveCapturesSMERouteFeedback(t *testing.T) {
+	handler, store, conn := newRouteFeedbackHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	setSMEEmail(t, store, "sme@example.com")
+	session := createFeedbackSession(handler)
+	draftID := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(draftID, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
+
+	form := url.Values{"event_date": {"2026-08-29"}, "notes": {"Mobile feedback"}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/m/routes/save", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(routefeedback.AuthenticatedUserEmailHeader, "SME@Example.com")
+	req.AddCookie(mobileTestCookie(draftID))
+	rr := httptest.NewRecorder()
+	handler.HandleMobileSave(rr, req)
+
+	if rr.Code != http.StatusSeeOther || !strings.HasPrefix(rr.Header().Get("Location"), "/m/history/") {
+		t.Fatalf("status = %d location=%q body=%q", rr.Code, rr.Header().Get("Location"), rr.Body.String())
+	}
+	if count := countFeedbackRows(t, conn); count != 1 {
+		t.Fatalf("route feedback rows = %d, want 1", count)
 	}
 }
 

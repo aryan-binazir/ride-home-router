@@ -278,6 +278,28 @@
 
     <section class="results-pane" aria-label="Route results">
         <script type="application/json" id="event-org-vehicles">{{toJSONRaw .OrgVehicles}}</script>
+        <template id="results-empty-state-template">
+            <div class="results-header">
+                <div>
+                    <h2>Calculated Routes</h2>
+                    <p>Copy routes, make quick tweaks, then save the event.</p>
+                </div>
+            </div>
+            <div class="results-scroll scroll">
+                <div class="results-body planner-empty-state">
+                    <div class="empty-state">
+                        <h3>No routes calculated yet</h3>
+                        <p>Select participants and drivers, then calculate to see one route per driver.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="results-loading htmx-indicator calculate-indicator">
+                <div class="loading-overlay">
+                    <span class="loading loading-lg"></span>
+                    <p>Calculating routes…</p>
+                </div>
+            </div>
+        </template>
         <div id="results-section" class="results-section">
             <div class="results-header">
                 <div>

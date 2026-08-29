@@ -35,5 +35,9 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTP] GET /api/v1/address-search: query=%s results_count=%d", query, len(results))
 
-	h.renderTemplate(w, "address_suggestions.html", results)
+	templateName := "address_suggestions.html"
+	if r.Header.Get("X-RHR-Mobile") == "1" {
+		templateName = "mobile_address_suggestions.html"
+	}
+	h.renderTemplate(w, templateName, results)
 }

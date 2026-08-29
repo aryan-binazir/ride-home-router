@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="page-header">
     <div>
-        <h2 class="page-title">Drivers</h2>
+        <h1 class="page-title">Drivers</h1>
         <p class="page-subtitle">Add drivers and set the capacity of their personal vehicles. Vans are assigned later while planning each event.</p>
     </div>
     <div class="page-actions">
@@ -26,17 +26,17 @@
             <h3 class="panel-title">Driver Pool</h3>
             <p class="panel-subtitle">Maintain personal vehicle capacity and home addresses for routing.</p>
         </div>
-        <div class="d-flex gap-2" role="group" aria-label="Driver roster view">
+        <div class="roster-tabs" role="group" aria-label="Driver roster view">
             <button type="button"
                     id="drivers-active-tab"
-                    class="btn btn-sm btn-primary"
+                    class="btn btn-sm btn-primary roster-tab"
                     aria-pressed="true"
                     onclick="switchRosterTab(this, 'drivers')">
                 Active
             </button>
             <button type="button"
                     id="drivers-deleted-tab"
-                    class="btn btn-sm btn-outline"
+                    class="btn btn-sm btn-outline roster-tab"
                     aria-pressed="false"
                     hx-get="/api/v1/drivers/deleted"
                     hx-target="#drivers-deleted"
@@ -47,7 +47,7 @@
         </div>
     </div>
 
-    <div id="drivers-active">
+    <div id="drivers-active" class="roster-pane">
     <form id="driver-bulk-form" onsubmit="return false">
     <div class="panel-toolbar panel-toolbar-stack">
         {{if .Labels}}
@@ -108,7 +108,7 @@
     </form>
     </div>
     <div id="drivers-deleted"
-         class="table-container mb-0 hidden"
+         class="table-container roster-pane mb-0 hidden"
          hx-get="/api/v1/drivers/deleted"
          hx-trigger="rosterRestored from:body"
          hx-swap="innerHTML"></div>

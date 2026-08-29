@@ -1306,14 +1306,11 @@
                 const routeTime = form.querySelector('input[name="route_time"]');
                 if (routeTime) routeTime.value = getDefaultRouteTimeValue();
             }
-            document.getElementById('results-section').innerHTML = `
-        <div class="results-loading htmx-indicator calculate-indicator">
-            <div class="loading-overlay">
-                <span class="loading loading-lg"></span>
-                <p>Calculating optimal routes…</p>
-            </div>
-        </div>
-    `;
+            const resultsSection = document.getElementById('results-section');
+            const emptyResultsTemplate = document.getElementById('results-empty-state-template');
+            if (resultsSection && emptyResultsTemplate) {
+                resultsSection.innerHTML = emptyResultsTemplate.innerHTML;
+            }
             renderVanAssignmentsPanel();
             updateEventStats();
             clearEventPlannerDraft();

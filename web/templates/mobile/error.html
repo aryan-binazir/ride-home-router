@@ -1,0 +1,9 @@
+{{define "mobile_content"}}
+<section class="mobile-screen">
+  {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" .Title)}}
+  <div class="mobile-form-card mobile-error-page" role="alert">
+    <p>{{.Message}}</p>
+    <a class="mobile-button mobile-button-secondary" href="/m">Back to plan</a>
+  </div>
+</section>
+{{end}}

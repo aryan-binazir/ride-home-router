@@ -17,15 +17,17 @@
         {{end}}
     </td>
     <td data-col="Deleted">{{if .Participant.DeletedAt}}{{formatDeletedAt .Participant.DeletedAt}}{{end}}</td>
-    <td class="table-actions-cell">
-        <button type="button"
-                class="btn btn-sm btn-outline"
-                hx-post="/api/v1/participants/restore"
-                hx-vals='{"id":"{{.Participant.ID}}"}'
-                hx-target="closest tr"
-                hx-swap="outerHTML">
-            Restore
-        </button>
+    <td class="table-actions-cell" data-col="Actions">
+        <div class="table-actions">
+            <button type="button"
+                    class="btn btn-sm btn-outline"
+                    hx-post="/api/v1/participants/restore"
+                    hx-vals='{"id":"{{.Participant.ID}}"}'
+                    hx-target="closest tr"
+                    hx-swap="outerHTML">
+                Restore
+            </button>
+        </div>
     </td>
 </tr>
 {{end}}

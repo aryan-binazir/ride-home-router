@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"maps"
+	"ride-home-router/internal/models"
 	"sync"
 	"time"
 )
@@ -29,6 +30,7 @@ type Store struct {
 	mu          sync.Mutex
 	drafts      map[string]Draft
 	ttl         time.Duration
+	cleanup     time.Duration
 	now         func() time.Time
 	stopCleanup chan struct{}
 	cleanupDone chan struct{}
@@ -36,11 +38,15 @@ type Store struct {
 }
 
 func NewStore() *Store {
+	return newStore(defaultTTL, defaultCleanupInterval, time.Now)
+}
+
+func newStore(ttl, cleanup time.Duration, now func() time.Time) *Store {
 	s := &Store{
-		drafts: make(map[string]Draft), ttl: defaultTTL, now: time.Now,
+		drafts: make(map[string]Draft), ttl: ttl, cleanup: cleanup, now: now,
 		stopCleanup: make(chan struct{}), cleanupDone: make(chan struct{}),
 	}
-	go s.cleanupLoop(defaultCleanupInterval)
+	go s.cleanupLoop()
 	return s
 }
 
@@ -52,17 +58,21 @@ func (s *Store) NewID() string {
 	return hex.EncodeToString(bytes[:])
 }
 
-func (s *Store) Get(id string) Draft {
+func (s *Store) Get(id string) (Draft, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
 	draft, ok := s.drafts[id]
-	if !ok || now.Sub(draft.lastAccessedAt) > s.ttl {
-		draft = Draft{RouteTime: "17:30", Mode: "dropoff", DriverVehicleIDs: map[int64]int64{}}
+	if !ok {
+		return Draft{}, false
+	}
+	if now.Sub(draft.lastAccessedAt) > s.ttl {
+		delete(s.drafts, id)
+		return Draft{}, false
 	}
 	draft.lastAccessedAt = now
 	s.drafts[id] = clone(draft)
-	return clone(draft)
+	return clone(draft), true
 }
 
 func (s *Store) Update(id string, update func(*Draft)) Draft {
@@ -71,7 +81,7 @@ func (s *Store) Update(id string, update func(*Draft)) Draft {
 	now := s.now()
 	draft, ok := s.drafts[id]
 	if !ok || now.Sub(draft.lastAccessedAt) > s.ttl {
-		draft = Draft{RouteTime: "17:30", Mode: "dropoff", DriverVehicleIDs: map[int64]int64{}}
+		draft = defaultDraft(now)
 	}
 	update(&draft)
 	draft.lastAccessedAt = now
@@ -81,13 +91,14 @@ func (s *Store) Update(id string, update func(*Draft)) Draft {
 
 func (s *Store) Close() { s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone }) }
 
-func (s *Store) cleanupLoop(interval time.Duration) {
+func (s *Store) cleanupLoop() {
 	defer close(s.cleanupDone)
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(s.cleanup)
 	defer ticker.Stop()
 	for {
 		select {
-		case now := <-ticker.C:
+		case <-ticker.C:
+			now := s.now()
 			s.mu.Lock()
 			for id, draft := range s.drafts {
 				if now.Sub(draft.lastAccessedAt) > s.ttl {
@@ -98,6 +109,16 @@ func (s *Store) cleanupLoop(interval time.Duration) {
 		case <-s.stopCleanup:
 			return
 		}
+	}
+}
+
+func defaultDraft(now time.Time) Draft {
+	roundedMinutes := ((now.Minute() + 14) / 15) * 15
+	defaultTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location()).Add(time.Duration(roundedMinutes) * time.Minute)
+	return Draft{
+		RouteTime:        defaultTime.Format("15:04"),
+		Mode:             string(models.RouteModeDropoff),
+		DriverVehicleIDs: map[int64]int64{},
 	}
 }
 

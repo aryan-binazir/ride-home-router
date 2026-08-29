@@ -1,1 +1,24 @@
-{{define "mobile_content"}}<section class="mobile-screen"><header class="mobile-title"><h1>History</h1><p>Saved routes stay ready to review.</p></header>{{range .Groups}}<h2 class="mobile-section-title">{{.Label}}</h2><div class="mobile-group">{{range .Events}}<a class="mobile-row" href="/m/history/{{.ID}}"><span><b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b><small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers · {{formatDistance .TotalDistanceMeters $.UseMiles}}{{end}}</small></span><i></i></a>{{end}}</div>{{else}}<div class="mobile-group"><p class="mobile-empty">No saved events yet.</p></div>{{end}}</section>{{end}}
+{{define "mobile_content"}}
+<section class="mobile-screen">
+  <header class="mobile-title">
+    <h1>History</h1>
+    <p>Saved routes stay ready to review.</p>
+  </header>
+  {{range .Groups}}
+  <h2 class="mobile-section-title">{{.Label}}</h2>
+  <div class="mobile-group">
+    {{range .Events}}
+    <a class="mobile-row" href="/m/history/{{.ID}}">
+      <span>
+        <b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b>
+        <small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers · {{formatDistance .TotalDistanceMeters $.UseMiles}}{{end}}</small>
+      </span>
+      <i></i>
+    </a>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="mobile-group"><p class="mobile-empty">No saved events yet.</p></div>
+  {{end}}
+</section>
+{{end}}

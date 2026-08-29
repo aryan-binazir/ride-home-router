@@ -1,14 +1,12 @@
 package templates
 
 import (
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
 	"path"
 	"ride-home-router/internal/templateutil"
-	"strings"
 )
 
 var pageNames = []string{
@@ -24,7 +22,7 @@ var pageNames = []string{
 
 var mobilePageNames = []string{
 	"plan.html", "location.html", "riders.html", "drivers.html", "when.html", "routes.html",
-	"people.html", "person_form.html", "places.html", "place_form.html", "history.html", "history_detail.html",
+	"people.html", "person_form.html", "places.html", "place_form.html", "history.html", "history_detail.html", "error.html",
 }
 
 // Renderer loads and executes the application's page and partial templates.
@@ -82,41 +80,41 @@ func New(templatesFS fs.FS) (*Renderer, error) {
 		renderer.pages[name] = page
 	}
 
-	if mobileLayout, readErr := fs.ReadFile(templatesFS, "templates/mobile/layout.html"); readErr == nil {
-		mobileBase := template.New("").Funcs(templateutil.FuncMap())
-		if _, err := mobileBase.New("mobile_layout.html").Parse(string(mobileLayout)); err != nil {
-			return nil, fmt.Errorf("parse mobile layout: %w", err)
-		}
-		mobilePartials, err := fs.Glob(templatesFS, "templates/mobile/partials/*.html")
+	mobileLayout, err := fs.ReadFile(templatesFS, "templates/mobile/layout.html")
+	if err != nil {
+		return nil, fmt.Errorf("read mobile layout: %w", err)
+	}
+	mobileBase := template.New("").Funcs(templateutil.FuncMap())
+	if _, err := mobileBase.New("mobile_layout.html").Parse(string(mobileLayout)); err != nil {
+		return nil, fmt.Errorf("parse mobile layout: %w", err)
+	}
+	mobilePartials, err := fs.Glob(templatesFS, "templates/mobile/partials/*.html")
+	if err != nil {
+		return nil, fmt.Errorf("glob mobile partials: %w", err)
+	}
+	for _, file := range mobilePartials {
+		content, err := fs.ReadFile(templatesFS, file)
 		if err != nil {
-			return nil, fmt.Errorf("glob mobile partials: %w", err)
+			return nil, fmt.Errorf("read mobile partial %s: %w", file, err)
 		}
-		for _, file := range mobilePartials {
-			content, err := fs.ReadFile(templatesFS, file)
-			if err != nil {
-				return nil, fmt.Errorf("read mobile partial %s: %w", file, err)
-			}
-			if _, err := mobileBase.New(path.Base(file)).Parse(string(content)); err != nil {
-				return nil, fmt.Errorf("parse mobile partial %s: %w", file, err)
-			}
+		if _, err := mobileBase.Parse(string(content)); err != nil {
+			return nil, fmt.Errorf("parse mobile partial %s: %w", file, err)
 		}
-		renderer.mobilePartials = mobileBase
-		for _, name := range mobilePageNames {
-			content, err := fs.ReadFile(templatesFS, "templates/mobile/"+name)
-			if err != nil {
-				return nil, fmt.Errorf("read mobile page %s: %w", name, err)
-			}
-			page, err := mobileBase.Clone()
-			if err != nil {
-				return nil, fmt.Errorf("clone mobile templates for page %s: %w", name, err)
-			}
-			if _, err := page.New(name).Parse(string(content)); err != nil {
-				return nil, fmt.Errorf("parse mobile page %s: %w", name, err)
-			}
-			renderer.mobilePages["mobile/"+name] = page
+	}
+	renderer.mobilePartials = mobileBase
+	for _, name := range mobilePageNames {
+		content, err := fs.ReadFile(templatesFS, "templates/mobile/"+name)
+		if err != nil {
+			return nil, fmt.Errorf("read mobile page %s: %w", name, err)
 		}
-	} else if !errors.Is(readErr, fs.ErrNotExist) {
-		return nil, fmt.Errorf("read mobile layout: %w", readErr)
+		page, err := mobileBase.Clone()
+		if err != nil {
+			return nil, fmt.Errorf("clone mobile templates for page %s: %w", name, err)
+		}
+		if _, err := page.New(name).Parse(string(content)); err != nil {
+			return nil, fmt.Errorf("parse mobile page %s: %w", name, err)
+		}
+		renderer.mobilePages["mobile/"+name] = page
 	}
 
 	return renderer, nil
@@ -130,7 +128,7 @@ func (r *Renderer) Render(w io.Writer, name string, data any) error {
 	if page, ok := r.mobilePages[name]; ok {
 		return page.ExecuteTemplate(w, "mobile_layout.html", data)
 	}
-	if strings.HasPrefix(name, "mobile_") && r.mobilePartials != nil && r.mobilePartials.Lookup(name) != nil {
+	if r.mobilePartials.Lookup(name) != nil {
 		return r.mobilePartials.ExecuteTemplate(w, name, data)
 	}
 	return r.partials.ExecuteTemplate(w, name, data)

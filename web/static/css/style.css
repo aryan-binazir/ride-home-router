@@ -463,13 +463,12 @@ input[type="file"] {
 }
 
 .form-checkbox,
-.select-control,
-input[type="checkbox"].form-checkbox {
+.select-control {
   appearance: none;
   position: relative;
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   border: 1px solid var(--line-2);
   border-radius: 3px;
@@ -487,12 +486,12 @@ input[type="checkbox"].form-checkbox {
 .select-control:checked::after {
   content: "";
   position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 4px;
-  height: 8px;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
   border: solid var(--accent-ink);
-  border-width: 0 1.6px 1.6px 0;
+  border-width: 0 2px 2px 0;
   transform: rotate(42deg);
 }
 
@@ -618,6 +617,63 @@ input[type="checkbox"].form-checkbox {
   background: var(--danger-bg);
 }
 
+.btn-success {
+  border-color: var(--success);
+  background: var(--success);
+  color: var(--accent-ink);
+}
+
+.btn-success:hover:not(:disabled) {
+  border-color: var(--success);
+  background: var(--success);
+  filter: brightness(0.94);
+}
+
+.btn-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.btn-dropdown-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  display: none;
+  min-width: 180px;
+  max-width: calc(100vw - 32px);
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--pane);
+}
+
+.btn-dropdown.is-open .btn-dropdown-menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.btn-dropdown-item {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.btn-dropdown-item:hover,
+.btn-dropdown-item:focus-visible {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
 .panel-toolbar {
   display: flex;
   align-items: center;
@@ -666,7 +722,8 @@ input[type="checkbox"].form-checkbox {
   font-size: 11.5px;
 }
 
-.filter-chip[aria-pressed="true"] {
+.filter-chip[aria-pressed="true"],
+.filter-chip.is-active {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -680,7 +737,7 @@ input[type="checkbox"].form-checkbox {
 
 .select-row {
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   column-gap: 9px;
   min-height: 44px;
@@ -699,6 +756,14 @@ input[type="checkbox"].form-checkbox {
   align-items: center;
   gap: 0 10px;
   min-width: 0;
+}
+
+.select-row.has-van-assignment {
+  align-items: flex-start;
+}
+
+.select-row.has-van-assignment .select-control {
+  margin-top: 2px;
 }
 
 .select-row-title {
@@ -768,6 +833,10 @@ input[type="checkbox"].form-checkbox {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.route-options {
+  flex: none;
 }
 
 .action-bar {
@@ -880,6 +949,11 @@ input[type="checkbox"].form-checkbox {
   border-color: var(--danger);
 }
 
+.route-card.org-vehicle {
+  border-left-width: 3px;
+  border-left-color: var(--accent);
+}
+
 .route-header {
   display: flex;
   align-items: center;
@@ -950,6 +1024,10 @@ input[type="checkbox"].form-checkbox {
   margin: 0;
   border-bottom: 1px solid var(--line);
   background: var(--pane-2);
+}
+
+.route-stats {
+  min-width: 0;
 }
 
 .statgrid .stat {
@@ -1125,6 +1203,11 @@ input[type="checkbox"].form-checkbox {
   font-weight: 400;
 }
 
+.unused-drivers-list {
+  display: flex;
+  flex-direction: column;
+}
+
 .unused-driver-item {
   display: flex;
   align-items: center;
@@ -1219,8 +1302,17 @@ input[type="checkbox"].form-checkbox {
 }
 
 .notice-danger,
-.alert-danger {
+.alert-danger,
+.alert-error {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--line-2));
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.alert-info {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-2));
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .alert-success {
@@ -1288,6 +1380,44 @@ input[type="checkbox"].form-checkbox {
   gap: 16px;
   padding: 13px 16px;
   border-bottom: 1px solid var(--line);
+}
+
+.roster-tabs {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--field-2);
+}
+
+.roster-tabs-standalone {
+  margin-bottom: 18px;
+}
+
+.roster-tabs .roster-tab {
+  min-height: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  box-shadow: none;
+}
+
+.roster-tabs .roster-tab.btn-primary,
+.roster-tabs .roster-tab[aria-pressed="true"] {
+  background: var(--pane);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+
+.roster-tabs .roster-tab:hover {
+  background: var(--pane);
+  color: var(--ink);
+}
+
+.roster-pane {
+  min-width: 0;
 }
 
 .panel-title,
@@ -1437,6 +1567,12 @@ tfoot td {
   color: var(--accent);
 }
 
+.badge-muted {
+  border-color: var(--line-2);
+  background: var(--field-2);
+  color: var(--ink-2);
+}
+
 .badge-warning {
   border-color: color-mix(in srgb, var(--warning) 40%, var(--line-2));
   background: var(--warning-bg);
@@ -1569,6 +1705,21 @@ tfoot td {
   padding-left: 16px;
   color: var(--warning);
   font-size: 11px;
+}
+
+.import-row-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.import-row-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.import-row-duplicate {
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .import-progress {
@@ -1837,11 +1988,15 @@ tfoot td {
 }
 
 .toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--line-2);
   border-radius: 5px;
   background: var(--pane);
   color: var(--ink);
+  animation: toast-in 160ms ease-out;
 }
 
 .toast-error {
@@ -1850,6 +2005,53 @@ tfoot td {
 
 .toast-success {
   border-color: var(--success);
+}
+
+.toast-warning {
+  border-color: var(--warning);
+}
+
+.toast-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.toast-error .toast-icon { color: var(--danger); }
+.toast-success .toast-icon { color: var(--success); }
+.toast-warning .toast-icon { color: var(--warning); }
+
+.toast-message {
+  flex: 1;
+  font-size: 14px;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  color: var(--ink);
+}
+
+.toast.toast-out {
+  animation: toast-out 160ms ease-in forwards;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes toast-out {
+  to { opacity: 0; transform: translateY(6px); }
 }
 
 .loading {
@@ -1865,6 +2067,20 @@ tfoot td {
 .loading-lg {
   width: 24px;
   height: 24px;
+}
+
+.calc-btn-loading {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+#calculate-btn.is-loading .calc-btn-loading {
+  display: inline-flex;
+}
+
+#calculate-btn.is-loading .calc-btn-text {
+  display: none;
 }
 
 .htmx-indicator {
@@ -2158,6 +2374,10 @@ tfoot td {
     flex-wrap: wrap;
   }
 
+  .roster-tabs {
+    align-self: flex-start;
+  }
+
   .checkbox-grid {
     grid-template-columns: 1fr;
   }
@@ -2248,6 +2468,18 @@ tfoot td {
   table[data-cards] .table-actions {
     justify-content: flex-start;
     margin-top: 6px;
+  }
+
+  table[data-cards].deleted-roster-table tr {
+    padding-left: 12px;
+  }
+
+  table[data-cards].deleted-roster-table .table-actions-cell {
+    margin-top: 6px;
+  }
+
+  table[data-cards].deleted-roster-table .table-actions-cell .btn {
+    width: 100%;
   }
 
   .import-commit-bar {

@@ -191,7 +191,7 @@ func TestHandleUpdateActivityLocation_HTMXValidationKeepsForm(t *testing.T) {
 	if got := rr.Header().Get("HX-Reswap"); got != "none" {
 		t.Fatalf("HX-Reswap = %q, want %q", got, "none")
 	}
-	expectedTrigger := `{"showToast":{"message":"Name is required","type":"error"}}`
+	expectedTrigger := `{"showToast":{"message":"name is required","type":"error"}}`
 	if rr.Header().Get("HX-Trigger") != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}

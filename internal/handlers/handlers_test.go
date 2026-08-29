@@ -74,7 +74,7 @@ func TestSetHTMXToastWithEvent_SetsToastAndEvent(t *testing.T) {
 	handler := &Handler{}
 	rec := httptest.NewRecorder()
 
-	handler.setHTMXToastWithEvent(rec, "participantCreated", "Participant 'Alex' added!", toastTypeSuccess)
+	handler.setHTMXToastWithEvent(rec, "participantCreated", "Participant added", toastTypeSuccess)
 
 	var got triggerHeaderWithEvent
 	if err := json.Unmarshal([]byte(rec.Header().Get("HX-Trigger")), &got); err != nil {
@@ -83,7 +83,7 @@ func TestSetHTMXToastWithEvent_SetsToastAndEvent(t *testing.T) {
 	if !got.ParticipantCreated {
 		t.Fatal("expected participantCreated event to be true")
 	}
-	if got.ShowToast.Message != "Participant 'Alex' added!" {
+	if got.ShowToast.Message != "Participant added" {
 		t.Fatalf("toast message = %q", got.ShowToast.Message)
 	}
 	if got.ShowToast.Type != toastTypeSuccess {
@@ -125,6 +125,34 @@ func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
 		}
 		if body := rec.Body.String(); !strings.Contains(body, "123 Main Street") {
 			t.Fatalf("body = %q, want rendered address suggestion", body)
+		}
+	})
+
+	t.Run("mobile HTMX request renders mobile suggestions and fallback", func(t *testing.T) {
+		handler.Geocoder = addressSearchGeocoder{results: []geocoding.GeocodingResult{{DisplayName: "Display fallback"}}}
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
+		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
+		req.Header.Set("X-RHR-Mobile", "1")
+		rec := httptest.NewRecorder()
+
+		handler.HandleAddressSearch(rec, req)
+
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-address-suggestion="Display fallback"`) {
+			t.Fatalf("mobile response = %d body=%q", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("mobile HTMX request keeps no results branch", func(t *testing.T) {
+		handler.Geocoder = addressSearchGeocoder{}
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
+		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
+		req.Header.Set("X-RHR-Mobile", "1")
+		rec := httptest.NewRecorder()
+
+		handler.HandleAddressSearch(rec, req)
+
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No addresses found") {
+			t.Fatalf("mobile empty response = %d body=%q", rec.Code, rec.Body.String())
 		}
 	})
 }

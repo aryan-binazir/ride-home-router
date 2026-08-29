@@ -11,7 +11,7 @@ Self-hosted pickup and dropoff route planning for events.
 
 The browser is the client. A Go server provides the UI and API. Postgres stores rosters, settings, cached distances, and saved events. There is no Wails app or offline client.
 
-The server sends address searches to Nominatim and coordinates to Google Routes. Settings are shared per deployment. Active route edits and spreadsheet imports stay in memory and are lost on restart.
+The server sends address searches to Nominatim and coordinates to Google Routes. Settings are shared per deployment. Active route edits, mobile plan drafts, and spreadsheet imports stay in memory and are lost on restart.
 
 There are no user accounts. Run the server behind an authenticating proxy such as Cloudflare Access. Do not expose it directly to the internet.
 
@@ -56,6 +56,8 @@ Keep the app and Postgres private. Use Cloudflare Tunnel with Access configured,
 3. Add shared vans if needed.
 4. Select riders, drivers, mode, time, and van assignments.
 5. Calculate, adjust, copy, and optionally save the routes.
+
+For the phone-focused workflow, open `/m`. Choose the location, riders, drivers, vans, time, and route mode from the Plan tab. Calculate routes, move riders or swap drivers if needed, copy handoffs, then save the event. People, Places, and History remain available from the bottom tabs.
 
 Pickup routes end at the activity. Dropoff routes start there. The solver respects capacity, keeps households together when possible, uses selected drivers, minimizes corridor spread, then compares completion time, detour, and drive time. It is deterministic, not globally optimal.
 

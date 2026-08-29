@@ -1,1 +1,9 @@
-{{define "mobile_address_suggestions.html"}}{{range .}}<button class="mobile-suggestion" type="button" data-address-suggestion="{{.FormattedAddress}}">{{.FormattedAddress}}</button>{{end}}{{end}}
+{{define "mobile_address_suggestions.html"}}
+{{range .}}
+<button class="mobile-suggestion" type="button" data-address-suggestion="{{if .FormattedAddress}}{{.FormattedAddress}}{{else}}{{.DisplayName}}{{end}}">
+  {{if .FormattedAddress}}{{.FormattedAddress}}{{else}}{{.DisplayName}}{{end}}
+</button>
+{{else}}
+<div class="mobile-address-no-results">No addresses found</div>
+{{end}}
+{{end}}

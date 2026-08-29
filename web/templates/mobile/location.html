@@ -1,8 +1,21 @@
 {{define "mobile_content"}}
 <form class="mobile-screen" action="/m/plan/location" method="post">
   {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Location")}}
-  <div class="mobile-group mobile-choice-list">{{range .Locations}}<label class="mobile-row mobile-choice"><input type="radio" name="location_id" value="{{.ID}}" {{if eq .ID $.SelectedID}}checked{{end}}><span><b>{{.Name}}</b><small>{{.Address}}</small></span></label>{{else}}<p class="mobile-empty">No saved locations yet.</p>{{end}}</div>
+  <div class="mobile-group mobile-choice-list">
+    {{range .Locations}}
+    <label class="mobile-row mobile-choice">
+      <input type="radio" name="location_id" value="{{.ID}}" {{if eq .ID $.SelectedID}}checked{{end}}>
+      <span><b>{{.Name}}</b><small>{{.Address}}</small></span>
+    </label>
+    {{else}}
+    <p class="mobile-empty">No saved locations yet.</p>
+    {{end}}
+  </div>
   <h2 class="mobile-section-title">Manage</h2>
-  <div class="mobile-group"><a class="mobile-row mobile-accent" href="/m/places/locations/new">Add a location<i></i></a><a class="mobile-row mobile-accent" href="/m/places">Edit saved locations<i></i></a></div>
+  <div class="mobile-group">
+    <a class="mobile-row mobile-accent" href="/m/places/locations/new">Add a location<i></i></a>
+    <a class="mobile-row mobile-accent" href="/m/places">Edit saved locations<i></i></a>
+  </div>
   <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>
-</form>{{end}}
+</form>
+{{end}}

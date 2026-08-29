@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="page-header">
     <div>
-        <h2 class="page-title">Activity Locations</h2>
+        <h1 class="page-title">Activity Locations</h1>
         <p class="page-subtitle">Manage the places events happen, then pick one during event planning.</p>
     </div>
 </div>
@@ -34,17 +34,17 @@
         </div>
     </form>
 
-    <div class="d-flex gap-2 mb-4" role="group" aria-label="Activity location view">
+    <div class="roster-tabs roster-tabs-standalone" role="group" aria-label="Activity location view">
         <button type="button"
                 id="location-active-tab"
-                class="btn btn-sm btn-primary"
+                class="btn btn-sm btn-primary roster-tab"
                 aria-pressed="true"
                 onclick="switchRosterTab(this, 'location')">
             Active
         </button>
         <button type="button"
                 id="location-deleted-tab"
-                class="btn btn-sm btn-outline"
+                class="btn btn-sm btn-outline roster-tab"
                 aria-pressed="false"
                 hx-get="/api/v1/activity-locations/deleted"
                 hx-target="#location-deleted-list"
@@ -54,14 +54,14 @@
         </button>
     </div>
 
-    <div id="location-list"
+    <div id="location-list" class="roster-pane"
          hx-get="/api/v1/activity-locations"
          hx-trigger="rosterRestored from:body"
          hx-swap="innerHTML">
         {{template "activity_location_list" .ActivityLocations}}
     </div>
     <div id="location-deleted-list"
-         class="table-container mb-0 hidden"
+         class="table-container roster-pane mb-0 hidden"
          hx-get="/api/v1/activity-locations/deleted"
          hx-trigger="rosterRestored from:body"
          hx-swap="innerHTML"></div>

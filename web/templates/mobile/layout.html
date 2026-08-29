@@ -1,4 +1,5 @@
-{{define "mobile_layout.html"}}<!doctype html>
+{{define "mobile_layout.html"}}
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -13,10 +14,12 @@
   <div class="mobile-shell">
     <main class="mobile-main">
       {{if .Error}}<div class="mobile-alert" role="alert">{{.Error}}</div>{{end}}
+      {{if .Notice}}<div class="mobile-notice" role="status">{{.Notice}}</div>{{end}}
       {{template "mobile_content" .}}
       <footer class="mobile-footer"><a href="/m/desktop">Desktop site</a></footer>
     </main>
     {{template "mobile_tabs" .}}
   </div>
 </body>
-</html>{{end}}
+</html>
+{{end}}

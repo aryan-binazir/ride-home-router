@@ -1,30 +1,30 @@
 :root {
   color-scheme: light dark;
-  --m-bg: #f2f2f5;
-  --m-card: #fff;
-  --m-ink: #0d0f12;
-  --m-muted: #61656d;
-  --m-faint: #8e929a;
-  --m-line: #e3e3e8;
-  --m-blue: #0a5cc4;
-  --m-blue-ink: #fff;
-  --m-blue-tint: #e8f0fb;
-  --m-danger: #9e2929;
+  --m-bg: #f6f7f8;
+  --m-card: #ffffff;
+  --m-ink: #1c2024;
+  --m-muted: #5b6570;
+  --m-faint: #8a939d;
+  --m-line: #e3e6e9;
+  --m-blue: #1d63c9;
+  --m-blue-ink: #ffffff;
+  --m-blue-tint: #eaf1fc;
+  --m-danger: #b42318;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --m-bg: #0b0c0e;
-    --m-card: #17191d;
-    --m-ink: #f2f4f6;
-    --m-muted: #9ba1a9;
-    --m-faint: #6d737b;
-    --m-line: #292c31;
-    --m-blue: #68a7ff;
-    --m-blue-ink: #07172b;
-    --m-blue-tint: #12233a;
-    --m-danger: #ff8e8e;
+    --m-bg: #15181b;
+    --m-card: #1b1f23;
+    --m-ink: #e6eaee;
+    --m-muted: #a3adb8;
+    --m-faint: #78838e;
+    --m-line: #2a3036;
+    --m-blue: #6ba4f2;
+    --m-blue-ink: #0f1418;
+    --m-blue-tint: #1a2b40;
+    --m-danger: #f28b82;
   }
 }
 
@@ -33,7 +33,8 @@ html, body { min-height: 100%; margin: 0; background: var(--m-bg); color: var(--
 body { font-size: 16px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; }
-button, a, input, select { min-height: 44px; }
+button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
+:is(a, button, input, select, textarea):focus-visible { outline: 3px solid var(--m-blue); outline-offset: 2px; }
 
 .mobile-shell { min-height: 100dvh; max-width: 760px; margin: 0 auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .mobile-main { min-height: calc(100dvh - 70px); }
@@ -78,7 +79,9 @@ button, a, input, select { min-height: 44px; }
 .mobile-footer { margin: 36px 0 8px; text-align: center; font-size: .82rem; }
 .mobile-footer a { color: var(--m-muted); text-decoration: underline; text-underline-offset: 3px; }
 
-.mobile-alert { margin: 10px 16px 0; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--m-danger) 45%, var(--m-line)); border-radius: 10px; color: var(--m-danger); background: var(--m-card); }
+.mobile-alert, .mobile-notice { margin: 10px 16px 0; padding: 11px 13px; border-radius: 10px; background: var(--m-card); }
+.mobile-alert { border: 1px solid color-mix(in srgb, var(--m-danger) 45%, var(--m-line)); color: var(--m-danger); }
+.mobile-notice { border: 1px solid color-mix(in srgb, var(--m-blue) 35%, var(--m-line)); color: var(--m-ink); }
 .mobile-choice-list { max-height: calc(100dvh - 230px); overflow-y: auto; }
 .mobile-choice { cursor: pointer; }
 .mobile-choice input { width: 22px; height: 22px; accent-color: var(--m-blue); flex: 0 0 auto; }
@@ -93,7 +96,9 @@ button, a, input, select { min-height: 44px; }
 .mobile-search button { border: 0; background: transparent; color: var(--m-blue); }
 .mobile-chips { display: flex; gap: 8px; margin: 0 0 10px; padding-bottom: 2px; overflow-x: auto; }
 .mobile-chip { min-height: 34px; padding: 0 13px; border-radius: 17px; display: inline-flex; align-items: center; background: var(--m-card); color: var(--m-muted); font-size: .82rem; white-space: nowrap; }
-.mobile-chip.is-active { background: var(--m-blue); color: var(--m-blue-ink); }
+.mobile-chip.is-active, .mobile-chip:has(.mobile-chip-input:checked) { background: var(--m-blue); color: var(--m-blue-ink); }
+.mobile-chip-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mobile-chip:has(.mobile-chip-input:focus-visible) { outline: 3px solid var(--m-blue); outline-offset: 2px; }
 
 .mobile-form-card, .mobile-save-card { padding: 14px; }
 .mobile-form-card > label, .mobile-save-card > label { display: block; margin-bottom: 15px; color: var(--m-muted); font-size: .85rem; font-weight: 550; }
@@ -104,7 +109,10 @@ button, a, input, select { min-height: 44px; }
 .mobile-segment input, .mobile-check input { width: 20px; height: 20px; accent-color: var(--m-blue); }
 .mobile-check { display: flex; min-height: 44px; align-items: center; gap: 9px; }
 .mobile-address-results { border-radius: 9px; overflow: hidden; margin: -8px 0 12px; }
-.mobile-suggestion { width: 100%; display: block; padding: 9px 11px; border: 0; border-top: 1px solid var(--m-line); background: var(--m-bg); color: var(--m-ink); text-align: left; cursor: pointer; }
+.mobile-suggestion, .mobile-address-results .address-suggestion { width: 100%; display: block; padding: 9px 11px; border: 0; border-top: 1px solid var(--m-line); background: var(--m-bg); color: var(--m-ink); text-align: left; cursor: pointer; }
+.mobile-address-no-results, .mobile-address-results .address-no-results { padding: 9px 11px; border-top: 1px solid var(--m-line); background: var(--m-bg); color: var(--m-muted); }
+.mobile-error-page { margin-top: 16px; }
+.mobile-error-page p { margin: 0 0 14px; color: var(--m-muted); }
 
 .mobile-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 12px; }
 .mobile-stats span { padding: 10px 5px; text-align: center; color: var(--m-faint); font-size: .72rem; }
@@ -126,6 +134,7 @@ button, a, input, select { min-height: 44px; }
 .mobile-stops button, .mobile-inline-form button { min-height: 34px; border: 0; background: transparent; color: var(--m-blue); cursor: pointer; }
 .mobile-route-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 14px; }
 .mobile-route-actions .mobile-button { min-height: 44px; padding: 0 8px; font-size: .82rem; }
+.mobile-copy-source { position: fixed; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 .mobile-inline-form { padding: 10px 14px; display: flex; align-items: end; gap: 8px; border-top: 1px solid var(--m-line); }
 .mobile-inline-form label { flex: 1; color: var(--m-muted); font-size: .78rem; }
 .mobile-inline-form select { display: block; width: 100%; margin-top: 4px; padding: 5px 8px; border: 1px solid var(--m-line); border-radius: 7px; background: var(--m-bg); color: var(--m-ink); }

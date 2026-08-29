@@ -298,16 +298,15 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/m/places/vans/", handleMethods(handler.HandleMobileVanForm, handler.HandleMobileVanForm, nil, nil))
 	mux.HandleFunc("/m/history", requireMethod(http.MethodGet, handler.HandleMobileHistory))
 	mux.HandleFunc("/m/history/", requireMethod(http.MethodGet, handler.HandleMobileHistoryDetail))
-	mux.HandleFunc("/m/address-search", requireMethod(http.MethodGet, handler.HandleMobileAddressSearch))
-	mux.HandleFunc("/m/desktop", requireMethod(http.MethodGet, handler.HandleMobileDesktopPreference))
+	mux.HandleFunc("/m/desktop", requireMethod(http.MethodGet, handleSetDesktopPreference))
+	mux.HandleFunc("/m/desktop-preference", requireMethod(http.MethodGet, handleClearDesktopPreference))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		preferDesktop, _ := r.Cookie("prefer_desktop")
-		if (preferDesktop == nil || preferDesktop.Value != "1") && (r.URL.Query().Get("m") == "1" || r.Header.Get("Sec-CH-UA-Mobile") == "?1") {
+		if shouldRedirectToMobile(r) {
 			http.Redirect(w, r, "/m", http.StatusTemporaryRedirect)
 			return
 		}
@@ -323,6 +322,53 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/history", requireMethod(http.MethodGet, handler.HandleHistoryPage))
 
 	return mux
+}
+
+func shouldRedirectToMobile(r *http.Request) bool {
+	preferDesktop, _ := r.Cookie("prefer_desktop")
+	if preferDesktop != nil && preferDesktop.Value == "1" {
+		return false
+	}
+	if r.URL.Query().Get("m") == "1" || r.Header.Get("Sec-CH-UA-Mobile") == "?1" {
+		return true
+	}
+	userAgent := r.UserAgent()
+	return strings.Contains(userAgent, "Mobile") ||
+		strings.Contains(userAgent, "Android") ||
+		strings.Contains(userAgent, "iPhone") ||
+		strings.Contains(userAgent, "iPad")
+}
+
+func handleSetDesktopPreference(w http.ResponseWriter, r *http.Request) {
+	//nolint:gosec // Local HTTP is supported; this cookie carries no sensitive value.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "prefer_desktop",
+		Value:    "1",
+		Path:     "/",
+		Secure:   r.TLS != nil,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   365 * 24 * 60 * 60,
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func handleClearDesktopPreference(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("clear") != "1" {
+		writeNotFound(w)
+		return
+	}
+	//nolint:gosec // Local HTTP is supported; this cookie carries no sensitive value.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "prefer_desktop",
+		Path:     "/",
+		Secure:   r.TLS != nil,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(1, 0),
+	})
+	http.Redirect(w, r, "/m", http.StatusSeeOther)
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
