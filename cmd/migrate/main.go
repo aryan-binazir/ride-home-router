@@ -82,6 +82,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "migration: %v\n", err)
 		return 1
 	}
+	if err := printVersion(databaseURL, stdout); err != nil {
+		_, _ = fmt.Fprintf(stderr, "migration: %v\n", err)
+		return 1
+	}
 	return 0
 }
 

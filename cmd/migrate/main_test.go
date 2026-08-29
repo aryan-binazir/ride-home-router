@@ -9,19 +9,26 @@ import (
 )
 
 func TestRunUpPrintsLatestCleanVersion(t *testing.T) {
-	t.Setenv("DATABASE_URL", postgrestest.DatabaseURL(t))
-	var stdout, stderr bytes.Buffer
+	for name, args := range map[string][]string{
+		"default":  nil,
+		"explicit": {"up"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", postgrestest.DatabaseURL(t))
+			var stdout, stderr bytes.Buffer
 
-	code := run([]string{"up"}, &stdout, &stderr)
+			code := run(args, &stdout, &stderr)
 
-	if code != 0 {
-		t.Fatalf("run(up) code = %d stderr = %q, want 0", code, stderr.String())
-	}
-	if stdout.String() != "migration version 20260830000000 dirty=false\n" {
-		t.Fatalf("run(up) stdout = %q", stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("run(up) stderr = %q, want empty", stderr.String())
+			if code != 0 {
+				t.Fatalf("run(%v) code = %d stderr = %q, want 0", args, code, stderr.String())
+			}
+			if stdout.String() != "migration version 20260830000000 dirty=false\n" {
+				t.Fatalf("run(%v) stdout = %q", args, stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("run(%v) stderr = %q, want empty", args, stderr.String())
+			}
+		})
 	}
 }
 
@@ -72,8 +79,8 @@ func TestRunConfirmedDownRollsBackOneMigration(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run(down --confirm) code = %d stderr = %q, want 0", code, stderr.String())
 	}
-	if stdout.Len() != 0 || stderr.Len() != 0 {
-		t.Fatalf("run(down --confirm) output = stdout %q stderr %q, want empty", stdout.String(), stderr.String())
+	if stdout.String() != "migration version 20260829000000 dirty=false\n" || stderr.Len() != 0 {
+		t.Fatalf("run(down --confirm) output = stdout %q stderr %q", stdout.String(), stderr.String())
 	}
 	version, dirty, err := migrations.Version(t.Context(), databaseURL)
 	if err != nil {

@@ -4,6 +4,7 @@ POSTGRES_CONTAINER ?= ride-home-router-postgres
 POSTGRES_PORT ?= 5434
 LOCAL_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router?sslmode=disable
 LOCAL_TEST_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router_test?sslmode=disable
+INHERITED_DATABASE_URL := $(if $(filter environment command line,$(origin DATABASE_URL)),$(DATABASE_URL))
 DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
@@ -64,25 +65,32 @@ migrate:
 migrate-version:
 	go run ./cmd/migrate version
 
-migrate-down: override DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router?sslmode=disable
+migrate-down: override DATABASE_URL := $(LOCAL_DATABASE_URL)
+migrate-down: export REQUESTED_DATABASE_URL := $(INHERITED_DATABASE_URL)
 migrate-down:
 	@if [ "$(CONFIRM)" != "yes" ]; then \
 		echo "Refusing destructive target. Re-run with CONFIRM=yes"; \
 		exit 1; \
 	fi
+	@if [ -n "$$REQUESTED_DATABASE_URL" ] && [ "$$REQUESTED_DATABASE_URL" != "$$DATABASE_URL" ]; then \
+		echo "Refusing destructive target because inherited DATABASE_URL is not the fixed local database"; \
+		exit 1; \
+	fi
 	go run ./cmd/migrate down --confirm
 
+migrate-create: export MIGRATION_NAME := $(name)
 migrate-create:
-	@if [ -z "$(name)" ]; then \
+	@if [ -z "$$MIGRATION_NAME" ]; then \
 		echo "name is required, e.g. make migrate-create name=add_field"; \
 		exit 1; \
 	fi
 	@version=$$(date -u +%Y%m%d%H%M%S); \
-		slug=$$(printf '%s' "$(name)" | tr '[:upper:] -' '[:lower:]__' | sed 's/[^a-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_$$//'); \
+		slug=$$(printf '%s' "$$MIGRATION_NAME" | tr '[:upper:] -' '[:lower:]__' | sed 's/[^a-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_$$//'); \
 		if [ -z "$$slug" ]; then echo "name must contain a letter or number"; exit 1; fi; \
 		up="migrations/$${version}_$${slug}.up.sql"; \
 		down="migrations/$${version}_$${slug}.down.sql"; \
-		if [ -e "$$up" ] || [ -e "$$down" ]; then echo "migration already exists for timestamp $$version"; exit 1; fi; \
+		set -- migrations/$${version}_*.sql; \
+		if [ -e "$$1" ]; then echo "migration already exists for timestamp $$version"; exit 1; fi; \
 		printf '%s\n' '-- Write migration here.' > "$$up"; \
 		printf '%s\n' '-- ride-home-router: down migration disabled' > "$$down"; \
 		printf '%s\n%s\n' "$$up" "$$down"

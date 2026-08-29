@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"io/fs"
+	"net/url"
 	"regexp"
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/migrations"
@@ -54,6 +55,31 @@ func TestEmbeddedMigrationsArePairedAndParseable(t *testing.T) {
 	}
 }
 
+func TestDisabledDownMigrationsContainNoExecutableSQL(t *testing.T) {
+	entries, err := fs.ReadDir(migrationFiles, ".")
+	if err != nil {
+		t.Fatalf("read embedded migrations: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".down.sql") {
+			continue
+		}
+		body, err := fs.ReadFile(migrationFiles, entry.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
+		}
+		if !strings.Contains(string(body), "ride-home-router: down migration disabled") {
+			continue
+		}
+		for line := range strings.SplitSeq(string(body), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "--") {
+				t.Errorf("disabled down migration %s contains executable SQL: %q", entry.Name(), line)
+			}
+		}
+	}
+}
+
 func TestVersionReportsLatestCleanMigration(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
 
@@ -92,6 +118,22 @@ func TestVersionDoesNotCreateMigrationState(t *testing.T) {
 	}
 	if migrationTable {
 		t.Fatal("Version() created schema_migrations, want read-only inspection")
+	}
+}
+
+func TestVersionRejectsMissingCurrentSchema(t *testing.T) {
+	databaseURL := postgrestest.UnmigratedDatabase(t)
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatalf("parse database URL: %v", err)
+	}
+	query := parsed.Query()
+	query.Set("search_path", "schema_that_does_not_exist")
+	parsed.RawQuery = query.Encode()
+
+	_, _, err = migrations.Version(t.Context(), parsed.String())
+	if err == nil || !strings.Contains(err.Error(), "current schema") {
+		t.Fatalf("Version() error = %v, want missing current schema", err)
 	}
 }
 
@@ -142,6 +184,35 @@ func TestDownRefusesDisabledMigrationWithoutChangingVersion(t *testing.T) {
 	}
 }
 
+func TestDownRefusesMissingMigrationWithoutChangingVersion(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	connection, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect missing-down fixture: %v", err)
+	}
+	defer func() {
+		if err := connection.Close(context.Background()); err != nil {
+			t.Errorf("close missing-down fixture: %v", err)
+		}
+	}()
+	const missingVersion = 99999999999999
+	if _, err := connection.Exec(t.Context(), "UPDATE schema_migrations SET version = $1", missingVersion); err != nil {
+		t.Fatalf("set missing migration version: %v", err)
+	}
+
+	err = migrations.Down(t.Context(), databaseURL)
+	if err == nil || !strings.Contains(err.Error(), "missing down migration") {
+		t.Fatalf("Down() error = %v, want missing down migration refusal", err)
+	}
+	version, dirty, versionErr := migrations.Version(t.Context(), databaseURL)
+	if versionErr != nil {
+		t.Fatalf("Version() after refused Down error = %v", versionErr)
+	}
+	if version != missingVersion || dirty {
+		t.Fatalf("Version() after refused Down = (%d, %t), want (%d, false)", version, dirty, missingVersion)
+	}
+}
+
 func TestRunBoundsConcurrentMigrationWait(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
 	connection, err := pgx.Connect(t.Context(), databaseURL)
@@ -187,12 +258,15 @@ func TestRunBoundsConcurrentMigrationWait(t *testing.T) {
 		if err == nil {
 			t.Fatal("Run() with held migration lock returned nil, want bounded lock error")
 		}
-	case <-time.After(12 * time.Second):
+		if !strings.Contains(strings.ToLower(err.Error()), "lock timeout") {
+			t.Fatalf("Run() with held migration lock error = %v, want lock timeout", err)
+		}
+	case <-time.After(15 * time.Second):
 		unlock()
 		if err := <-result; err != nil {
 			t.Fatalf("Run() exceeded bounded lock wait before returning %v", err)
 		}
-		t.Fatal("Run() waited for the held migration lock instead of failing within 12 seconds")
+		t.Fatal("Run() waited for the held migration lock instead of failing within 15 seconds")
 	}
 }
 

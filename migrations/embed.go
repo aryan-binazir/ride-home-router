@@ -24,6 +24,7 @@ import (
 const (
 	connectTimeout              = 10 * time.Second
 	migrationLockTimeout        = 10 * time.Second
+	sessionLockTimeout          = 9 * time.Second
 	statementTimeout            = 5 * time.Minute
 	disabledDownMigrationMarker = "ride-home-router: down migration disabled"
 )
@@ -50,9 +51,13 @@ func Version(ctx context.Context, databaseURL string) (version uint, dirty bool,
 	}
 	defer func() { err = errors.Join(err, database.Close()) }()
 
+	var currentSchema sql.NullString
 	var exists bool
-	if err := database.QueryRowContext(ctx, "SELECT to_regclass(current_schema() || '.schema_migrations') IS NOT NULL").Scan(&exists); err != nil {
+	if err := database.QueryRowContext(ctx, "SELECT current_schema(), to_regclass(current_schema() || '.schema_migrations') IS NOT NULL").Scan(&currentSchema, &exists); err != nil {
 		return 0, false, fmt.Errorf("inspect migration table: %w", err)
+	}
+	if !currentSchema.Valid {
+		return 0, false, errors.New("inspect migration table: search_path has no current schema")
 	}
 	if !exists {
 		return 0, false, nil
@@ -173,7 +178,7 @@ func openDatabase(ctx context.Context, databaseURL string) (*sql.DB, error) {
 	if config.ConnectTimeout == 0 || config.ConnectTimeout > connectTimeout {
 		config.ConnectTimeout = connectTimeout
 	}
-	config.RuntimeParams["lock_timeout"] = strconv.FormatInt(migrationLockTimeout.Milliseconds(), 10)
+	config.RuntimeParams["lock_timeout"] = strconv.FormatInt(sessionLockTimeout.Milliseconds(), 10)
 	db := stdlib.OpenDB(*config)
 	db.SetMaxOpenConns(1)
 

@@ -53,7 +53,7 @@ Keep the app and Postgres private. Use Cloudflare Tunnel with Access configured,
 
 ## Database migrations
 
-The paired timestamped SQL files in `migrations/` are the Postgres schema history. Clean retries skip versions already recorded in `schema_migrations`. Concurrent runners serialize through golang-migrate's Postgres advisory lock, with a 10-second lock wait and a five-minute statement limit.
+The paired timestamped SQL files in `migrations/` are the Postgres schema history. Clean retries skip versions already recorded in `schema_migrations`. Concurrent runners serialize through golang-migrate's Postgres advisory lock, with a 10-second advisory-lock wait, a nine-second default wait for other database locks, and a five-minute statement limit. A migration that deliberately needs longer for a table lock can use `SET LOCAL lock_timeout`, but it remains subject to the statement limit.
 
 Use the local database defaults through Make:
 
@@ -63,7 +63,7 @@ make migrate-version
 make migrate-create name=add_route_notes
 ```
 
-`make migrate-create` creates one `.up.sql` and one `.down.sql` file. The generated down file is disabled until it is replaced with a real, tested rollback. Keep applied migration files immutable. Add a new fix-forward migration instead of editing deployed schema history. The only exception in the current history is removal of the baseline's session-only `SET lock_timeout`, which changed runner behavior but not database schema.
+`make migrate-create` creates one `.up.sql` and one `.down.sql` file. The generated down file is disabled until it is replaced with a real, tested rollback. Keep applied migration files immutable. Add a new fix-forward migration instead of editing deployed schema history. The current history has two safety-only exceptions: removal of the baseline's session-only `SET lock_timeout`, and removal of executable SQL from its disabled down file. Neither changes an applied schema.
 
 Down migrations are destructive. The Make target is pinned to the fixed local development URL and requires explicit confirmation:
 
@@ -73,7 +73,7 @@ make migrate-down CONFIRM=yes
 
 It rolls back exactly one version and preflights the down file before changing migration state. The lower-level `migrate down --confirm` command uses the loaded `DATABASE_URL`; do not run it against a database you intend to keep without a verified backup and matching application rollback.
 
-A failed migration can leave `schema_migrations` dirty. Later up or down operations refuse that state and report the version. Inspect the failed statement and database contents, then repair deliberately or restore a verified backup. Do not blindly force the version or add `IF NOT EXISTS` guards to hide a partial migration.
+A failed migration can leave `schema_migrations` dirty. Later up or down operations refuse that state and report the version. Inspect `SELECT version, dirty FROM schema_migrations;`, the failed statement, and the database contents. If the migration transaction fully rolled back and the schema is unchanged, clear only the dirty flag for that inspected version with `UPDATE schema_migrations SET dirty = false WHERE version = <version> AND dirty = true;`, then retry. If any schema change remains or the state is uncertain, repair deliberately or restore a verified backup. Do not blindly change the recorded version or add `IF NOT EXISTS` guards to hide a partial migration.
 
 ## Use
 

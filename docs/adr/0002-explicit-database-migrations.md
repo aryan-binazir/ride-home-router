@@ -12,11 +12,11 @@ The `migrate` binary owns schema changes. It supports default or explicit `up`, 
 
 The server binary does not apply or inspect migrations. Local `make serve` depends on `make migrate`. Deployments must run `migrate` as a one-shot pre-deploy command and start the new server revision only after it exits successfully.
 
-Migration execution reuses golang-migrate's Postgres advisory lock. The runner caps connection and lock waits at 10 seconds and migration statements at five minutes. It reports clean or dirty version state. Up and down operations refuse a dirty database with recovery guidance.
+Migration execution reuses golang-migrate's Postgres advisory lock. The runner caps connections and advisory-lock waits at 10 seconds, other database lock waits at nine seconds, and migration statements at five minutes. It reports clean or dirty version state. Up and down operations refuse a dirty database with recovery guidance.
 
-Every embedded version has paired timestamped up and down files. Repository tests reject malformed or unpaired filenames. `make migrate-create name=<name>` creates both files and marks the down direction disabled. One-step down reads and validates the pending down file before calling golang-migrate, so a missing, empty, or disabled file cannot decrement `schema_migrations` or leave the database dirty.
+Every embedded version has paired timestamped up and down files. Repository tests reject malformed or unpaired filenames and executable SQL in disabled down files. `make migrate-create name=<name>` creates both files and marks the down direction disabled. One-step down reads and validates the pending down file before calling golang-migrate, so a missing, empty, or disabled file cannot decrement `schema_migrations` or leave the database dirty.
 
-Applied SQL stays immutable. The baseline's session-only `SET lock_timeout = 0` statements are removed because they disabled the runner's bounded wait on fresh databases. Removing those statements does not change schema on a fresh or already-migrated database.
+Applied SQL stays immutable. The baseline's session-only `SET lock_timeout = 0` statements are removed because they disabled the runner's bounded wait on fresh databases, and its disabled down file is made inert instead of retaining destructive SQL. Neither safety change affects an applied schema.
 
 ## Consequences
 
