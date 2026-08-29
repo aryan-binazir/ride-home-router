@@ -135,6 +135,31 @@ func TestSetupRoutesDispatchesParticipantRestoreAndDeletedCollectionActions(t *t
 	}
 }
 
+func TestSetupRoutesRedirectsMobileDesktopRoot(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+
+	for name, configure := range map[string]func(*http.Request){
+		"client hint": func(request *http.Request) { request.Header.Set("Sec-CH-UA-Mobile", "?1") },
+		"query flag":  func(_ *http.Request) {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := "/"
+			if name == "query flag" {
+				path = "/?m=1"
+			}
+			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+			configure(request)
+			response := httptest.NewRecorder()
+
+			mux.ServeHTTP(response, request)
+
+			if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != "/m" {
+				t.Fatalf("redirect = %d %q, want 307 /m", response.Code, response.Header().Get("Location"))
+			}
+		})
+	}
+}
+
 func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T) {
 	var editCalled bool
 

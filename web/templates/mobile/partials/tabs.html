@@ -1,0 +1,20 @@
+{{define "mobile_tabs"}}<nav class="mobile-tabs" aria-label="Main navigation">
+  <a class="mobile-tab {{if eq .ActiveTab "plan"}}is-active{{end}}" href="/m" aria-label="Plan">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 9 6l6 12 5-9"/></svg><span>Plan</span>
+  </a>
+  <a class="mobile-tab {{if eq .ActiveTab "people"}}is-active{{end}}" href="/m/people" aria-label="People">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-4.8 5.5-4.8s4.9 1.6 5.5 4.8M16 8.2a3 3 0 0 1 0 5.6"/></svg><span>People</span>
+  </a>
+  <a class="mobile-tab {{if eq .ActiveTab "places"}}is-active{{end}}" href="/m/places" aria-label="Places">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg><span>Places</span>
+  </a>
+  <a class="mobile-tab {{if eq .ActiveTab "history"}}is-active{{end}}" href="/m/history" aria-label="History">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>History</span>
+  </a>
+</nav>{{end}}
+
+{{define "mobile_back_header"}}<header class="mobile-nav"><a class="mobile-back" href="{{.BackURL}}"><span aria-hidden="true">‹</span>{{.BackLabel}}</a><h1>{{.Title}}</h1></header>{{end}}
+
+{{define "mobile_search"}}<form class="mobile-search" method="get"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" name="search" value="{{.Value}}" placeholder="{{.Placeholder}}" aria-label="{{.Placeholder}}"><button type="submit">Search</button></form>{{end}}
+
+{{define "mobile_labels"}}{{range .Names}}<span class="mobile-pill">{{.}}</span>{{end}}{{end}}

@@ -9,30 +9,27 @@
     <script src="/static/js/event-planner.js" defer></script>
     <script src="/static/js/ui.js" defer></script>
 </head>
-<body>
-    <header class="header">
-        <div class="container header-inner">
-            <div class="brand">
-                <h1><a class="brand-link" href="/">Ride Home Router</a></h1>
-                <p class="brand-subtitle">Plan routes in minutes — not spreadsheets.</p>
-            </div>
-            <nav class="nav">
-                <a href="/" {{if eq .ActivePage "home"}}class="active"{{end}}>Event Planning</a>
-                <a href="/participants" {{if eq .ActivePage "participants"}}class="active"{{end}}>Participants</a>
-                <a href="/drivers" {{if eq .ActivePage "drivers"}}class="active"{{end}}>Drivers</a>
-                <a href="/labels" {{if eq .ActivePage "labels"}}class="active"{{end}}>Labels</a>
-                <a href="/activity-locations" {{if eq .ActivePage "activity_locations"}}class="active"{{end}}>Activity Locations</a>
-                <a href="/vans" {{if eq .ActivePage "vans"}}class="active"{{end}}>Vans</a>
-                <a href="/history" {{if eq .ActivePage "history"}}class="active"{{end}}>History</a>
-                <a href="/settings" {{if eq .ActivePage "settings"}}class="active"{{end}}>Settings</a>
+<body class="{{if eq .ActivePage "home"}}planner-page{{else}}standard-page{{end}}">
+    <div class="app-shell">
+        <header class="appbar">
+            <a class="brand-link" href="/">Ride Home Router</a>
+            <nav class="nav" aria-label="Primary navigation">
+                <a href="/" {{if eq .ActivePage "home"}}class="active" aria-current="page"{{end}}>Event Planning</a>
+                <a href="/participants" {{if eq .ActivePage "participants"}}class="active" aria-current="page"{{end}}>Participants</a>
+                <a href="/drivers" {{if eq .ActivePage "drivers"}}class="active" aria-current="page"{{end}}>Drivers</a>
+                <a href="/labels" {{if eq .ActivePage "labels"}}class="active" aria-current="page"{{end}}>Labels</a>
+                <a href="/activity-locations" {{if eq .ActivePage "activity_locations"}}class="active" aria-current="page"{{end}}>Activity Locations</a>
+                <a href="/vans" {{if eq .ActivePage "vans"}}class="active" aria-current="page"{{end}}>Vans</a>
+                <a href="/history" {{if eq .ActivePage "history"}}class="active" aria-current="page"{{end}}>History</a>
+                <a href="/settings" {{if eq .ActivePage "settings"}}class="active" aria-current="page"{{end}}>Settings</a>
             </nav>
-        </div>
-    </header>
+        </header>
 
-    <main class="container">
-        <div class="main">
-            {{template "content" .}}
-        </div>
-    </main>
+        <main class="app-main">
+            <div class="main">
+                {{template "content" .}}
+            </div>
+        </main>
+    </div>
 </body>
 </html>

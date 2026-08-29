@@ -1,316 +1,305 @@
 {{define "content"}}
-<div class="page-header">
-    <div>
-        <h2 class="page-title">Plan Event</h2>
-        <p class="page-subtitle">Choose the activity location, pick participants and drivers, and assign a van when overflow capacity is needed before calculating routes.</p>
-    </div>
-</div>
-
-<form id="event-form">
-    <section class="panel mb-3">
-        <div class="panel-header">
-            <div>
-                <h3 class="panel-title">Activity Location</h3>
-                <p class="panel-subtitle">Pick where this event starts or ends.</p>
+<div class="planner-split" id="planner-workspace">
+    <form id="event-form" class="plan-pane">
+        <div class="panehead plan-pane-header">
+            <div class="panehead-copy">
+                <h1>Plan Event</h1>
+                <p>Choose a location, participants, drivers, and route options.</p>
             </div>
-            <div class="panel-actions">
-                <a href="/activity-locations" class="btn btn-sm btn-outline">Manage locations</a>
-            </div>
-        </div>
-
-        {{if .ActivityLocations}}
-        <div class="form-group mb-0">
-            <label class="form-label" for="activity-location-native">Location</label>
-            <div class="ui-select" id="event-activity-location-select">
-                <select id="activity-location-native" name="activity_location_id" class="form-select ui-select-native" required>
-                    <option value="">-- Select a location --</option>
-                    {{range .ActivityLocations}}
-                    <option value="{{.ID}}">
-                        {{.Name}} ({{.Address}})
-                    </option>
-                    {{end}}
-                </select>
-
-                <button type="button"
-                        class="ui-select-trigger"
-                        aria-haspopup="listbox"
-                        aria-expanded="false"
-                        aria-label="Activity location">
-                    <span class="ui-select-trigger-text">
-                        <span class="ui-select-trigger-title">-- Select a location --</span>
-                        <span class="ui-select-trigger-subtitle hidden"></span>
-                    </span>
-                    <span class="ui-select-chevron" aria-hidden="true"></span>
-                </button>
-
-                <div class="ui-select-menu" role="listbox" tabindex="-1">
-                    <button type="button"
-                            class="ui-select-option is-selected"
-                            role="option"
-                            aria-selected="true"
-                            data-value=""
-                            data-title="-- Select a location --"
-                            data-subtitle="">
-                        <span class="ui-select-option-title">-- Select a location --</span>
-                    </button>
-                    {{range .ActivityLocations}}
-                    <button type="button"
-                            class="ui-select-option"
-                            role="option"
-                            aria-selected="false"
-                            data-value="{{.ID}}"
-                            data-title="{{.Name}}"
-                            data-subtitle="{{.Address}}">
-                        <span class="ui-select-option-title">{{.Name}}</span>
-                        <span class="ui-select-option-subtitle">{{.Address}}</span>
-                    </button>
-                    {{end}}
-                </div>
-            </div>
-            <div class="form-help">
-                Dropoff routes begin at the activity location. Pickup routes end there.
-            </div>
-        </div>
-        {{else}}
-        <div class="empty-state">
-            <h3>No activity locations yet</h3>
-            <p>Add one on the <a href="/activity-locations">Activity Locations</a> page before calculating routes.</p>
-        </div>
-        {{end}}
-    </section>
-
-    <div class="grid grid-2">
-        <section class="panel">
-            <div class="panel-header">
-                <div>
-                    <h3 class="panel-title">Participants</h3>
-                    <p class="panel-subtitle">Who needs a ride?</p>
-                </div>
-                <div class="panel-actions">
-                    <button type="button" class="btn btn-sm btn-outline" onclick="selectAllParticipants()">Select all</button>
-                </div>
-            </div>
-
-            {{if .Participants}}
-            <div class="panel-toolbar panel-toolbar-stack">
-                {{if .Labels}}
-                <div class="filter-chip-toolbar">
-                    <div class="filter-chip-list" id="participants-label-filters">
-                        {{range .Labels}}
-                        <button type="button"
-                                class="filter-chip label-filter-chip"
-                                data-list-id="participants-selection"
-                                data-label-id="{{.ID}}"
-                                aria-pressed="false"
-                                onclick="toggleLabelFilter(this)">
-                            {{.Name}}
-                        </button>
-                        {{end}}
-                    </div>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="clearPlannerFilters('participants-selection')">Clear filters</button>
-                </div>
-                {{end}}
-                <input type="search"
-                       id="participants-search"
-                       class="form-input form-input-search"
-                       placeholder="Search participants…"
-                       aria-label="Search participants"
-                       data-filter-role="search"
-                       data-list-id="participants-selection"
-                       oninput="filterSelectList(this, 'participants-selection')">
-                <span class="panel-count text-muted">
-                    <span id="participants-selected-count">0</span> selected
-                </span>
-            </div>
-
-            <div class="select-list" id="participants-selection">
-                {{range .Participants}}
-                <label class="select-row"
-                       data-search="{{.Name}} {{.AddressName}} {{.Address}}"
-                       data-labels="{{labelIDsFor $.ParticipantLabels .ID}}">
-                    <input type="checkbox"
-                           name="participant_ids"
-                           value="{{.ID}}"
-                           class="form-checkbox participant-checkbox select-control">
-                    <span class="select-row-content">
-                        <span class="select-row-title">{{.Name}}</span>
-                        <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
-                    </span>
-                </label>
-                {{end}}
-            </div>
-            {{else}}
-            <div class="empty-state">
-                <h3>No participants found</h3>
-                <p>Add participants in the <a href="/participants">Participants</a> page first.</p>
-            </div>
-            {{end}}
-        </section>
-
-        <section class="panel">
-            <div class="panel-header">
-                <div>
-                    <h3 class="panel-title">Drivers</h3>
-                    <p class="panel-subtitle">Who's available to drive? If a selected driver should use a van, assign it directly on their card.</p>
-                </div>
-                <div class="panel-actions">
-                    <button type="button" class="btn btn-sm btn-outline" onclick="selectAllDrivers()">Select all</button>
-                </div>
-            </div>
-
-            {{if .Drivers}}
-            <div class="panel-toolbar panel-toolbar-stack">
-                {{if .Labels}}
-                <div class="filter-chip-toolbar">
-                    <div class="filter-chip-list" id="drivers-label-filters">
-                        {{range .Labels}}
-                        <button type="button"
-                                class="filter-chip label-filter-chip"
-                                data-list-id="drivers-selection"
-                                data-label-id="{{.ID}}"
-                                aria-pressed="false"
-                                onclick="toggleLabelFilter(this)">
-                            {{.Name}}
-                        </button>
-                        {{end}}
-                    </div>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="clearPlannerFilters('drivers-selection')">Clear filters</button>
-                </div>
-                {{end}}
-                <input type="search"
-                       id="drivers-search"
-                       class="form-input form-input-search"
-                       placeholder="Search drivers…"
-                       aria-label="Search drivers"
-                       data-filter-role="search"
-                       data-list-id="drivers-selection"
-                       oninput="filterSelectList(this, 'drivers-selection')">
-                <span class="panel-count text-muted">
-                    <span id="drivers-selected-count">0</span> selected •
-                    <span id="drivers-selected-seats">0</span> available seats
-                </span>
-            </div>
-
-            <div class="select-list" id="drivers-selection">
-                {{range .Drivers}}
-                <label class="select-row"
-                       data-search="{{.Name}} {{.AddressName}} {{.Address}}"
-                       data-labels="{{labelIDsFor $.DriverLabels .ID}}">
-                    <input type="checkbox"
-                           name="driver_ids"
-                           value="{{.ID}}"
-                           class="form-checkbox driver-checkbox select-control"
-                           data-capacity="{{.VehicleCapacity}}"
-                           data-driver-name="{{.Name}}"
-                           data-driver-address="{{.Address}}"
-                           data-driver-address-name="{{.AddressName}}">
-                    <span class="select-row-content">
-                        <span class="select-row-title">{{.Name}}</span>
-                        <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
-                        <span class="select-row-meta">
-                            <span class="badge badge-muted van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
-                        </span>
-                        <span class="van-assignment-inline hidden">
-                            <span class="van-assignment-inline-header">
-                                <span class="van-assignment-inline-title">Vehicle for this event</span>
-                                <span class="van-assignment-inline-help text-muted">Optional. Leave on personal vehicle unless this driver should use a saved van.</span>
-                            </span>
-                            <select id="van-assignment-{{.ID}}"
-                                    name="org_vehicle_{{.ID}}"
-                                    class="form-select van-assignment-select"
-                                    data-driver-id="{{.ID}}"
-                                    onchange="handleVanAssignmentChange(); event.stopPropagation();"
-                                    onclick="event.stopPropagation()">
-                                <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
-                            </select>
-                        </span>
-                    </span>
-                </label>
-                {{end}}
-            </div>
-            {{else}}
-            <div class="empty-state">
-                <h3>No drivers found</h3>
-                <p>Add drivers in the <a href="/drivers">Drivers</a> page first.</p>
-            </div>
-            {{end}}
-        </section>
-    </div>
-
-    <section class="panel route-options">
-        <div class="panel-header">
-            <div>
-                <h3 class="panel-title">Route Options</h3>
-                <p class="panel-subtitle">When routes start and which direction they run.</p>
-            </div>
-        </div>
-        <div class="panel-body form-row route-options-row">
-            <div class="form-group mb-0">
-                <label class="form-label" for="route-time" id="route-time-label">Depart activity location at</label>
-                <input type="time"
-                       id="route-time"
-                       name="route_time"
-                       class="form-input"
-                       required>
-                <div class="form-help" id="route-time-help">
-                    Used to calculate the expected arrival time at each stop in copied driver and parent lists.
-                </div>
-            </div>
-            <div class="form-group mb-0">
-                <label class="form-label">Route Mode</label>
-                <div class="d-flex gap-2">
-                    <label class="checkbox-label">
-                        <input type="radio" name="mode" value="dropoff" checked class="form-radio">
-                        <span>Dropoff</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="radio" name="mode" value="pickup" class="form-radio">
-                        <span>Pickup</span>
-                    </label>
-                </div>
-                <div class="form-help">
-                    Dropoff: Activity → Homes | Pickup: Homes → Activity
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <div class="action-bar">
-        <div class="action-bar-left">
-            <button type="button" class="btn btn-secondary" onclick="clearSelections()">
-                Clear all
-            </button>
-            <div class="action-bar-stats text-muted" id="selection-stats"></div>
-        </div>
-        <div class="action-bar-right">
             <button type="button"
-                    class="btn btn-primary btn-lg"
-                    hx-post="/api/v1/routes/calculate"
-                    hx-include="#event-form"
-                    hx-target="#results-section"
-                    hx-disabled-elt="this"
-                    hx-indicator=".calculate-indicator"
-                    onclick="return validateBeforeCalculate()"
-                    id="calculate-btn">
-                <span class="calc-btn-text">Calculate routes</span>
-                <span class="calc-btn-loading htmx-indicator calculate-indicator">
-                    <span class="loading"></span>
-                    Calculating…
-                </span>
+                    class="pane-toggle"
+                    id="plan-pane-toggle"
+                    aria-expanded="true"
+                    aria-controls="plan-pane-content"
+                    aria-label="Collapse plan panel"
+                    title="Collapse plan panel">
+                <span aria-hidden="true">‹</span>
             </button>
+            <span class="plan-rail-label" aria-hidden="true">Plan</span>
         </div>
-    </div>
-</form>
 
-<script type="application/json" id="event-org-vehicles">{{toJSONRaw .OrgVehicles}}</script>
+        <div class="plan-pane-content" id="plan-pane-content">
+            <div class="scroll plan-pane-scroll">
+                <section class="planner-block">
+                    <div class="blockhead">
+                        <h2>Activity Location</h2>
+                        <a href="/activity-locations" class="link">Manage locations</a>
+                    </div>
 
-<div id="results-section">
-    <div class="results-loading htmx-indicator calculate-indicator">
-        <div class="loading-overlay">
-            <span class="loading loading-lg"></span>
-            <p>Calculating optimal routes…</p>
+                    {{if .ActivityLocations}}
+                    <div class="form-group mb-0">
+                        <label class="form-label visually-hidden" for="activity-location-native">Location</label>
+                        <div class="ui-select" id="event-activity-location-select">
+                            <select id="activity-location-native" name="activity_location_id" class="form-select ui-select-native" required>
+                                <option value="">-- Select a location --</option>
+                                {{range .ActivityLocations}}
+                                <option value="{{.ID}}">{{.Name}} ({{.Address}})</option>
+                                {{end}}
+                            </select>
+
+                            <button type="button"
+                                    class="ui-select-trigger"
+                                    aria-haspopup="listbox"
+                                    aria-expanded="false"
+                                    aria-label="Activity location">
+                                <span class="ui-select-trigger-text">
+                                    <span class="ui-select-trigger-title">-- Select a location --</span>
+                                    <span class="ui-select-trigger-subtitle hidden"></span>
+                                </span>
+                                <span class="ui-select-chevron" aria-hidden="true"></span>
+                            </button>
+
+                            <div class="ui-select-menu" role="listbox" tabindex="-1">
+                                <button type="button"
+                                        class="ui-select-option is-selected"
+                                        role="option"
+                                        aria-selected="true"
+                                        data-value=""
+                                        data-title="-- Select a location --"
+                                        data-subtitle="">
+                                    <span class="ui-select-option-title">-- Select a location --</span>
+                                </button>
+                                {{range .ActivityLocations}}
+                                <button type="button"
+                                        class="ui-select-option"
+                                        role="option"
+                                        aria-selected="false"
+                                        data-value="{{.ID}}"
+                                        data-title="{{.Name}}"
+                                        data-subtitle="{{.Address}}">
+                                    <span class="ui-select-option-title">{{.Name}}</span>
+                                    <span class="ui-select-option-subtitle">{{.Address}}</span>
+                                </button>
+                                {{end}}
+                            </div>
+                        </div>
+                        <p class="form-help">Dropoff routes begin at the activity location. Pickup routes end there.</p>
+                    </div>
+                    {{else}}
+                    <div class="empty-state compact-empty-state">
+                        <h3>No activity locations yet</h3>
+                        <p>Add one on the <a href="/activity-locations">Activity Locations</a> page before calculating routes.</p>
+                    </div>
+                    {{end}}
+                </section>
+
+                <section class="planner-block">
+                    <div class="blockhead">
+                        <h2>Participants</h2>
+                        <button type="button" class="link" onclick="selectAllParticipants()">Select all</button>
+                    </div>
+
+                    {{if .Participants}}
+                    <div class="panel-toolbar panel-toolbar-stack">
+                        {{if .Labels}}
+                        <div class="filter-chip-toolbar">
+                            <div class="filter-chip-list" id="participants-label-filters">
+                                {{range .Labels}}
+                                <button type="button"
+                                        class="filter-chip label-filter-chip"
+                                        data-list-id="participants-selection"
+                                        data-label-id="{{.ID}}"
+                                        aria-pressed="false"
+                                        onclick="toggleLabelFilter(this)">
+                                    {{.Name}}
+                                </button>
+                                {{end}}
+                            </div>
+                            <button type="button" class="link" onclick="clearPlannerFilters('participants-selection')">Clear filters</button>
+                        </div>
+                        {{end}}
+                        <input type="search"
+                               id="participants-search"
+                               class="form-input form-input-search"
+                               placeholder="Search participants"
+                               aria-label="Search participants"
+                               data-filter-role="search"
+                               data-list-id="participants-selection"
+                               oninput="filterSelectList(this, 'participants-selection')">
+                        <span class="panel-count text-muted">
+                            <strong id="participants-selected-count">0</strong> selected
+                        </span>
+                    </div>
+
+                    <div class="select-list" id="participants-selection">
+                        {{range .Participants}}
+                        <label class="select-row"
+                               data-search="{{.Name}} {{.AddressName}} {{.Address}}"
+                               data-labels="{{labelIDsFor $.ParticipantLabels .ID}}">
+                            <input type="checkbox"
+                                   name="participant_ids"
+                                   value="{{.ID}}"
+                                   class="form-checkbox participant-checkbox select-control">
+                            <span class="select-row-content">
+                                <span class="select-row-title">{{.Name}}</span>
+                                <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
+                            </span>
+                        </label>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="empty-state compact-empty-state">
+                        <h3>No participants found</h3>
+                        <p>Add participants on the <a href="/participants">Participants</a> page first.</p>
+                    </div>
+                    {{end}}
+                </section>
+
+                <section class="planner-block">
+                    <div class="blockhead">
+                        <h2>Drivers</h2>
+                        <button type="button" class="link" onclick="selectAllDrivers()">Select all</button>
+                    </div>
+
+                    {{if .Drivers}}
+                    <div class="panel-toolbar panel-toolbar-stack">
+                        {{if .Labels}}
+                        <div class="filter-chip-toolbar">
+                            <div class="filter-chip-list" id="drivers-label-filters">
+                                {{range .Labels}}
+                                <button type="button"
+                                        class="filter-chip label-filter-chip"
+                                        data-list-id="drivers-selection"
+                                        data-label-id="{{.ID}}"
+                                        aria-pressed="false"
+                                        onclick="toggleLabelFilter(this)">
+                                    {{.Name}}
+                                </button>
+                                {{end}}
+                            </div>
+                            <button type="button" class="link" onclick="clearPlannerFilters('drivers-selection')">Clear filters</button>
+                        </div>
+                        {{end}}
+                        <input type="search"
+                               id="drivers-search"
+                               class="form-input form-input-search"
+                               placeholder="Search drivers"
+                               aria-label="Search drivers"
+                               data-filter-role="search"
+                               data-list-id="drivers-selection"
+                               oninput="filterSelectList(this, 'drivers-selection')">
+                        <span class="panel-count text-muted">
+                            <strong id="drivers-selected-count">0</strong> selected ·
+                            <span id="drivers-selected-seats">0</span> available seats
+                        </span>
+                    </div>
+
+                    <div class="select-list" id="drivers-selection">
+                        {{range .Drivers}}
+                        <label class="select-row"
+                               data-search="{{.Name}} {{.AddressName}} {{.Address}}"
+                               data-labels="{{labelIDsFor $.DriverLabels .ID}}">
+                            <input type="checkbox"
+                                   name="driver_ids"
+                                   value="{{.ID}}"
+                                   class="form-checkbox driver-checkbox select-control"
+                                   data-capacity="{{.VehicleCapacity}}"
+                                   data-driver-name="{{.Name}}"
+                                   data-driver-address="{{.Address}}"
+                                   data-driver-address-name="{{.AddressName}}">
+                            <span class="select-row-content">
+                                <span class="select-row-title">{{.Name}}</span>
+                                <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
+                                <span class="select-row-meta">
+                                    <span class="seats van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
+                                </span>
+                                <span class="van-assignment-inline hidden">
+                                    <span class="van-assignment-inline-header">
+                                        <span class="van-assignment-inline-title">Vehicle for this event</span>
+                                        <span class="van-assignment-inline-help text-muted">Optional</span>
+                                    </span>
+                                    <select id="van-assignment-{{.ID}}"
+                                            name="org_vehicle_{{.ID}}"
+                                            class="form-select van-assignment-select"
+                                            data-driver-id="{{.ID}}"
+                                            onchange="handleVanAssignmentChange(); event.stopPropagation();"
+                                            onclick="event.stopPropagation()">
+                                        <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
+                                    </select>
+                                </span>
+                            </span>
+                        </label>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="empty-state compact-empty-state">
+                        <h3>No drivers found</h3>
+                        <p>Add drivers on the <a href="/drivers">Drivers</a> page first.</p>
+                    </div>
+                    {{end}}
+                </section>
+
+                <section class="planner-block route-options">
+                    <div class="blockhead"><h2>Route Options</h2></div>
+                    <div class="route-options-row">
+                        <div class="form-group mb-0">
+                            <label class="form-label" for="route-time" id="route-time-label">Depart activity location at</label>
+                            <input type="time" id="route-time" name="route_time" class="form-input" required>
+                        </div>
+                        <div class="form-group mb-0">
+                            <span class="form-label">Route Mode</span>
+                            <div class="radio-group">
+                                <label class="checkbox-label">
+                                    <input type="radio" name="mode" value="dropoff" checked class="form-radio">
+                                    <span>Dropoff</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="radio" name="mode" value="pickup" class="form-radio">
+                                    <span>Pickup</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="form-help" id="route-time-help">Departure time sets each stop's arrival estimate. Dropoff: Activity → Homes. Pickup: Homes → Activity.</p>
+                </section>
+            </div>
+
+            <div class="action-bar">
+                <button type="button" class="btn btn-secondary" onclick="clearSelections()">Clear all</button>
+                <div class="action-bar-stats text-muted" id="selection-stats"></div>
+                <button type="button"
+                        class="btn btn-primary"
+                        hx-post="/api/v1/routes/calculate"
+                        hx-include="#event-form"
+                        hx-target="#results-section"
+                        hx-disabled-elt="this"
+                        hx-indicator=".calculate-indicator"
+                        onclick="return validateBeforeCalculate()"
+                        id="calculate-btn">
+                    <span class="calc-btn-text">Calculate routes</span>
+                    <span class="calc-btn-loading htmx-indicator calculate-indicator">
+                        <span class="loading"></span>
+                        Calculating…
+                    </span>
+                </button>
+            </div>
         </div>
-    </div>
+    </form>
+
+    <section class="results-pane" aria-label="Route results">
+        <script type="application/json" id="event-org-vehicles">{{toJSONRaw .OrgVehicles}}</script>
+        <div id="results-section" class="results-section">
+            <div class="results-header">
+                <div>
+                    <h2>Calculated Routes</h2>
+                    <p>Copy routes, make quick tweaks, then save the event.</p>
+                </div>
+            </div>
+            <div class="results-scroll scroll">
+                <div class="results-body planner-empty-state">
+                    <div class="empty-state">
+                        <h3>No routes calculated yet</h3>
+                        <p>Select participants and drivers, then calculate to see one route per driver.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="results-loading htmx-indicator calculate-indicator">
+                <div class="loading-overlay">
+                    <span class="loading loading-lg"></span>
+                    <p>Calculating routes…</p>
+                </div>
+            </div>
+        </div>
+    </section>
 </div>
-
 {{end}}

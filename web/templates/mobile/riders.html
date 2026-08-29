@@ -1,0 +1,10 @@
+{{define "mobile_content"}}
+<form class="mobile-screen" action="/m/plan/riders" method="post">
+  {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Riders")}}
+  <div class="mobile-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" name="search" value="{{.Search}}" placeholder="Search participants" hx-get="/m/plan/riders" hx-trigger="input changed delay:300ms" hx-target=".mobile-choice-list" hx-select=".mobile-choice-list" hx-swap="outerHTML"></div>
+  {{if .Labels}}<div class="mobile-chips"><a class="mobile-chip {{if eq .LabelID 0}}is-active{{end}}" href="/m/plan/riders">All</a>{{range .Labels}}<a class="mobile-chip {{if eq .ID $.LabelID}}is-active{{end}}" href="/m/plan/riders?label={{.ID}}">{{.Name}}</a>{{end}}</div>{{end}}
+  <p class="mobile-count">Choose riders</p>
+  {{range .HiddenSelectedIDs}}<input type="hidden" name="participant_ids" value="{{.}}">{{end}}
+  <div class="mobile-group mobile-choice-list">{{range .Participants}}<label class="mobile-row mobile-choice"><input type="checkbox" name="participant_ids" value="{{.ID}}" {{if index $.Selected .ID}}checked{{end}}><span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>{{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.LabelIDs .ID))}}</label>{{else}}<p class="mobile-empty">No participants found.</p>{{end}}</div>
+  <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>
+</form>{{end}}

@@ -1,6 +1,14 @@
 {{define "capacity_shortage"}}
 <div class="capacity-shortage-container">
-    <div class="alert alert-warning">
+    <div class="results-header">
+        <div>
+            <h2>Capacity Check</h2>
+            <p>Adjust van assignments, then recalculate the routes.</p>
+        </div>
+    </div>
+    <div class="results-scroll scroll">
+    <div class="results-body">
+    <div class="notice capacity-notice">
         <h3>Not Enough Available Capacity</h3>
         <p>
             <strong>{{.Error.TotalParticipants}}</strong> participants selected, but only
@@ -10,7 +18,7 @@
     </div>
 
     {{if .OrgVehicles}}
-    <div class="card mt-3">
+    <div class="card capacity-card mt-3">
         <h3>Adjust Van Assignments</h3>
         <p class="text-muted">Pick the driver who will use each van. That driver's available seats will switch from their personal vehicle capacity to the van capacity for this event.</p>
 
@@ -164,5 +172,7 @@
         <p>Alternatively, select more drivers or fewer participants.</p>
     </div>
     {{end}}
+    </div>
+    </div>
 </div>
 {{end}}

@@ -1,0 +1,22 @@
+{{define "mobile_layout.html"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>{{.Title}} · Ride Home Router</title>
+  <link rel="stylesheet" href="/static/css/mobile.css">
+  <script src="/static/js/htmx.min.js" defer></script>
+  <script src="/static/js/mobile.js" defer></script>
+</head>
+<body>
+  <div class="mobile-shell">
+    <main class="mobile-main">
+      {{if .Error}}<div class="mobile-alert" role="alert">{{.Error}}</div>{{end}}
+      {{template "mobile_content" .}}
+      <footer class="mobile-footer"><a href="/m/desktop">Desktop site</a></footer>
+    </main>
+    {{template "mobile_tabs" .}}
+  </div>
+</body>
+</html>{{end}}

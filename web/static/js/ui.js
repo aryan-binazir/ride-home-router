@@ -116,6 +116,7 @@ function toggleEventDetail(eventItem, eventId) {
 (function () {
   if (typeof document === 'undefined') return;
 
+  const PLAN_PANE_STORAGE_KEY = "ride-home-router.plan-pane-collapsed";
   let confirmDialog = null;
   let confirmResolve = null;
   let confirmLastFocused = null;
@@ -491,11 +492,52 @@ function toggleEventDetail(eventItem, eventId) {
     });
   }
 
+  function initPlanPaneToggle() {
+    const workspace = document.getElementById("planner-workspace");
+    const toggle = document.getElementById("plan-pane-toggle");
+    const content = document.getElementById("plan-pane-content");
+    if (!workspace || !toggle || !content || toggle.dataset.uiPaneInit === "true") return;
+
+    toggle.dataset.uiPaneInit = "true";
+    const desktopQuery = window.matchMedia("(min-width: 1025px)");
+    let prefersCollapsed = false;
+
+    try {
+      prefersCollapsed = window.localStorage.getItem(PLAN_PANE_STORAGE_KEY) === "true";
+    } catch {
+      prefersCollapsed = false;
+    }
+
+    function applyState() {
+      const collapsed = desktopQuery.matches && prefersCollapsed;
+      workspace.classList.toggle("is-plan-collapsed", collapsed);
+      toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      toggle.setAttribute("aria-label", collapsed ? "Expand plan panel" : "Collapse plan panel");
+      toggle.setAttribute("title", collapsed ? "Expand plan panel" : "Collapse plan panel");
+      toggle.querySelector("span").textContent = collapsed ? "›" : "‹";
+      content.inert = collapsed;
+    }
+
+    toggle.addEventListener("click", () => {
+      prefersCollapsed = !workspace.classList.contains("is-plan-collapsed");
+      try {
+        window.localStorage.setItem(PLAN_PANE_STORAGE_KEY, String(prefersCollapsed));
+      } catch {
+        // Storage may be unavailable in private browsing or hardened browsers.
+      }
+      applyState();
+    });
+
+    desktopQuery.addEventListener("change", applyState);
+    applyState();
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     ensureConfirmDialog();
     initAll(document);
     initSettingsValidation();
     initAddressAutocomplete();
+    initPlanPaneToggle();
   });
 
   document.addEventListener("htmx:load", (e) => {
