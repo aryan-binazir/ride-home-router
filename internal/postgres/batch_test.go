@@ -15,7 +15,7 @@ type rosterBatchSpec[T any] struct {
 	noun        string
 	newEntity   func(name, address string) *T
 	createOne   func(context.Context, *postgres.Store, *T) error
-	createBatch func(context.Context, *postgres.Store, []*T, []bool) (database.BatchCreateResult, error)
+	createBatch func(context.Context, *postgres.Store, []*T) (database.BatchUpsertResult, error)
 	id          func(*T) int64
 	timestamps  func(*T) (time.Time, time.Time)
 	count       func(context.Context, *postgres.Store) (int, error)
@@ -31,8 +31,8 @@ func participantBatchSpec() rosterBatchSpec[models.Participant] {
 			_, err := store.Participants().Create(ctx, participant)
 			return err
 		},
-		createBatch: func(ctx context.Context, store *postgres.Store, participants []*models.Participant, allow []bool) (database.BatchCreateResult, error) {
-			return store.Participants().CreateBatch(ctx, participants, allow)
+		createBatch: func(ctx context.Context, store *postgres.Store, participants []*models.Participant) (database.BatchUpsertResult, error) {
+			return store.Participants().UpsertBatch(ctx, participants)
 		},
 		id: func(participant *models.Participant) int64 { return participant.ID },
 		timestamps: func(participant *models.Participant) (time.Time, time.Time) {
@@ -55,8 +55,8 @@ func driverBatchSpec() rosterBatchSpec[models.Driver] {
 			_, err := store.Drivers().Create(ctx, driver)
 			return err
 		},
-		createBatch: func(ctx context.Context, store *postgres.Store, drivers []*models.Driver, allow []bool) (database.BatchCreateResult, error) {
-			return store.Drivers().CreateBatch(ctx, drivers, allow)
+		createBatch: func(ctx context.Context, store *postgres.Store, drivers []*models.Driver) (database.BatchUpsertResult, error) {
+			return store.Drivers().UpsertBatch(ctx, drivers)
 		},
 		id: func(driver *models.Driver) int64 { return driver.ID },
 		timestamps: func(driver *models.Driver) (time.Time, time.Time) {
@@ -89,8 +89,8 @@ func TestCreateBatchRollsBackOnMidBatchFailure(t *testing.T) {
 		{Name: "FAIL", Address: "2 Main St", Lat: 40.2, Lng: -73.2},
 		{Name: "Third", Address: "3 Main St", Lat: 40.3, Lng: -73.3},
 	}
-	if _, err := store.Participants().CreateBatch(ctx, participants, nil); err == nil {
-		t.Fatal("participant CreateBatch() error = nil, want injected failure")
+	if _, err := store.Participants().UpsertBatch(ctx, participants); err == nil {
+		t.Fatal("participant UpsertBatch() error = nil, want injected failure")
 	}
 	if list, err := store.Participants().List(ctx, ""); err != nil || len(list) != 0 {
 		t.Fatalf("participants after failed batch = %#v, %v; want none", list, err)
@@ -105,8 +105,8 @@ func TestCreateBatchRollsBackOnMidBatchFailure(t *testing.T) {
 		{Name: "First", Address: "1 Main St", Lat: 40.1, Lng: -73.1, VehicleCapacity: 4},
 		{Name: "FAIL", Address: "2 Main St", Lat: 40.2, Lng: -73.2, VehicleCapacity: 4},
 	}
-	if _, err := store.Drivers().CreateBatch(ctx, drivers, nil); err == nil {
-		t.Fatal("driver CreateBatch() error = nil, want injected failure")
+	if _, err := store.Drivers().UpsertBatch(ctx, drivers); err == nil {
+		t.Fatal("driver UpsertBatch() error = nil, want injected failure")
 	}
 	if list, err := store.Drivers().List(ctx, ""); err != nil || len(list) != 0 {
 		t.Fatalf("drivers after failed batch = %#v, %v; want none", list, err)
@@ -121,16 +121,20 @@ func TestCreateBatchRollsBackOnMidBatchFailure(t *testing.T) {
 func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) {
 	store := postgrestest.Open(t)
 	ctx := context.Background()
-	if _, err := store.Participants().Create(ctx, &models.Participant{Name: "Jane Doe", Address: "1 Main St", Lat: 40, Lng: -73}); err != nil {
+	jane, err := store.Participants().Create(ctx, &models.Participant{Name: "Jane Doe", Address: "1 Main St", Lat: 40, Lng: -73})
+	if err != nil {
 		t.Fatalf("seed participant: %v", err)
 	}
-	if _, err := store.Participants().Create(ctx, &models.Participant{Name: "Anne-Marie O'Brien", Address: "4 Main St.", Lat: 43, Lng: -76}); err != nil {
+	anne, err := store.Participants().Create(ctx, &models.Participant{Name: "Anne-Marie O'Brien", Address: "4 Main St.", Lat: 43, Lng: -76})
+	if err != nil {
 		t.Fatalf("seed participant: %v", err)
 	}
-	if _, err := store.Drivers().Create(ctx, &models.Driver{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74, VehicleCapacity: 4}); err != nil {
+	john, err := store.Drivers().Create(ctx, &models.Driver{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74, VehicleCapacity: 4})
+	if err != nil {
 		t.Fatalf("seed driver: %v", err)
 	}
-	if _, err := store.Drivers().Create(ctx, &models.Driver{Name: "J.R. Smith-Jones", Address: "6 Main St, Apt 2", Lat: 45, Lng: -78, VehicleCapacity: 4}); err != nil {
+	jr, err := store.Drivers().Create(ctx, &models.Driver{Name: "J.R. Smith-Jones", Address: "6 Main St, Apt 2", Lat: 45, Lng: -78, VehicleCapacity: 4})
+	if err != nil {
 		t.Fatalf("seed driver: %v", err)
 	}
 
@@ -140,15 +144,15 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 		{Name: "New Rider", Address: "3 Main St", Lat: 42, Lng: -75},
 		{Name: "Another Rider", Address: "5 Main St", Lat: 44, Lng: -77},
 	}
-	participantResult, err := store.Participants().CreateBatch(ctx, participants, nil)
+	participantResult, err := store.Participants().UpsertBatch(ctx, participants)
 	if err != nil {
-		t.Fatalf("participant CreateBatch() error = %v", err)
+		t.Fatalf("participant UpsertBatch() error = %v", err)
 	}
-	if participantResult != (database.BatchCreateResult{Created: 2, SkippedDuplicate: 2}) {
-		t.Fatalf("participant CreateBatch() result = %#v", participantResult)
+	if participantResult != (database.BatchUpsertResult{Created: 2, Updated: 2}) {
+		t.Fatalf("participant UpsertBatch() result = %#v", participantResult)
 	}
-	if participants[0].ID != 0 || participants[1].ID != 0 || participants[2].ID == 0 || participants[3].ID == 0 {
-		t.Fatalf("participant IDs = [%d %d %d %d], want [0 0 created created]", participants[0].ID, participants[1].ID, participants[2].ID, participants[3].ID)
+	if participants[0].ID != jane.ID || participants[1].ID != anne.ID || participants[2].ID == 0 || participants[3].ID == 0 {
+		t.Fatalf("participant IDs = [%d %d %d %d], want [%d %d created created]", participants[0].ID, participants[1].ID, participants[2].ID, participants[3].ID, jane.ID, anne.ID)
 	}
 
 	drivers := []*models.Driver{
@@ -156,15 +160,15 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 		{Name: "JR Smith Jones", Address: "6 Main St Apt 2", Lat: 45, Lng: -78, VehicleCapacity: 4},
 		{Name: "New Driver", Address: "4 Main St", Lat: 43, Lng: -76, VehicleCapacity: 5},
 	}
-	driverResult, err := store.Drivers().CreateBatch(ctx, drivers, nil)
+	driverResult, err := store.Drivers().UpsertBatch(ctx, drivers)
 	if err != nil {
-		t.Fatalf("driver CreateBatch() error = %v", err)
+		t.Fatalf("driver UpsertBatch() error = %v", err)
 	}
-	if driverResult != (database.BatchCreateResult{Created: 1, SkippedDuplicate: 2}) {
-		t.Fatalf("driver CreateBatch() result = %#v", driverResult)
+	if driverResult != (database.BatchUpsertResult{Created: 1, Updated: 2}) {
+		t.Fatalf("driver UpsertBatch() result = %#v", driverResult)
 	}
-	if drivers[0].ID != 0 || drivers[1].ID != 0 || drivers[2].ID == 0 {
-		t.Fatalf("driver IDs = [%d %d %d], want [0 0 created]", drivers[0].ID, drivers[1].ID, drivers[2].ID)
+	if drivers[0].ID != john.ID || drivers[1].ID != jr.ID || drivers[2].ID == 0 {
+		t.Fatalf("driver IDs = [%d %d %d], want [%d %d created]", drivers[0].ID, drivers[1].ID, drivers[2].ID, john.ID, jr.ID)
 	}
 
 	if list, err := store.Participants().List(ctx, ""); err != nil || len(list) != 4 {
@@ -175,40 +179,95 @@ func TestCreateBatchRechecksNormalizedDuplicatesInsideTransaction(t *testing.T) 
 	}
 }
 
-func TestCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t *testing.T) {
+func TestUpsertBatchUpdatesMutableFieldsAndKeepsIdentity(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Jane Doe", Address: "1 Main St", AddressName: "Home", Lat: 40, Lng: -73})
+	if err != nil {
+		t.Fatalf("seed participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74, VehicleCapacity: 4})
+	if err != nil {
+		t.Fatalf("seed driver: %v", err)
+	}
+
+	if _, err := store.Participants().UpsertBatch(ctx, []*models.Participant{{Name: " JANE doe ", Address: "1 main st.", Lat: 99, Lng: 99}}); err != nil {
+		t.Fatalf("participant UpsertBatch() error = %v", err)
+	}
+	got, err := store.Participants().GetByID(ctx, participant.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if got.Name != "Jane Doe" || got.Address != "1 Main St" || got.AddressName != "Home" || got.Lat != 40 || got.Lng != -73 {
+		t.Fatalf("participant after upsert = %#v, want name, address, address name, and coordinates preserved", got)
+	}
+	if !got.UpdatedAt.After(participant.UpdatedAt) {
+		t.Fatalf("participant updated_at = %v, want later than %v", got.UpdatedAt, participant.UpdatedAt)
+	}
+
+	if _, err := store.Drivers().UpsertBatch(ctx, []*models.Driver{{Name: "John Doe", Address: "2 Main St", AddressName: "Work", Lat: 99, Lng: 99, VehicleCapacity: 7}}); err != nil {
+		t.Fatalf("driver UpsertBatch() error = %v", err)
+	}
+	gotDriver, err := store.Drivers().GetByID(ctx, driver.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if gotDriver.VehicleCapacity != 7 || gotDriver.AddressName != "Work" || gotDriver.Lat != 41 || gotDriver.Lng != -74 {
+		t.Fatalf("driver after upsert = %#v, want capacity 7, address name Work, coordinates preserved", gotDriver)
+	}
+
+	// Capacity 0 means the import had no capacity column: keep the existing value, default new drivers.
+	batch := []*models.Driver{
+		{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74},
+		{Name: "New Driver", Address: "3 Main St", Lat: 42, Lng: -75},
+	}
+	if _, err := store.Drivers().UpsertBatch(ctx, batch); err != nil {
+		t.Fatalf("driver UpsertBatch() error = %v", err)
+	}
+	gotDriver, err = store.Drivers().GetByID(ctx, driver.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if gotDriver.VehicleCapacity != 7 {
+		t.Fatalf("driver capacity after capacity-less upsert = %d, want 7 preserved", gotDriver.VehicleCapacity)
+	}
+	created, err := store.Drivers().GetByID(ctx, batch[1].ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if created.VehicleCapacity != models.DefaultVehicleCapacity || batch[1].VehicleCapacity != models.DefaultVehicleCapacity {
+		t.Fatalf("new driver capacity = %d (entity %d), want default %d", created.VehicleCapacity, batch[1].VehicleCapacity, models.DefaultVehicleCapacity)
+	}
+}
+
+func TestUpsertBatchIsIdempotent(t *testing.T) {
 	t.Run("participants", func(t *testing.T) {
-		testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t, participantBatchSpec())
+		testUpsertBatchIsIdempotent(t, participantBatchSpec())
 	})
 	t.Run("drivers", func(t *testing.T) {
-		testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides(t, driverBatchSpec())
+		testUpsertBatchIsIdempotent(t, driverBatchSpec())
 	})
 }
 
-func testCreateBatchAllowsOnlyPreviewKnownDuplicateOverrides[T any](t *testing.T, spec rosterBatchSpec[T]) {
+func testUpsertBatchIsIdempotent[T any](t *testing.T, spec rosterBatchSpec[T]) {
 	store := postgrestest.Open(t)
 	ctx := context.Background()
-	for _, entity := range []*T{
-		spec.newEntity("Skip Existing", "1 Main St"),
-		spec.newEntity("Known At Preview", "2 Main St"),
-	} {
-		if err := spec.createOne(ctx, store, entity); err != nil {
-			t.Fatalf("seed %s: %v", spec.noun, err)
-		}
+	batch := func() []*T {
+		return []*T{spec.newEntity("First", "1 Main St"), spec.newEntity("Second", "2 Main St")}
 	}
-	batch := []*T{
-		spec.newEntity(" skip existing ", " 1 MAIN ST "),
-		spec.newEntity(" known at preview ", " 2 MAIN ST "),
-		spec.newEntity("New Entry", "3 Main St"),
-	}
-	result, err := spec.createBatch(ctx, store, batch, []bool{false, true, false})
+	first, err := spec.createBatch(ctx, store, batch())
 	if err != nil {
-		t.Fatalf("CreateBatch() error = %v", err)
+		t.Fatalf("first UpsertBatch() error = %v", err)
 	}
-	if result != (database.BatchCreateResult{Created: 2, SkippedDuplicate: 1}) {
-		t.Fatalf("CreateBatch() result = %#v", result)
+	second, err := spec.createBatch(ctx, store, batch())
+	if err != nil {
+		t.Fatalf("second UpsertBatch() error = %v", err)
 	}
-	if spec.id(batch[0]) != 0 || spec.id(batch[1]) == 0 || spec.id(batch[2]) == 0 {
-		t.Fatalf("batch IDs = [%d %d %d], want [0 created created]", spec.id(batch[0]), spec.id(batch[1]), spec.id(batch[2]))
+	if first != (database.BatchUpsertResult{Created: 2}) || second != (database.BatchUpsertResult{Updated: 2}) {
+		t.Fatalf("results = %#v then %#v, want 2 created then 2 updated", first, second)
+	}
+	if count, err := spec.count(ctx, store); err != nil || count != 2 {
+		t.Fatalf("%ss after re-import = %d, err=%v, want 2", spec.noun, count, err)
 	}
 }
 
@@ -227,27 +286,27 @@ func testCreateBatchSerializesConcurrentDuplicateRechecks[T any](t *testing.T, s
 	const workers = 8
 
 	var wg sync.WaitGroup
-	results := make([]database.BatchCreateResult, workers)
+	results := make([]database.BatchUpsertResult, workers)
 	errs := make([]error, workers)
 	for i := range workers {
 		wg.Go(func() {
 			results[i], errs[i] = spec.createBatch(ctx, store, []*T{
 				spec.newEntity("Same Entry", "1 Main St"),
-			}, nil)
+			})
 		})
 	}
 	wg.Wait()
 
-	created, skipped := 0, 0
+	created, updated := 0, 0
 	for i := range workers {
 		if errs[i] != nil {
-			t.Fatalf("CreateBatch() worker %d error = %v", i, errs[i])
+			t.Fatalf("UpsertBatch() worker %d error = %v", i, errs[i])
 		}
 		created += results[i].Created
-		skipped += results[i].SkippedDuplicate
+		updated += results[i].Updated
 	}
-	if created != 1 || skipped != workers-1 {
-		t.Fatalf("created = %d skipped = %d, want exactly one insert across %d concurrent batches", created, skipped, workers)
+	if created != 1 || updated != workers-1 {
+		t.Fatalf("created = %d updated = %d, want exactly one insert across %d concurrent batches", created, updated, workers)
 	}
 	if count, err := spec.count(ctx, store); err != nil || count != 1 {
 		t.Fatalf("%ss = %d, err=%v, want 1", spec.noun, count, err)
@@ -270,12 +329,12 @@ func testCreateBatchBackfillsOnlyCommittedRows[T any](t *testing.T, spec rosterB
 		spec.newEntity("First", "1 Main St"),
 		spec.newEntity("Second", "2 Main St"),
 	}
-	result, err := spec.createBatch(ctx, store, batch, nil)
+	result, err := spec.createBatch(ctx, store, batch)
 	if err != nil {
-		t.Fatalf("CreateBatch() error = %v", err)
+		t.Fatalf("UpsertBatch() error = %v", err)
 	}
-	if result != (database.BatchCreateResult{Created: 2}) {
-		t.Fatalf("CreateBatch() result = %#v, want 2 created", result)
+	if result != (database.BatchUpsertResult{Created: 2}) {
+		t.Fatalf("UpsertBatch() result = %#v, want 2 created", result)
 	}
 	for i, entity := range batch {
 		createdAt, updatedAt := spec.timestamps(entity)
@@ -285,31 +344,34 @@ func testCreateBatchBackfillsOnlyCommittedRows[T any](t *testing.T, spec rosterB
 	}
 }
 
-func TestCreateBatchPreservesWithinBatchDuplicates(t *testing.T) {
+func TestUpsertBatchMergesWithinBatchDuplicates(t *testing.T) {
 	t.Run("participants", func(t *testing.T) {
-		testCreateBatchPreservesWithinBatchDuplicates(t, participantBatchSpec())
+		testUpsertBatchMergesWithinBatchDuplicates(t, participantBatchSpec())
 	})
 	t.Run("drivers", func(t *testing.T) {
-		testCreateBatchPreservesWithinBatchDuplicates(t, driverBatchSpec())
+		testUpsertBatchMergesWithinBatchDuplicates(t, driverBatchSpec())
 	})
 }
 
-func testCreateBatchPreservesWithinBatchDuplicates[T any](t *testing.T, spec rosterBatchSpec[T]) {
+func testUpsertBatchMergesWithinBatchDuplicates[T any](t *testing.T, spec rosterBatchSpec[T]) {
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	batch := []*T{
 		spec.newEntity("Same Entry", "1 Main St"),
 		spec.newEntity(" same entry ", " 1 MAIN ST "),
 	}
-	result, err := spec.createBatch(ctx, store, batch, nil)
+	result, err := spec.createBatch(ctx, store, batch)
 	if err != nil {
-		t.Fatalf("CreateBatch() error = %v", err)
+		t.Fatalf("UpsertBatch() error = %v", err)
 	}
-	if result != (database.BatchCreateResult{Created: 2}) {
-		t.Fatalf("CreateBatch() result = %#v, want both incoming duplicates created", result)
+	if result != (database.BatchUpsertResult{Created: 1, Updated: 1}) {
+		t.Fatalf("UpsertBatch() result = %#v, want the second duplicate merged into the first", result)
 	}
-	if spec.id(batch[0]) == 0 || spec.id(batch[1]) == 0 {
-		t.Fatalf("batch IDs = [%d %d], want both created", spec.id(batch[0]), spec.id(batch[1]))
+	if spec.id(batch[0]) == 0 || spec.id(batch[1]) != spec.id(batch[0]) {
+		t.Fatalf("batch IDs = [%d %d], want both the same created row", spec.id(batch[0]), spec.id(batch[1]))
+	}
+	if count, err := spec.count(ctx, store); err != nil || count != 1 {
+		t.Fatalf("%ss = %d, err=%v, want 1", spec.noun, count, err)
 	}
 }
 
@@ -326,12 +388,12 @@ func testCreateBatchNilEntityRollsBackWithoutBackfill[T any](t *testing.T, spec 
 	store := postgrestest.Open(t)
 	ctx := context.Background()
 	first := spec.newEntity("First", "1 Main St")
-	result, err := spec.createBatch(ctx, store, []*T{first, nil}, nil)
+	result, err := spec.createBatch(ctx, store, []*T{first, nil})
 	if err == nil || err.Error() != spec.noun+" batch contains a nil "+spec.noun {
-		t.Fatalf("CreateBatch() error = %v, want nil %s error", err, spec.noun)
+		t.Fatalf("UpsertBatch() error = %v, want nil %s error", err, spec.noun)
 	}
-	if result != (database.BatchCreateResult{}) {
-		t.Fatalf("CreateBatch() result = %#v, want zero value", result)
+	if result != (database.BatchUpsertResult{}) {
+		t.Fatalf("UpsertBatch() result = %#v, want zero value", result)
 	}
 	createdAt, updatedAt := spec.timestamps(first)
 	if spec.id(first) != 0 || !createdAt.IsZero() || !updatedAt.IsZero() {

@@ -178,7 +178,7 @@ func TestValidateDriverCapacityBoundsAndDefault(t *testing.T) {
 
 	grid = mustParseCSV(t, "name,address\nDefault,1 Main St\n")
 	row := Validate(grid, AutoMap(grid.Headers), KindDriver, nil)[0]
-	if row.Capacity != DefaultCapacity || !hasMessage(row.Warnings, "using default capacity") {
+	if row.Capacity != DefaultCapacity || !row.CapacityDefaulted || !hasMessage(row.Warnings, "existing drivers keep theirs") {
 		t.Fatalf("default capacity row = %#v", row)
 	}
 }

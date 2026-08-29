@@ -71,7 +71,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	handler.HandleImportSession(commitRecorder, commit)
 	assertPanelFragment(t, commitRecorder)
 	resultBody := commitRecorder.Body.String()
-	if !strings.Contains(resultBody, "1 imported, 0 skipped as duplicates") {
+	if !strings.Contains(resultBody, "1 imported, 0 updated") {
 		t.Fatalf("result fragment = %s", resultBody)
 	}
 	if !strings.Contains(resultBody, `id="participants-list"`) || !strings.Contains(resultBody, `hx-swap-oob="true"`) {
@@ -124,8 +124,8 @@ func TestImportPanelPreviewRendersRowStates(t *testing.T) {
 	if got := strings.Count(body, `name="selected"`); got != 4 {
 		t.Fatalf("selectable checkboxes = %d, want 4 (the error row is unselectable): %s", got, body)
 	}
-	if !strings.Contains(body, "2 of 5 rows selected") {
-		t.Fatalf("duplicates should default to unselected: %s", body)
+	if !strings.Contains(body, "4 of 5 rows selected") {
+		t.Fatalf("duplicates should default to selected (they update the existing row): %s", body)
 	}
 }
 

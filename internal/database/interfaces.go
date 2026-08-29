@@ -5,10 +5,10 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// BatchCreateResult reports the outcome of a duplicate-aware atomic batch.
-type BatchCreateResult struct {
-	Created          int
-	SkippedDuplicate int
+// BatchUpsertResult reports the outcome of an atomic import batch.
+type BatchUpsertResult struct {
+	Created int
+	Updated int
 }
 
 // DataStore provides persistent application storage.
@@ -37,9 +37,9 @@ type ParticipantRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Participant, error)
 	Create(ctx context.Context, p *models.Participant) (*models.Participant, error)
-	// CreateBatch is atomic. It allows selected preview-known duplicates and
-	// skips rows that become duplicates after preview. Missing flags are false.
-	CreateBatch(ctx context.Context, participants []*models.Participant, allowExistingDuplicate []bool) (BatchCreateResult, error)
+	// UpsertBatch is atomic. Rows whose name+address key matches an existing
+	// entry update that entry instead of creating a second one.
+	UpsertBatch(ctx context.Context, participants []*models.Participant) (BatchUpsertResult, error)
 	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
 	UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
@@ -52,9 +52,9 @@ type DriverRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]models.Driver, error)
 	Create(ctx context.Context, d *models.Driver) (*models.Driver, error)
-	// CreateBatch is atomic. It allows selected preview-known duplicates and
-	// skips rows that become duplicates after preview. Missing flags are false.
-	CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (BatchCreateResult, error)
+	// UpsertBatch is atomic. Rows whose name+address key matches an existing
+	// entry update that entry instead of creating a second one.
+	UpsertBatch(ctx context.Context, drivers []*models.Driver) (BatchUpsertResult, error)
 	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)

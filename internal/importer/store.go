@@ -54,9 +54,9 @@ type GeocodeProgress struct {
 
 // CommitResult summarizes the terminal batch operation.
 type CommitResult struct {
-	Created          int
-	SkippedDuplicate int
-	NotSelected      int
+	Created     int
+	Updated     int
+	NotSelected int
 }
 
 // Snapshot is a concurrency-safe copy of an import session.
@@ -283,7 +283,7 @@ func (s *Store) Commit(ctx context.Context, id string, selected []bool) (CommitR
 	state.rows = nil
 	state.selected = nil
 	state.cancel()
-	log.Printf("[IMPORT] Committed batch: kind=%s created=%d skipped_duplicates=%d not_selected=%d", kind, result.Created, result.SkippedDuplicate, result.NotSelected)
+	log.Printf("[IMPORT] Committed batch: kind=%s created=%d updated=%d not_selected=%d", kind, result.Created, result.Updated, result.NotSelected)
 	return result, nil
 }
 
@@ -370,32 +370,32 @@ func (s *Store) createBatch(ctx context.Context, kind Kind, rows []Row, selected
 	switch kind {
 	case KindParticipant:
 		batch := make([]*models.Participant, len(indices))
-		allowExistingDuplicate := make([]bool, len(indices))
 		for i, rowIndex := range indices {
 			row := rows[rowIndex]
 			batch[i] = &models.Participant{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng}
-			allowExistingDuplicate[i] = row.DuplicateOfExisting
 		}
-		batchResult, err := s.db.Participants().CreateBatch(ctx, batch, allowExistingDuplicate)
+		batchResult, err := s.db.Participants().UpsertBatch(ctx, batch)
 		if err != nil {
-			return CommitResult{}, fmt.Errorf("create participant import batch: %w", err)
+			return CommitResult{}, fmt.Errorf("upsert participant import batch: %w", err)
 		}
 		result.Created = batchResult.Created
-		result.SkippedDuplicate = batchResult.SkippedDuplicate
+		result.Updated = batchResult.Updated
 	case KindDriver:
 		batch := make([]*models.Driver, len(indices))
-		allowExistingDuplicate := make([]bool, len(indices))
 		for i, rowIndex := range indices {
 			row := rows[rowIndex]
-			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, VehicleCapacity: row.Capacity}
-			allowExistingDuplicate[i] = row.DuplicateOfExisting
+			capacity := row.Capacity
+			if row.CapacityDefaulted {
+				capacity = 0 // UpsertBatch keeps an existing driver's capacity and defaults new ones.
+			}
+			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, VehicleCapacity: capacity}
 		}
-		batchResult, err := s.db.Drivers().CreateBatch(ctx, batch, allowExistingDuplicate)
+		batchResult, err := s.db.Drivers().UpsertBatch(ctx, batch)
 		if err != nil {
-			return CommitResult{}, fmt.Errorf("create driver import batch: %w", err)
+			return CommitResult{}, fmt.Errorf("upsert driver import batch: %w", err)
 		}
 		result.Created = batchResult.Created
-		result.SkippedDuplicate = batchResult.SkippedDuplicate
+		result.Updated = batchResult.Updated
 	default:
 		return CommitResult{}, fmt.Errorf("unsupported roster kind %q", kind)
 	}
@@ -476,7 +476,7 @@ func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
 func defaultSelections(rows []Row) []bool {
 	selected := make([]bool, len(rows))
 	for i := range rows {
-		selected[i] = len(rows[i].Errors) == 0 && !rows[i].DuplicateInFile && !rows[i].DuplicateOfExisting
+		selected[i] = len(rows[i].Errors) == 0
 	}
 	return selected
 }

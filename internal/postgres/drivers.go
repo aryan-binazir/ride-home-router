@@ -88,9 +88,16 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 		},
 		insert: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (int64, error) {
 			var id int64
+			capacity := d.VehicleCapacity
+			if capacity == 0 {
+				capacity = models.DefaultVehicleCapacity
+			}
 			err := tx.QueryRowContext(ctx, insertDriver,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, now,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now,
 			).Scan(&id)
+			if err == nil {
+				d.VehicleCapacity = capacity
+			}
 			return id, err
 		},
 		updateRow: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (sql.Result, error) {
@@ -99,6 +106,15 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
 				WHERE id = $8`,
 				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
+		},
+		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) (sql.Result, error) {
+			return tx.ExecContext(ctx, `
+				UPDATE drivers
+				SET address_name = COALESCE(NULLIF($1, ''), address_name),
+				    vehicle_capacity = CASE WHEN $2 > 0 THEN $2 ELSE vehicle_capacity END,
+				    updated_at = $3
+				WHERE id = $4`,
+				d.AddressName, d.VehicleCapacity, now, id)
 		},
 		fields: func(d *models.Driver) rosterFields {
 			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}
@@ -110,8 +126,8 @@ func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*model
 	return r.CreateWithLabels(ctx, d, nil)
 }
 
-func (r *driverRepository) CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
-	return r.writes().createBatch(ctx, drivers, allowExistingDuplicate)
+func (r *driverRepository) UpsertBatch(ctx context.Context, drivers []*models.Driver) (database.BatchUpsertResult, error) {
+	return r.writes().upsertBatch(ctx, drivers)
 }
 
 func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {

@@ -188,7 +188,8 @@ func validateCapacity(row *Row, cells []string, m Mapping, kind Kind) {
 	}
 	if m.CapacityColumn == UnmappedColumn {
 		row.Capacity = DefaultCapacity
-		row.addWarning(fmt.Sprintf("capacity column is not mapped; using default capacity %d", DefaultCapacity))
+		row.CapacityDefaulted = true
+		row.addWarning(fmt.Sprintf("capacity column is not mapped; new drivers get capacity %d and existing drivers keep theirs", DefaultCapacity))
 		return
 	}
 	value := mappedCell(cells, m.CapacityColumn)
