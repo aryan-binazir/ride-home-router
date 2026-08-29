@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -325,7 +326,7 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/activity-locations/restore: invalid_id err=%v", err)
+		log.Printf("[HTTP] POST /api/v1/activity-locations/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
 		h.handleValidationErrorHTMX(w, r, "Invalid activity location ID")
 		return
 	}
@@ -334,7 +335,7 @@ func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.R
 	if err := h.DB.ActivityLocations().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Activity location not found for restore: id=%d", id)
-			h.handleNotFoundHTMX(w, r, "Activity location not found")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
 			return
 		}
 		log.Printf("[ERROR] Failed to restore activity location: id=%d err=%v", id, err)

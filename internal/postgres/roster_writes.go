@@ -142,6 +142,49 @@ func (w rosterWriteCore[T]) updateWithLabels(ctx context.Context, entity *T, lab
 	return entity, nil
 }
 
+func (w rosterWriteCore[T]) delete(ctx context.Context, id int64) error {
+	result, err := w.db.ExecContext(ctx, fmt.Sprintf(`UPDATE %s SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, w.table), id)
+	if err != nil {
+		return fmt.Errorf("failed to delete %s: %w", w.noun, err)
+	}
+	return rowsAffectedOrNotFound(result)
+}
+
+func (w rosterWriteCore[T]) restore(ctx context.Context, id int64) error {
+	tx, err := w.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin %s restore transaction: %w", w.noun, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := lockRoster(ctx, tx, w.table); err != nil {
+		return err
+	}
+	key, err := archivedRosterKey(ctx, tx, w.table, id)
+	if err != nil {
+		return err
+	}
+	existing, err := rosterKeys(ctx, tx, w.table)
+	if err != nil {
+		return err
+	}
+	if _, duplicate := existing[key]; key != "" && duplicate {
+		return database.ErrDuplicate
+	}
+
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE %s SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL`, w.table), id)
+	if err != nil {
+		return fmt.Errorf("failed to restore %s: %w", w.noun, err)
+	}
+	if err := rowsAffectedOrNotFound(result); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit %s restore transaction: %w", w.noun, err)
+	}
+	return nil
+}
+
 // lockRoster keeps duplicate checks and roster writes in one serial order.
 func lockRoster(ctx context.Context, tx *sql.Tx, table string) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "ride-home-router:"+table); err != nil {
@@ -181,4 +224,24 @@ func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]struc
 		return nil, fmt.Errorf("failed to iterate %s duplicates: %w", table, err)
 	}
 	return keys, nil
+}
+
+func archivedRosterKey(ctx context.Context, tx *sql.Tx, table string, id int64) (string, error) {
+	var query string
+	switch table {
+	case "participants":
+		query = `SELECT name, address FROM participants WHERE id = $1 AND deleted_at IS NOT NULL`
+	case "drivers":
+		query = `SELECT name, address FROM drivers WHERE id = $1 AND deleted_at IS NOT NULL`
+	default:
+		return "", fmt.Errorf("invalid roster table %q", table)
+	}
+
+	var name, address string
+	if err := tx.QueryRowContext(ctx, query, id).Scan(&name, &address); errors.Is(err, sql.ErrNoRows) {
+		return "", database.ErrNotFound
+	} else if err != nil {
+		return "", fmt.Errorf("failed to query archived %s: %w", table, err)
+	}
+	return models.RosterKey(name, address), nil
 }

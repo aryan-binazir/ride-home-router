@@ -195,7 +195,14 @@ func parseRestoreID(r *http.Request) (int64, error) {
 	if err := r.ParseForm(); err != nil {
 		return 0, err
 	}
-	return strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
+	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if id <= 0 {
+		return 0, errors.New("restore ID must be positive")
+	}
+	return id, nil
 }
 
 func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {

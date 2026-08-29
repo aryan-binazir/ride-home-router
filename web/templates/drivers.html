@@ -30,19 +30,18 @@
             <button type="button"
                     id="drivers-active-tab"
                     class="btn btn-sm btn-primary"
-                    hx-get="/api/v1/drivers"
-                    hx-target="#drivers-list"
-                    hx-swap="innerHTML"
-                    onclick="document.getElementById('drivers-active').classList.remove('hidden'); document.getElementById('drivers-deleted').classList.add('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('drivers-deleted-tab').classList.replace('btn-primary', 'btn-outline')">
+                    aria-pressed="true"
+                    onclick="switchRosterTab(this, 'drivers')">
                 Active
             </button>
             <button type="button"
                     id="drivers-deleted-tab"
                     class="btn btn-sm btn-outline"
+                    aria-pressed="false"
                     hx-get="/api/v1/drivers/deleted"
                     hx-target="#drivers-deleted"
                     hx-swap="innerHTML"
-                    onclick="document.getElementById('drivers-active').classList.add('hidden'); document.getElementById('drivers-deleted').classList.remove('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('drivers-active-tab').classList.replace('btn-primary', 'btn-outline')">
+                    onclick="switchRosterTab(this, 'drivers')">
                 Deleted
             </button>
         </div>

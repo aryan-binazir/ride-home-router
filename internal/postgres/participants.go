@@ -139,17 +139,9 @@ func (r *participantRepository) UpdateWithLabels(ctx context.Context, p *models.
 }
 
 func (r *participantRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE participants SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete participant: %w", err)
-	}
-	return rowsAffectedOrNotFound(result)
+	return r.writes().delete(ctx, id)
 }
 
 func (r *participantRepository) Restore(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE participants SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL`, id)
-	if err != nil {
-		return fmt.Errorf("failed to restore participant: %w", err)
-	}
-	return rowsAffectedOrNotFound(result)
+	return r.writes().restore(ctx, id)
 }

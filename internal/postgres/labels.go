@@ -204,9 +204,6 @@ func (r *labelRepository) setMemberships(ctx context.Context, m membershipTable,
 }
 
 func replaceLabelMemberships(ctx context.Context, tx *sql.Tx, m membershipTable, ownerID int64, labelIDs []int64) error {
-	if err := validateLiveOwners(ctx, tx, m, []int64{ownerID}); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s = $1`, m.table, m.ownerColumn), ownerID); err != nil {
 		return fmt.Errorf("failed to clear label memberships: %w", err)
 	}
@@ -271,9 +268,6 @@ func (r *labelRepository) removeMemberships(ctx context.Context, m membershipTab
 		return fmt.Errorf("failed to begin label membership transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := validateLiveOwners(ctx, tx, m, ids); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE label_id = $1 AND %s = ANY($2)`, m.table, m.ownerColumn), labelID, ids); err != nil {
 		return fmt.Errorf("failed to remove label memberships: %w", err)
 	}

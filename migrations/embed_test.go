@@ -20,11 +20,11 @@ func TestSMERouteFeedbackMigrationAppliesDownAndUp(t *testing.T) {
 	db, migrator := openMigrator(t)
 
 	assertFeedbackSchema(t, db, true)
-	if err := migrator.Steps(-2); err != nil {
+	if err := migrator.Migrate(20260826000000); err != nil {
 		t.Fatalf("migrate down: %v", err)
 	}
 	assertFeedbackSchema(t, db, false)
-	if err := migrator.Steps(2); err != nil {
+	if err := migrator.Migrate(20260830000000); err != nil {
 		t.Fatalf("migrate up: %v", err)
 	}
 	assertFeedbackSchema(t, db, true)
@@ -48,8 +48,8 @@ func TestSoftDeleteRosterMigrationRemovesArchivedRowsOnDown(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `INSERT INTO drivers (name, address, lat, lng, deleted_at) VALUES ('Archived Driver', '4 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedDriverID); err != nil {
 		t.Fatalf("insert archived driver: %v", err)
 	}
-	var liveLocationID, archivedLocationID int64
-	if err := db.QueryRowContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng) VALUES ('Live Gym', '5 Main St', 40, -73) RETURNING id`).Scan(&liveLocationID); err != nil {
+	var archivedLocationID int64
+	if _, err := db.ExecContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng) VALUES ('Live Gym', '5 Main St', 40, -73)`); err != nil {
 		t.Fatalf("insert live activity location: %v", err)
 	}
 	if err := db.QueryRowContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng, deleted_at) VALUES ('Archived Gym', '6 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedLocationID); err != nil {
@@ -69,7 +69,7 @@ func TestSoftDeleteRosterMigrationRemovesArchivedRowsOnDown(t *testing.T) {
 		t.Fatalf("select archived activity location: %v", err)
 	}
 
-	if err := migrator.Steps(-1); err != nil {
+	if err := migrator.Migrate(20260829000000); err != nil {
 		t.Fatalf("migrate soft-delete roster down: %v", err)
 	}
 	for table, wantName := range map[string]string{
@@ -96,11 +96,10 @@ func TestSoftDeleteRosterMigrationRemovesArchivedRowsOnDown(t *testing.T) {
 		t.Fatalf("selected location after down = %#v, err=%v; want NULL", selectedLocationID, err)
 	}
 
-	if err := migrator.Steps(1); err != nil {
+	if err := migrator.Migrate(20260830000000); err != nil {
 		t.Fatalf("migrate soft-delete roster up: %v", err)
 	}
 	assertSoftDeleteColumns(t, db, true)
-	_ = liveLocationID
 }
 
 func openMigrator(t *testing.T) (*sql.DB, *migrate.Migrate) {

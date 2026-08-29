@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
@@ -23,6 +24,7 @@ type rosterSoftDeleteCase struct {
 	notFoundText   string
 	emptyStateText string
 	retainedText   string
+	hasLabels      bool
 	create         func(*testing.T, *postgres.Store) int64
 	deletePath     func(int64) string
 	delete         func(*Handler, http.ResponseWriter, *http.Request)
@@ -31,16 +33,12 @@ type rosterSoftDeleteCase struct {
 	restore        func(*Handler, http.ResponseWriter, *http.Request)
 }
 
-func TestParticipantSoftDeleteHandlers_ListRestoreAndJSON(t *testing.T) {
-	exerciseSoftDeleteRosterHandlers(t, rosterSoftDeleteCases()[0])
-}
-
-func TestDriverSoftDeleteHandlers_ListRestoreAndJSON(t *testing.T) {
-	exerciseSoftDeleteRosterHandlers(t, rosterSoftDeleteCases()[1])
-}
-
-func TestActivityLocationSoftDeleteHandlers_ListRestoreAndJSON(t *testing.T) {
-	exerciseSoftDeleteRosterHandlers(t, rosterSoftDeleteCases()[2])
+func TestSoftDeleteRosterHandlers_ListRestoreAndJSON(t *testing.T) {
+	for _, tt := range rosterSoftDeleteCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			exerciseSoftDeleteRosterHandlers(t, tt)
+		})
+	}
 }
 
 func TestRosterPagesRenderSeparateDeletedViews(t *testing.T) {
@@ -123,20 +121,127 @@ func TestSoftDeleteRosterRestore_NotFoundForLiveAndUnknownIDs(t *testing.T) {
 						if rr.Code != http.StatusNotFound {
 							t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNotFound, rr.Body.String())
 						}
-						if !strings.Contains(rr.Body.String(), tt.notFoundText) {
-							t.Fatalf("body = %q, want not-found text %q", rr.Body.String(), tt.notFoundText)
-						}
 						contentType := rr.Header().Get("Content-Type")
-						if htmx && !strings.HasPrefix(contentType, "text/html") {
-							t.Fatalf("Content-Type = %q, want text/html", contentType)
-						}
-						if !htmx && !strings.HasPrefix(contentType, "application/json") {
+						if htmx {
+							if got := rr.Header().Get("HX-Reswap"); got != "none" {
+								t.Fatalf("HX-Reswap = %q, want none", got)
+							}
+							if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, tt.notFoundText) {
+								t.Fatalf("HX-Trigger = %q, want not-found text %q", got, tt.notFoundText)
+							}
+						} else if !strings.HasPrefix(contentType, "application/json") {
 							t.Fatalf("Content-Type = %q, want application/json", contentType)
+						} else if !strings.Contains(rr.Body.String(), tt.notFoundText) {
+							t.Fatalf("body = %q, want not-found text %q", rr.Body.String(), tt.notFoundText)
 						}
 					})
 				}
 			}
 		})
+	}
+}
+
+func TestSoftDeleteRosterRestore_RejectsNonPositiveIDs(t *testing.T) {
+	for _, tt := range rosterSoftDeleteCases() {
+		for _, id := range []int64{0, -1} {
+			t.Run(fmt.Sprintf("%s_%d", tt.name, id), func(t *testing.T) {
+				handler, _ := newTestManagementHandler(t)
+				req := newRestoreRequest(tt.restorePath, id, true)
+				rr := httptest.NewRecorder()
+				tt.restore(handler, rr, req)
+
+				if rr.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestSoftDeleteRosterRestore_LiveDuplicateReturnsConflict(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		prepare func(*testing.T, *postgres.Store) int64
+		restore func(*Handler, http.ResponseWriter, *http.Request)
+		path    string
+	}{
+		{
+			name:    "participant",
+			message: messageParticipantRestoreDuplicate,
+			path:    "/api/v1/participants/restore",
+			prepare: func(t *testing.T, store *postgres.Store) int64 {
+				participant, err := store.Participants().Create(t.Context(), &models.Participant{
+					Name: "Duplicate Rider", Address: "1 Duplicate Road", Lat: 40, Lng: -73,
+				})
+				if err != nil {
+					t.Fatalf("create participant: %v", err)
+				}
+				if err := store.Participants().Delete(t.Context(), participant.ID); err != nil {
+					t.Fatalf("archive participant: %v", err)
+				}
+				if _, err := store.Participants().Create(t.Context(), &models.Participant{
+					Name: participant.Name, Address: participant.Address, Lat: 41, Lng: -72,
+				}); err != nil {
+					t.Fatalf("create live participant duplicate: %v", err)
+				}
+				return participant.ID
+			},
+			restore: (*Handler).HandleRestoreParticipant,
+		},
+		{
+			name:    "driver",
+			message: messageDriverRestoreDuplicate,
+			path:    "/api/v1/drivers/restore",
+			prepare: func(t *testing.T, store *postgres.Store) int64 {
+				driver, err := store.Drivers().Create(t.Context(), &models.Driver{
+					Name: "Duplicate Driver", Address: "2 Duplicate Road", Lat: 40, Lng: -73, VehicleCapacity: 4,
+				})
+				if err != nil {
+					t.Fatalf("create driver: %v", err)
+				}
+				if err := store.Drivers().Delete(t.Context(), driver.ID); err != nil {
+					t.Fatalf("archive driver: %v", err)
+				}
+				if _, err := store.Drivers().Create(t.Context(), &models.Driver{
+					Name: driver.Name, Address: driver.Address, Lat: 41, Lng: -72, VehicleCapacity: 6,
+				}); err != nil {
+					t.Fatalf("create live driver duplicate: %v", err)
+				}
+				return driver.ID
+			},
+			restore: (*Handler).HandleRestoreDriver,
+		},
+	}
+
+	for _, tt := range tests {
+		for _, htmx := range []bool{true, false} {
+			branch := "json"
+			if htmx {
+				branch = "htmx"
+			}
+			t.Run(tt.name+"_"+branch, func(t *testing.T) {
+				handler, store := newTestManagementHandler(t)
+				id := tt.prepare(t, store)
+				req := newRestoreRequest(tt.path, id, htmx)
+				rr := httptest.NewRecorder()
+				tt.restore(handler, rr, req)
+
+				if rr.Code != http.StatusConflict {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusConflict, rr.Body.String())
+				}
+				if htmx {
+					if got := rr.Header().Get("HX-Reswap"); got != "none" {
+						t.Fatalf("HX-Reswap = %q, want none", got)
+					}
+					if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, tt.message) {
+						t.Fatalf("HX-Trigger = %q, want %q", got, tt.message)
+					}
+				} else if !strings.Contains(rr.Body.String(), `"code":"CONFLICT"`) || !strings.Contains(rr.Body.String(), tt.message) {
+					t.Fatalf("body = %q, want JSON conflict response", rr.Body.String())
+				}
+			})
+		}
 	}
 }
 
@@ -157,12 +262,22 @@ func exerciseSoftDeleteRosterHandlers(t *testing.T, tt rosterSoftDeleteCase) {
 	if deletedRR.Code != http.StatusOK {
 		t.Fatalf("deleted list status = %d, want %d body=%q", deletedRR.Code, http.StatusOK, deletedRR.Body.String())
 	}
-	for _, want := range []string{tt.entityName, tt.restorePath, "Restore", "Deleted ", tt.retainedText} {
-		if want == "" {
-			continue
-		}
+	for _, want := range []string{tt.entityName, tt.restorePath, "Restore"} {
 		if !strings.Contains(deletedRR.Body.String(), want) {
 			t.Fatalf("deleted list missing %q, body=%q", want, deletedRR.Body.String())
+		}
+	}
+	if tt.hasLabels {
+		if !strings.Contains(deletedRR.Body.String(), tt.retainedText) {
+			t.Fatalf("deleted list missing retained label %q, body=%q", tt.retainedText, deletedRR.Body.String())
+		}
+	} else if strings.Contains(deletedRR.Body.String(), "<th>Labels</th>") {
+		t.Fatalf("location deleted list rendered a labels column, body=%q", deletedRR.Body.String())
+	}
+	if tt.name == "participants" {
+		deletedAtPattern := regexp.MustCompile(`[A-Z][a-z]{2} [1-9][0-9]?, 20[0-9]{2} at (1[0-2]|[1-9]):[0-5][0-9] [AP]M UTC`)
+		if !deletedAtPattern.MatchString(deletedRR.Body.String()) {
+			t.Fatalf("deleted list missing formatted timestamp, body=%q", deletedRR.Body.String())
 		}
 	}
 
@@ -248,6 +363,7 @@ func rosterSoftDeleteCases() []rosterSoftDeleteCase {
 			notFoundText:   messageParticipantNotFound,
 			emptyStateText: "No deleted participants",
 			retainedText:   "Needs Ride",
+			hasLabels:      true,
 			create: func(t *testing.T, store *postgres.Store) int64 {
 				t.Helper()
 				label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Needs Ride"})
@@ -277,6 +393,7 @@ func rosterSoftDeleteCases() []rosterSoftDeleteCase {
 			notFoundText:   messageDriverNotFound,
 			emptyStateText: "No deleted drivers",
 			retainedText:   "Evening Driver",
+			hasLabels:      true,
 			create: func(t *testing.T, store *postgres.Store) int64 {
 				t.Helper()
 				label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Evening Driver"})
@@ -384,7 +501,10 @@ func TestHandleUpdateSettings_LocationArchivedBeforeWriteReturnsNotFound(t *test
 				if !strings.Contains(rr.Header().Get("HX-Trigger"), messageSelectedActivityLocationNotFound) {
 					t.Fatalf("HX-Trigger = %q, want not-found toast", rr.Header().Get("HX-Trigger"))
 				}
-			} else if !strings.Contains(rr.Body.String(), `"code":"NOT_FOUND"`) {
+				if got := rr.Header().Get("HX-Reswap"); got != "none" {
+					t.Fatalf("HX-Reswap = %q, want none", got)
+				}
+			} else if !strings.Contains(rr.Body.String(), `"code":"NOT_FOUND"`) || !strings.Contains(rr.Body.String(), messageSelectedActivityLocationNotFound) {
 				t.Fatalf("body = %q, want JSON not-found response", rr.Body.String())
 			}
 		})

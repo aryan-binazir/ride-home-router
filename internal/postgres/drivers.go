@@ -139,17 +139,9 @@ func (r *driverRepository) UpdateWithLabels(ctx context.Context, d *models.Drive
 }
 
 func (r *driverRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE drivers SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete driver: %w", err)
-	}
-	return rowsAffectedOrNotFound(result)
+	return r.writes().delete(ctx, id)
 }
 
 func (r *driverRepository) Restore(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE drivers SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL`, id)
-	if err != nil {
-		return fmt.Errorf("failed to restore driver: %w", err)
-	}
-	return rowsAffectedOrNotFound(result)
+	return r.writes().restore(ctx, id)
 }

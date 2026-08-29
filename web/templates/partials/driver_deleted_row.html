@@ -16,7 +16,7 @@
         </div>
         {{end}}
     </td>
-    <td data-col="Deleted">{{if .Driver.DeletedAt}}Deleted {{formatDeletedAt .Driver.DeletedAt}}{{end}}</td>
+    <td data-col="Deleted">{{if .Driver.DeletedAt}}{{formatDeletedAt .Driver.DeletedAt}}{{end}}</td>
     <td class="table-actions-cell">
         <button type="button"
                 class="btn btn-sm btn-outline"

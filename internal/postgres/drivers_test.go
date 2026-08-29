@@ -117,3 +117,31 @@ func TestDriverRepositorySoftDeleteAndRestore(t *testing.T) {
 		t.Fatalf("ListDeleted() after restore = %#v, %v; want none", deleted, err)
 	}
 }
+
+func TestDriverRepositoryRestoreRejectsLiveDuplicate(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	driver, err := store.Drivers().Create(ctx, &models.Driver{
+		Name: "Archived Driver", Address: "1 Archive Way", Lat: 40, Lng: -73, VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := store.Drivers().Delete(ctx, driver.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	result, err := store.Drivers().CreateBatch(ctx, []*models.Driver{{
+		Name: "  ARCHIVED driver ", Address: "1  Archive Way", Lat: 41, Lng: -72, VehicleCapacity: 6,
+	}}, nil)
+	if err != nil || result.Created != 1 {
+		t.Fatalf("CreateBatch() = %#v, %v; want one imported live duplicate", result, err)
+	}
+	if err := store.Drivers().Restore(ctx, driver.ID); !errors.Is(err, database.ErrDuplicate) {
+		t.Fatalf("Restore() error = %v, want ErrDuplicate", err)
+	}
+	deleted, err := store.Drivers().ListDeleted(ctx)
+	if err != nil || len(deleted) != 1 || deleted[0].ID != driver.ID {
+		t.Fatalf("ListDeleted() = %#v, %v; want original row to remain archived", deleted, err)
+	}
+}

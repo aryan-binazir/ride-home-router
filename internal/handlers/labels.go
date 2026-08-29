@@ -287,6 +287,10 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 		err = fmt.Errorf("invalid bulk label action")
 	}
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
+			return
+		}
 		h.handleInternalError(w, err)
 		return
 	}
@@ -342,6 +346,10 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 		err = fmt.Errorf("invalid bulk label action")
 	}
 	if err != nil {
+		if h.checkNotFound(err) {
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
+			return
+		}
 		h.handleInternalError(w, err)
 		return
 	}

@@ -2,7 +2,7 @@
 <tr id="deleted-activity-location-{{.ID}}">
     <td data-col="Name">{{.Name}}</td>
     <td data-col="Address">{{.Address}}</td>
-    <td data-col="Deleted">{{if .DeletedAt}}Deleted {{formatDeletedAt .DeletedAt}}{{end}}</td>
+    <td data-col="Deleted">{{if .DeletedAt}}{{formatDeletedAt .DeletedAt}}{{end}}</td>
     <td class="table-actions-cell">
         <button type="button"
                 class="btn btn-sm btn-outline"

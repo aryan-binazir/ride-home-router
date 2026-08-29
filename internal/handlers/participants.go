@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
@@ -484,12 +485,8 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/participants/restore: invalid_id err=%v", err)
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-			return
-		}
-		h.handleValidationError(w, messageInvalidParticipantID)
+		log.Printf("[HTTP] POST /api/v1/participants/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
+		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 		return
 	}
 
@@ -497,7 +494,12 @@ func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Reques
 	if err := h.DB.Participants().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found for restore: id=%d", id)
-			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
+			return
+		}
+		if errors.Is(err, database.ErrDuplicate) {
+			log.Printf("[HTTP] Participant restore conflicts with live duplicate: id=%d", id)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "CONFLICT", messageParticipantRestoreDuplicate)
 			return
 		}
 		log.Printf("[ERROR] Failed to restore participant: id=%d err=%v", id, err)

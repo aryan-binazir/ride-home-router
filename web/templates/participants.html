@@ -30,19 +30,18 @@
             <button type="button"
                     id="participants-active-tab"
                     class="btn btn-sm btn-primary"
-                    hx-get="/api/v1/participants"
-                    hx-target="#participants-list"
-                    hx-swap="innerHTML"
-                    onclick="document.getElementById('participants-active').classList.remove('hidden'); document.getElementById('participants-deleted').classList.add('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('participants-deleted-tab').classList.replace('btn-primary', 'btn-outline')">
+                    aria-pressed="true"
+                    onclick="switchRosterTab(this, 'participants')">
                 Active
             </button>
             <button type="button"
                     id="participants-deleted-tab"
                     class="btn btn-sm btn-outline"
+                    aria-pressed="false"
                     hx-get="/api/v1/participants/deleted"
                     hx-target="#participants-deleted"
                     hx-swap="innerHTML"
-                    onclick="document.getElementById('participants-active').classList.add('hidden'); document.getElementById('participants-deleted').classList.remove('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('participants-active-tab').classList.replace('btn-primary', 'btn-outline')">
+                    onclick="switchRosterTab(this, 'participants')">
                 Deleted
             </button>
         </div>

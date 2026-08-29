@@ -133,3 +133,31 @@ func TestParticipantRepositorySoftDeleteAndRestore(t *testing.T) {
 		t.Fatalf("ListDeleted() after restore = %#v, %v; want none", deleted, err)
 	}
 }
+
+func TestParticipantRepositoryRestoreRejectsLiveDuplicate(t *testing.T) {
+	store := postgrestest.Open(t)
+	ctx := context.Background()
+	participant, err := store.Participants().Create(ctx, &models.Participant{
+		Name: "Archived Rider", Address: "1 Archive Way", Lat: 40, Lng: -73,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := store.Participants().Delete(ctx, participant.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	result, err := store.Participants().CreateBatch(ctx, []*models.Participant{{
+		Name: "  ARCHIVED rider ", Address: "1  Archive Way", Lat: 41, Lng: -72,
+	}}, nil)
+	if err != nil || result.Created != 1 {
+		t.Fatalf("CreateBatch() = %#v, %v; want one imported live duplicate", result, err)
+	}
+	if err := store.Participants().Restore(ctx, participant.ID); !errors.Is(err, database.ErrDuplicate) {
+		t.Fatalf("Restore() error = %v, want ErrDuplicate", err)
+	}
+	deleted, err := store.Participants().ListDeleted(ctx)
+	if err != nil || len(deleted) != 1 || deleted[0].ID != participant.ID {
+		t.Fatalf("ListDeleted() = %#v, %v; want original row to remain archived", deleted, err)
+	}
+}

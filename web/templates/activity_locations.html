@@ -36,21 +36,20 @@
 
     <div class="d-flex gap-2 mb-4" role="group" aria-label="Activity location view">
         <button type="button"
-                id="locations-active-tab"
+                id="location-active-tab"
                 class="btn btn-sm btn-primary"
-                hx-get="/api/v1/activity-locations"
-                hx-target="#location-list"
-                hx-swap="innerHTML"
-                onclick="document.getElementById('location-list').classList.remove('hidden'); document.getElementById('location-deleted-list').classList.add('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('locations-deleted-tab').classList.replace('btn-primary', 'btn-outline')">
+                aria-pressed="true"
+                onclick="switchRosterTab(this, 'location')">
             Active
         </button>
         <button type="button"
-                id="locations-deleted-tab"
+                id="location-deleted-tab"
                 class="btn btn-sm btn-outline"
+                aria-pressed="false"
                 hx-get="/api/v1/activity-locations/deleted"
                 hx-target="#location-deleted-list"
                 hx-swap="innerHTML"
-                onclick="document.getElementById('location-list').classList.add('hidden'); document.getElementById('location-deleted-list').classList.remove('hidden'); this.classList.replace('btn-outline', 'btn-primary'); document.getElementById('locations-active-tab').classList.replace('btn-primary', 'btn-outline')">
+                onclick="switchRosterTab(this, 'location')">
             Deleted locations
         </button>
     </div>
@@ -62,7 +61,7 @@
         {{template "activity_location_list" .ActivityLocations}}
     </div>
     <div id="location-deleted-list"
-         class="hidden"
+         class="table-container mb-0 hidden"
          hx-get="/api/v1/activity-locations/deleted"
          hx-trigger="rosterRestored from:body"
          hx-swap="innerHTML"></div>

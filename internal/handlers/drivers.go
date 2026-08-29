@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
@@ -518,12 +519,8 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/drivers/restore: invalid_id err=%v", err)
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-			return
-		}
-		h.handleValidationError(w, messageInvalidDriverID)
+		log.Printf("[HTTP] POST /api/v1/drivers/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
+		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 		return
 	}
 
@@ -531,7 +528,12 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.Drivers().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Driver not found for restore: id=%d", id)
-			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
+			return
+		}
+		if errors.Is(err, database.ErrDuplicate) {
+			log.Printf("[HTTP] Driver restore conflicts with live duplicate: id=%d", id)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "CONFLICT", messageDriverRestoreDuplicate)
 			return
 		}
 		log.Printf("[ERROR] Failed to restore driver: id=%d err=%v", id, err)
