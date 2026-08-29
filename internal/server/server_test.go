@@ -17,7 +17,41 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
+
+func TestNewDoesNotApplyDatabaseMigrations(t *testing.T) {
+	databaseURL := postgrestest.UnmigratedDatabase(t)
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	connection, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect unmigrated schema: %v", err)
+	}
+	defer func() {
+		if err := connection.Close(context.Background()); err != nil {
+			t.Errorf("close unmigrated schema connection: %v", err)
+		}
+	}()
+	var migrationTable, applicationTable bool
+	if err := connection.QueryRow(t.Context(), `
+		SELECT
+			to_regclass(current_schema() || '.schema_migrations') IS NOT NULL,
+			to_regclass(current_schema() || '.participants') IS NOT NULL
+	`).Scan(&migrationTable, &applicationTable); err != nil {
+		t.Fatalf("inspect schema after New: %v", err)
+	}
+	if migrationTable || applicationTable {
+		t.Fatalf("New() created schema = migrations:%t participants:%t, want neither", migrationTable, applicationTable)
+	}
+}
 
 func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
 	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})

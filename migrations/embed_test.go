@@ -1,12 +1,19 @@
 package migrations_test
 
 import (
+	"context"
 	"database/sql"
 	"embed"
+	"io/fs"
+	"regexp"
 	"ride-home-router/internal/postgres/postgrestest"
+	"ride-home-router/migrations"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
+	migratedatabase "github.com/golang-migrate/migrate/v4/database"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
@@ -15,6 +22,202 @@ import (
 
 //go:embed *.sql
 var migrationFiles embed.FS
+
+func TestEmbeddedMigrationsArePairedAndParseable(t *testing.T) {
+	entries, err := fs.ReadDir(migrationFiles, ".")
+	if err != nil {
+		t.Fatalf("read embedded migrations: %v", err)
+	}
+	filename := regexp.MustCompile(`^([0-9]+_[a-z0-9_]+)\.(up|down)\.sql$`)
+	directions := make(map[string]map[string]bool)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		matches := filename.FindStringSubmatch(entry.Name())
+		if matches == nil {
+			t.Errorf("migration filename %q is not parseable", entry.Name())
+			continue
+		}
+		if directions[matches[1]] == nil {
+			directions[matches[1]] = make(map[string]bool)
+		}
+		directions[matches[1]][matches[2]] = true
+	}
+	if len(directions) == 0 {
+		t.Fatal("no embedded migrations found")
+	}
+	for migration, found := range directions {
+		if !found["up"] || !found["down"] {
+			t.Errorf("migration %s directions = %v, want paired up and down", migration, found)
+		}
+	}
+}
+
+func TestVersionReportsLatestCleanMigration(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+
+	version, dirty, err := migrations.Version(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	if version != 20260830000000 || dirty {
+		t.Fatalf("Version() = (%d, %t), want (20260830000000, false)", version, dirty)
+	}
+}
+
+func TestVersionDoesNotCreateMigrationState(t *testing.T) {
+	databaseURL := postgrestest.UnmigratedDatabase(t)
+
+	version, dirty, err := migrations.Version(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	if version != 0 || dirty {
+		t.Fatalf("Version() = (%d, %t), want (0, false)", version, dirty)
+	}
+
+	connection, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect after Version: %v", err)
+	}
+	defer func() {
+		if err := connection.Close(context.Background()); err != nil {
+			t.Errorf("close Version inspection connection: %v", err)
+		}
+	}()
+	var migrationTable bool
+	if err := connection.QueryRow(t.Context(), "SELECT to_regclass(current_schema() || '.schema_migrations') IS NOT NULL").Scan(&migrationTable); err != nil {
+		t.Fatalf("inspect schema after Version: %v", err)
+	}
+	if migrationTable {
+		t.Fatal("Version() created schema_migrations, want read-only inspection")
+	}
+}
+
+func TestDownRollsBackExactlyOneMigration(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+
+	if err := migrations.Down(t.Context(), databaseURL); err != nil {
+		t.Fatalf("Down() error = %v", err)
+	}
+	version, dirty, err := migrations.Version(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("Version() after Down error = %v", err)
+	}
+	if version != 20260829000000 || dirty {
+		t.Fatalf("Version() after Down = (%d, %t), want (20260829000000, false)", version, dirty)
+	}
+
+	if err := migrations.Run(t.Context(), databaseURL); err != nil {
+		t.Fatalf("Run() after Down error = %v", err)
+	}
+	version, dirty, err = migrations.Version(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("Version() after Run error = %v", err)
+	}
+	if version != 20260830000000 || dirty {
+		t.Fatalf("Version() after Run = (%d, %t), want (20260830000000, false)", version, dirty)
+	}
+}
+
+func TestDownRefusesDisabledMigrationWithoutChangingVersion(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	for range 2 {
+		if err := migrations.Down(t.Context(), databaseURL); err != nil {
+			t.Fatalf("Down() to baseline error = %v", err)
+		}
+	}
+
+	err := migrations.Down(t.Context(), databaseURL)
+	if err == nil || !strings.Contains(err.Error(), "down migration disabled") {
+		t.Fatalf("Down() baseline error = %v, want disabled migration refusal", err)
+	}
+	version, dirty, versionErr := migrations.Version(t.Context(), databaseURL)
+	if versionErr != nil {
+		t.Fatalf("Version() after refused Down error = %v", versionErr)
+	}
+	if version != 20260826000000 || dirty {
+		t.Fatalf("Version() after refused Down = (%d, %t), want (20260826000000, false)", version, dirty)
+	}
+}
+
+func TestRunBoundsConcurrentMigrationWait(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	connection, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect lock holder: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := connection.Close(context.Background()); err != nil {
+			t.Errorf("close lock holder: %v", err)
+		}
+	})
+
+	var databaseName, schemaName string
+	if err := connection.QueryRow(t.Context(), "SELECT current_database(), current_schema()").Scan(&databaseName, &schemaName); err != nil {
+		t.Fatalf("resolve migration lock scope: %v", err)
+	}
+	lockID, err := migratedatabase.GenerateAdvisoryLockId(databaseName, schemaName, "schema_migrations")
+	if err != nil {
+		t.Fatalf("generate migration lock id: %v", err)
+	}
+	if _, err := connection.Exec(t.Context(), "SELECT pg_advisory_lock($1)", lockID); err != nil {
+		t.Fatalf("hold migration lock: %v", err)
+	}
+	locked := true
+	unlock := func() {
+		if !locked {
+			return
+		}
+		locked = false
+		if _, err := connection.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockID); err != nil {
+			t.Errorf("release migration lock: %v", err)
+		}
+	}
+	t.Cleanup(unlock)
+
+	result := make(chan error, 1)
+	go func() {
+		result <- migrations.Run(context.Background(), databaseURL)
+	}()
+
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("Run() with held migration lock returned nil, want bounded lock error")
+		}
+	case <-time.After(12 * time.Second):
+		unlock()
+		if err := <-result; err != nil {
+			t.Fatalf("Run() exceeded bounded lock wait before returning %v", err)
+		}
+		t.Fatal("Run() waited for the held migration lock instead of failing within 12 seconds")
+	}
+}
+
+func TestRunRefusesDirtyStateWithRecoveryGuidance(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	connection, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect dirty-state fixture: %v", err)
+	}
+	defer func() {
+		if err := connection.Close(context.Background()); err != nil {
+			t.Errorf("close dirty-state fixture: %v", err)
+		}
+	}()
+	if _, err := connection.Exec(t.Context(), "UPDATE schema_migrations SET dirty = true"); err != nil {
+		t.Fatalf("mark migration state dirty: %v", err)
+	}
+
+	err = migrations.Run(t.Context(), databaseURL)
+	for _, want := range []string{"dirty at version 20260830000000", "repair or restore"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Run() dirty-state error = %v, want containing %q", err, want)
+		}
+	}
+}
 
 func TestSMERouteFeedbackMigrationAppliesDownAndUp(t *testing.T) {
 	db, migrator := openMigrator(t)

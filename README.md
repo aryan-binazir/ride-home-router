@@ -26,7 +26,7 @@ GOOGLE_MAPS_API_KEY=... make serve
 
 Open <http://127.0.0.1:8080>.
 
-`make postgres-up` creates development and test databases on port 5434. `make postgres-down` deletes the container and both databases.
+`make serve` applies pending migrations before starting the server. Migration failure stops the target before the server binds. `make postgres-up` creates development and test databases on port 5434. `make postgres-down` deletes the container and both databases.
 
 ## Configuration
 
@@ -43,11 +43,37 @@ Allowed hosts omit schemes, ports, and paths. Unlisted hosts get `403`; add the 
 
 ## Deploy
 
-The Docker image runs one static binary as a non-root user and checks `/api/v1/health`.
+The Docker image contains the server and `migrate` binaries, runs the server as a non-root user, and checks `/api/v1/health`.
 
 Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
 
+Configure the platform's pre-deploy command as exactly `migrate` before deploying a revision that depends on a new schema. A non-zero migration exit must stop the deployment before the new server revision starts. The direct `ride-home-router` binary does not apply or inspect migrations; against an unprepared schema it can start successfully and then return database errors from requests.
+
 Keep the app and Postgres private. Use Cloudflare Tunnel with Access configured, or another authenticating proxy. Back up Postgres with your provider's tools.
+
+## Database migrations
+
+The paired timestamped SQL files in `migrations/` are the Postgres schema history. Clean retries skip versions already recorded in `schema_migrations`. Concurrent runners serialize through golang-migrate's Postgres advisory lock, with a 10-second lock wait and a five-minute statement limit.
+
+Use the local database defaults through Make:
+
+```bash
+make migrate
+make migrate-version
+make migrate-create name=add_route_notes
+```
+
+`make migrate-create` creates one `.up.sql` and one `.down.sql` file. The generated down file is disabled until it is replaced with a real, tested rollback. Keep applied migration files immutable. Add a new fix-forward migration instead of editing deployed schema history. The only exception in the current history is removal of the baseline's session-only `SET lock_timeout`, which changed runner behavior but not database schema.
+
+Down migrations are destructive. The Make target is pinned to the fixed local development URL and requires explicit confirmation:
+
+```bash
+make migrate-down CONFIRM=yes
+```
+
+It rolls back exactly one version and preflights the down file before changing migration state. The lower-level `migrate down --confirm` command uses the loaded `DATABASE_URL`; do not run it against a database you intend to keep without a verified backup and matching application rollback.
+
+A failed migration can leave `schema_migrations` dirty. Later up or down operations refuse that state and report the version. Inspect the failed statement and database contents, then repair deliberately or restore a verified backup. Do not blindly force the version or add `IF NOT EXISTS` guards to hide a partial migration.
 
 ## Use
 

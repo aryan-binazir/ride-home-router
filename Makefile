@@ -8,13 +8,17 @@ DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
 
-.PHONY: help check check-unit lint verify vet test test-unit build serve clean postgres-up postgres-down psql
+.PHONY: help check check-unit lint verify vet test test-unit build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
 
 help:
 	@echo "Ride Home Router"
 	@echo ""
-	@echo "  make serve         Run the server on 127.0.0.1:$${PORT:-8080} against DATABASE_URL"
-	@echo "  make build         Build bin/ride-home-router (CGO_ENABLED=0)"
+	@echo "  make serve         Migrate, then run the server on 127.0.0.1:$${PORT:-8080}"
+	@echo "  make build         Build bin/ride-home-router and bin/migrate (CGO_ENABLED=0)"
+	@echo "  make migrate       Apply pending migrations to DATABASE_URL"
+	@echo "  make migrate-version Show DATABASE_URL migration version and dirty state"
+	@echo "  make migrate-down CONFIRM=yes Roll back one migration on the fixed local database"
+	@echo "  make migrate-create name=add_field Create paired timestamped SQL files"
 	@echo "  make check         lint + verify + vet + all tests (needs TEST_DATABASE_URL)"
 	@echo "  make check-unit    Same without database-backed tests"
 	@echo "  make postgres-up   Start the local podman Postgres (port $(POSTGRES_PORT))"
@@ -47,11 +51,41 @@ test-unit:
 
 build:
 	@mkdir -p bin
-	@rm -f bin/ride-home-router
+	@rm -f bin/ride-home-router bin/migrate
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/ride-home-router ./cmd/server
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/migrate ./cmd/migrate
 
-serve:
+serve: migrate
 	go run ./cmd/server
+
+migrate:
+	go run ./cmd/migrate
+
+migrate-version:
+	go run ./cmd/migrate version
+
+migrate-down: override DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router?sslmode=disable
+migrate-down:
+	@if [ "$(CONFIRM)" != "yes" ]; then \
+		echo "Refusing destructive target. Re-run with CONFIRM=yes"; \
+		exit 1; \
+	fi
+	go run ./cmd/migrate down --confirm
+
+migrate-create:
+	@if [ -z "$(name)" ]; then \
+		echo "name is required, e.g. make migrate-create name=add_field"; \
+		exit 1; \
+	fi
+	@version=$$(date -u +%Y%m%d%H%M%S); \
+		slug=$$(printf '%s' "$(name)" | tr '[:upper:] -' '[:lower:]__' | sed 's/[^a-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_$$//'); \
+		if [ -z "$$slug" ]; then echo "name must contain a letter or number"; exit 1; fi; \
+		up="migrations/$${version}_$${slug}.up.sql"; \
+		down="migrations/$${version}_$${slug}.down.sql"; \
+		if [ -e "$$up" ] || [ -e "$$down" ]; then echo "migration already exists for timestamp $$version"; exit 1; fi; \
+		printf '%s\n' '-- Write migration here.' > "$$up"; \
+		printf '%s\n' '-- ride-home-router: down migration disabled' > "$$down"; \
+		printf '%s\n%s\n' "$$up" "$$down"
 
 clean:
 	rm -rf bin coverage.out

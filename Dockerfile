@@ -11,11 +11,13 @@ COPY migrations ./migrations
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/ride-home-router ./cmd/server
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates \
 	&& adduser -D -H -u 10001 router
 COPY --from=build /out/ride-home-router /usr/local/bin/ride-home-router
+COPY --from=build /out/migrate /usr/local/bin/migrate
 USER router
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/api/v1/health" || exit 1

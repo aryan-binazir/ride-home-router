@@ -1,4 +1,4 @@
-SET lock_timeout = 0;
+-- ride-home-router: down migration disabled
 
 DROP TABLE IF EXISTS distance_cache;
 DROP TABLE IF EXISTS event_summaries;
