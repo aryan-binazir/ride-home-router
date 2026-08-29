@@ -384,7 +384,11 @@ func (s *Store) createBatch(ctx context.Context, kind Kind, rows []Row, selected
 		batch := make([]*models.Driver, len(indices))
 		for i, rowIndex := range indices {
 			row := rows[rowIndex]
-			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, VehicleCapacity: row.Capacity}
+			capacity := row.Capacity
+			if row.CapacityDefaulted {
+				capacity = 0 // UpsertBatch keeps an existing driver's capacity and defaults new ones.
+			}
+			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, VehicleCapacity: capacity}
 		}
 		batchResult, err := s.db.Drivers().UpsertBatch(ctx, batch)
 		if err != nil {

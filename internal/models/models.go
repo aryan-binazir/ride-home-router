@@ -12,7 +12,9 @@ import (
 const (
 	MaxAddressNameLength = 200
 	MinVehicleCapacity   = 1
-	MaxVehicleCapacity   = 50
+	// DefaultVehicleCapacity applies when an import supplies no capacity.
+	DefaultVehicleCapacity = 4
+	MaxVehicleCapacity     = 50
 )
 
 // RosterKey returns the canonical exact-match key for a roster identity.

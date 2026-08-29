@@ -28,7 +28,8 @@ type rosterWriteCore[T any] struct {
 	updateRow func(context.Context, *sql.Tx, *T, time.Time) (sql.Result, error)
 	// importUpdate applies the import-mutable fields of entity to the existing
 	// row id. Name, address, and coordinates are never overwritten by imports.
-	importUpdate func(context.Context, *sql.Tx, int64, *T, time.Time) error
+	// Zero rows affected means the row was deleted since the key snapshot.
+	importUpdate func(context.Context, *sql.Tx, int64, *T, time.Time) (sql.Result, error)
 	fields       func(*T) rosterFields
 }
 
@@ -62,12 +63,18 @@ func (w rosterWriteCore[T]) upsertBatch(ctx context.Context, entities []*T) (dat
 		now := time.Now()
 		key := w.key(entity)
 		if id, ok := existing[key]; ok && key != "" {
-			if err := w.importUpdate(ctx, tx, id, entity, now); err != nil {
+			updated, err := w.importUpdate(ctx, tx, id, entity, now)
+			if err != nil {
 				return database.BatchUpsertResult{}, fmt.Errorf("failed to update %s in batch: %w", w.noun, err)
 			}
-			written = append(written, writtenRow{entity: entity, id: id, at: now})
-			result.Updated++
-			continue
+			if n, err := updated.RowsAffected(); err != nil {
+				return database.BatchUpsertResult{}, fmt.Errorf("failed to update %s in batch: %w", w.noun, err)
+			} else if n > 0 {
+				written = append(written, writtenRow{entity: entity, id: id, at: now})
+				result.Updated++
+				continue
+			}
+			// The matched row was deleted concurrently; fall through and insert.
 		}
 		id, err := w.insert(ctx, tx, entity, now)
 		if err != nil {
@@ -130,6 +137,10 @@ func (w rosterWriteCore[T]) updateWithLabels(ctx context.Context, entity *T, lab
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Identity edits serialize with import upserts, which snapshot roster keys.
+	if err := lockRoster(ctx, tx, w.table); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	fields := w.fields(entity)
 	*fields.updatedAt = now

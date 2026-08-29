@@ -100,13 +100,12 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 				WHERE id = $7`,
 				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID)
 		},
-		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, p *models.Participant, now time.Time) error {
-			_, err := tx.ExecContext(ctx, `
+		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, p *models.Participant, now time.Time) (sql.Result, error) {
+			return tx.ExecContext(ctx, `
 				UPDATE participants
 				SET address_name = COALESCE(NULLIF($1, ''), address_name), updated_at = $2
 				WHERE id = $3`,
 				p.AddressName, now, id)
-			return err
 		},
 		fields: func(p *models.Participant) rosterFields {
 			return rosterFields{id: &p.ID, createdAt: &p.CreatedAt, updatedAt: &p.UpdatedAt}

@@ -88,9 +88,16 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 		},
 		insert: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (int64, error) {
 			var id int64
+			capacity := d.VehicleCapacity
+			if capacity == 0 {
+				capacity = models.DefaultVehicleCapacity
+			}
 			err := tx.QueryRowContext(ctx, insertDriver,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, now,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now,
 			).Scan(&id)
+			if err == nil {
+				d.VehicleCapacity = capacity
+			}
 			return id, err
 		},
 		updateRow: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (sql.Result, error) {
@@ -100,13 +107,14 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				WHERE id = $8`,
 				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
 		},
-		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) error {
-			_, err := tx.ExecContext(ctx, `
+		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) (sql.Result, error) {
+			return tx.ExecContext(ctx, `
 				UPDATE drivers
-				SET address_name = COALESCE(NULLIF($1, ''), address_name), vehicle_capacity = $2, updated_at = $3
+				SET address_name = COALESCE(NULLIF($1, ''), address_name),
+				    vehicle_capacity = CASE WHEN $2 > 0 THEN $2 ELSE vehicle_capacity END,
+				    updated_at = $3
 				WHERE id = $4`,
 				d.AddressName, d.VehicleCapacity, now, id)
-			return err
 		},
 		fields: func(d *models.Driver) rosterFields {
 			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}

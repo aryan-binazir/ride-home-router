@@ -215,6 +215,29 @@ func TestUpsertBatchUpdatesMutableFieldsAndKeepsIdentity(t *testing.T) {
 	if gotDriver.VehicleCapacity != 7 || gotDriver.AddressName != "Work" || gotDriver.Lat != 41 || gotDriver.Lng != -74 {
 		t.Fatalf("driver after upsert = %#v, want capacity 7, address name Work, coordinates preserved", gotDriver)
 	}
+
+	// Capacity 0 means the import had no capacity column: keep the existing value, default new drivers.
+	batch := []*models.Driver{
+		{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74},
+		{Name: "New Driver", Address: "3 Main St", Lat: 42, Lng: -75},
+	}
+	if _, err := store.Drivers().UpsertBatch(ctx, batch); err != nil {
+		t.Fatalf("driver UpsertBatch() error = %v", err)
+	}
+	gotDriver, err = store.Drivers().GetByID(ctx, driver.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if gotDriver.VehicleCapacity != 7 {
+		t.Fatalf("driver capacity after capacity-less upsert = %d, want 7 preserved", gotDriver.VehicleCapacity)
+	}
+	created, err := store.Drivers().GetByID(ctx, batch[1].ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if created.VehicleCapacity != models.DefaultVehicleCapacity || batch[1].VehicleCapacity != models.DefaultVehicleCapacity {
+		t.Fatalf("new driver capacity = %d (entity %d), want default %d", created.VehicleCapacity, batch[1].VehicleCapacity, models.DefaultVehicleCapacity)
+	}
 }
 
 func TestUpsertBatchIsIdempotent(t *testing.T) {

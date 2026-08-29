@@ -167,6 +167,28 @@ func TestCommitCreatesDriverBatch(t *testing.T) {
 	}
 }
 
+func TestCommitSendsZeroCapacityWhenColumnUnmapped(t *testing.T) {
+	db := newFakeDataStore()
+	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, "name,address,lat,lng\nDriver,1 Main St,40.1,-73.1\n")
+	created, err := store.Create(KindDriver, "drivers.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	if _, err := store.Commit(context.Background(), created.ID, []bool{true}); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	db.drivers.mu.Lock()
+	defer db.drivers.mu.Unlock()
+	if len(db.drivers.rows) != 1 || db.drivers.rows[0].VehicleCapacity != 0 {
+		t.Fatalf("driver batch rows = %#v, want capacity 0 so the repository preserves or defaults it", db.drivers.rows)
+	}
+}
+
 func TestGeocodeJobDeduplicatesAndMarksFailures(t *testing.T) {
 	geocoder := &fakeGeocoder{result: func(_ context.Context, address string, retries int) (*geocoding.GeocodingResult, error) {
 		if retries != geocodeMaxRetries {
