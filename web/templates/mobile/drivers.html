@@ -30,9 +30,9 @@
   {{end}}
   <p class="mobile-count">{{.SelectedSeats}} seats selected <a href="/m/people/drivers/new">Add driver</a></p>
   <div id="mobile-driver-results">
-    {{range .HiddenSelectedIDs}}
-    <input type="hidden" name="driver_ids" value="{{.}}">
-    <input type="hidden" name="org_vehicle_{{.}}" value="{{index $.Assignments .}}">
+    {{range .HiddenSelectedIDs}}{{$driverID := .}}
+    <input type="hidden" name="driver_ids" value="{{$driverID}}">
+    {{with index $.Assignments $driverID}}<input type="hidden" name="org_vehicle_{{$driverID}}" value="{{.}}">{{end}}
     {{end}}
     <div class="mobile-group mobile-choice-list">
       {{range .Drivers}}{{$driver := .}}

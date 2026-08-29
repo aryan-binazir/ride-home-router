@@ -81,6 +81,116 @@ func TestMobilePickerSearchPreservesUnsavedSelectionsAndAssignments(t *testing.T
 	}
 }
 
+func TestMobileDriverPickerFilteredPostPreservesSelectionsAndAssignments(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		assignHiddenVan bool
+	}{
+		{name: "hidden driver uses personal vehicle"},
+		{name: "hidden driver uses organization van", assignHiddenVan: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler, store := newTestManagementHandler(t)
+			handler.PlanDraft = plandraft.NewStore()
+			t.Cleanup(handler.PlanDraft.Close)
+			ctx := context.Background()
+			visible, err := store.Drivers().Create(ctx, &models.Driver{Name: "Alpha Driver", Address: "1 Driver", Lat: 1, Lng: 1, VehicleCapacity: 4})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hidden, err := store.Drivers().Create(ctx, &models.Driver{Name: "Beta Driver", Address: "2 Driver", Lat: 2, Lng: 2, VehicleCapacity: 4})
+			if err != nil {
+				t.Fatal(err)
+			}
+			van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Organization Van", Capacity: 8})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := handler.PlanDraft.NewID()
+			handler.PlanDraft.Update(id, func(*plandraft.Draft) {})
+			cookie := mobileTestCookie(id)
+
+			query := url.Values{
+				"search":     {"Alpha"},
+				"driver_ids": {fmt.Sprint(visible.ID), fmt.Sprint(hidden.ID)},
+			}
+			if test.assignHiddenVan {
+				query.Set(fmt.Sprintf("org_vehicle_%d", hidden.ID), fmt.Sprint(van.ID))
+			}
+			filtered := getMobileHTMX(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
+			body := filtered.Body.String()
+			hiddenID, ok := hiddenInputValue(body, "driver_ids")
+			if !ok || hiddenID != fmt.Sprint(hidden.ID) {
+				t.Fatalf("filtered picker hidden driver = %q, found=%v body=%q", hiddenID, ok, body)
+			}
+
+			form := url.Values{"driver_ids": {fmt.Sprint(visible.ID), hiddenID}}
+			assignmentName := fmt.Sprintf("org_vehicle_%d", hidden.ID)
+			if assignment, rendered := hiddenInputValue(body, assignmentName); rendered {
+				form.Set(assignmentName, assignment)
+			}
+			response := postMobileForm(t, cookie, "/m/plan/drivers", form, handler.HandleMobileDrivers)
+			assertMobileRedirect(t, response, "/m")
+
+			draft, ok := handler.PlanDraft.Get(id)
+			if !ok || len(draft.DriverIDs) != 2 || draft.DriverIDs[0] != visible.ID || draft.DriverIDs[1] != hidden.ID {
+				t.Fatalf("saved driver IDs = %#v, draft found=%v", draft.DriverIDs, ok)
+			}
+			if test.assignHiddenVan {
+				if len(draft.DriverVehicleIDs) != 1 || draft.DriverVehicleIDs[hidden.ID] != van.ID {
+					t.Fatalf("saved van assignments = %#v, want driver %d assigned van %d", draft.DriverVehicleIDs, hidden.ID, van.ID)
+				}
+			} else if len(draft.DriverVehicleIDs) != 0 {
+				t.Fatalf("saved van assignments = %#v, want none", draft.DriverVehicleIDs)
+			}
+		})
+	}
+}
+
+func TestMobileDriverPickerHTMXSearchPreservesAssignmentWithHiddenVanlessDriver(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	ctx := context.Background()
+	visible, err := store.Drivers().Create(ctx, &models.Driver{Name: "Alpha Driver", Address: "1 Driver", Lat: 1, Lng: 1, VehicleCapacity: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden, err := store.Drivers().Create(ctx, &models.Driver{Name: "Beta Driver", Address: "2 Driver", Lat: 2, Lng: 2, VehicleCapacity: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Organization Van", Capacity: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(id, func(*plandraft.Draft) {})
+	cookie := mobileTestCookie(id)
+	assignmentName := fmt.Sprintf("org_vehicle_%d", visible.ID)
+	query := url.Values{
+		"search":       {"Alpha"},
+		"driver_ids":   {fmt.Sprint(visible.ID), fmt.Sprint(hidden.ID)},
+		assignmentName: {fmt.Sprint(van.ID)},
+	}
+
+	firstResponse := getMobileHTMX(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
+	body := firstResponse.Body.String()
+	hiddenID, ok := hiddenInputValue(body, "driver_ids")
+	if !ok || hiddenID != fmt.Sprint(hidden.ID) {
+		t.Fatalf("filtered picker hidden driver = %q, found=%v body=%q", hiddenID, ok, body)
+	}
+	if hiddenAssignment, rendered := hiddenInputValue(body, fmt.Sprintf("org_vehicle_%d", hidden.ID)); rendered {
+		query.Set(fmt.Sprintf("org_vehicle_%d", hidden.ID), hiddenAssignment)
+	}
+
+	secondResponse := getMobileHTMX(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
+	body = secondResponse.Body.String()
+	if strings.Contains(body, invalidVanAssignmentMessage) || !strings.Contains(body, fmt.Sprintf(`<option value="%d" selected>`, van.ID)) {
+		t.Fatalf("HTMX search did not preserve in-flight van assignment: %s", body)
+	}
+}
+
 func TestParseOrgVehicleAssignmentsRejectsDuplicateVanOnMobileFields(t *testing.T) {
 	form := url.Values{
 		"org_vehicle_1": {"9"},
@@ -127,4 +237,18 @@ func getMobileHTMX(t *testing.T, cookie *http.Cookie, path string, serve http.Ha
 		t.Fatalf("GET %s = %d body=%q", path, response.Code, response.Body.String())
 	}
 	return response
+}
+
+func hiddenInputValue(body, name string) (string, bool) {
+	prefix := fmt.Sprintf(`<input type="hidden" name="%s" value="`, name)
+	start := strings.Index(body, prefix)
+	if start < 0 {
+		return "", false
+	}
+	start += len(prefix)
+	end := strings.Index(body[start:], `"`)
+	if end < 0 {
+		return "", false
+	}
+	return body[start : start+end], true
 }
