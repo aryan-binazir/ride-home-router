@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -16,12 +18,38 @@ const (
 // RosterKey returns the canonical exact-match key for a roster identity.
 // An empty key means either the name or address is blank.
 func RosterKey(name, address string) string {
-	name = NormalizeRosterField(name)
-	address = NormalizeRosterField(address)
+	name = normalizeRosterName(name)
+	address = normalizeRosterAddress(address)
 	if name == "" || address == "" {
 		return ""
 	}
 	return name + "\x00" + address
+}
+
+func normalizeRosterName(value string) string {
+	return normalizeRosterKeyField(value, true)
+}
+
+func normalizeRosterAddress(value string) string {
+	return normalizeRosterKeyField(value, false)
+}
+
+func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
+	value = strings.ToLower(norm.NFC.String(value))
+	value = strings.Map(func(r rune) rune {
+		switch r {
+		case '\'', '\u2018', '\u2019', '\u02bc', '.':
+			return -1
+		case ',':
+			return ' '
+		case '-':
+			if hyphensAsWhitespace {
+				return ' '
+			}
+		}
+		return r
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
 }
 
 // NormalizeRosterField canonicalizes a roster identity field for exact-match
