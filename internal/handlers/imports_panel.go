@@ -292,16 +292,16 @@ func importRowNotes(row importer.Row) []string {
 	notes := make([]string, 0, len(row.Errors)+len(row.Warnings)+2)
 	notes = append(notes, row.Errors...)
 	if row.DuplicateOfExisting {
-		notes = append(notes, "Already in your roster")
+		notes = append(notes, "Already in your roster — will be updated")
 	}
 	if row.DuplicateInFile {
-		notes = append(notes, "Duplicate row in this file")
+		notes = append(notes, "Duplicate row in this file — merged into the first")
 	}
 	return append(notes, row.Warnings...)
 }
 
 func importCommitMessage(result importer.CommitResult) string {
-	return fmt.Sprintf("%d imported, %d skipped as duplicates", result.Created, result.SkippedDuplicate)
+	return fmt.Sprintf("%d imported, %d updated", result.Created, result.Updated)
 }
 
 // writeImportError returns the emitted status; HTMX errors use 200 so htmx swaps.

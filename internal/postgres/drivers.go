@@ -100,6 +100,14 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				WHERE id = $8`,
 				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
 		},
+		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) error {
+			_, err := tx.ExecContext(ctx, `
+				UPDATE drivers
+				SET address_name = COALESCE(NULLIF($1, ''), address_name), vehicle_capacity = $2, updated_at = $3
+				WHERE id = $4`,
+				d.AddressName, d.VehicleCapacity, now, id)
+			return err
+		},
 		fields: func(d *models.Driver) rosterFields {
 			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}
 		},
@@ -110,8 +118,8 @@ func (r *driverRepository) Create(ctx context.Context, d *models.Driver) (*model
 	return r.CreateWithLabels(ctx, d, nil)
 }
 
-func (r *driverRepository) CreateBatch(ctx context.Context, drivers []*models.Driver, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
-	return r.writes().createBatch(ctx, drivers, allowExistingDuplicate)
+func (r *driverRepository) UpsertBatch(ctx context.Context, drivers []*models.Driver) (database.BatchUpsertResult, error) {
+	return r.writes().upsertBatch(ctx, drivers)
 }
 
 func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {

@@ -87,7 +87,7 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 		t.Fatal("coordinate-complete rows unexpectedly started geocoding")
 	}
 
-	// This duplicate appears after preview and gets skipped during creation.
+	// This duplicate appears after preview and gets updated instead of created.
 	db.participants.addExisting(models.Participant{Name: " second ", Address: "2   MAIN ST", Lat: 40.2, Lng: -73.2})
 	selected := []bool{true, true, false}
 	selectedSnapshot, err := store.SelectRows(created.ID, selected)
@@ -101,7 +101,7 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if result != (CommitResult{Created: 1, SkippedDuplicate: 1, NotSelected: 1}) {
+	if result != (CommitResult{Created: 1, Updated: 1, NotSelected: 1}) {
 		t.Fatalf("Commit() result = %#v", result)
 	}
 	if _, err := store.Commit(context.Background(), created.ID, selected); !errors.Is(err, ErrCommitConsumed) {
@@ -112,7 +112,7 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	}
 }
 
-func TestCommitAllowsExplicitPreviewDuplicateOverride(t *testing.T) {
+func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 	db := newFakeDataStore()
 	db.participants.addExisting(models.Participant{Name: "Existing Rider", Address: "1 Main St", Lat: 40.1, Lng: -73.1})
 	store := newStore(nil, db, time.Hour, time.Hour, time.Now)
@@ -126,15 +126,18 @@ func TestCommitAllowsExplicitPreviewDuplicateOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
-	if !preview.Rows[0].DuplicateOfExisting || preview.Selected[0] {
-		t.Fatalf("duplicate preview row = %#v selected=%v", preview.Rows[0], preview.Selected[0])
+	if !preview.Rows[0].DuplicateOfExisting || !preview.Selected[0] {
+		t.Fatalf("duplicate preview row = %#v selected=%v, want flagged and selected", preview.Rows[0], preview.Selected[0])
 	}
 	result, err := store.Commit(context.Background(), created.ID, []bool{true})
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if result != (CommitResult{Created: 1}) {
-		t.Fatalf("Commit() result = %#v, want one override-created row", result)
+	if result != (CommitResult{Updated: 1}) {
+		t.Fatalf("Commit() result = %#v, want one updated row", result)
+	}
+	if rows, _ := db.participants.List(context.Background(), ""); len(rows) != 1 {
+		t.Fatalf("participants after commit = %d, want the existing row only", len(rows))
 	}
 }
 
@@ -400,23 +403,25 @@ func (r *fakeParticipantRepository) List(context.Context, string) ([]models.Part
 	return append([]models.Participant(nil), r.rows...), nil
 }
 
-func (r *fakeParticipantRepository) CreateBatch(_ context.Context, batch []*models.Participant, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
+func (r *fakeParticipantRepository) UpsertBatch(_ context.Context, batch []*models.Participant) (database.BatchUpsertResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.batchCall++
-	keys := make(map[string]struct{}, len(r.rows))
+	keys := make(map[string]int, len(r.rows))
 	for i := range r.rows {
-		keys[DuplicateKey(r.rows[i].Name, r.rows[i].Address)] = struct{}{}
+		keys[DuplicateKey(r.rows[i].Name, r.rows[i].Address)] = i
 	}
-	result := database.BatchCreateResult{}
-	for i, participant := range batch {
+	result := database.BatchUpsertResult{}
+	for _, participant := range batch {
 		key := DuplicateKey(participant.Name, participant.Address)
-		if _, duplicate := keys[key]; duplicate && (i >= len(allowExistingDuplicate) || !allowExistingDuplicate[i]) {
-			result.SkippedDuplicate++
+		if i, duplicate := keys[key]; duplicate {
+			participant.ID = r.rows[i].ID
+			result.Updated++
 			continue
 		}
 		participant.ID = r.nextID
 		r.nextID++
+		keys[key] = len(r.rows)
 		r.rows = append(r.rows, *participant)
 		result.Created++
 	}
@@ -450,22 +455,24 @@ func (r *fakeDriverRepository) List(context.Context, string) ([]models.Driver, e
 	return append([]models.Driver(nil), r.rows...), nil
 }
 
-func (r *fakeDriverRepository) CreateBatch(_ context.Context, batch []*models.Driver, allowExistingDuplicate []bool) (database.BatchCreateResult, error) {
+func (r *fakeDriverRepository) UpsertBatch(_ context.Context, batch []*models.Driver) (database.BatchUpsertResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	keys := make(map[string]struct{}, len(r.rows))
+	keys := make(map[string]int, len(r.rows))
 	for i := range r.rows {
-		keys[DuplicateKey(r.rows[i].Name, r.rows[i].Address)] = struct{}{}
+		keys[DuplicateKey(r.rows[i].Name, r.rows[i].Address)] = i
 	}
-	result := database.BatchCreateResult{}
-	for i, driver := range batch {
+	result := database.BatchUpsertResult{}
+	for _, driver := range batch {
 		key := DuplicateKey(driver.Name, driver.Address)
-		if _, duplicate := keys[key]; duplicate && (i >= len(allowExistingDuplicate) || !allowExistingDuplicate[i]) {
-			result.SkippedDuplicate++
+		if i, duplicate := keys[key]; duplicate {
+			driver.ID = r.rows[i].ID
+			result.Updated++
 			continue
 		}
 		driver.ID = r.nextID
 		r.nextID++
+		keys[key] = len(r.rows)
 		r.rows = append(r.rows, *driver)
 		result.Created++
 	}
