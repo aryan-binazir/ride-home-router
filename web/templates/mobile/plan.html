@@ -1,0 +1,41 @@
+{{define "mobile_content"}}
+<section class="mobile-screen mobile-plan">
+  <header class="mobile-title">
+    <h1>Plan</h1>
+    <p>Set the four things, then calculate.</p>
+  </header>
+  <div class="mobile-group mobile-summary">
+    <a class="mobile-row" href="/m/plan/location">
+      <span>Location</span>
+      <strong>{{if .Location}}{{.Location.Name}}<small>{{.Location.Address}}</small>{{else}}Choose{{end}}</strong>
+      <i></i>
+    </a>
+    <a class="mobile-row" href="/m/plan/riders">
+      <span>Riders</span>
+      <strong>{{len .Participants}} selected{{if .Participants}}<small>{{(index .Participants 0).Name}}{{if gt (len .Participants) 1}} +{{add (len .Participants) -1}}{{end}}</small>{{end}}</strong>
+      <i></i>
+    </a>
+    <a class="mobile-row" href="/m/plan/drivers">
+      <span>Drivers</span>
+      <strong>{{len .Drivers}} selected{{if .Drivers}}<small>{{.SeatCount}} seats</small>{{end}}</strong>
+      <i></i>
+    </a>
+    <a class="mobile-row" href="/m/plan/when">
+      <span>When</span>
+      <strong>{{.RouteTimeDisplay}}<small>{{if eq .Draft.Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</small></strong>
+      <i></i>
+    </a>
+  </div>
+  <p class="mobile-help">Dropoff routes begin at the activity location. Pickup routes end there.</p>
+  {{with .LastEvent}}
+  <h2 class="mobile-section-title">Last event</h2>
+  <a class="mobile-group mobile-row" href="/m/history/{{.ID}}">
+    <span><b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b><small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers{{end}}</small></span>
+    <i></i>
+  </a>
+  {{end}}
+  <form class="mobile-primary-zone" action="/m/calculate" method="post">
+    <button class="mobile-button" type="submit" {{if or (not .Location) (eq (len .Participants) 0) (eq (len .Drivers) 0)}}disabled{{end}}>Calculate routes</button>
+  </form>
+</section>
+{{end}}

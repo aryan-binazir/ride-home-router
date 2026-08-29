@@ -819,6 +819,7 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 
 	templatesFS := fstest.MapFS{
 		"templates/layout.html":             {Data: []byte(`{{template "content" .}}`)},
+		"templates/mobile/layout.html":      {Data: []byte(`{{template "mobile_content" .}}`)},
 		"templates/partials/events.html":    {Data: []byte(testEventTemplates)},
 		"templates/index.html":              {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/participants.html":       {Data: []byte(`{{define "content"}}test{{end}}`)},
@@ -828,6 +829,12 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 		"templates/vans.html":               {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/settings.html":           {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/history.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},
+	}
+	for _, name := range []string{
+		"plan.html", "location.html", "riders.html", "drivers.html", "when.html", "routes.html",
+		"people.html", "person_form.html", "places.html", "place_form.html", "history.html", "history_detail.html", "error.html",
+	} {
+		templatesFS["templates/mobile/"+name] = &fstest.MapFile{Data: []byte(`{{define "mobile_content"}}test{{end}}`)}
 	}
 	renderer, err := templates.New(templatesFS)
 	if err != nil {

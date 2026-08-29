@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	messageAddressRequired                               = "Address is required"
+	messageAddressRequired                               = "address is required"
 	messageChooseActivityLocationForEvent                = "Please choose an activity location for this event."
 	messageChooseRouteTime                               = "please choose a route time"
 	messageChooseValidActivityLocation                   = "Please choose a valid activity location."
@@ -28,7 +28,7 @@ const (
 	messageInvalidRouteMode                              = "Please choose a valid route mode."
 	messageInvalidRoutesData                             = "Invalid routes data"
 	messageNameAndAddressRequired                        = "name and address are required"
-	messageNameRequired                                  = "Name is required"
+	messageNameRequired                                  = "name is required"
 	messageOrganizationVehicleNotFound                   = "organization vehicle not found"
 	messageParticipantNotFound                           = "participant not found"
 	messagePreferencesSaved                              = "Preferences saved!"

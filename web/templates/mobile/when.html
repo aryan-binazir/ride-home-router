@@ -1,0 +1,25 @@
+{{define "mobile_content"}}
+<form class="mobile-screen" action="/m/plan/when" method="post">
+  {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "When")}}
+  <div class="mobile-form-card">
+    <label>
+      <span id="route-time-label">{{if eq .Mode "pickup"}}Arrive at activity location by{{else}}Depart activity location at{{end}}</span>
+      <input type="time" name="route_time" value="{{.RouteTime}}"
+        aria-label="{{if eq .Mode "pickup"}}Arrive at activity location by{{else}}Depart activity location at{{end}}" required>
+    </label>
+    <fieldset>
+      <legend>Route mode</legend>
+      <label class="mobile-segment">
+        <input type="radio" name="mode" value="dropoff" {{if ne .Mode "pickup"}}checked{{end}}>
+        <span>Dropoff</span>
+      </label>
+      <label class="mobile-segment">
+        <input type="radio" name="mode" value="pickup" {{if eq .Mode "pickup"}}checked{{end}}>
+        <span>Pickup</span>
+      </label>
+    </fieldset>
+  </div>
+  <p class="mobile-help" id="route-time-help">{{if eq .Mode "pickup"}}Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.{{else}}Used to calculate the expected arrival time at each stop in copied driver and parent lists.{{end}}</p>
+  <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>
+</form>
+{{end}}

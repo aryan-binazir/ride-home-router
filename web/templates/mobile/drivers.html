@@ -1,0 +1,60 @@
+{{define "mobile_content"}}
+<form id="mobile-driver-picker" class="mobile-screen" action="/m/plan/drivers" method="post">
+  {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Drivers")}}
+  <div class="mobile-search">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/>
+      <path d="m20 20-3.5-3.5"/>
+    </svg>
+    <input type="search" name="search" value="{{.Search}}" placeholder="Search drivers" aria-label="Search drivers"
+      hx-post="/m/plan/drivers" hx-trigger="input changed delay:300ms" hx-include="#mobile-driver-picker"
+      hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
+  </div>
+  {{if .Labels}}
+  <div class="mobile-chips" aria-label="Filter drivers by label">
+    <label class="mobile-chip {{if eq .LabelID 0}}is-active{{end}}">
+      <input class="mobile-chip-input" type="radio" name="label" value="" {{if eq .LabelID 0}}checked{{end}}
+        hx-post="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
+        hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
+      <span>All</span>
+    </label>
+    {{range .Labels}}
+    <label class="mobile-chip {{if eq .ID $.LabelID}}is-active{{end}}">
+      <input class="mobile-chip-input" type="radio" name="label" value="{{.ID}}" {{if eq .ID $.LabelID}}checked{{end}}
+        hx-post="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
+        hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
+      <span>{{.Name}}</span>
+    </label>
+    {{end}}
+  </div>
+  {{end}}
+  <p class="mobile-count">{{.SelectedSeats}} seats selected <a href="/m/people/drivers/new">Add driver</a></p>
+  <div id="mobile-driver-results">
+    {{range .HiddenSelectedIDs}}{{$driverID := .}}
+    <input type="hidden" name="driver_ids" value="{{$driverID}}">
+    {{with index $.Assignments $driverID}}<input type="hidden" name="org_vehicle_{{$driverID}}" value="{{.}}">{{end}}
+    {{end}}
+    <div class="mobile-group mobile-choice-list">
+      {{range .Drivers}}{{$driver := .}}
+      <div class="mobile-driver-choice">
+        <label class="mobile-row mobile-choice">
+          <input type="checkbox" name="driver_ids" value="{{.ID}}" {{if index $.Selected .ID}}checked{{end}}>
+          <span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>
+          <em>{{.VehicleCapacity}} seats</em>
+        </label>
+        <label class="mobile-vehicle">
+          <span>Vehicle</span>
+          <select name="org_vehicle_{{.ID}}">
+            <option value="">Personal vehicle</option>
+            {{range $.Vehicles}}
+            <option value="{{.ID}}" {{if eq .ID (index $.Assignments $driver.ID)}}selected{{end}}>{{.Name}} · {{.Capacity}} seats</option>
+            {{end}}
+          </select>
+        </label>
+      </div>
+      {{else}}<p class="mobile-empty">No drivers found.</p>{{end}}
+    </div>
+  </div>
+  <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>
+</form>
+{{end}}

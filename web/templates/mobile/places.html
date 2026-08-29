@@ -1,0 +1,34 @@
+{{define "mobile_content"}}
+<section class="mobile-screen">
+  <header class="mobile-title">
+    <h1>Places</h1>
+    <p>Activity locations and shared vans.</p>
+  </header>
+  <div class="mobile-split-actions">
+    <a class="mobile-button" href="/m/places/locations/new">Add location</a>
+    <a class="mobile-button mobile-button-secondary" href="/m/places/vans/new">Add van</a>
+  </div>
+  <h2 class="mobile-section-title">Activity locations</h2>
+  <div class="mobile-group">
+    {{range .Locations}}
+    <a class="mobile-row" href="/m/places/locations/{{.ID}}/edit">
+      <span><b>{{.Name}}</b><small>{{.Address}}</small></span>
+      <i></i>
+    </a>
+    {{else}}
+    <p class="mobile-empty">No locations yet.</p>
+    {{end}}
+  </div>
+  <h2 class="mobile-section-title">Vans</h2>
+  <div class="mobile-group">
+    {{range .Vans}}
+    <a class="mobile-row" href="/m/places/vans/{{.ID}}/edit">
+      <span><b>{{.Name}}</b><small>{{.Capacity}} passenger seats</small></span>
+      <i></i>
+    </a>
+    {{else}}
+    <p class="mobile-empty">No vans yet.</p>
+    {{end}}
+  </div>
+</section>
+{{end}}

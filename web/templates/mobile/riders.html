@@ -1,0 +1,48 @@
+{{define "mobile_content"}}
+<form id="mobile-rider-picker" class="mobile-screen" action="/m/plan/riders" method="post">
+  {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Riders")}}
+  <div class="mobile-search">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/>
+      <path d="m20 20-3.5-3.5"/>
+    </svg>
+    <input type="search" name="search" value="{{.Search}}" placeholder="Search participants" aria-label="Search participants"
+      hx-post="/m/plan/riders" hx-trigger="input changed delay:300ms" hx-include="#mobile-rider-picker"
+      hx-target="#mobile-rider-results" hx-select="#mobile-rider-results" hx-swap="outerHTML">
+  </div>
+  {{if .Labels}}
+  <div class="mobile-chips" aria-label="Filter participants by label">
+    <label class="mobile-chip {{if eq .LabelID 0}}is-active{{end}}">
+      <input class="mobile-chip-input" type="radio" name="label" value="" {{if eq .LabelID 0}}checked{{end}}
+        hx-post="/m/plan/riders" hx-trigger="change" hx-include="#mobile-rider-picker"
+        hx-target="#mobile-rider-results" hx-select="#mobile-rider-results" hx-swap="outerHTML">
+      <span>All</span>
+    </label>
+    {{range .Labels}}
+    <label class="mobile-chip {{if eq .ID $.LabelID}}is-active{{end}}">
+      <input class="mobile-chip-input" type="radio" name="label" value="{{.ID}}" {{if eq .ID $.LabelID}}checked{{end}}
+        hx-post="/m/plan/riders" hx-trigger="change" hx-include="#mobile-rider-picker"
+        hx-target="#mobile-rider-results" hx-select="#mobile-rider-results" hx-swap="outerHTML">
+      <span>{{.Name}}</span>
+    </label>
+    {{end}}
+  </div>
+  {{end}}
+  <p class="mobile-count">Choose riders</p>
+  <div id="mobile-rider-results">
+    {{range .HiddenSelectedIDs}}
+    <input type="hidden" name="participant_ids" value="{{.}}">
+    {{end}}
+    <div class="mobile-group mobile-choice-list">
+      {{range .Participants}}
+      <label class="mobile-row mobile-choice">
+        <input type="checkbox" name="participant_ids" value="{{.ID}}" {{if index $.Selected .ID}}checked{{end}}>
+        <span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>
+        {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.LabelIDs .ID))}}
+      </label>
+      {{else}}<p class="mobile-empty">No participants found.</p>{{end}}
+    </div>
+  </div>
+  <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>
+</form>
+{{end}}

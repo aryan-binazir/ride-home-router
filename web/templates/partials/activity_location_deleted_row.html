@@ -3,15 +3,17 @@
     <td data-col="Name">{{.Name}}</td>
     <td data-col="Address">{{.Address}}</td>
     <td data-col="Deleted">{{if .DeletedAt}}{{formatDeletedAt .DeletedAt}}{{end}}</td>
-    <td class="table-actions-cell">
-        <button type="button"
-                class="btn btn-sm btn-outline"
-                hx-post="/api/v1/activity-locations/restore"
-                hx-vals='{"id":"{{.ID}}"}'
-                hx-target="closest tr"
-                hx-swap="outerHTML">
-            Restore
-        </button>
+    <td class="table-actions-cell" data-col="Actions">
+        <div class="table-actions">
+            <button type="button"
+                    class="btn btn-sm btn-outline"
+                    hx-post="/api/v1/activity-locations/restore"
+                    hx-vals='{"id":"{{.ID}}"}'
+                    hx-target="closest tr"
+                    hx-swap="outerHTML">
+                Restore
+            </button>
+        </div>
     </td>
 </tr>
 {{end}}

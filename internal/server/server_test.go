@@ -135,6 +135,113 @@ func TestSetupRoutesDispatchesParticipantRestoreAndDeletedCollectionActions(t *t
 	}
 }
 
+func TestSetupRoutesRedirectsMobileClientHint(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	request.Header.Set("Sec-CH-UA-Mobile", "?1")
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != "/m" {
+		t.Fatalf("redirect = %d %q, want 307 /m", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestSetupRoutesRedirectsMobileQueryFlag(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/?m=1", nil)
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != "/m" {
+		t.Fatalf("redirect = %d %q, want 307 /m", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestSetupRoutesRedirectsMobileUserAgents(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+
+	for _, test := range []struct {
+		name      string
+		userAgent string
+	}{
+		{name: "Mobile", userAgent: "Mozilla/5.0 Mobile/15E148"},
+		{name: "Android", userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 9)"},
+		{name: "iPhone", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X)"},
+		{name: "iPad", userAgent: "Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+			request.Header.Set("User-Agent", test.userAgent)
+			response := httptest.NewRecorder()
+
+			mux.ServeHTTP(response, request)
+
+			if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != "/m" {
+				t.Fatalf("redirect = %d %q, want 307 /m", response.Code, response.Header().Get("Location"))
+			}
+		})
+	}
+}
+
+func TestShouldRedirectToMobileHonorsDesktopPreference(t *testing.T) {
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/?m=1", nil)
+	request.Header.Set("Sec-CH-UA-Mobile", "?1")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (iPhone)")
+	request.AddCookie(&http.Cookie{
+		Name:     "prefer_desktop",
+		Value:    "1",
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	if shouldRedirectToMobile(request) {
+		t.Fatal("shouldRedirectToMobile() = true, want prefer_desktop to suppress redirect")
+	}
+}
+
+func TestSetupRoutesSetsAndClearsDesktopPreference(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+
+	setRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/desktop", nil)
+	setResponse := httptest.NewRecorder()
+	mux.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusSeeOther || setResponse.Header().Get("Location") != "/" {
+		t.Fatalf("set redirect = %d %q, want 303 /", setResponse.Code, setResponse.Header().Get("Location"))
+	}
+	setCookies := setResponse.Result().Cookies()
+	if len(setCookies) != 1 || setCookies[0].Name != "prefer_desktop" || setCookies[0].Value != "1" || setCookies[0].MaxAge <= 0 {
+		t.Fatalf("set cookies = %#v, want persistent prefer_desktop=1", setCookies)
+	}
+
+	clearRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/desktop-preference?clear=1", nil)
+	clearRequest.AddCookie(setCookies[0])
+	clearResponse := httptest.NewRecorder()
+	mux.ServeHTTP(clearResponse, clearRequest)
+	if clearResponse.Code != http.StatusSeeOther || clearResponse.Header().Get("Location") != "/m" {
+		t.Fatalf("clear redirect = %d %q, want 303 /m", clearResponse.Code, clearResponse.Header().Get("Location"))
+	}
+	clearCookies := clearResponse.Result().Cookies()
+	if len(clearCookies) != 1 || clearCookies[0].Name != "prefer_desktop" || clearCookies[0].MaxAge >= 0 {
+		t.Fatalf("clear cookies = %#v, want expired prefer_desktop", clearCookies)
+	}
+}
+
+func TestSetupRoutesRejectsDesktopPreferenceWithoutClearFlag(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/desktop-preference", nil)
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", response.Code)
+	}
+}
+
 func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T) {
 	var editCalled bool
 

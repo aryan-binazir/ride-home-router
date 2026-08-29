@@ -1,0 +1,36 @@
+{{define "mobile_content"}}
+<section class="mobile-screen">
+  {{template "mobile_back_header" (dict "BackURL" "/m/history" "BackLabel" "History" "Title" .Title)}}
+  <header class="mobile-detail-title">
+    <h2>{{if .Event.Notes}}{{.Event.Notes}}{{else}}Saved event{{end}}</h2>
+    <p>{{formatDate .Event.EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers{{end}}</p>
+  </header>
+  {{range $index, $saved := .Routes}}
+  <article class="mobile-route-card">
+    <details open>
+      <summary>
+        <span class="mobile-avatar">{{initials .Route.DriverName}}</span>
+        <span>
+          <b>{{.Route.DriverName}}</b>
+          <small>{{len .Route.Stops}} passengers · {{formatDistance .Route.TotalDistanceMeters $.UseMiles}}{{if .Route.OrgVehicleName}} · {{.Route.OrgVehicleName}}{{end}}</small>
+        </span>
+      </summary>
+      <ol class="mobile-stops">
+        {{range .Route.Stops}}
+        <li>
+          <span class="mobile-stop-number">{{add .Order 1}}</span>
+          <div><b>{{.ParticipantName}}</b><small>{{displayAddress .ParticipantAddressName .ParticipantAddress}}</small></div>
+        </li>
+        {{end}}
+      </ol>
+      <div class="mobile-route-actions">
+        <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="saved-driver-copy-{{$index}}" aria-live="polite">Copy</button>
+        <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="saved-parent-copy-{{$index}}" aria-live="polite">Copy for parents</button>
+      </div>
+      <textarea id="saved-driver-copy-{{$index}}" hidden>{{.DriverText}}</textarea>
+      <textarea id="saved-parent-copy-{{$index}}" hidden>{{.ParentText}}</textarea>
+    </details>
+  </article>
+  {{end}}
+</section>
+{{end}}

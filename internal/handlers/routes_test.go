@@ -1583,8 +1583,8 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 	body := w.Body.String()
 	for _, fragment := range []string{
 		`data-route-mode="pickup"`,
-		"Pickup Distance:",
-		"To Activity:",
+		"<dt>Pickup</dt>",
+		"<dt>To Activity</dt>",
 		"from Driver1's home",
 		"Unused Drivers (1)",
 		"Driver2",

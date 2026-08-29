@@ -251,60 +251,18 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var createdEvent *models.Event
 	var savedRouteCount int
 	persist := func(ctx context.Context, result models.RoutingResult) error {
-		eventDate, err := time.Parse("2006-01-02", req.EventDate)
+		created, routeCount, err := h.persistEvent(ctx, req.EventDate, req.Notes, result)
 		if err != nil {
-			log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", req.EventDate, err)
-			return eventValidationError{message: messageInvalidEventDateFormat, cause: err}
-		}
-
-		snapshot, err := eventsnapshot.Build(result)
-		if err != nil {
-			log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
-			message := err.Error()
-			if errors.Is(err, models.ErrInvalidRouteMode) {
-				message = messageInvalidRouteMode
-			}
-			return eventValidationError{message: message, cause: err}
-		}
-
-		event := &models.Event{EventDate: eventDate, Notes: req.Notes, Mode: snapshot.Mode}
-		created, err := h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
-		if err != nil {
-			log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%v", req.EventDate, len(snapshot.Routes), err)
 			return err
 		}
 		createdEvent = created
-		savedRouteCount = len(snapshot.Routes)
+		savedRouteCount = routeCount
 		return nil
 	}
 
 	if req.SessionID != "" {
-		sessionErr := h.RouteSession.Commit(r.Context(), req.SessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot) error {
-			if err := persist(ctx, snapshot.RoutingResult()); err != nil {
-				return err
-			}
-			if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
-				return nil
-			}
-			feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
-			settings, err := h.DB.Settings().Get(feedbackCtx)
-			if err != nil {
-				log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
-				return nil
-			}
-			email, ok := routefeedback.ShouldCapture(r, settings)
-			if !ok {
-				return nil
-			}
-			record := routefeedback.Build(snapshot)
-			record.EventID = createdEvent.ID
-			record.SMEEmail = email
-			if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
-				log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
-			}
-			return nil
-		})
+		var sessionErr error
+		createdEvent, savedRouteCount, sessionErr = h.commitEventSession(r, req.SessionID, req.EventDate, req.Notes)
 		if h.handleEventValidationError(w, sessionErr) {
 			return
 		}
@@ -361,6 +319,67 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusCreated, createdEvent)
+}
+
+func (h *Handler) commitEventSession(r *http.Request, sessionID, date, notes string) (*models.Event, int, error) {
+	var createdEvent *models.Event
+	var savedRouteCount int
+	err := h.RouteSession.Commit(r.Context(), sessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot) error {
+		created, routeCount, err := h.persistEvent(ctx, date, notes, snapshot.RoutingResult())
+		if err != nil {
+			return err
+		}
+		createdEvent = created
+		savedRouteCount = routeCount
+		if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
+			return nil
+		}
+		feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		settings, err := h.DB.Settings().Get(feedbackCtx)
+		if err != nil {
+			log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+			return nil
+		}
+		email, ok := routefeedback.ShouldCapture(r, settings)
+		if !ok {
+			return nil
+		}
+		record := routefeedback.Build(snapshot)
+		record.EventID = createdEvent.ID
+		record.SMEEmail = email
+		if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
+			log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+		}
+		return nil
+	})
+	return createdEvent, savedRouteCount, err
+}
+
+func (h *Handler) persistEvent(ctx context.Context, date, notes string, result models.RoutingResult) (*models.Event, int, error) {
+	eventDate, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", date, err)
+		return nil, 0, eventValidationError{message: messageInvalidEventDateFormat, cause: err}
+	}
+
+	snapshot, err := eventsnapshot.Build(result)
+	if err != nil {
+		log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
+		message := err.Error()
+		if errors.Is(err, models.ErrInvalidRouteMode) {
+			message = messageInvalidRouteMode
+		}
+		return nil, 0, eventValidationError{message: message, cause: err}
+	}
+
+	event := &models.Event{EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
+	created, err := h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%v", date, len(snapshot.Routes), err)
+		return nil, 0, err
+	}
+	return created, len(snapshot.Routes), nil
 }
 
 func (h *Handler) parsePostedRoutesJSON(w http.ResponseWriter, routesJSON string) (*models.RoutingResult, bool) {

@@ -1,0 +1,15 @@
+{{define "mobile_content"}}
+<section class="mobile-screen">
+  <header class="mobile-title">
+    <h1>History</h1>
+    <p>Saved routes stay ready to review.</p>
+  </header>
+  {{if .Groups}}
+  <div id="mobile-history-status">{{template "mobile_history_status" .}}</div>
+  <div id="mobile-history-items">{{template "mobile_history_items" .}}</div>
+  <div id="mobile-history-pagination">{{template "mobile_history_pagination" .}}</div>
+  {{else}}
+  <div class="mobile-group"><p class="mobile-empty">No saved events yet.</p></div>
+  {{end}}
+</section>
+{{end}}
