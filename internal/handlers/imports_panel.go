@@ -183,63 +183,28 @@ func importMappingColumns(mapping importer.Mapping) []importMappingBinding {
 	}
 }
 
-func setImportMappingColumn(mapping *importer.Mapping, field importer.Field, column int) {
-	switch field {
-	case importer.FieldName:
-		mapping.NameColumn = column
-	case importer.FieldAddress:
-		mapping.AddressColumn = column
-	case importer.FieldAddressName:
-		mapping.AddressNameColumn = column
-	case importer.FieldLatitude:
-		mapping.LatitudeColumn = column
-	case importer.FieldLongitude:
-		mapping.LongitudeColumn = column
-	case importer.FieldCapacity:
-		mapping.CapacityColumn = column
-	}
-}
-
-// importMappingFromForm treats every unlisted column as ignored.
+// importMappingFromForm reads one dropdown per file column. The panel form is
+// authoritative for every column, so an unlisted column is ignored and no
+// ambiguity survives the round trip.
 func importMappingFromForm(r *http.Request, snapshot importer.Snapshot) (importer.Mapping, []string) {
 	isDriver := snapshot.Kind == importer.KindDriver
-	mapping := importer.Mapping{
-		NameColumn:        importer.UnmappedColumn,
-		AddressColumn:     importer.UnmappedColumn,
-		AddressNameColumn: importer.UnmappedColumn,
-		LatitudeColumn:    importer.UnmappedColumn,
-		LongitudeColumn:   importer.UnmappedColumn,
-		CapacityColumn:    importer.UnmappedColumn,
-		Ambiguous:         make(map[importer.Field][]int),
-	}
-
-	claimed := make(map[importer.Field]bool)
-	reported := make(map[importer.Field]bool)
-	var problems []string
+	assignments := make([]importer.FieldColumn, 0, len(snapshot.Grid.Headers))
 	for column := range snapshot.Grid.Headers {
 		field, ok := importFieldFromValue(r.FormValue(fmt.Sprintf("column_%d", column)), isDriver)
-		if !ok {
-			mapping.Ignored = append(mapping.Ignored, column)
-			continue
+		if ok {
+			assignments = append(assignments, importer.FieldColumn{Field: field, Column: column})
 		}
-		if claimed[field] {
-			if !reported[field] {
-				reported[field] = true
-				problems = append(problems, fmt.Sprintf("%s is mapped to more than one column — pick one.", importFieldLabel(field)))
-			}
-			continue
-		}
-		claimed[field] = true
-		setImportMappingColumn(&mapping, field, column)
 	}
 
-	if mapping.NameColumn == importer.UnmappedColumn {
-		problems = append(problems, "Choose a column for Name.")
+	transition := importer.NewMapping().Assign(assignments, len(snapshot.Grid.Headers))
+	var problems []string
+	for _, field := range transition.DuplicateFields {
+		problems = append(problems, fmt.Sprintf("%s is mapped to more than one column — pick one.", importFieldLabel(field)))
 	}
-	if mapping.AddressColumn == importer.UnmappedColumn {
-		problems = append(problems, "Choose a column for Address.")
+	for _, field := range transition.MissingRequired {
+		problems = append(problems, fmt.Sprintf("Choose a column for %s.", importFieldLabel(field)))
 	}
-	return mapping, problems
+	return transition.Mapping, problems
 }
 
 func importSelectionFromForm(r *http.Request, rowCount int) []bool {

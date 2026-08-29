@@ -111,11 +111,10 @@ func validateMapping(m Mapping, kind Kind, width int) []string {
 	if kind != KindParticipant && kind != KindDriver {
 		validationErrors = append(validationErrors, fmt.Sprintf("unsupported roster kind %q", kind))
 	}
-	if m.NameColumn == UnmappedColumn {
-		validationErrors = append(validationErrors, "mapping must include the required name field")
-	}
-	if m.AddressColumn == UnmappedColumn {
-		validationErrors = append(validationErrors, "mapping must include the required address field")
+	for _, field := range requiredFields {
+		if m.column(field) == UnmappedColumn {
+			validationErrors = append(validationErrors, fmt.Sprintf("mapping must include the required %s field", field))
+		}
 	}
 
 	used := make(map[int]Field)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -141,6 +142,64 @@ func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
 	}
 }
 
+func TestImportMappingFromFormCapacityByRosterKind(t *testing.T) {
+	tests := []struct {
+		name         string
+		kind         importer.Kind
+		wantCapacity int
+		wantIgnored  []int
+	}{
+		{name: "participant ignores forged capacity", kind: importer.KindParticipant, wantCapacity: importer.UnmappedColumn, wantIgnored: []int{2}},
+		{name: "driver maps capacity", kind: importer.KindDriver, wantCapacity: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
+				"column_0": {"name"}, "column_1": {"address"}, "column_2": {"capacity"},
+			})
+			mapping, problems := importMappingFromForm(request, importer.Snapshot{
+				Kind: test.kind,
+				Grid: importer.Grid{Headers: []string{"name", "address", "capacity"}},
+			})
+
+			if problems != nil {
+				t.Fatalf("problems = %#v, want nil", problems)
+			}
+			if mapping.CapacityColumn != test.wantCapacity {
+				t.Fatalf("CapacityColumn = %d, want %d", mapping.CapacityColumn, test.wantCapacity)
+			}
+			if !slices.Equal(mapping.Ignored, test.wantIgnored) {
+				t.Fatalf("Ignored = %#v, want %#v", mapping.Ignored, test.wantIgnored)
+			}
+		})
+	}
+}
+
+func TestImportMappingFromFormProblemsPreserveSnapshotView(t *testing.T) {
+	headers := []string{"name", "address"}
+	snapshot := importer.Snapshot{
+		Kind:    importer.KindParticipant,
+		Grid:    importer.Grid{Headers: headers},
+		Mapping: importer.AutoMap(headers),
+	}
+	request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
+		"column_0": {"name"}, "column_1": {"name"},
+	})
+	_, problems := importMappingFromForm(request, snapshot)
+
+	wantProblems := []string{
+		"Name is mapped to more than one column — pick one.",
+		"Choose a column for Address.",
+	}
+	if !slices.Equal(problems, wantProblems) {
+		t.Fatalf("problems = %#v, want %#v", problems, wantProblems)
+	}
+	view := newImportMappingView(snapshot, problems)
+	if view.Columns[1].Selected != string(importer.FieldAddress) {
+		t.Fatalf("address selection = %q, want snapshot selection %q", view.Columns[1].Selected, importer.FieldAddress)
+	}
+}
+
 func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
@@ -161,6 +220,9 @@ func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	}
 	if !strings.Contains(body, `name="column_0"`) {
 		t.Fatalf("mapping table should be re-rendered: %s", body)
+	}
+	if !strings.Contains(body, `<option value="address" selected>Address</option>`) {
+		t.Fatalf("mapping problems should re-render the original snapshot selections: %s", body)
 	}
 }
 
