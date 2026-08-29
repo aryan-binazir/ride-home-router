@@ -29,12 +29,34 @@
         }
     }
 
+    document.addEventListener('change', event => {
+        const checkbox = event.target;
+        if (!checkbox.matches?.('input[name="driver_ids"]') || checkbox.checked) return;
+        const select = checkbox.closest('.mobile-driver-choice')?.querySelector('select[name^="org_vehicle_"]');
+        if (select) select.value = '';
+    });
+
+    document.addEventListener('submit', event => {
+        const form = event.target;
+        if (!form.matches?.('#mobile-driver-picker')) return;
+        const selected = new Set(
+            Array.from(form.querySelectorAll('input[name="driver_ids"]'))
+                .filter(input => input.checked)
+                .map(input => input.value),
+        );
+        for (const select of form.querySelectorAll('select[name^="org_vehicle_"]')) {
+            const driverID = select.name.slice('org_vehicle_'.length);
+            select.disabled = !selected.has(driverID) || !select.value;
+        }
+    }, true);
+
     document.addEventListener('click', async event => {
         const copyButton = event.target.closest('[data-copy-target]');
         if (copyButton) {
             const source = document.getElementById(copyButton.dataset.copyTarget);
             if (!source) return;
-            const label = copyButton.textContent;
+            copyButton.dataset.copyOriginalLabel ||= copyButton.textContent;
+            const label = copyButton.dataset.copyOriginalLabel;
             copyButton.textContent = await copyText(source) ? 'Copied' : 'Copy failed';
             window.setTimeout(() => { copyButton.textContent = label; }, 1400);
             return;

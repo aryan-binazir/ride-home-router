@@ -7,21 +7,21 @@
       <path d="m20 20-3.5-3.5"/>
     </svg>
     <input type="search" name="search" value="{{.Search}}" placeholder="Search drivers" aria-label="Search drivers"
-      hx-get="/m/plan/drivers" hx-trigger="input changed delay:300ms" hx-include="#mobile-driver-picker"
+      hx-post="/m/plan/drivers" hx-trigger="input changed delay:300ms" hx-include="#mobile-driver-picker"
       hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
   </div>
   {{if .Labels}}
   <div class="mobile-chips" aria-label="Filter drivers by label">
     <label class="mobile-chip {{if eq .LabelID 0}}is-active{{end}}">
       <input class="mobile-chip-input" type="radio" name="label" value="" {{if eq .LabelID 0}}checked{{end}}
-        hx-get="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
+        hx-post="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
         hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
       <span>All</span>
     </label>
     {{range .Labels}}
     <label class="mobile-chip {{if eq .ID $.LabelID}}is-active{{end}}">
       <input class="mobile-chip-input" type="radio" name="label" value="{{.ID}}" {{if eq .ID $.LabelID}}checked{{end}}
-        hx-get="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
+        hx-post="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
         hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
       <span>{{.Name}}</span>
     </label>

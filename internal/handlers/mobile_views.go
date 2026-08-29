@@ -122,8 +122,12 @@ type mobilePlaceFormView struct {
 
 type mobileHistoryView struct {
 	mobileBaseView
-	Groups   []mobileHistoryGroup
-	UseMiles bool
+	Groups         []mobileHistoryGroup
+	UseMiles       bool
+	Total          int
+	DisplayedCount int
+	NextOffset     int
+	PageSize       int
 }
 
 type mobileHistoryGroup struct {

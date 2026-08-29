@@ -5,11 +5,14 @@ import (
 	"encoding/hex"
 	"maps"
 	"ride-home-router/internal/models"
+	"slices"
 	"sync"
 	"time"
 )
 
 const (
+	MaxConcurrentDrafts    = 256
+	MaxSelectionSize       = 500
 	defaultTTL             = 8 * time.Hour
 	defaultCleanupInterval = 15 * time.Minute
 )
@@ -80,13 +83,35 @@ func (s *Store) Update(id string, update func(*Draft)) Draft {
 	defer s.mu.Unlock()
 	now := s.now()
 	draft, ok := s.drafts[id]
-	if !ok || now.Sub(draft.lastAccessedAt) > s.ttl {
+	if ok && now.Sub(draft.lastAccessedAt) > s.ttl {
+		delete(s.drafts, id)
+		ok = false
+	}
+	if !ok {
+		if len(s.drafts) >= MaxConcurrentDrafts {
+			s.evictOldestLocked()
+		}
 		draft = defaultDraft(now)
 	}
 	update(&draft)
+	boundDraftSelections(&draft)
 	draft.lastAccessedAt = now
 	s.drafts[id] = clone(draft)
 	return clone(draft)
+}
+
+func (s *Store) evictOldestLocked() {
+	oldestID := ""
+	var oldestAccess time.Time
+	for id, draft := range s.drafts {
+		if oldestID == "" || draft.lastAccessedAt.Before(oldestAccess) || (draft.lastAccessedAt.Equal(oldestAccess) && id < oldestID) {
+			oldestID = id
+			oldestAccess = draft.lastAccessedAt
+		}
+	}
+	if oldestID != "" {
+		delete(s.drafts, oldestID)
+	}
 }
 
 func (s *Store) Close() { s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone }) }
@@ -129,4 +154,25 @@ func clone(d Draft) Draft {
 	d.DriverVehicleIDs = make(map[int64]int64, len(assignments))
 	maps.Copy(d.DriverVehicleIDs, assignments)
 	return d
+}
+
+func boundDraftSelections(d *Draft) {
+	if len(d.ParticipantIDs) > MaxSelectionSize {
+		d.ParticipantIDs = d.ParticipantIDs[:MaxSelectionSize]
+	}
+	if len(d.DriverIDs) > MaxSelectionSize {
+		d.DriverIDs = d.DriverIDs[:MaxSelectionSize]
+	}
+	assignments := maps.Clone(d.DriverVehicleIDs)
+	if len(assignments) > MaxSelectionSize {
+		driverIDs := make([]int64, 0, len(assignments))
+		for driverID := range assignments {
+			driverIDs = append(driverIDs, driverID)
+		}
+		slices.Sort(driverIDs)
+		for _, driverID := range driverIDs[MaxSelectionSize:] {
+			delete(assignments, driverID)
+		}
+	}
+	d.DriverVehicleIDs = assignments
 }

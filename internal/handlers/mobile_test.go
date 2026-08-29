@@ -8,8 +8,11 @@ import (
 	"net/url"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
+	"ride-home-router/internal/routesession"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
@@ -129,6 +132,78 @@ func TestFormatSavedMobileHandoffKeepsParentCopyPrivate(t *testing.T) {
 	}
 }
 
+func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
+	store := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(store.Close)
+	drafts := plandraft.NewStore()
+	t.Cleanup(drafts.Close)
+	driver := models.Driver{ID: 1, Name: "Small Car", VehicleCapacity: 1}
+	first := models.Participant{ID: 10, Name: "First Rider", Address: "1 Main", Lat: 1, Lng: 1}
+	second := models.Participant{ID: 11, Name: "Second Rider", Address: "2 Main", Lat: 2, Lng: 2}
+	session := store.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{{
+			Driver: &driver, EffectiveCapacity: 1,
+			Stops:               []models.RouteStop{{Participant: &first}, {Participant: &second}},
+			TotalDistanceMeters: 5000, RouteDurationSecs: 900,
+		}},
+		SelectedDrivers: []models.Driver{driver}, ActivityLocation: &models.ActivityLocation{Name: "Center"},
+		RouteTime: "18:30", Mode: models.RouteModeDropoff,
+	})
+	id := drafts.NewID()
+	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
+	handler := &Handler{Renderer: loadEmbeddedTemplates(t), PlanDraft: drafts, RouteSession: store}
+
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/routes", nil)
+	request.AddCookie(mobileTestCookie(id))
+	response := httptest.NewRecorder()
+	handler.HandleMobileRoutes(response, request)
+	body := response.Body.String()
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", response.Code, body)
+	}
+	for _, want := range []string{
+		"Vehicles are over capacity; redistribute passengers before copying or saving.",
+		`class="mobile-route-card mobile-route-card-over-capacity"`,
+		"Metrics paused",
+		`disabled title="Redistribute passengers to re-enable copying"`,
+		`disabled title="Redistribute passengers before saving"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("over-capacity routes page missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "5.00 km") || strings.Contains(body, ">6:32 PM<") {
+		t.Fatalf("over-capacity routes page exposed stale metrics: %s", body)
+	}
+}
+
+func TestMobileWhenUsesArrivalCopyForPickupMode(t *testing.T) {
+	drafts := plandraft.NewStore()
+	t.Cleanup(drafts.Close)
+	id := drafts.NewID()
+	drafts.Update(id, func(d *plandraft.Draft) { d.Mode = string(models.RouteModePickup) })
+	handler := &Handler{Renderer: loadEmbeddedTemplates(t), PlanDraft: drafts}
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/plan/when", nil)
+	request.AddCookie(mobileTestCookie(id))
+	response := httptest.NewRecorder()
+	handler.HandleMobileWhen(response, request)
+	body := response.Body.String()
+
+	for _, want := range []string{
+		"Arrive at activity location by",
+		"Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.",
+		`aria-label="Arrive at activity location by"`,
+	} {
+		if response.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("pickup when page missing %q: status=%d body=%q", want, response.Code, body)
+		}
+	}
+	if strings.Contains(body, "Depart time") {
+		t.Fatalf("pickup when page retained the dropoff label: %s", body)
+	}
+}
+
 func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 	ctx := context.Background()
@@ -215,6 +290,45 @@ func TestMobileValidationRerendersSubmittedValuesAndHTMLNotFound(t *testing.T) {
 	handler.HandleMobileParticipantForm(notFound, request)
 	if notFound.Code != http.StatusNotFound || !strings.Contains(notFound.Header().Get("Content-Type"), "text/html") || strings.Contains(notFound.Body.String(), `{"error"`) {
 		t.Fatalf("not found = %d content-type=%q body=%q", notFound.Code, notFound.Header().Get("Content-Type"), notFound.Body.String())
+	}
+}
+
+func TestMobilePersonAddressLabelLimitCountsRunes(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	addressName := strings.Repeat("é", models.MaxAddressNameLength)
+	response := postMobileForm(t, nil, "/m/people/participants/new", url.Values{
+		"name": {"Unicode Label Rider"}, "address": {"10 Main Street"}, "address_name": {addressName},
+	}, handler.HandleMobileParticipantForm)
+	assertMobileRedirect(t, response, "/m/people")
+	participants, err := store.Participants().List(context.Background(), "Unicode Label Rider")
+	if err != nil || len(participants) != 1 || participants[0].AddressName != addressName {
+		t.Fatalf("saved participants = %#v err=%v", participants, err)
+	}
+}
+
+func TestMobilePersonRejectsMalformedLabelWithoutWipingExistingLabels(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	ctx := context.Background()
+	label, err := store.Labels().Create(ctx, &models.Label{Name: "Keep Me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := store.Participants().CreateWithLabels(ctx, &models.Participant{
+		Name: "Labeled Rider", Address: "10 Main Street", Lat: 1, Lng: 1,
+	}, []int64{label.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/m/people/participants/%d/edit", participant.ID)
+	response := postMobileForm(t, nil, path, url.Values{
+		"name": {participant.Name}, "address": {participant.Address}, "label_ids": {"bad"},
+	}, handler.HandleMobileParticipantForm)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), messageInvalidLabelSelection) {
+		t.Fatalf("response = %d body=%q", response.Code, response.Body.String())
+	}
+	labels, err := store.Labels().ListLabelsForParticipant(ctx, participant.ID)
+	if err != nil || len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("participant labels = %#v err=%v", labels, err)
 	}
 }
 
@@ -309,6 +423,167 @@ func TestMobileDriversRejectsDuplicateVanAssignment(t *testing.T) {
 	target, err := url.Parse(response.Header().Get("Location"))
 	if err != nil || response.Code != http.StatusSeeOther || target.Query().Get("error") != duplicateVanAssignmentMessage {
 		t.Fatalf("duplicate van response = %d location=%q err=%v", response.Code, response.Header().Get("Location"), err)
+	}
+}
+
+func TestMobilePickerValidationRedirectsRenderAlerts(t *testing.T) {
+	handler, _ := newTestManagementHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+
+	tests := []struct {
+		name      string
+		path      string
+		values    url.Values
+		post      http.HandlerFunc
+		get       http.HandlerFunc
+		wantError string
+	}{
+		{
+			name: "blank location", path: "/m/plan/location", values: url.Values{},
+			post: handler.HandleMobileLocation, get: handler.HandleMobileLocation,
+			wantError: messageChooseValidActivityLocation,
+		},
+		{
+			name: "invalid van", path: "/m/plan/drivers", values: url.Values{
+				"driver_ids": {"1"}, "org_vehicle_1": {"bad"},
+			}, post: handler.HandleMobileDrivers, get: handler.HandleMobileDrivers,
+			wantError: invalidVanAssignmentMessage,
+		},
+		{
+			name: "duplicate van", path: "/m/plan/drivers", values: url.Values{
+				"driver_ids": {"1", "2"}, "org_vehicle_1": {"9"}, "org_vehicle_2": {"9"},
+			}, post: handler.HandleMobileDrivers, get: handler.HandleMobileDrivers,
+			wantError: duplicateVanAssignmentMessage,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			posted := postMobileForm(t, nil, test.path, test.values, test.post)
+			target, err := url.Parse(posted.Header().Get("Location"))
+			if err != nil || posted.Code != http.StatusSeeOther || target.Query().Get("error") != test.wantError {
+				t.Fatalf("POST response = %d location=%q err=%v", posted.Code, posted.Header().Get("Location"), err)
+			}
+			cookies := posted.Result().Cookies()
+			if len(cookies) == 0 {
+				t.Fatal("POST did not set a draft cookie")
+			}
+			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target.String(), nil)
+			request.AddCookie(cookies[0])
+			response := httptest.NewRecorder()
+			test.get(response, request)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `<div class="mobile-alert" role="alert">`+test.wantError+`</div>`) {
+				t.Fatalf("GET response = %d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	ctx := context.Background()
+	for index := range defaultEventListPageSize + 1 {
+		_, err := store.Events().Create(ctx, &models.Event{
+			EventDate: time.Date(2026, time.August, 29-index, 0, 0, 0, 0, time.UTC),
+			Notes:     fmt.Sprintf("History event %02d", index), Mode: models.RouteModeDropoff,
+		}, nil, &models.EventSummary{Mode: models.RouteModeDropoff})
+		if err != nil {
+			t.Fatalf("create history event %d: %v", index, err)
+		}
+	}
+
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/m/history", nil)
+	response := httptest.NewRecorder()
+	handler.HandleMobileHistory(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || strings.Count(body, `href="/m/history/`) != defaultEventListPageSize {
+		t.Fatalf("first history page = %d, event links=%d body=%q", response.Code, strings.Count(body, `href="/m/history/`), body)
+	}
+	for _, want := range []string{"Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20"`, "Load more"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("first history page missing %q: %s", want, body)
+		}
+	}
+
+	request = httptest.NewRequestWithContext(ctx, http.MethodGet, "/m/history?offset=20&limit=20", nil)
+	request.Header.Set("HX-Request", "true")
+	response = httptest.NewRecorder()
+	handler.HandleMobileHistory(response, request)
+	body = response.Body.String()
+	if response.Code != http.StatusOK || strings.Count(body, `href="/m/history/`) != 1 || !strings.Contains(body, "Showing 21 of 21 events") || strings.Contains(body, "Load more") {
+		t.Fatalf("second history page = %d body=%q", response.Code, body)
+	}
+}
+
+func TestMobilePickersRejectSelectionsOverDraftLimit(t *testing.T) {
+	handler, _ := newTestManagementHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	values := make([]string, plandraft.MaxSelectionSize+1)
+	for index := range values {
+		values[index] = strconv.Itoa(index + 1)
+	}
+
+	for _, test := range []struct {
+		name  string
+		path  string
+		field string
+		post  http.HandlerFunc
+	}{
+		{name: "riders", path: "/m/plan/riders", field: "participant_ids", post: handler.HandleMobileRiders},
+		{name: "drivers", path: "/m/plan/drivers", field: "driver_ids", post: handler.HandleMobileDrivers},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := postMobileForm(t, nil, test.path, url.Values{test.field: values}, test.post)
+			target, err := url.Parse(response.Header().Get("Location"))
+			want := fmt.Sprintf("Choose no more than %d people.", plandraft.MaxSelectionSize)
+			if err != nil || response.Code != http.StatusSeeOther || target.Query().Get("error") != want {
+				t.Fatalf("response = %d location=%q err=%v", response.Code, response.Header().Get("Location"), err)
+			}
+		})
+	}
+}
+
+func TestMobilePickerPostsRejectExpiredDraftWithoutApplyingPartialState(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{Name: "Center", Address: "1 Main", Lat: 1, Lng: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredCookie := mobileTestCookie("0123456789abcdef0123456789abcdef")
+	wantMessage := "Your saved plan expired. Start a new plan below."
+
+	tests := []struct {
+		name   string
+		path   string
+		values url.Values
+		post   http.HandlerFunc
+	}{
+		{name: "location", path: "/m/plan/location", values: url.Values{"location_id": {fmt.Sprint(location.ID)}}, post: handler.HandleMobileLocation},
+		{name: "riders", path: "/m/plan/riders", values: url.Values{"participant_ids": {"101"}}, post: handler.HandleMobileRiders},
+		{name: "drivers", path: "/m/plan/drivers", values: url.Values{"driver_ids": {"201"}}, post: handler.HandleMobileDrivers},
+		{name: "when", path: "/m/plan/when", values: url.Values{"route_time": {"18:30"}, "mode": {"pickup"}}, post: handler.HandleMobileWhen},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := postMobileForm(t, expiredCookie, test.path, test.values, test.post)
+			target, parseErr := url.Parse(response.Header().Get("Location"))
+			if parseErr != nil || response.Code != http.StatusSeeOther || target.Path != "/m" || target.Query().Get("error") != wantMessage {
+				t.Fatalf("response = %d location=%q err=%v", response.Code, response.Header().Get("Location"), parseErr)
+			}
+			cookies := response.Result().Cookies()
+			if len(cookies) == 0 {
+				t.Fatal("expired submission did not issue a fresh draft cookie")
+			}
+			draft, ok := handler.PlanDraft.Get(cookies[0].Value)
+			if !ok || draft.LocationID != 0 || len(draft.ParticipantIDs) != 0 || len(draft.DriverIDs) != 0 || draft.Mode != string(models.RouteModeDropoff) || draft.RouteTime == "18:30" {
+				t.Fatalf("fresh draft was partially updated: %#v found=%v", draft, ok)
+			}
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -12,8 +13,7 @@ import (
 func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice := h.mobileDraft(w, r)
-	var err error
-	draft, notice, err = h.pruneMobileDraft(r.Context(), id, draft, notice)
+	draft, selectedDrivers, notice, err := h.pruneMobileDraftWithDrivers(r.Context(), id, draft, notice)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Plan not found")
 		return
@@ -46,11 +46,7 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileStoreError(w, r, err, "Participants not found")
 		return
 	}
-	view.Drivers, err = h.DB.Drivers().GetByIDs(r.Context(), draft.DriverIDs)
-	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Drivers not found")
-		return
-	}
+	view.Drivers = selectedDrivers
 	for _, driver := range view.Drivers {
 		view.SeatCount += driver.VehicleCapacity
 	}
@@ -82,7 +78,11 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, _ := h.mobileDraft(w, r)
+	id, draft, notice := h.mobileDraft(w, r)
+	if r.Method == http.MethodPost && notice != "" {
+		h.mobileRedirectError(w, r, "/m", notice)
+		return
+	}
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/location", messageMobileInvalidForm)
@@ -90,12 +90,12 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 		}
 		locationID, err := strconv.ParseInt(r.FormValue("location_id"), 10, 64)
 		if err != nil || locationID <= 0 {
-			h.mobileRedirectError(w, r, "/m/plan/location", "Choose a valid location.")
+			h.mobileRedirectError(w, r, "/m/plan/location", messageChooseValidActivityLocation)
 			return
 		}
 		if _, err := h.DB.ActivityLocations().GetByID(r.Context(), locationID); err != nil {
 			if h.checkNotFound(err) {
-				h.mobileRedirectError(w, r, "/m/plan/location", "Choose a valid location.")
+				h.mobileRedirectError(w, r, "/m/plan/location", messageChooseValidActivityLocation)
 				return
 			}
 			h.renderMobileStoreError(w, r, err, "Location not found")
@@ -113,25 +113,41 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileStoreError(w, r, err, "Locations not found")
 		return
 	}
-	h.renderTemplate(w, "mobile/location.html", mobileLocationView{mobileBaseView: newMobileBase("Location", "plan", ""), Locations: locations, SelectedID: draft.LocationID})
+	h.renderTemplate(w, "mobile/location.html", mobileLocationView{mobileBaseView: newMobileBase("Location", "plan", r.URL.Query().Get("error")), Locations: locations, SelectedID: draft.LocationID})
 }
 
 func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice := h.mobileDraft(w, r)
+	if r.Method == http.MethodPost && notice != "" {
+		h.mobileRedirectError(w, r, "/m", notice)
+		return
+	}
 	var err error
 	draft, notice, err = h.pruneMobileDraft(r.Context(), id, draft, notice)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Participants not found")
 		return
 	}
-	if r.Method == http.MethodPost {
+	isSearch := r.Method == http.MethodPost && h.isHTMX(r)
+	if isSearch {
 		if err := r.ParseForm(); err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/riders", messageMobileInvalidForm)
 			return
 		}
+	}
+	if r.Method == http.MethodPost && !isSearch {
+		if err := r.ParseForm(); err != nil {
+			h.mobileRedirectError(w, r, "/m/plan/riders", messageMobileInvalidForm)
+			return
+		}
+		participantIDs, ok := parseMobileSelection(r.Form["participant_ids"])
+		if !ok {
+			h.mobileRedirectError(w, r, "/m/plan/riders", mobileSelectionLimitMessage())
+			return
+		}
 		h.PlanDraft.Update(id, func(d *plandraft.Draft) {
-			d.ParticipantIDs = parseMobileIDs(r.Form["participant_ids"])
+			d.ParticipantIDs = participantIDs
 			d.RouteSessionID = ""
 		})
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
@@ -139,11 +155,20 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selectedIDs := draft.ParticipantIDs
-	if h.isHTMX(r) {
-		selectedIDs = parseMobileIDs(r.URL.Query()["participant_ids"])
+	values := r.URL.Query()
+	if isSearch {
+		values = r.Form
 	}
-	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	labelID, _ := strconv.ParseInt(r.URL.Query().Get("label"), 10, 64)
+	if h.isHTMX(r) {
+		var ok bool
+		selectedIDs, ok = parseMobileSelection(values["participant_ids"])
+		if !ok {
+			h.mobileRedirectError(w, r, "/m/plan/riders", mobileSelectionLimitMessage())
+			return
+		}
+	}
+	search := strings.TrimSpace(values.Get("search"))
+	labelID, _ := strconv.ParseInt(values.Get("label"), 10, 64)
 	participants, err := h.DB.Participants().List(r.Context(), search)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Participants not found")
@@ -165,7 +190,7 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 		displayed[participant.ID] = true
 	}
 	hidden := hiddenMobileIDs(selectedIDs, displayed)
-	base := newMobileBase("Riders", "plan", "")
+	base := newMobileBase("Riders", "plan", r.URL.Query().Get("error"))
 	base.Notice = notice
 	view := mobileRidersView{
 		mobileBaseView:    base,
@@ -183,18 +208,32 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice := h.mobileDraft(w, r)
-	var err error
-	draft, notice, err = h.pruneMobileDraft(r.Context(), id, draft, notice)
+	if r.Method == http.MethodPost && notice != "" {
+		h.mobileRedirectError(w, r, "/m", notice)
+		return
+	}
+	draft, selectedDrivers, notice, err := h.pruneMobileDraftWithDrivers(r.Context(), id, draft, notice)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Drivers not found")
 		return
 	}
-	if r.Method == http.MethodPost {
+	isSearch := r.Method == http.MethodPost && h.isHTMX(r)
+	if isSearch {
 		if err := r.ParseForm(); err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/drivers", messageMobileInvalidForm)
 			return
 		}
-		driverIDs := parseMobileIDs(r.Form["driver_ids"])
+	}
+	if r.Method == http.MethodPost && !isSearch {
+		if err := r.ParseForm(); err != nil {
+			h.mobileRedirectError(w, r, "/m/plan/drivers", messageMobileInvalidForm)
+			return
+		}
+		driverIDs, ok := parseMobileSelection(r.Form["driver_ids"])
+		if !ok {
+			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileSelectionLimitMessage())
+			return
+		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
 		if err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
@@ -211,14 +250,30 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 
 	selectedIDs := draft.DriverIDs
 	assignments := draft.DriverVehicleIDs
+	values := r.URL.Query()
+	if isSearch {
+		values = r.Form
+	}
 	if h.isHTMX(r) {
-		selectedIDs = parseMobileIDs(r.URL.Query()["driver_ids"])
-		if parsed, parseErr := parseOrgVehicleAssignments(r.URL.Query(), selectedIDs); parseErr == nil {
+		var ok bool
+		selectedIDs, ok = parseMobileSelection(values["driver_ids"])
+		if !ok {
+			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileSelectionLimitMessage())
+			return
+		}
+		if parsed, parseErr := parseOrgVehicleAssignments(values, selectedIDs); parseErr == nil {
 			assignments = parsed
 		}
 	}
-	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	labelID, _ := strconv.ParseInt(r.URL.Query().Get("label"), 10, 64)
+	if !slices.Equal(selectedIDs, draft.DriverIDs) {
+		selectedDrivers, err = h.DB.Drivers().GetByIDs(r.Context(), selectedIDs)
+		if err != nil {
+			h.renderMobileStoreError(w, r, err, "Drivers not found")
+			return
+		}
+	}
+	search := strings.TrimSpace(values.Get("search"))
+	labelID, _ := strconv.ParseInt(values.Get("label"), 10, 64)
 	drivers, err := h.DB.Drivers().List(r.Context(), search)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Drivers not found")
@@ -228,6 +283,10 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Vans not found")
 		return
+	}
+	vehiclesByID := make(map[int64]models.OrganizationVehicle, len(vehicles))
+	for _, vehicle := range vehicles {
+		vehiclesByID[vehicle.ID] = vehicle
 	}
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
@@ -244,7 +303,7 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	for _, driver := range drivers {
 		displayed[driver.ID] = true
 	}
-	base := newMobileBase("Drivers", "plan", "")
+	base := newMobileBase("Drivers", "plan", r.URL.Query().Get("error"))
 	base.Notice = notice
 	view := mobileDriversView{
 		mobileBaseView:    base,
@@ -258,18 +317,10 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		LabelID:           labelID,
 		HiddenSelectedIDs: hiddenMobileIDs(selectedIDs, displayed),
 	}
-	selectedDrivers, err := h.DB.Drivers().GetByIDs(r.Context(), selectedIDs)
-	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Drivers not found")
-		return
-	}
 	for _, driver := range selectedDrivers {
 		view.SelectedSeats += driver.VehicleCapacity
-		for _, vehicle := range vehicles {
-			if vehicle.ID == assignments[driver.ID] {
-				view.SelectedSeats += vehicle.Capacity - driver.VehicleCapacity
-				break
-			}
+		if vehicle, ok := vehiclesByID[assignments[driver.ID]]; ok {
+			view.SelectedSeats += vehicle.Capacity - driver.VehicleCapacity
 		}
 	}
 	h.renderTemplate(w, "mobile/drivers.html", view)
@@ -277,7 +328,11 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, _ := h.mobileDraft(w, r)
+	id, draft, notice := h.mobileDraft(w, r)
+	if r.Method == http.MethodPost && notice != "" {
+		h.mobileRedirectError(w, r, "/m", notice)
+		return
+	}
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/when", messageMobileInvalidForm)
@@ -346,13 +401,18 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) pruneMobileDraft(ctx context.Context, id string, draft plandraft.Draft, notice string) (plandraft.Draft, string, error) {
+	draft, _, notice, err := h.pruneMobileDraftWithDrivers(ctx, id, draft, notice)
+	return draft, notice, err
+}
+
+func (h *Handler) pruneMobileDraftWithDrivers(ctx context.Context, id string, draft plandraft.Draft, notice string) (plandraft.Draft, []models.Driver, string, error) {
 	participants, err := h.DB.Participants().GetByIDs(ctx, draft.ParticipantIDs)
 	if err != nil {
-		return draft, notice, err
+		return draft, nil, notice, err
 	}
 	drivers, err := h.DB.Drivers().GetByIDs(ctx, draft.DriverIDs)
 	if err != nil {
-		return draft, notice, err
+		return draft, nil, notice, err
 	}
 	participantSet := make(map[int64]bool, len(participants))
 	for _, participant := range participants {
@@ -366,7 +426,7 @@ func (h *Handler) pruneMobileDraft(ctx context.Context, id string, draft plandra
 	driverIDs := keepMobileIDs(draft.DriverIDs, driverSet)
 	changed := len(participantIDs) != len(draft.ParticipantIDs) || len(driverIDs) != len(draft.DriverIDs)
 	if !changed {
-		return draft, notice, nil
+		return draft, drivers, notice, nil
 	}
 	draft = h.PlanDraft.Update(id, func(d *plandraft.Draft) {
 		d.ParticipantIDs = participantIDs
@@ -378,7 +438,7 @@ func (h *Handler) pruneMobileDraft(ctx context.Context, id string, draft plandra
 		}
 		d.RouteSessionID = ""
 	})
-	return draft, mergeMobileNotice(notice, "Some unavailable people were removed from this plan."), nil
+	return draft, drivers, mergeMobileNotice(notice, "Some unavailable people were removed from this plan."), nil
 }
 
 func hiddenMobileIDs(ids []int64, displayed map[int64]bool) []int64 {

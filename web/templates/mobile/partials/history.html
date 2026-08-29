@@ -1,0 +1,36 @@
+{{define "mobile_history_items"}}
+{{range .Groups}}
+<h2 class="mobile-section-title">{{.Label}}</h2>
+<div class="mobile-group">
+  {{range .Events}}
+  <a class="mobile-row" href="/m/history/{{.ID}}">
+    <span>
+      <b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b>
+      <small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers · {{formatDistance .TotalDistanceMeters $.UseMiles}}{{end}}</small>
+    </span>
+    <i></i>
+  </a>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "mobile_history_status"}}
+<p class="mobile-count">Showing {{.DisplayedCount}} of {{.Total}} events</p>
+{{end}}
+
+{{define "mobile_history_pagination"}}
+{{if gt .Total .DisplayedCount}}
+<button class="mobile-button mobile-button-secondary"
+  hx-get="/m/history?offset={{.NextOffset}}&limit={{.PageSize}}"
+  hx-target="#mobile-history-items" hx-swap="beforeend">
+  Load more
+</button>
+{{end}}
+{{end}}
+
+{{define "mobile_history_page"}}
+{{template "mobile_history_items" .}}
+<div id="mobile-history-status" hx-swap-oob="outerHTML">{{template "mobile_history_status" .}}</div>
+<div id="mobile-history-pagination" hx-swap-oob="outerHTML">{{template "mobile_history_pagination" .}}</div>
+{{end}}

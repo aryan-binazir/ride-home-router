@@ -9,6 +9,7 @@ import (
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 type mobileFormError struct{ message string }
@@ -163,10 +164,13 @@ func (h *Handler) saveMobilePerson(r *http.Request, kind string, id int64) error
 	if name == "" || address == "" {
 		return mobileFormError{messageNameAndAddressRequired}
 	}
-	if len(addressName) > models.MaxAddressNameLength {
+	if utf8.RuneCountInString(addressName) > models.MaxAddressNameLength {
 		return mobileFormError{messageAddressNameTooLong()}
 	}
-	labels := parseMobileIDs(r.Form["label_ids"])
+	labels, err := parseLabelIDs(r)
+	if err != nil {
+		return mobileFormError{messageInvalidLabelSelection}
+	}
 	if err := h.validateLabelIDs(r.Context(), labels); err != nil {
 		return mobileFormError{messageInvalidLabelSelection}
 	}

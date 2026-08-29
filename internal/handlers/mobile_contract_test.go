@@ -39,6 +39,32 @@ func TestMobileDraftRejectsUnknownCookieAndRefreshesKnownCookie(t *testing.T) {
 	}
 }
 
+func TestMobileDraftCookieSecureUnlessPlaintextLoopback(t *testing.T) {
+	tests := []struct {
+		name           string
+		host           string
+		forwardedProto string
+		wantSecure     bool
+	}{
+		{name: "TLS terminating proxy", host: "routes.example.com", forwardedProto: "https", wantSecure: true},
+		{name: "public host defaults secure", host: "routes.example.com", wantSecure: true},
+		{name: "plaintext loopback", host: "127.0.0.1:8080", wantSecure: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+test.host+"/m", nil)
+			request.Host = test.host
+			request.Header.Set("X-Forwarded-Proto", test.forwardedProto)
+			response := httptest.NewRecorder()
+			(&Handler{}).setMobileDraftCookie(response, request, "0123456789abcdef0123456789abcdef")
+			cookies := response.Result().Cookies()
+			if len(cookies) != 1 || cookies[0].Secure != test.wantSecure {
+				t.Fatalf("cookies = %#v, want Secure=%v", cookies, test.wantSecure)
+			}
+		})
+	}
+}
+
 func TestMobilePickerSearchPreservesUnsavedSelectionsAndAssignments(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 	handler.PlanDraft = plandraft.NewStore()
@@ -54,7 +80,7 @@ func TestMobilePickerSearchPreservesUnsavedSelectionsAndAssignments(t *testing.T
 	cookie := mobileTestCookie(id)
 
 	riderQuery := url.Values{"search": {"no match"}, "participant_ids": {fmt.Sprint(firstRider.ID), fmt.Sprint(secondRider.ID)}}
-	riders := getMobileHTMX(t, cookie, "/m/plan/riders?"+riderQuery.Encode(), handler.HandleMobileRiders)
+	riders := postMobileHTMXSearch(t, cookie, "/m/plan/riders?"+riderQuery.Encode(), handler.HandleMobileRiders)
 	for _, riderID := range []int64{firstRider.ID, secondRider.ID} {
 		if !strings.Contains(riders.Body.String(), fmt.Sprintf(`type="hidden" name="participant_ids" value="%d"`, riderID)) {
 			t.Fatalf("rider search dropped selection %d: %s", riderID, riders.Body.String())
@@ -66,7 +92,7 @@ func TestMobilePickerSearchPreservesUnsavedSelectionsAndAssignments(t *testing.T
 		fmt.Sprintf("org_vehicle_%d", firstDriver.ID):  {fmt.Sprint(van.ID)},
 		fmt.Sprintf("org_vehicle_%d", secondDriver.ID): {fmt.Sprint(van.ID + 1)},
 	}
-	drivers := getMobileHTMX(t, cookie, "/m/plan/drivers?"+driverQuery.Encode(), handler.HandleMobileDrivers)
+	drivers := postMobileHTMXSearch(t, cookie, "/m/plan/drivers?"+driverQuery.Encode(), handler.HandleMobileDrivers)
 	body := drivers.Body.String()
 	if strings.Contains(body, fmt.Sprintf(`type="hidden" name="driver_ids" value="%d"`, firstDriver.ID)) {
 		t.Fatalf("visible driver %d was also rendered hidden: %s", firstDriver.ID, body)
@@ -117,7 +143,7 @@ func TestMobileDriverPickerFilteredPostPreservesSelectionsAndAssignments(t *test
 			if test.assignHiddenVan {
 				query.Set(fmt.Sprintf("org_vehicle_%d", hidden.ID), fmt.Sprint(van.ID))
 			}
-			filtered := getMobileHTMX(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
+			filtered := postMobileHTMXSearch(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
 			body := filtered.Body.String()
 			hiddenID, ok := hiddenInputValue(body, "driver_ids")
 			if !ok || hiddenID != fmt.Sprint(hidden.ID) {
@@ -174,7 +200,7 @@ func TestMobileDriverPickerHTMXSearchPreservesAssignmentWithHiddenVanlessDriver(
 		assignmentName: {fmt.Sprint(van.ID)},
 	}
 
-	firstResponse := getMobileHTMX(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
+	firstResponse := postMobileHTMXSearch(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
 	body := firstResponse.Body.String()
 	hiddenID, ok := hiddenInputValue(body, "driver_ids")
 	if !ok || hiddenID != fmt.Sprint(hidden.ID) {
@@ -184,7 +210,7 @@ func TestMobileDriverPickerHTMXSearchPreservesAssignmentWithHiddenVanlessDriver(
 		query.Set(fmt.Sprintf("org_vehicle_%d", hidden.ID), hiddenAssignment)
 	}
 
-	secondResponse := getMobileHTMX(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
+	secondResponse := postMobileHTMXSearch(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
 	body = secondResponse.Body.String()
 	if strings.Contains(body, invalidVanAssignmentMessage) || !strings.Contains(body, fmt.Sprintf(`<option value="%d" selected>`, van.ID)) {
 		t.Fatalf("HTMX search did not preserve in-flight van assignment: %s", body)
@@ -226,15 +252,20 @@ func TestMobileMoveRejectsSameAndMalformedDestinationWithoutMutation(t *testing.
 	}
 }
 
-func getMobileHTMX(t *testing.T, cookie *http.Cookie, path string, serve http.HandlerFunc) *httptest.ResponseRecorder {
+func postMobileHTMXSearch(t *testing.T, cookie *http.Cookie, path string, serve http.HandlerFunc) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+	target, err := url.Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, target.Path, strings.NewReader(target.RawQuery))
 	request.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
+	request.Header.Set(httpx.HeaderContentType, httpx.MediaTypeForm)
 	request.AddCookie(cookie)
 	response := httptest.NewRecorder()
 	serve(response, request)
 	if response.Code != http.StatusOK {
-		t.Fatalf("GET %s = %d body=%q", path, response.Code, response.Body.String())
+		t.Fatalf("POST %s = %d body=%q", path, response.Code, response.Body.String())
 	}
 	return response
 }

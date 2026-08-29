@@ -3,7 +3,9 @@ package handlers
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/httpx"
@@ -44,11 +46,24 @@ func (h *Handler) newMobileDraft(w http.ResponseWriter, r *http.Request) (string
 }
 
 func (h *Handler) setMobileDraftCookie(w http.ResponseWriter, r *http.Request, id string) {
-	//nolint:gosec // Local HTTP is supported; this cookie contains only an opaque random identifier.
+	//nolint:gosec // Secure is false only for a genuinely plaintext loopback request.
 	http.SetCookie(w, &http.Cookie{
-		Name: mobileDraftCookie, Value: id, Path: "/", Secure: r.TLS != nil, HttpOnly: true,
+		Name: mobileDraftCookie, Value: id, Path: "/", Secure: mobileDraftCookieSecure(r), HttpOnly: true,
 		SameSite: http.SameSiteLaxMode, MaxAge: int(mobileDraftCookieMaxAge.Seconds()),
 	})
+}
+
+func mobileDraftCookieSecure(r *http.Request) bool {
+	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https") {
+		return true
+	}
+	host := r.Host
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	host = strings.Trim(strings.ToLower(host), "[]")
+	ip := net.ParseIP(host)
+	return host != "localhost" && (ip == nil || !ip.IsLoopback())
 }
 
 func validMobileDraftID(id string) bool {
@@ -78,6 +93,15 @@ func parseMobileIDs(values []string) []int64 {
 		}
 	}
 	return ids
+}
+
+func parseMobileSelection(values []string) ([]int64, bool) {
+	ids := parseMobileIDs(values)
+	return ids, len(ids) <= plandraft.MaxSelectionSize
+}
+
+func mobileSelectionLimitMessage() string {
+	return fmt.Sprintf("Choose no more than %d people.", plandraft.MaxSelectionSize)
 }
 
 func mobileID(path, prefix, suffix string) (int64, error) {

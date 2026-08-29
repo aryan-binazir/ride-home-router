@@ -97,3 +97,54 @@ test('copy button shows a visible failure state when both copy methods fail', as
     assert.deepEqual(fixture.document.execCommandCalls, ['copy']);
     assert.equal(fixture.button.textContent, 'Copy failed');
 });
+
+test('rapid copy taps always restore the original label', async () => {
+    const fixture = createClipboardFixture({
+        clipboard: { writeText: async () => {} },
+    });
+
+    await fixture.clickCopy();
+    await fixture.clickCopy();
+    for (const [callback] of fixture.timers) callback();
+
+    assert.equal(fixture.button.textContent, 'Copy route');
+});
+
+test('deselecting a driver clears and omits its van assignment on Done', () => {
+    const handlers = {};
+    const select = { name: 'org_vehicle_7', value: '99', disabled: false };
+    const choice = { querySelector: () => select };
+    const checkbox = {
+        name: 'driver_ids',
+        value: '7',
+        checked: true,
+        matches: selector => selector === 'input[name="driver_ids"]',
+        closest: selector => selector === '.mobile-driver-choice' ? choice : null,
+    };
+    const form = {
+        id: 'mobile-driver-picker',
+        matches: selector => selector === '#mobile-driver-picker',
+        querySelectorAll(selector) {
+            if (selector === 'input[name="driver_ids"]') return [checkbox];
+            if (selector === 'select[name^="org_vehicle_"]') return [select];
+            return [];
+        },
+    };
+    const context = {
+        document: {
+            addEventListener(type, handler) { handlers[type] = handler; },
+            getElementById() { return null; },
+            execCommand() { return false; },
+        },
+        navigator: {},
+        window: { setTimeout() {} },
+    };
+    vm.runInNewContext(mobileScript, context, { filename: 'mobile.js' });
+
+    checkbox.checked = false;
+    handlers.change({ target: checkbox });
+    handlers.submit({ target: form });
+
+    assert.equal(select.value, '');
+    assert.equal(select.disabled, true);
+});

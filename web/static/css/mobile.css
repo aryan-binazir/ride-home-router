@@ -119,6 +119,7 @@ button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height
 .mobile-stats span + span { border-left: 1px solid var(--m-line); }
 .mobile-stats b { display: block; color: var(--m-ink); font-size: 1rem; }
 .mobile-route-card { margin-bottom: 12px; }
+.mobile-route-card-over-capacity { border: 2px solid var(--m-danger); }
 .mobile-route-card summary { min-height: 64px; padding: 10px 14px; display: flex; align-items: center; gap: 11px; cursor: pointer; list-style: none; }
 .mobile-route-card summary::-webkit-details-marker { display: none; }
 .mobile-avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--m-blue-tint); color: var(--m-blue); font-size: .78rem; font-weight: 700; flex: 0 0 auto; }

@@ -2,6 +2,7 @@ package plandraft
 
 import (
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"ride-home-router/internal/models"
 	"sync"
@@ -211,4 +212,53 @@ func TestStoreCloseIsIdempotent(t *testing.T) {
 	store := NewStore()
 	store.Close()
 	store.Close()
+}
+
+func TestStoreEvictsLeastRecentlyAccessedDraftAtCapacity(t *testing.T) {
+	clock := &testClock{now: time.Unix(100, 0)}
+	store := newStore(time.Hour, time.Hour, clock.Now)
+	t.Cleanup(store.Close)
+	ids := make([]string, MaxConcurrentDrafts)
+	for index := range MaxConcurrentDrafts {
+		ids[index] = fmt.Sprintf("draft-%d", index)
+		store.Update(ids[index], func(d *Draft) { d.LocationID = int64(index + 1) })
+		clock.Advance(time.Second)
+	}
+	if _, ok := store.Get(ids[0]); !ok {
+		t.Fatal("failed to touch the oldest-created draft")
+	}
+	clock.Advance(time.Second)
+	store.Update("new-draft", func(d *Draft) { d.LocationID = 999 })
+
+	if _, ok := store.Get(ids[1]); ok {
+		t.Fatal("least-recently-accessed draft survived bounded-store eviction")
+	}
+	if draft, ok := store.Get(ids[0]); !ok || draft.LocationID != 1 {
+		t.Fatalf("recently touched draft = %#v, found=%v", draft, ok)
+	}
+	if draft, ok := store.Get("new-draft"); !ok || draft.LocationID != 999 {
+		t.Fatalf("new draft = %#v, found=%v", draft, ok)
+	}
+}
+
+func TestStoreCapsDraftSelections(t *testing.T) {
+	store := NewStore()
+	t.Cleanup(store.Close)
+	ids := make([]int64, MaxSelectionSize+1)
+	assignments := make(map[int64]int64, len(ids))
+	for index := range ids {
+		ids[index] = int64(index + 1)
+		assignments[ids[index]] = int64(index + 1000)
+	}
+	draft := store.Update("bounded", func(d *Draft) {
+		d.ParticipantIDs = ids
+		d.DriverIDs = ids
+		d.DriverVehicleIDs = assignments
+	})
+	if len(draft.ParticipantIDs) != MaxSelectionSize || len(draft.DriverIDs) != MaxSelectionSize || len(draft.DriverVehicleIDs) != MaxSelectionSize {
+		t.Fatalf("bounded draft sizes = participants:%d drivers:%d assignments:%d", len(draft.ParticipantIDs), len(draft.DriverIDs), len(draft.DriverVehicleIDs))
+	}
+	if _, exists := draft.DriverVehicleIDs[ids[MaxSelectionSize]]; exists {
+		t.Fatal("assignment for a capped driver survived")
+	}
 }

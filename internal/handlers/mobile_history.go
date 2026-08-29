@@ -2,11 +2,21 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 )
 
 func (h *Handler) HandleMobileHistory(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	view, err := h.buildEventListView(r.Context(), 100, 0)
+	offset := 0
+	if value := r.URL.Query().Get("offset"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			h.renderMobileError(w, r, http.StatusBadRequest, messageMobileInvalidForm, err)
+			return
+		}
+		offset = parsed
+	}
+	view, err := h.buildEventListView(r.Context(), defaultEventListPageSize, offset)
 	if err != nil {
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
 		return
@@ -19,7 +29,15 @@ func (h *Handler) HandleMobileHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		groups[len(groups)-1].Events = append(groups[len(groups)-1].Events, event)
 	}
-	h.renderTemplate(w, "mobile/history.html", mobileHistoryView{mobileBaseView: newMobileBase("History", "history", ""), Groups: groups, UseMiles: view.UseMiles})
+	mobileView := mobileHistoryView{
+		mobileBaseView: newMobileBase("History", "history", ""), Groups: groups, UseMiles: view.UseMiles,
+		Total: view.Total, DisplayedCount: view.DisplayedCount, NextOffset: view.NextOffset, PageSize: view.PageSize,
+	}
+	if h.isHTMX(r) && offset > 0 {
+		h.renderTemplate(w, "mobile_history_page", mobileView)
+		return
+	}
+	h.renderTemplate(w, "mobile/history.html", mobileView)
 }
 
 func (h *Handler) HandleMobileHistoryDetail(w http.ResponseWriter, r *http.Request) {

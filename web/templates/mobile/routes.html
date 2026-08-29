@@ -1,21 +1,26 @@
 {{define "mobile_content"}}
 <section class="mobile-screen mobile-routes">
   {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Routes")}}
+  {{if .Snapshot.IsOutOfBalance}}
+  <div class="mobile-alert" role="alert">
+    Vehicles are over capacity; redistribute passengers before copying or saving.
+  </div>
+  {{end}}
   <div class="mobile-stats">
     <span><b>{{.Snapshot.Summary.TotalParticipants}}</b>Riders</span>
     <span><b>{{.Snapshot.Summary.TotalDriversUsed}}</b>Drivers</span>
-    <span><b>{{formatDistance .Snapshot.Summary.TotalDistanceMeters .Snapshot.UseMiles}}</b>Total</span>
+    <span><b>{{if .Snapshot.IsOutOfBalance}}Paused{{else}}{{formatDistance .Snapshot.Summary.TotalDistanceMeters .Snapshot.UseMiles}}{{end}}</b>Total</span>
   </div>
   {{range .Routes}}
   {{$current := .}}
-  <article class="mobile-route-card">
+  <article class="mobile-route-card{{if and (lt .Index (len $.Snapshot.OverCapacity)) (index $.Snapshot.OverCapacity .Index)}} mobile-route-card-over-capacity{{end}}">
     <details open>
       <summary>
         {{with .Route.Driver}}
         <span class="mobile-avatar">{{initials .Name}}</span>
         <span>
           <b>{{.Name}}</b>
-          <small>{{len $current.Route.Stops}} passengers · {{formatDistance $current.Route.TotalDistanceMeters $.Snapshot.UseMiles}}{{if $current.Route.OrgVehicleName}} · {{$current.Route.OrgVehicleName}}{{end}}</small>
+          <small>{{len $current.Route.Stops}} passengers · {{if $.Snapshot.IsOutOfBalance}}Metrics paused{{else}}{{formatDistance $current.Route.TotalDistanceMeters $.Snapshot.UseMiles}}{{end}}{{if $current.Route.OrgVehicleName}} · {{$current.Route.OrgVehicleName}}{{end}}</small>
         </span>
         {{else}}
         <span class="mobile-avatar">?</span>
@@ -30,7 +35,7 @@
           <div>
             <b>{{.Name}}</b>
             <small>{{displayAddress .AddressName .Address}}</small>
-            {{with index $current.ETAs $i}}<em>{{.}}</em>{{end}}
+            {{if not $.Snapshot.IsOutOfBalance}}{{with index $current.ETAs $i}}<em>{{.}}</em>{{end}}{{end}}
           </div>
           {{if gt (len $.Routes) 1}}
           <form action="/m/routes/move" method="post">
@@ -54,8 +59,8 @@
         {{end}}
       </ol>
       <div class="mobile-route-actions">
-        <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="driver-copy-{{.Index}}" aria-live="polite">Copy</button>
-        <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="parent-copy-{{.Index}}" aria-live="polite">Copy for parents</button>
+        <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="driver-copy-{{.Index}}" aria-live="polite" {{if $.Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
+        <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="parent-copy-{{.Index}}" aria-live="polite" {{if $.Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for parents</button>
       </div>
       <textarea class="mobile-copy-source" id="driver-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.DriverText}}</textarea>
       <textarea class="mobile-copy-source" id="parent-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.ParentText}}</textarea>
@@ -103,7 +108,8 @@
       Event name or note
       <input type="text" name="notes" placeholder="Tuesday youth group">
     </label>
-    <button class="mobile-button" type="submit" {{if .Snapshot.IsOutOfBalance}}disabled{{end}}>Save event</button>
+    <button class="mobile-button" type="submit" {{if .Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
+    {{if .Snapshot.IsOutOfBalance}}<p class="mobile-help">Saving is disabled while vehicles are over capacity.</p>{{end}}
   </form>
 </section>
 {{end}}
