@@ -3,15 +3,44 @@ package importer
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/xuri/excelize/v2"
 )
+
+func TestXLSXOversizedMiniFATIsRejected(t *testing.T) {
+	data := make([]byte, 3*512)
+	copy(data, []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1})
+	binary.LittleEndian.PutUint16(data[26:28], 3)
+	binary.LittleEndian.PutUint16(data[30:32], 9)
+	binary.LittleEndian.PutUint32(data[44:48], 125_000)
+	binary.LittleEndian.PutUint32(data[60:64], 2)
+	binary.LittleEndian.PutUint32(data[64:68], 1_000_000)
+	for offset := 76; offset < 512; offset += 4 {
+		binary.LittleEndian.PutUint32(data[offset:offset+4], 0xffffffff)
+	}
+	binary.LittleEndian.PutUint32(data[76:80], 1)
+	binary.LittleEndian.PutUint32(data[512+116:512+120], 2)
+	binary.LittleEndian.PutUint32(data[1024:1028], 0xfffffffe)
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	if _, err := Parse(bytes.NewReader(data), FormatXLSX, ""); err == nil {
+		t.Fatal("Parse() error = nil")
+	}
+	runtime.ReadMemStats(&after)
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 2<<20 {
+		t.Fatalf("Parse() allocated %d bytes", allocated)
+	}
+}
 
 func TestXLSXMultipleSheetsRequireSelection(t *testing.T) {
 	data := makeXLSX(t, func(f *excelize.File) {

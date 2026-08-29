@@ -17,7 +17,7 @@ There are no user accounts. Run the server behind an authenticating proxy such a
 
 ## Run locally
 
-Requires Go 1.27. Podman runs the local Postgres 18 container. Node 22 is only needed for tests.
+Requires Go 1.27. Podman runs the local Postgres 18 container. Node 24 is only needed for tests.
 
 ```bash
 make postgres-up

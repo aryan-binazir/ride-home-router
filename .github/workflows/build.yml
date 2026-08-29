@@ -28,8 +28,8 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/ride_home_router_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -39,9 +39,9 @@ jobs:
           version-file: .golangci-lint-version
       - name: Scan reachable Go vulnerabilities
         run: go tool govulncheck ./...
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
       - run: make verify vet test
       - name: Check coverage
         run: go tool cover -func=coverage.out
