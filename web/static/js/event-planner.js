@@ -14,6 +14,24 @@
         writeDraft();
     }
 
+    function sanitizeVanAssignments(driverIds, assignments) {
+        const sanitized = {};
+        const assignedVehicles = new Set();
+
+        for (const rawDriverId of driverIds || []) {
+            const driverId = String(rawDriverId);
+            const vehicleId = assignments && assignments[driverId] != null
+                ? String(assignments[driverId])
+                : '';
+            if (!vehicleId || assignedVehicles.has(vehicleId)) continue;
+
+            sanitized[driverId] = vehicleId;
+            assignedVehicles.add(vehicleId);
+        }
+
+        return sanitized;
+    }
+
     const SAVE_EVENT_ENDPOINT = '/api/v1/events';
 
     // This target is #results-section in the manual edit and restore paths.
@@ -889,7 +907,22 @@
                 if (!raw) return null;
 
                 const parsed = JSON.parse(raw);
-                return parsed && typeof parsed === 'object' ? parsed : null;
+                if (!parsed || typeof parsed !== 'object') return null;
+
+                const assignments = parsed.vanAssignments && typeof parsed.vanAssignments === 'object'
+                    ? parsed.vanAssignments
+                    : {};
+                const sanitized = sanitizeVanAssignments(parsed.driverIds, assignments);
+                const assignmentKeys = Object.keys(assignments);
+                const sanitizedKeys = Object.keys(sanitized);
+                const assignmentsChanged = assignmentKeys.length !== sanitizedKeys.length
+                    || sanitizedKeys.some(key => String(assignments[key]) !== sanitized[key]);
+                // Persist the repair so later reads cannot revive the stale conflict.
+                if (assignmentsChanged) {
+                    parsed.vanAssignments = sanitized;
+                    window.localStorage.setItem(EVENT_PLANNER_DRAFT_KEY, JSON.stringify(parsed));
+                }
+                return parsed;
             } catch (err) {
                 console.warn('Failed to read event planner draft', err);
                 return null;
@@ -1080,11 +1113,18 @@
 
         function updateVanSelectionOptions() {
             const selects = document.querySelectorAll('.van-assignment-select');
+            const driverIds = Array.from(selects)
+                .filter(select => !select.disabled)
+                .map(select => select.dataset.driverId);
+            const sanitized = sanitizeVanAssignments(driverIds, getVanAssignments());
             const assignedVehicles = new Map();
 
             selects.forEach(select => {
-                if (!select.disabled && select.value) {
-                    assignedVehicles.set(select.value, select.dataset.driverId);
+                if (!select.disabled) {
+                    select.value = sanitized[select.dataset.driverId] || '';
+                    if (select.value) {
+                        assignedVehicles.set(select.value, select.dataset.driverId);
+                    }
                 }
             });
 
@@ -1557,6 +1597,7 @@
         createRouteSessionOrchestrator,
         installRouteResults,
         localISODate,
+        sanitizeVanAssignments,
         saveDraft,
     };
 });

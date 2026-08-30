@@ -662,7 +662,7 @@ func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSessio
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
 			}
-			if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"Routes calculated! 1 drivers assigned.","type":"success"}}`; got != want {
+			if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"Routes calculated! 1 driver assigned.","type":"success"}}`; got != want {
 				t.Fatalf("HX-Trigger = %q, want %q", got, want)
 			}
 			body := rr.Body.String()
@@ -1228,7 +1228,7 @@ func TestHandleCalculateRoutes_PreservesVanAssignmentsInShortageFlow(t *testing.
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%q", http.StatusOK, rr.Code, rr.Body.String())
 	}
-	expectedTrigger := `{"showToast":{"message":"Not enough capacity - need 1 more seats","type":"warning"}}`
+	expectedTrigger := `{"showToast":{"message":"Not enough capacity - need 1 more seat","type":"warning"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expectedTrigger)
 	}
@@ -1586,7 +1586,10 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 		"<dt>Pickup</dt>",
 		"<dt>To Activity</dt>",
 		"from Driver1's home",
-		"Unused Drivers (1)",
+		"Unused Driver (1)",
+		"<dt>Passenger</dt>",
+		`class="label">Participant`,
+		`class="label">Driver`,
 		"Driver2",
 	} {
 		if !strings.Contains(body, fragment) {

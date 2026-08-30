@@ -43,6 +43,9 @@ func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {
 	if !strings.Contains(body, "North Campus Van") {
 		t.Fatalf("expected saved van to be rendered, body=%q", body)
 	}
+	if strings.Contains(body, "How Vans Work") || !strings.Contains(body, "Add shared vans and assign one to a selected driver when planning an event.") {
+		t.Fatalf("expected concise van guidance, body=%q", body)
+	}
 }
 
 func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
@@ -61,8 +64,48 @@ func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
 	if strings.Contains(body, "Saved Vans") || strings.Contains(body, "Add Van") {
 		t.Fatalf("expected Settings page to omit van management, body=%q", body)
 	}
-	if !strings.Contains(body, `href="/vans"`) {
-		t.Fatalf("expected Settings page to link to Vans page, body=%q", body)
+	if strings.Contains(body, "now live") || strings.Contains(body, "alert alert-info") {
+		t.Fatalf("expected Settings page to omit migration copy, body=%q", body)
+	}
+}
+
+func TestHandleHistoryPage_RendersKeyboardOperableEventToggle(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	event := createTestEvent(t, store, "2026-08-29", "Accessible history")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/history", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleHistoryPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`class="event-toggle"`,
+		`aria-expanded="false"`,
+		`aria-controls="event-detail-` + int64ToString(event.ID) + `"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("history page missing %q, body=%q", want, body)
+		}
+	}
+	if strings.Contains(body, `onclick="toggleEventDetail(this,`) {
+		t.Fatalf("history event row remains pointer-only, body=%q", body)
+	}
+}
+
+func TestDesktopLayoutOffersMobileSiteLink(t *testing.T) {
+	handler, _ := newTestPageHandler(t)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `href="/m/desktop-preference?clear=1"`) || !strings.Contains(body, `>Mobile site</a>`) {
+		t.Fatalf("desktop layout missing mobile-site escape hatch, body=%q", body)
 	}
 }
 
@@ -81,6 +124,7 @@ func TestHandleSettingsPage_RendersSMEEmailControl(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
+		`type="email"`,
 		`name="sme_email"`,
 		`value="sme@example.com"`,
 		`SME email`,
@@ -144,6 +188,33 @@ func TestHandleUpdateSettings_BlankFormSMEEmailDisablesCapture(t *testing.T) {
 	}
 	if settings.SMEEmail != "" {
 		t.Fatalf("SMEEmail = %q, want blank", settings.SMEEmail)
+	}
+}
+
+func TestHandleUpdateSettings_RejectsInvalidFormSMEEmail(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	if err := store.Settings().Update(context.Background(), &models.Settings{UseMiles: true, SMEEmail: "sme@example.com"}); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/settings", strings.NewReader("use_miles=on&sme_email=not-an-email"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+	handler.HandleUpdateSettings(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, "Please enter a valid SME email address.") {
+		t.Fatalf("HX-Trigger = %q, want invalid email toast", got)
+	}
+	settings, err := store.Settings().Get(context.Background())
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	if settings.SMEEmail != "sme@example.com" {
+		t.Fatalf("SMEEmail = %q, want previous value preserved", settings.SMEEmail)
 	}
 }
 

@@ -8,7 +8,7 @@
   <a class="mobile-row" href="/m/history/{{.ID}}">
     <span>
       <b>{{if .Notes}}{{.Notes}}{{else}}Saved event{{end}}</b>
-      <small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} riders · {{.TotalDrivers}} drivers · {{formatDistance .TotalDistanceMeters $.UseMiles}}{{end}}</small>
+      <small>{{formatDate .EventDate}}{{with .Summary}} · {{.TotalParticipants}} {{pluralize .TotalParticipants "rider"}} · {{.TotalDrivers}} {{pluralize .TotalDrivers "driver"}} · {{formatDistance .TotalDistanceMeters $.UseMiles}}{{end}}</small>
     </span>
     <i></i>
   </a>

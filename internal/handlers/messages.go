@@ -27,6 +27,7 @@ const (
 	messageInvalidRouteIndex                             = "Invalid route index"
 	messageInvalidRouteMode                              = "Please choose a valid route mode."
 	messageInvalidRoutesData                             = "Invalid routes data"
+	messageInvalidSMEEmail                               = "Please enter a valid SME email address."
 	messageNameAndAddressRequired                        = "name and address are required"
 	messageNameRequired                                  = "name is required"
 	messageOrganizationVehicleNotFound                   = "organization vehicle not found"
@@ -78,7 +79,11 @@ func messageFailedToSaveVan(err error) string {
 }
 
 func messageNotEnoughCapacity(shortage int) string {
-	return fmt.Sprintf("Not enough capacity - need %d more seats", shortage)
+	seat := "seats"
+	if shortage == 1 {
+		seat = "seat"
+	}
+	return fmt.Sprintf("Not enough capacity - need %d more %s", shortage, seat)
 }
 
 func messageAddressNameTooLong() string {
@@ -90,7 +95,11 @@ func messageVehicleCapacityOutOfRange() string {
 }
 
 func messageRoutesCalculated(driversAssigned int) string {
-	return fmt.Sprintf("Routes calculated! %d drivers assigned.", driversAssigned)
+	driver := "drivers"
+	if driversAssigned == 1 {
+		driver = "driver"
+	}
+	return fmt.Sprintf("Routes calculated! %d %s assigned.", driversAssigned, driver)
 }
 
 func messageSettingsSavedUsing(name string) string {

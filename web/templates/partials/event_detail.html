@@ -44,11 +44,11 @@
         <h4>Event Summary</h4>
         <div class="summary-grid">
             <div class="summary-item">
-                <div class="label">Participants</div>
+                <div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div>
                 <div class="value">{{.Summary.TotalParticipants}}</div>
             </div>
             <div class="summary-item">
-                <div class="label">Drivers</div>
+                <div class="label">{{pluralize .Summary.TotalDrivers "Driver"}}</div>
                 <div class="value">{{.Summary.TotalDrivers}}</div>
             </div>
             <div class="summary-item">
@@ -151,11 +151,11 @@
         <h4>Event Summary</h4>
         <div class="summary-grid">
             <div class="summary-item">
-                <div class="label">Participants</div>
+                <div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div>
                 <div class="value">{{.Summary.TotalParticipants}}</div>
             </div>
             <div class="summary-item">
-                <div class="label">Drivers</div>
+                <div class="label">{{pluralize .Summary.TotalDrivers "Driver"}}</div>
                 <div class="value">{{.Summary.TotalDrivers}}</div>
             </div>
             <div class="summary-item">

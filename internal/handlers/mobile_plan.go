@@ -47,9 +47,7 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view.Drivers = selectedDrivers
-	for _, driver := range view.Drivers {
-		view.SeatCount += driver.VehicleCapacity
-	}
+	vehiclesByID := make(map[int64]models.OrganizationVehicle, len(draft.DriverVehicleIDs))
 	if len(draft.DriverVehicleIDs) > 0 {
 		vehicleIDs := make([]int64, 0, len(draft.DriverVehicleIDs))
 		for _, vehicleID := range draft.DriverVehicleIDs {
@@ -60,15 +58,14 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 			h.renderMobileStoreError(w, r, listErr, "Vans not found")
 			return
 		}
-		byID := make(map[int64]models.OrganizationVehicle, len(vehicles))
 		for _, vehicle := range vehicles {
-			byID[vehicle.ID] = vehicle
+			vehiclesByID[vehicle.ID] = vehicle
 		}
-		for _, driver := range view.Drivers {
-			if vehicle, ok := byID[draft.DriverVehicleIDs[driver.ID]]; ok {
-				view.SeatCount += vehicle.Capacity - driver.VehicleCapacity
-			}
-		}
+	}
+	view.SeatCount = orgVehicleSeatCount(draft.DriverIDs, view.Drivers, draft.DriverVehicleIDs, vehiclesByID)
+	if assignmentErr := validateUniqueOrgVehicleAssignments(draft.DriverVehicleIDs); assignmentErr != nil {
+		view.Error = mobileVanAssignmentMessage(assignmentErr)
+		view.InvalidVanAssignments = true
 	}
 	if events, listErr := h.buildEventListView(r.Context(), 1, 0); listErr == nil && len(events.Events) > 0 {
 		view.LastEvent = &events.Events[0]
@@ -235,15 +232,15 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
-		if err != nil {
-			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
-			return
-		}
 		h.PlanDraft.Update(id, func(d *plandraft.Draft) {
 			d.DriverIDs = driverIDs
 			d.DriverVehicleIDs = assignments
 			d.RouteSessionID = ""
 		})
+		if err != nil {
+			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
+			return
+		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
@@ -317,12 +314,7 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		LabelID:           labelID,
 		HiddenSelectedIDs: hiddenMobileIDs(selectedIDs, displayed),
 	}
-	for _, driver := range selectedDrivers {
-		view.SelectedSeats += driver.VehicleCapacity
-		if vehicle, ok := vehiclesByID[assignments[driver.ID]]; ok {
-			view.SelectedSeats += vehicle.Capacity - driver.VehicleCapacity
-		}
-	}
+	view.SelectedSeats = orgVehicleSeatCount(selectedIDs, selectedDrivers, assignments, vehiclesByID)
 	h.renderTemplate(w, "mobile/drivers.html", view)
 }
 
@@ -370,6 +362,10 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 	}
 	if notice != "" {
 		h.mobileRedirectError(w, r, "/m", notice)
+		return
+	}
+	if assignmentErr := validateUniqueOrgVehicleAssignments(draft.DriverVehicleIDs); assignmentErr != nil {
+		h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(assignmentErr))
 		return
 	}
 	if draft.LocationID == 0 || len(draft.ParticipantIDs) == 0 || len(draft.DriverIDs) == 0 {

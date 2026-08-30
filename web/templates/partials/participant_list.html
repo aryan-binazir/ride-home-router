@@ -20,6 +20,9 @@
         {{range .Participants}}
         {{template "participant_row" dict "Participant" . "LabelIDs" (labelIDsFor $.LabelIDs .ID) "LabelNames" (labelNamesFor $.Labels $.LabelIDs .ID)}}
         {{end}}
+        <tr id="participants-tbody-empty" class="hidden">
+            <td colspan="6" class="text-muted text-center">No participants match this search.</td>
+        </tr>
     </tbody>
 </table>
 {{else}}

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -18,6 +19,8 @@ const (
 
 var errSelectedVanNotFound = errors.New(selectedVanNotFoundMessage)
 
+// parseOrgVehicleAssignments returns submitted choices with validation errors so
+// failed input can be preserved. Callers must validate again before routing it.
 func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map[int64]int64, error) {
 	assignments := make(map[int64]int64)
 	if len(form) == 0 {
@@ -29,7 +32,7 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		selectedDrivers[driverID] = struct{}{}
 	}
 
-	vehicleOwners := make(map[int64]int64)
+	assignmentKeys := make([]string, 0)
 	for key, values := range form {
 		if !strings.HasPrefix(key, "org_vehicle_") {
 			continue
@@ -37,29 +40,75 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		if len(values) == 0 || values[0] == "" {
 			continue
 		}
-
+		assignmentKeys = append(assignmentKeys, key)
+	}
+	// Stable key validation avoids map-order-dependent errors for malformed forms.
+	slices.Sort(assignmentKeys)
+	for _, key := range assignmentKeys {
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)
 		if err != nil {
-			return nil, errors.New(invalidVanAssignmentMessage)
+			return assignments, errors.New(invalidVanAssignmentMessage)
 		}
 		if _, ok := selectedDrivers[driverID]; !ok {
-			return nil, errors.New(unselectedDriverVanAssignmentMessage)
+			return assignments, errors.New(unselectedDriverVanAssignmentMessage)
 		}
+	}
 
+	for _, driverID := range selectedDriverIDs {
+		values := form["org_vehicle_"+strconv.FormatInt(driverID, 10)]
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
 		vehicleID, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil || vehicleID <= 0 {
-			return nil, errors.New(invalidVanAssignmentMessage)
-		}
-
-		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
-			return nil, errors.New(duplicateVanAssignmentMessage)
+			return assignments, errors.New(invalidVanAssignmentMessage)
 		}
 
 		assignments[driverID] = vehicleID
-		vehicleOwners[vehicleID] = driverID
 	}
 
-	return assignments, nil
+	return assignments, validateUniqueOrgVehicleAssignments(assignments)
+}
+
+func validateUniqueOrgVehicleAssignments(assignments map[int64]int64) error {
+	vehicleOwners := make(map[int64]int64, len(assignments))
+	for driverID, vehicleID := range assignments {
+		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
+			return errors.New(duplicateVanAssignmentMessage)
+		}
+		vehicleOwners[vehicleID] = driverID
+	}
+	return nil
+}
+
+func orgVehicleSeatCount(driverIDs []int64, drivers []models.Driver, assignments map[int64]int64, vehiclesByID map[int64]models.OrganizationVehicle) int {
+	total := 0
+	driversByID := make(map[int64]models.Driver, len(drivers))
+	for _, driver := range drivers {
+		driversByID[driver.ID] = driver
+	}
+	usedVehicles := make(map[int64]struct{}, len(assignments))
+	for _, driverID := range driverIDs {
+		driver, exists := driversByID[driverID]
+		if !exists {
+			continue
+		}
+		total += driver.VehicleCapacity
+		vehicleID, assigned := assignments[driver.ID]
+		if !assigned {
+			continue
+		}
+		if _, used := usedVehicles[vehicleID]; used {
+			continue
+		}
+		vehicle, exists := vehiclesByID[vehicleID]
+		if !exists {
+			continue
+		}
+		total += vehicle.Capacity - driver.VehicleCapacity
+		usedVehicles[vehicleID] = struct{}{}
+	}
+	return total
 }
 
 func applyOrgVehicleAssignments(drivers []models.Driver, assignments map[int64]int64, vehicleMap map[int64]*models.OrganizationVehicle) ([]models.Driver, map[int64]*models.OrganizationVehicle) {

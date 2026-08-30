@@ -22,6 +22,14 @@ type GeocodingResult struct {
 	FormattedAddress string
 }
 
+// Label returns the address text shown in search suggestions.
+func (r GeocodingResult) Label() string {
+	if strings.TrimSpace(r.FormattedAddress) != "" {
+		return r.FormattedAddress
+	}
+	return r.DisplayName
+}
+
 // Geocoder provides address-to-coordinates conversion
 type Geocoder interface {
 	Geocode(ctx context.Context, address string) (*GeocodingResult, error)

@@ -24,13 +24,14 @@ type mobileErrorView struct {
 
 type mobilePlanView struct {
 	mobileBaseView
-	Draft            plandraft.Draft
-	RouteTimeDisplay string
-	Location         *models.ActivityLocation
-	Participants     []models.Participant
-	Drivers          []models.Driver
-	LastEvent        *EventWithSummary
-	SeatCount        int
+	Draft                 plandraft.Draft
+	RouteTimeDisplay      string
+	Location              *models.ActivityLocation
+	Participants          []models.Participant
+	Drivers               []models.Driver
+	LastEvent             *EventWithSummary
+	SeatCount             int
+	InvalidVanAssignments bool
 }
 
 type mobileLocationView struct {

@@ -164,6 +164,8 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Vehicles are over capacity; redistribute passengers before copying or saving.",
+		"<b>2</b>Riders",
+		"<b>1</b>Driver",
 		`class="mobile-route-card mobile-route-card-over-capacity"`,
 		"Metrics paused",
 		`disabled title="Redistribute passengers to re-enable copying"`,
@@ -175,6 +177,47 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 	}
 	if strings.Contains(body, "5.00 km") || strings.Contains(body, ">6:32 PM<") {
 		t.Fatalf("over-capacity routes page exposed stale metrics: %s", body)
+	}
+}
+
+func TestMobileRoutesUsesSingularSummaryLabels(t *testing.T) {
+	store := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(store.Close)
+	drafts := plandraft.NewStore()
+	t.Cleanup(drafts.Close)
+	driver := models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 1}
+	rider := models.Participant{ID: 10, Name: "Rider", Address: "1 Main"}
+	session := store.Create(routesession.CreateInput{
+		Routes:           []models.CalculatedRoute{{Driver: &driver, EffectiveCapacity: 1, Stops: []models.RouteStop{{Participant: &rider}}}},
+		SelectedDrivers:  []models.Driver{driver},
+		ActivityLocation: &models.ActivityLocation{Name: "Center"},
+		Mode:             models.RouteModeDropoff,
+	})
+	id := drafts.NewID()
+	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
+	handler := &Handler{Renderer: loadEmbeddedTemplates(t), PlanDraft: drafts, RouteSession: store}
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/routes", nil)
+	request.AddCookie(mobileTestCookie(id))
+	response := httptest.NewRecorder()
+
+	handler.HandleMobileRoutes(response, request)
+
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "<b>1</b>Rider") || !strings.Contains(body, "<b>1</b>Driver") {
+		t.Fatalf("singular mobile route summary = %d body=%q", response.Code, body)
+	}
+}
+
+func TestOrgVehicleSeatCountUsesSelectedDriverOrder(t *testing.T) {
+	drivers := []models.Driver{
+		{ID: 2, VehicleCapacity: 6},
+		{ID: 1, VehicleCapacity: 2},
+	}
+	assignments := map[int64]int64{1: 9, 2: 9}
+	vehicles := map[int64]models.OrganizationVehicle{9: {ID: 9, Capacity: 8}}
+
+	if got := orgVehicleSeatCount([]int64{1, 2}, drivers, assignments, vehicles); got != 14 {
+		t.Fatalf("seat count = %d, want 14 with the first selected driver owning the shared van", got)
 	}
 }
 
@@ -413,7 +456,7 @@ func TestMobileDriversRejectsDuplicateVanAssignment(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := handler.PlanDraft.NewID()
-	handler.PlanDraft.Update(id, func(*plandraft.Draft) {})
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = "stale-session" })
 	values := url.Values{
 		"driver_ids":                             {fmt.Sprint(first.ID), fmt.Sprint(second.ID)},
 		fmt.Sprintf("org_vehicle_%d", first.ID):  {fmt.Sprint(van.ID)},
@@ -423,6 +466,32 @@ func TestMobileDriversRejectsDuplicateVanAssignment(t *testing.T) {
 	target, err := url.Parse(response.Header().Get("Location"))
 	if err != nil || response.Code != http.StatusSeeOther || target.Query().Get("error") != duplicateVanAssignmentMessage {
 		t.Fatalf("duplicate van response = %d location=%q err=%v", response.Code, response.Header().Get("Location"), err)
+	}
+	draft, ok := handler.PlanDraft.Get(id)
+	if !ok {
+		t.Fatal("draft missing after duplicate van validation")
+	}
+	if len(draft.DriverIDs) != 2 || draft.DriverIDs[0] != first.ID || draft.DriverIDs[1] != second.ID {
+		t.Fatalf("driver IDs after validation = %v, want [%d %d]", draft.DriverIDs, first.ID, second.ID)
+	}
+	if draft.DriverVehicleIDs[first.ID] != van.ID || draft.DriverVehicleIDs[second.ID] != van.ID {
+		t.Fatalf("van assignments after validation = %v, want both drivers assigned van %d", draft.DriverVehicleIDs, van.ID)
+	}
+	if draft.RouteSessionID != "" {
+		t.Fatalf("route session after validation = %q, want cleared", draft.RouteSessionID)
+	}
+	planRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m", nil)
+	planRequest.AddCookie(mobileTestCookie(id))
+	planResponse := httptest.NewRecorder()
+	handler.HandleMobilePlan(planResponse, planRequest)
+	planBody := planResponse.Body.String()
+	if planResponse.Code != http.StatusOK || !strings.Contains(planBody, duplicateVanAssignmentMessage) || !strings.Contains(planBody, "12 seats") || strings.Contains(planBody, "16 seats") {
+		t.Fatalf("plan with duplicate van = %d body=%q", planResponse.Code, planBody)
+	}
+	calculateResponse := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+	calculateTarget, err := url.Parse(calculateResponse.Header().Get("Location"))
+	if err != nil || calculateResponse.Code != http.StatusSeeOther || calculateTarget.Path != "/m/plan/drivers" || calculateTarget.Query().Get("error") != duplicateVanAssignmentMessage {
+		t.Fatalf("calculate with duplicate van = %d location=%q err=%v", calculateResponse.Code, calculateResponse.Header().Get("Location"), err)
 	}
 }
 
@@ -487,7 +556,7 @@ func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
 		_, err := store.Events().Create(ctx, &models.Event{
 			EventDate: time.Date(2026, time.August, 29-index, 0, 0, 0, 0, time.UTC),
 			Notes:     fmt.Sprintf("History event %02d", index), Mode: models.RouteModeDropoff,
-		}, nil, &models.EventSummary{Mode: models.RouteModeDropoff})
+		}, nil, &models.EventSummary{TotalParticipants: 1, TotalDrivers: 1, Mode: models.RouteModeDropoff})
 		if err != nil {
 			t.Fatalf("create history event %d: %v", index, err)
 		}
@@ -500,7 +569,7 @@ func TestMobileHistoryPaginatesLikeDesktop(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Count(body, `href="/m/history/`) != defaultEventListPageSize {
 		t.Fatalf("first history page = %d, event links=%d body=%q", response.Code, strings.Count(body, `href="/m/history/`), body)
 	}
-	for _, want := range []string{"Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20&previous_month=2026-08"`, "Load more"} {
+	for _, want := range []string{"1 rider · 1 driver", "Showing 20 of 21 events", `hx-get="/m/history?offset=20&limit=20&previous_month=2026-08"`, "Load more"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("first history page missing %q: %s", want, body)
 		}
