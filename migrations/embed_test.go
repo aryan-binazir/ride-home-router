@@ -137,6 +137,51 @@ func TestVersionRejectsMissingCurrentSchema(t *testing.T) {
 	}
 }
 
+func TestVersionSupportsQuotedSchemaNames(t *testing.T) {
+	databaseURL := postgrestest.UnmigratedDatabase(t)
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatalf("parse database URL: %v", err)
+	}
+	originalSchema := parsed.Query().Get("search_path")
+	quotedSchema := "MixedCase_" + strings.TrimPrefix(originalSchema, "t_")
+	if len(quotedSchema) > 63 {
+		quotedSchema = quotedSchema[:63]
+	}
+
+	connection, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect schema rename fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := connection.Close(context.Background()); err != nil {
+			t.Errorf("close schema rename fixture: %v", err)
+		}
+	})
+	if _, err := connection.Exec(t.Context(), "ALTER SCHEMA "+pgx.Identifier{originalSchema}.Sanitize()+" RENAME TO "+pgx.Identifier{quotedSchema}.Sanitize()); err != nil {
+		t.Fatalf("rename test schema: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := connection.Exec(context.Background(), "ALTER SCHEMA "+pgx.Identifier{quotedSchema}.Sanitize()+" RENAME TO "+pgx.Identifier{originalSchema}.Sanitize()); err != nil {
+			t.Errorf("restore test schema name: %v", err)
+		}
+	})
+	query := parsed.Query()
+	query.Set("search_path", pgx.Identifier{quotedSchema}.Sanitize())
+	parsed.RawQuery = query.Encode()
+
+	if err := migrations.Run(t.Context(), parsed.String()); err != nil {
+		t.Fatalf("Run() in quoted schema error = %v", err)
+	}
+	version, dirty, err := migrations.Version(t.Context(), parsed.String())
+	if err != nil {
+		t.Fatalf("Version() in quoted schema error = %v", err)
+	}
+	if version != 20260830000000 || dirty {
+		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260830000000, false)", version, dirty)
+	}
+}
+
 func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
 

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -53,7 +55,16 @@ func Version(ctx context.Context, databaseURL string) (version uint, dirty bool,
 
 	var currentSchema sql.NullString
 	var exists bool
-	if err := database.QueryRowContext(ctx, "SELECT current_schema(), to_regclass(current_schema() || '.schema_migrations') IS NOT NULL").Scan(&currentSchema, &exists); err != nil {
+	if err := database.QueryRowContext(ctx, `
+		SELECT current_schema(), EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_class AS class
+			JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
+			WHERE namespace.nspname = current_schema()
+			  AND class.relname = 'schema_migrations'
+			  AND class.relkind IN ('r', 'p')
+		)
+	`).Scan(&currentSchema, &exists); err != nil {
 		return 0, false, fmt.Errorf("inspect migration table: %w", err)
 	}
 	if !currentSchema.Valid {
@@ -140,11 +151,39 @@ func preflightDown(migrator *migrate.Migrate, sourceDriver source.Driver) error 
 }
 
 func hasExecutableSQL(body string) bool {
-	for line := range strings.SplitSeq(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "--") {
-			return true
+	for offset := 0; offset < len(body); {
+		rest := body[offset:]
+		if strings.HasPrefix(rest, "--") {
+			if newline := strings.IndexByte(rest, '\n'); newline >= 0 {
+				offset += newline + 1
+				continue
+			}
+			return false
 		}
+		if strings.HasPrefix(rest, "/*") {
+			offset += 2
+			depth := 1
+			for offset < len(body) && depth > 0 {
+				switch {
+				case strings.HasPrefix(body[offset:], "/*"):
+					depth++
+					offset += 2
+				case strings.HasPrefix(body[offset:], "*/"):
+					depth--
+					offset += 2
+				default:
+					_, size := utf8.DecodeRuneInString(body[offset:])
+					offset += size
+				}
+			}
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(rest)
+		if r == '\ufeff' || r == ';' || unicode.IsSpace(r) {
+			offset += size
+			continue
+		}
+		return true
 	}
 	return false
 }

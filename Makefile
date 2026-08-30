@@ -80,19 +80,41 @@ migrate-down:
 
 migrate-create: export MIGRATION_NAME := $(name)
 migrate-create:
-	@if [ -z "$$MIGRATION_NAME" ]; then \
+	@set -eu; \
+	if [ -z "$$MIGRATION_NAME" ]; then \
 		echo "name is required, e.g. make migrate-create name=add_field"; \
 		exit 1; \
-	fi
-	@version=$$(date -u +%Y%m%d%H%M%S); \
+	fi; \
+	version=$$(date -u +%Y%m%d%H%M%S); \
 		slug=$$(printf '%s' "$$MIGRATION_NAME" | tr '[:upper:] -' '[:lower:]__' | sed 's/[^a-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_$$//'); \
 		if [ -z "$$slug" ]; then echo "name must contain a letter or number"; exit 1; fi; \
 		up="migrations/$${version}_$${slug}.up.sql"; \
 		down="migrations/$${version}_$${slug}.down.sql"; \
+		lock="migrations/.$${version}.lock"; \
+		if ! mkdir "$$lock"; then echo "migration creation already owns timestamp $$version"; exit 1; fi; \
+		created_up=false; \
+		created_down=false; \
+		cleanup() { \
+			status=$$?; \
+			trap - 0 1 2 15; \
+			rm -f "$$lock/up.sql" "$$lock/down.sql"; \
+			if [ "$$status" -ne 0 ]; then \
+				if "$$created_up"; then rm -f "$$up"; fi; \
+				if "$$created_down"; then rm -f "$$down"; fi; \
+			fi; \
+			if ! rmdir "$$lock"; then status=1; fi; \
+			exit "$$status"; \
+		}; \
+		trap cleanup 0; \
+		trap 'exit 1' 1 2 15; \
 		set -- migrations/$${version}_*.sql; \
 		if [ -e "$$1" ]; then echo "migration already exists for timestamp $$version"; exit 1; fi; \
-		printf '%s\n' '-- Write migration here.' > "$$up"; \
-		printf '%s\n' '-- ride-home-router: down migration disabled' > "$$down"; \
+		printf '%s\n' '-- Write migration here.' > "$$lock/up.sql"; \
+		printf '%s\n' '-- ride-home-router: down migration disabled' > "$$lock/down.sql"; \
+		mv "$$lock/up.sql" "$$up"; \
+		created_up=true; \
+		mv "$$lock/down.sql" "$$down"; \
+		created_down=true; \
 		printf '%s\n%s\n' "$$up" "$$down"
 
 clean:

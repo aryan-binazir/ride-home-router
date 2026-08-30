@@ -43,7 +43,7 @@ Allowed hosts omit schemes, ports, and paths. Unlisted hosts get `403`; add the 
 
 ## Deploy
 
-The Docker image contains the server and `migrate` binaries, runs the server as a non-root user, and checks `/api/v1/health`.
+The Docker image contains the server and `migrate` binaries, supports `amd64` and `arm64`, runs the server as a non-root user, and checks `/api/v1/health`.
 
 Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
 
@@ -73,7 +73,9 @@ make migrate-down CONFIRM=yes
 
 It rolls back exactly one version and preflights the down file before changing migration state. Missing, disabled, and comment-only down files are refused. The lower-level `migrate down --confirm` command uses the loaded `DATABASE_URL`; do not run it against a database you intend to keep without a verified backup and matching application rollback. If rollback succeeds but the follow-up version read fails, the error explicitly says the rollback already applied; inspect the database instead of retrying blindly.
 
-A failed migration can leave `schema_migrations` dirty. Later up or down operations refuse that state and report the version. Inspect `SELECT version, dirty FROM schema_migrations;`, the failed statement, and the database contents. If the migration transaction fully rolled back and the schema is unchanged, clear only the dirty flag for that inspected version with `UPDATE schema_migrations SET dirty = false WHERE version = <version> AND dirty = true;`, then retry. If any schema change remains or the state is uncertain, repair deliberately or restore a verified backup. Do not blindly change the recorded version or add `IF NOT EXISTS` guards to hide a partial migration.
+A failed migration can leave `schema_migrations` dirty. Later up or down operations refuse that state and report the version. Inspect `SELECT version, dirty FROM schema_migrations;`, the failed statement, and the database contents. Do not simply clear `dirty`: golang-migrate records the target version before running SQL, so a rolled-back transaction can leave that target recorded even though the schema stayed at its prior version.
+
+After proving the migration transaction fully rolled back, repair the row to match the verified schema. For a failed up to version `V`, restore the previous applied version `P` with `UPDATE schema_migrations SET version = P, dirty = false WHERE version = V AND dirty = true;`. If the failed up was the first migration and the schema is still empty, use `DELETE FROM schema_migrations WHERE version = V AND dirty = true;`. For a failed down from `V` toward `P`, restore `V` with `UPDATE schema_migrations SET version = V, dirty = false WHERE version = P AND dirty = true;`. Require the statement to affect exactly one row, then run `migrate version` before retrying. If any schema change remains, the direction or versions are uncertain, or the repair affects anything other than one dirty row, stop and restore a verified backup. Never add `IF NOT EXISTS` guards to hide a partial migration.
 
 ## Use
 

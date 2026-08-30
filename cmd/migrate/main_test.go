@@ -90,3 +90,30 @@ func TestRunConfirmedDownRollsBackOneMigration(t *testing.T) {
 		t.Fatalf("Version() after down = (%d, %t), want (20260829000000, false)", version, dirty)
 	}
 }
+
+func TestRunConfirmedDownWarnsAgainstRetryAfterFailure(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	for range 2 {
+		if err := migrations.Down(t.Context(), databaseURL); err != nil {
+			t.Fatalf("Down() to baseline error = %v", err)
+		}
+	}
+	t.Setenv("DATABASE_URL", databaseURL)
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"down", "--confirm"}, &stdout, &stderr)
+
+	if code != 1 {
+		t.Fatalf("run(down --confirm) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "outcome is uncertain") || !strings.Contains(stderr.String(), "inspect migration version before retrying") {
+		t.Fatalf("run(down --confirm) stderr = %q, want retry warning", stderr.String())
+	}
+	version, dirty, err := migrations.Version(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("Version() after refused down error = %v", err)
+	}
+	if version != 20260826000000 || dirty {
+		t.Fatalf("Version() after refused down = (%d, %t), want (20260826000000, false)", version, dirty)
+	}
+}

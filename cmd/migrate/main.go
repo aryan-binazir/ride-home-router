@@ -79,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := migrations.Down(context.Background(), databaseURL); err != nil {
-		_, _ = fmt.Fprintf(stderr, "migration: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "migration: down failed or outcome is uncertain; inspect migration version before retrying: %v\n", err)
 		return 1
 	}
 	if err := printVersion(databaseURL, stdout); err != nil {

@@ -10,6 +10,7 @@ COPY web ./web
 COPY migrations ./migrations
 ARG TARGETOS
 ARG TARGETARCH
+RUN case "${TARGETARCH}" in amd64|arm64) ;; *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1;; esac
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/ride-home-router ./cmd/server
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/migrate ./cmd/migrate
 
