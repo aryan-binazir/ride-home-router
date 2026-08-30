@@ -164,6 +164,8 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Vehicles are over capacity; redistribute passengers before copying or saving.",
+		"<b>2</b>Riders",
+		"<b>1</b>Driver",
 		`class="mobile-route-card mobile-route-card-over-capacity"`,
 		"Metrics paused",
 		`disabled title="Redistribute passengers to re-enable copying"`,
@@ -175,6 +177,47 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 	}
 	if strings.Contains(body, "5.00 km") || strings.Contains(body, ">6:32 PM<") {
 		t.Fatalf("over-capacity routes page exposed stale metrics: %s", body)
+	}
+}
+
+func TestMobileRoutesUsesSingularSummaryLabels(t *testing.T) {
+	store := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(store.Close)
+	drafts := plandraft.NewStore()
+	t.Cleanup(drafts.Close)
+	driver := models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 1}
+	rider := models.Participant{ID: 10, Name: "Rider", Address: "1 Main"}
+	session := store.Create(routesession.CreateInput{
+		Routes:           []models.CalculatedRoute{{Driver: &driver, EffectiveCapacity: 1, Stops: []models.RouteStop{{Participant: &rider}}}},
+		SelectedDrivers:  []models.Driver{driver},
+		ActivityLocation: &models.ActivityLocation{Name: "Center"},
+		Mode:             models.RouteModeDropoff,
+	})
+	id := drafts.NewID()
+	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
+	handler := &Handler{Renderer: loadEmbeddedTemplates(t), PlanDraft: drafts, RouteSession: store}
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/routes", nil)
+	request.AddCookie(mobileTestCookie(id))
+	response := httptest.NewRecorder()
+
+	handler.HandleMobileRoutes(response, request)
+
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "<b>1</b>Rider") || !strings.Contains(body, "<b>1</b>Driver") {
+		t.Fatalf("singular mobile route summary = %d body=%q", response.Code, body)
+	}
+}
+
+func TestOrgVehicleSeatCountUsesSelectedDriverOrder(t *testing.T) {
+	drivers := []models.Driver{
+		{ID: 2, VehicleCapacity: 6},
+		{ID: 1, VehicleCapacity: 2},
+	}
+	assignments := map[int64]int64{1: 9, 2: 9}
+	vehicles := map[int64]models.OrganizationVehicle{9: {ID: 9, Capacity: 8}}
+
+	if got := orgVehicleSeatCount([]int64{1, 2}, drivers, assignments, vehicles); got != 14 {
+		t.Fatalf("seat count = %d, want 14 with the first selected driver owning the shared van", got)
 	}
 }
 

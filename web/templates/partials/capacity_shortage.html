@@ -11,9 +11,9 @@
     <div class="notice capacity-notice">
         <h3>Not Enough Available Capacity</h3>
         <p>
-            <strong>{{.Error.TotalParticipants}}</strong> participants selected, but only
+            <strong>{{.Error.TotalParticipants}}</strong> {{pluralize .Error.TotalParticipants "participant"}} selected, but only
             <strong>{{.Error.TotalCapacity}}</strong> available seats.
-            You need <strong>{{.Error.Shortage}}</strong> more seat{{if gt .Error.Shortage 1}}s{{end}}.
+            You need <strong>{{.Error.Shortage}}</strong> more {{pluralize .Error.Shortage "seat"}}.
         </p>
     </div>
 

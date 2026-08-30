@@ -62,7 +62,7 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 			vehiclesByID[vehicle.ID] = vehicle
 		}
 	}
-	view.SeatCount = orgVehicleSeatCount(view.Drivers, draft.DriverVehicleIDs, vehiclesByID)
+	view.SeatCount = orgVehicleSeatCount(draft.DriverIDs, view.Drivers, draft.DriverVehicleIDs, vehiclesByID)
 	if assignmentErr := validateUniqueOrgVehicleAssignments(draft.DriverVehicleIDs); assignmentErr != nil {
 		view.Error = mobileVanAssignmentMessage(assignmentErr)
 		view.InvalidVanAssignments = true
@@ -314,7 +314,7 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		LabelID:           labelID,
 		HiddenSelectedIDs: hiddenMobileIDs(selectedIDs, displayed),
 	}
-	view.SelectedSeats = orgVehicleSeatCount(selectedDrivers, assignments, vehiclesByID)
+	view.SelectedSeats = orgVehicleSeatCount(selectedIDs, selectedDrivers, assignments, vehiclesByID)
 	h.renderTemplate(w, "mobile/drivers.html", view)
 }
 

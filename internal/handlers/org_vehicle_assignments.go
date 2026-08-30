@@ -81,10 +81,18 @@ func validateUniqueOrgVehicleAssignments(assignments map[int64]int64) error {
 	return nil
 }
 
-func orgVehicleSeatCount(drivers []models.Driver, assignments map[int64]int64, vehiclesByID map[int64]models.OrganizationVehicle) int {
+func orgVehicleSeatCount(driverIDs []int64, drivers []models.Driver, assignments map[int64]int64, vehiclesByID map[int64]models.OrganizationVehicle) int {
 	total := 0
-	usedVehicles := make(map[int64]struct{}, len(assignments))
+	driversByID := make(map[int64]models.Driver, len(drivers))
 	for _, driver := range drivers {
+		driversByID[driver.ID] = driver
+	}
+	usedVehicles := make(map[int64]struct{}, len(assignments))
+	for _, driverID := range driverIDs {
+		driver, exists := driversByID[driverID]
+		if !exists {
+			continue
+		}
 		total += driver.VehicleCapacity
 		vehicleID, assigned := assignments[driver.ID]
 		if !assigned {

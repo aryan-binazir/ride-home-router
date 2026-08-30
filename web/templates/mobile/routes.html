@@ -7,8 +7,8 @@
   </div>
   {{end}}
   <div class="mobile-stats">
-    <span><b>{{.Snapshot.Summary.TotalParticipants}}</b>Riders</span>
-    <span><b>{{.Snapshot.Summary.TotalDriversUsed}}</b>Drivers</span>
+    <span><b>{{.Snapshot.Summary.TotalParticipants}}</b>{{pluralize .Snapshot.Summary.TotalParticipants "Rider"}}</span>
+    <span><b>{{.Snapshot.Summary.TotalDriversUsed}}</b>{{pluralize .Snapshot.Summary.TotalDriversUsed "Driver"}}</span>
     <span><b>{{if .Snapshot.IsOutOfBalance}}Paused{{else}}{{formatDistance .Snapshot.Summary.TotalDistanceMeters .Snapshot.UseMiles}}{{end}}</b>Total</span>
   </div>
   {{range .Routes}}

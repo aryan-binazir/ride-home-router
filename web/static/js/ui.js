@@ -17,6 +17,19 @@ function filterTable(input, tbodyId) {
   if (emptyRow) emptyRow.classList.toggle('hidden', query.length === 0 || visibleRows > 0);
 }
 
+function reapplyTableFilter(targetId) {
+  const filters = {
+    'labels-list': ['labels-search', 'labels-tbody'],
+    'participants-list': ['participants-search', 'participants-tbody'],
+    'drivers-list': ['drivers-search', 'drivers-tbody'],
+  };
+  const filter = filters[targetId];
+  if (!filter) return;
+
+  const input = document.getElementById(filter[0]);
+  if (input) filterTable(input, filter[1]);
+}
+
 function switchRosterTab(button, prefix) {
   const activeContainer = document.getElementById(prefix + '-active') || document.getElementById(prefix + '-list');
   const deletedContainer = document.getElementById(prefix + '-deleted') || document.getElementById(prefix + '-deleted-list');
@@ -46,7 +59,7 @@ function switchRosterTab(button, prefix) {
 }
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { filterTable, switchRosterTab, toggleEventDetail };
+  module.exports = { filterTable, handleTableSwap, reapplyTableFilter, switchRosterTab, toggleEventDetail };
 }
 
 function updateBulkSelectionCount(tbodyId) {
@@ -83,16 +96,20 @@ function clearTableSelection(tbodyId) {
   updateBulkSelectionCount(tbodyId);
 }
 
+function handleTableSwap(event) {
+  const target = event.detail && event.detail.target ? event.detail.target : event.target;
+  const targetId = target && target.id;
+  if (targetId === 'participants-list') {
+    updateBulkSelectionCount('participants-tbody');
+  }
+  if (targetId === 'drivers-list') {
+    updateBulkSelectionCount('drivers-tbody');
+  }
+  reapplyTableFilter(targetId);
+}
+
 if (typeof document !== 'undefined') {
-  document.body.addEventListener('htmx:afterSwap', event => {
-    const targetId = event.target && event.target.id;
-    if (targetId === 'participants-list') {
-      updateBulkSelectionCount('participants-tbody');
-    }
-    if (targetId === 'drivers-list') {
-      updateBulkSelectionCount('drivers-tbody');
-    }
-  });
+  document.addEventListener('htmx:afterSettle', handleTableSwap, true);
 }
 
 function toggleBulkDropdown(button) {
@@ -110,18 +127,40 @@ function toggleEventDetail(eventItem, eventId, toggle) {
   const detailDiv = document.getElementById('event-detail-' + eventId);
   if (!detailDiv) return;
 
-  if (detailDiv.innerHTML.trim()) {
+  const setExpanded = expanded => {
+    eventItem.classList.toggle('expanded', expanded);
+    if (toggle) toggle.setAttribute('aria-expanded', String(expanded));
+    const label = toggle && toggle.querySelector('.event-toggle-label');
+    if (label) label.textContent = expanded ? 'Hide details' : 'View details';
+  };
+  if (eventItem.classList.contains('expanded')) {
     detailDiv.innerHTML = '';
-    eventItem.classList.remove('expanded');
-    if (toggle) toggle.setAttribute('aria-expanded', 'false');
-    const label = toggle && toggle.querySelector('.event-toggle-label');
-    if (label) label.textContent = 'View details';
-  } else {
-    eventItem.classList.add('expanded');
-    if (toggle) toggle.setAttribute('aria-expanded', 'true');
-    const label = toggle && toggle.querySelector('.event-toggle-label');
-    if (label) label.textContent = 'Hide details';
-    htmx.ajax('GET', '/api/v1/events/' + eventId, { target: detailDiv, swap: 'innerHTML' });
+    setExpanded(false);
+    return;
+  }
+
+  setExpanded(true);
+  if (detailDiv.getAttribute('aria-busy') === 'true' || detailDiv.innerHTML.trim()) return;
+
+  const requestId = Number(detailDiv.dataset.eventRequestId || 0) + 1;
+  detailDiv.dataset.eventRequestId = String(requestId);
+  detailDiv.setAttribute('aria-busy', 'true');
+  const request = htmx.ajax('GET', '/api/v1/events/' + eventId, {
+    source: detailDiv,
+    target: detailDiv,
+    swap: 'innerHTML',
+  });
+  if (request && typeof request.then === 'function') {
+    request.then(() => {
+      if (detailDiv.dataset.eventRequestId !== String(requestId)) return;
+      detailDiv.removeAttribute('aria-busy');
+      if (!eventItem.classList.contains('expanded')) detailDiv.innerHTML = '';
+    }).catch(() => {
+      if (detailDiv.dataset.eventRequestId !== String(requestId)) return;
+      detailDiv.innerHTML = '';
+      detailDiv.removeAttribute('aria-busy');
+      setExpanded(false);
+    });
   }
 }
 

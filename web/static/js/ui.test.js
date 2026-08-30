@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { filterTable, switchRosterTab, toggleEventDetail } = require('./ui.js');
+const { filterTable, handleTableSwap, reapplyTableFilter, switchRosterTab, toggleEventDetail } = require('./ui.js');
 
 function element(classes = []) {
   const values = new Set(classes);
@@ -77,9 +77,60 @@ test('filterTable shows a filtered-empty row only when no data rows match', () =
   assert.equal(empty.classList.contains('hidden'), true);
 });
 
+test('reapplyTableFilter keeps the current search after a list swap', () => {
+  const matching = element([]);
+  matching.dataset = { search: 'Alpha group' };
+  const other = element([]);
+  other.dataset = { search: 'Beta group' };
+  const empty = element(['hidden']);
+  const input = { value: 'Alpha' };
+  const tbody = { querySelectorAll: () => [matching, other] };
+  global.document = {
+    getElementById(id) {
+      return {
+        'labels-search': input,
+        'labels-tbody': tbody,
+        'labels-tbody-empty': empty,
+      }[id] || null;
+    },
+  };
+  test.after(() => { delete global.document; });
+
+  reapplyTableFilter('labels-list');
+
+  assert.equal(matching.classList.contains('hidden'), false);
+  assert.equal(other.classList.contains('hidden'), true);
+  assert.equal(empty.classList.contains('hidden'), true);
+});
+
+test('handleTableSwap uses the HTMX response target', () => {
+  const matching = element([]);
+  matching.dataset = { search: 'Alpha group' };
+  const other = element([]);
+  other.dataset = { search: 'Beta group' };
+  const empty = element(['hidden']);
+  const input = { value: 'Alpha' };
+  const tbody = { querySelectorAll: () => [matching, other] };
+  global.document = {
+    getElementById(id) {
+      return {
+        'labels-search': input,
+        'labels-tbody': tbody,
+        'labels-tbody-empty': empty,
+      }[id] || null;
+    },
+  };
+  test.after(() => { delete global.document; });
+
+  handleTableSwap({ target: { id: 'label-form' }, detail: { target: { id: 'labels-list' } } });
+
+  assert.equal(matching.classList.contains('hidden'), false);
+  assert.equal(other.classList.contains('hidden'), true);
+});
+
 test('event history toggle updates expanded state and visible label', () => {
   const eventItem = element([]);
-  const detail = { innerHTML: '' };
+  const detail = { innerHTML: '', dataset: {}, getAttribute() { return null; }, setAttribute() {}, removeAttribute() {} };
   const label = { textContent: 'View details' };
   const toggle = {
     attributes: {},
@@ -100,6 +151,55 @@ test('event history toggle updates expanded state and visible label', () => {
 
   detail.innerHTML = '<p>Loaded</p>';
   toggleEventDetail(eventItem, 7, toggle);
+  assert.equal(eventItem.classList.contains('expanded'), false);
+  assert.equal(toggle.attributes['aria-expanded'], 'false');
+  assert.equal(label.textContent, 'View details');
+});
+
+test('event history toggle collapses while loading and recovers from request failure', async () => {
+  const eventItem = element([]);
+  eventItem.dataset = {};
+  const detail = { innerHTML: '', dataset: {}, attributes: {}, getAttribute(name) { return this.attributes[name]; }, setAttribute(name, value) { this.attributes[name] = value; }, removeAttribute(name) { delete this.attributes[name]; } };
+  const label = { textContent: 'View details' };
+  const toggle = {
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return this.attributes[name]; },
+    querySelector() { return label; },
+  };
+  const requests = [];
+  global.document = { getElementById: () => detail };
+  global.htmx = {
+    ajax() {
+      let resolve;
+      let reject;
+      const promise = new Promise((resolveRequest, rejectRequest) => {
+        resolve = resolveRequest;
+        reject = rejectRequest;
+      });
+      requests.push({ reject, resolve });
+      return promise;
+    },
+  };
+  test.after(() => {
+    delete global.document;
+    delete global.htmx;
+  });
+
+  toggleEventDetail(eventItem, 7, toggle);
+  toggleEventDetail(eventItem, 7, toggle);
+  assert.equal(requests.length, 1);
+  assert.equal(eventItem.classList.contains('expanded'), false);
+  assert.equal(toggle.attributes['aria-expanded'], 'false');
+  detail.innerHTML = '<p>Loaded after collapse</p>';
+  requests[0].resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(detail.innerHTML, '');
+
+  toggleEventDetail(eventItem, 7, toggle);
+  assert.equal(requests.length, 2);
+  requests[1].reject(new Error('request failed'));
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(eventItem.classList.contains('expanded'), false);
   assert.equal(toggle.attributes['aria-expanded'], 'false');
   assert.equal(label.textContent, 'View details');

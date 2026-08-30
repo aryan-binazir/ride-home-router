@@ -71,7 +71,7 @@
 
                 <dl class="route-stats statgrid">
                     <div class="stat"><dt>Capacity</dt><dd>{{.EffectiveCapacity}}</dd></div>
-                    <div class="stat"><dt>Passengers</dt><dd>{{len .Stops}}</dd></div>
+                    <div class="stat"><dt>{{pluralize (len .Stops) "Passenger"}}</dt><dd>{{len .Stops}}</dd></div>
                     {{if $.IsOutOfBalance}}
                     <div class="stat stat-paused text-danger"><dt>Route Metrics</dt><dd>Paused until within capacity</dd></div>
                     {{else}}
@@ -142,7 +142,7 @@
 
             {{if .UnusedDrivers}}
             <details class="unused-drivers-section">
-                <summary class="unused-drivers-header">Unused Drivers ({{len .UnusedDrivers}}) <em>click to expand</em></summary>
+                <summary class="unused-drivers-header">{{pluralize (len .UnusedDrivers) "Unused Driver"}} ({{len .UnusedDrivers}}) <em>click to expand</em></summary>
                 <div class="unused-drivers-list">
                     {{range .UnusedDrivers}}
                     <div class="unused-driver-item">
@@ -161,8 +161,8 @@
             <div class="route-summary">
                 <h3 class="visually-hidden">Summary</h3>
                 <div class="summary-grid">
-                    <div class="summary-item"><div class="label">Total Participants</div><div class="value">{{.Summary.TotalParticipants}}</div></div>
-                    <div class="summary-item"><div class="label">Drivers Used</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
+                    <div class="summary-item"><div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div><div class="value">{{.Summary.TotalParticipants}}</div></div>
+                    <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
                     <div class="summary-item">
                         <div class="label">Total Distance</div>
                         <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Paused</span>{{else}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{end}}</div>

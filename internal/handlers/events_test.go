@@ -729,6 +729,12 @@ func TestActualEventDetailTemplateRendersFloatDetourComparison(t *testing.T) {
 			}
 			return addressName + " (" + address + ")"
 		},
+		"pluralize": func(count int, singular string) string {
+			if count == 1 {
+				return singular
+			}
+			return singular + "s"
+		},
 	}).Parse(string(content))
 	if err != nil {
 		t.Fatalf("parse event_detail template: %v", err)
@@ -765,6 +771,9 @@ func TestActualEventDetailTemplateRendersFloatDetourComparison(t *testing.T) {
 	var rendered bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&rendered, "event_detail", data); err != nil {
 		t.Fatalf("execute event_detail template: %v", err)
+	}
+	if body := rendered.String(); !strings.Contains(body, `<div class="label">Participant</div>`) || !strings.Contains(body, `<div class="label">Driver</div>`) {
+		t.Fatalf("singular event summary labels missing: %s", body)
 	}
 }
 
