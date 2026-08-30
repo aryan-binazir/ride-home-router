@@ -45,6 +45,16 @@ func Open(t testing.TB) *postgres.Store {
 // DatabaseURL returns a migrated test schema that is dropped after the test.
 func DatabaseURL(t testing.TB) string {
 	t.Helper()
+	databaseURL := UnmigratedDatabase(t)
+	if err := migrations.Run(context.Background(), databaseURL); err != nil {
+		t.Fatalf("migrate test schema: %v", err)
+	}
+	return databaseURL
+}
+
+// UnmigratedDatabase returns an empty test schema that is dropped after the test.
+func UnmigratedDatabase(t testing.TB) string {
+	t.Helper()
 	base := strings.TrimSpace(os.Getenv(EnvVar))
 	if base == "" {
 		t.Skipf("%s is not set", EnvVar)
@@ -77,11 +87,7 @@ func DatabaseURL(t testing.TB) string {
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
-	databaseURL := parsed.String()
-	if err := migrations.Run(ctx, databaseURL); err != nil {
-		t.Fatalf("migrate test schema: %v", err)
-	}
-	return databaseURL
+	return parsed.String()
 }
 
 func newProcessNonce() string {

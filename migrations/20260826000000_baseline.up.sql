@@ -1,5 +1,3 @@
-SET lock_timeout = 0;
-
 CREATE TABLE activity_locations (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,

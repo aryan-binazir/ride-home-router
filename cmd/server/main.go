@@ -40,7 +40,6 @@ func run(args []string) error {
 		return err
 	}
 
-	// Catch signals before migrations so shutdown cannot terminate them midway.
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 

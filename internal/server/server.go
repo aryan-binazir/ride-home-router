@@ -22,7 +22,6 @@ import (
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
-	"ride-home-router/migrations"
 	"ride-home-router/web"
 	"strings"
 	"time"
@@ -43,7 +42,7 @@ type Config struct {
 	Addr string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
 	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
 	AllowedHosts []string
-	// DatabaseURL points to the Postgres database to migrate and serve.
+	// DatabaseURL points to the migrated Postgres database to serve.
 	DatabaseURL string
 	// GoogleMapsAPIKey enables Google Routes distances; empty disables routing.
 	GoogleMapsAPIKey string
@@ -63,14 +62,10 @@ const (
 	serverMessageRequestBodyTooLarge = "Request body too large"
 )
 
-// New migrates the database and prepares a stopped server.
+// New prepares a stopped server against an already-migrated database.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, errors.New("database URL is required")
-	}
-	log.Printf("Applying database migrations...")
-	if err := migrations.Run(ctx, cfg.DatabaseURL); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 	db, err := postgres.New(ctx, cfg.DatabaseURL)
 	if err != nil {
