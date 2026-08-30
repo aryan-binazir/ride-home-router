@@ -71,7 +71,7 @@ Down migrations are destructive. The Make target is pinned to the fixed local de
 make migrate-down CONFIRM=yes
 ```
 
-It rolls back exactly one version and preflights the down file before changing migration state. The lower-level `migrate down --confirm` command uses the loaded `DATABASE_URL`; do not run it against a database you intend to keep without a verified backup and matching application rollback.
+It rolls back exactly one version and preflights the down file before changing migration state. Missing, disabled, and comment-only down files are refused. The lower-level `migrate down --confirm` command uses the loaded `DATABASE_URL`; do not run it against a database you intend to keep without a verified backup and matching application rollback. If rollback succeeds but the follow-up version read fails, the error explicitly says the rollback already applied; inspect the database instead of retrying blindly.
 
 A failed migration can leave `schema_migrations` dirty. Later up or down operations refuse that state and report the version. Inspect `SELECT version, dirty FROM schema_migrations;`, the failed statement, and the database contents. If the migration transaction fully rolled back and the schema is unchanged, clear only the dirty flag for that inspected version with `UPDATE schema_migrations SET dirty = false WHERE version = <version> AND dirty = true;`, then retry. If any schema change remains or the state is uncertain, repair deliberately or restore a verified backup. Do not blindly change the recorded version or add `IF NOT EXISTS` guards to hide a partial migration.
 

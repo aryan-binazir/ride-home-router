@@ -83,7 +83,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := printVersion(databaseURL, stdout); err != nil {
-		_, _ = fmt.Fprintf(stderr, "migration: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "migration: rollback applied; failed to inspect resulting version: %v\n", err)
 		return 1
 	}
 	return 0

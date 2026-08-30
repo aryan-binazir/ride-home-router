@@ -130,13 +130,23 @@ func preflightDown(migrator *migrate.Migrate, sourceDriver source.Driver) error 
 	if closeErr != nil {
 		return fmt.Errorf("close down migration %s: %w", identifier, closeErr)
 	}
-	if strings.TrimSpace(string(body)) == "" {
-		return fmt.Errorf("refuse down at version %d: down migration %s is empty", version, identifier)
-	}
 	if strings.Contains(string(body), disabledDownMigrationMarker) {
 		return fmt.Errorf("refuse down at version %d: down migration disabled by %s", version, identifier)
 	}
+	if !hasExecutableSQL(string(body)) {
+		return fmt.Errorf("refuse down at version %d: down migration %s contains no executable SQL", version, identifier)
+	}
 	return nil
+}
+
+func hasExecutableSQL(body string) bool {
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "--") {
+			return true
+		}
+	}
+	return false
 }
 
 func withMigrator(ctx context.Context, databaseURL string, operation func(*migrate.Migrate, source.Driver) error) (err error) {
