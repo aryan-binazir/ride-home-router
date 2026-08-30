@@ -154,7 +154,7 @@ func hasExecutableSQL(body string) bool {
 	for offset := 0; offset < len(body); {
 		rest := body[offset:]
 		if strings.HasPrefix(rest, "--") {
-			if newline := strings.IndexByte(rest, '\n'); newline >= 0 {
+			if newline := strings.IndexAny(rest, "\r\n"); newline >= 0 {
 				offset += newline + 1
 				continue
 			}

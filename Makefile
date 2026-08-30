@@ -92,16 +92,14 @@ migrate-create:
 		down="migrations/$${version}_$${slug}.down.sql"; \
 		lock="migrations/.$${version}.lock"; \
 		if ! mkdir "$$lock"; then echo "migration creation already owns timestamp $$version"; exit 1; fi; \
-		created_up=false; \
-		created_down=false; \
 		cleanup() { \
 			status=$$?; \
 			trap - 0 1 2 15; \
-			rm -f "$$lock/up.sql" "$$lock/down.sql"; \
 			if [ "$$status" -ne 0 ]; then \
-				if "$$created_up"; then rm -f "$$up"; fi; \
-				if "$$created_down"; then rm -f "$$down"; fi; \
+				if [ -e "$$up" ] && [ "$$up" -ef "$$lock/up.owner" ]; then rm -f "$$up"; fi; \
+				if [ -e "$$down" ] && [ "$$down" -ef "$$lock/down.owner" ]; then rm -f "$$down"; fi; \
 			fi; \
+			rm -f "$$lock/up.sql" "$$lock/down.sql" "$$lock/up.owner" "$$lock/down.owner"; \
 			if ! rmdir "$$lock"; then status=1; fi; \
 			exit "$$status"; \
 		}; \
@@ -111,10 +109,10 @@ migrate-create:
 		if [ -e "$$1" ]; then echo "migration already exists for timestamp $$version"; exit 1; fi; \
 		printf '%s\n' '-- Write migration here.' > "$$lock/up.sql"; \
 		printf '%s\n' '-- ride-home-router: down migration disabled' > "$$lock/down.sql"; \
+		ln "$$lock/up.sql" "$$lock/up.owner"; \
+		ln "$$lock/down.sql" "$$lock/down.owner"; \
 		mv "$$lock/up.sql" "$$up"; \
-		created_up=true; \
 		mv "$$lock/down.sql" "$$down"; \
-		created_down=true; \
 		printf '%s\n%s\n' "$$up" "$$down"
 
 clean:
