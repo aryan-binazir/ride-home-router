@@ -23,14 +23,19 @@ func (f googleRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, e
 }
 
 type googleReadErrorBody struct {
-	data []byte
-	done bool
+	data          []byte
+	done          bool
+	errorWithData bool
 }
 
 func (b *googleReadErrorBody) Read(p []byte) (int, error) {
 	if !b.done {
 		b.done = true
-		return copy(p, b.data), nil
+		n := copy(p, b.data)
+		if b.errorWithData {
+			return n, io.ErrUnexpectedEOF
+		}
+		return n, nil
 	}
 	return 0, io.ErrUnexpectedEOF
 }
@@ -273,29 +278,41 @@ func TestGoogleCalculator_RetriesTransientStatusWhenErrorBodyReadFails(t *testin
 }
 
 func TestGoogleCalculator_RetriesResponseBodyNetworkError(t *testing.T) {
-	requests := 0
-	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
-	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
-		requests++
-		body := io.ReadCloser(&googleReadErrorBody{data: []byte(`{"originIndex":0`)})
-		if requests > 1 {
-			body = io.NopCloser(strings.NewReader(
-				`{"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}` + "\n",
-			))
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       body,
-			Request:    request,
-		}, nil
-	})}
-
-	if _, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}}); err != nil {
-		t.Fatalf("GetDistancesFromPoint() error = %v", err)
+	validBody := `{"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}` + "\n"
+	tests := []struct {
+		name          string
+		body          string
+		errorWithData bool
+	}{
+		{name: "after partial JSON", body: `{"originIndex":0`},
+		{name: "with complete JSON", body: validBody, errorWithData: true},
 	}
-	if requests != 2 {
-		t.Fatalf("requests = %d, want 2", requests)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := 0
+			calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+			calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				requests++
+				body := io.ReadCloser(&googleReadErrorBody{data: []byte(tt.body), errorWithData: tt.errorWithData})
+				if requests > 1 {
+					body = io.NopCloser(strings.NewReader(validBody))
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       body,
+					Request:    request,
+				}, nil
+			})}
+
+			if _, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}}); err != nil {
+				t.Fatalf("GetDistancesFromPoint() error = %v", err)
+			}
+			if requests != 2 {
+				t.Fatalf("requests = %d, want 2", requests)
+			}
+		})
 	}
 }
 

@@ -299,10 +299,11 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 func decodeNominatimResults(body io.Reader) ([]nominatimResponse, error) {
 	responseBody := &nominatimResponseReader{Reader: body}
 	var results []nominatimResponse
-	if err := json.NewDecoder(responseBody).Decode(&results); err != nil {
-		if responseBody.Err != nil {
-			return nil, &nominatimTransportError{Cause: responseBody.Err}
-		}
+	err := json.NewDecoder(responseBody).Decode(&results)
+	if responseBody.Err != nil {
+		return nil, &nominatimTransportError{Cause: responseBody.Err}
+	}
+	if err != nil {
 		return nil, err
 	}
 	return results, nil

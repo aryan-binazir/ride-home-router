@@ -22,14 +22,19 @@ func (f nominatimRoundTripFunc) RoundTrip(request *http.Request) (*http.Response
 }
 
 type nominatimReadErrorBody struct {
-	data []byte
-	done bool
+	data          []byte
+	done          bool
+	errorWithData bool
 }
 
 func (b *nominatimReadErrorBody) Read(p []byte) (int, error) {
 	if !b.done {
 		b.done = true
-		return copy(p, b.data), nil
+		n := copy(p, b.data)
+		if b.errorWithData {
+			return n, io.ErrUnexpectedEOF
+		}
+		return n, nil
 	}
 	return 0, io.ErrUnexpectedEOF
 }
@@ -200,7 +205,7 @@ func TestNominatimGeocodeWithRetry_RetriesNetworkError(t *testing.T) {
 }
 
 func TestNominatim_RetriesResponseBodyNetworkError(t *testing.T) {
-	tests := []struct {
+	operations := []struct {
 		name string
 		run  func(*nominatimGeocoder) error
 	}{
@@ -219,39 +224,52 @@ func TestNominatim_RetriesResponseBodyNetworkError(t *testing.T) {
 			},
 		},
 	}
+	failures := []struct {
+		name          string
+		body          string
+		errorWithData bool
+	}{
+		{name: "after partial JSON", body: `[{"lat":"35`},
+		{name: "with complete JSON", body: validNominatimResult, errorWithData: true},
+	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = w.Write([]byte(validNominatimResult))
-			}))
-			t.Cleanup(server.Close)
+	for _, operation := range operations {
+		for _, failure := range failures {
+			t.Run(operation.name+" "+failure.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					_, _ = w.Write([]byte(validNominatimResult))
+				}))
+				t.Cleanup(server.Close)
 
-			requests := 0
-			transport := server.Client().Transport
-			client := &http.Client{Transport: nominatimRoundTripFunc(func(request *http.Request) (*http.Response, error) {
-				requests++
-				if requests == 1 {
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Header:     make(http.Header),
-						Body:       &nominatimReadErrorBody{data: []byte(`[{"lat":"35`)},
-						Request:    request,
-					}, nil
+				requests := 0
+				transport := server.Client().Transport
+				client := &http.Client{Transport: nominatimRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+					requests++
+					if requests == 1 {
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     make(http.Header),
+							Body: &nominatimReadErrorBody{
+								data:          []byte(failure.body),
+								errorWithData: failure.errorWithData,
+							},
+							Request: request,
+						}, nil
+					}
+					return transport.RoundTrip(request)
+				})}
+				ticker := time.NewTicker(time.Millisecond)
+				t.Cleanup(ticker.Stop)
+				g := newNominatimGeocoder(server.URL, client, ticker)
+
+				if err := operation.run(g); err != nil {
+					t.Fatalf("provider call error = %v", err)
 				}
-				return transport.RoundTrip(request)
-			})}
-			ticker := time.NewTicker(time.Millisecond)
-			t.Cleanup(ticker.Stop)
-			g := newNominatimGeocoder(server.URL, client, ticker)
-
-			if err := tt.run(g); err != nil {
-				t.Fatalf("provider call error = %v", err)
-			}
-			if requests != 2 {
-				t.Fatalf("requests = %d, want 2", requests)
-			}
-		})
+				if requests != 2 {
+					t.Fatalf("requests = %d, want 2", requests)
+				}
+			})
+		}
 	}
 }
 

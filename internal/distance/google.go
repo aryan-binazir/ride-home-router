@@ -434,10 +434,10 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 
 	responseBody := &googleResponseReader{Reader: resp.Body}
 	elements, err := parseGoogleMatrixElements(responseBody)
+	if responseBody.Err != nil {
+		return nil, &googleTransportError{Cause: responseBody.Err}
+	}
 	if err != nil {
-		if responseBody.Err != nil {
-			return nil, &googleTransportError{Cause: responseBody.Err}
-		}
 		return nil, err
 	}
 
