@@ -132,6 +132,9 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		}
 		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
 	}
+	if err := ctx.Err(); err != nil {
+		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
+	}
 
 	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicles)
 	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
@@ -139,6 +142,10 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		Routes: result.Routes, SelectedDrivers: modifiedDrivers, ActivityLocation: activityLocation,
 		UseMiles: settings.UseMiles, RouteTime: input.RouteTime, Mode: input.Mode, DriverOrgVehicles: driverOrgVehicles,
 	})
+	if err := ctx.Err(); err != nil {
+		c.sessions.Delete(session.ID)
+		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
+	}
 
 	return routeCalculationOutcome{
 		Kind:             routeCalculationSuccess,

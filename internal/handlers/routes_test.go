@@ -24,6 +24,7 @@ type captureRouter struct {
 	lastContext context.Context
 	result      *models.RoutingResult
 	err         error
+	afterSolve  func()
 }
 
 type orgVehicleRepoWithError struct {
@@ -47,6 +48,9 @@ func (s testDataStore) OrganizationVehicles() database.OrganizationVehicleReposi
 func (r *captureRouter) CalculateRoutes(ctx context.Context, req *routing.RoutingRequest) (*models.RoutingResult, error) {
 	r.lastContext = ctx
 	r.lastRequest = req
+	if r.afterSolve != nil {
+		r.afterSolve()
+	}
 	if r.err != nil {
 		return nil, r.err
 	}

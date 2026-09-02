@@ -52,7 +52,7 @@ func BenchmarkCollectSolveDistancePairs(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = collectSolveDistancePairs(RouteModePickup, req.InstituteCoords, req.Participants, req.Drivers)
+		_, _ = collectSolveDistancePairs(context.Background(), RouteModePickup, req.InstituteCoords, req.Participants, req.Drivers)
 	}
 }
 
@@ -184,6 +184,19 @@ func TestBalancedRouter_PreCanceledContextStopsCalculation(t *testing.T) {
 	_, err := NewBalancedRouter(&recordingSolveSource{}).CalculateRoutes(ctx, solveDistanceTestRequest())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("CalculateRoutes() error = %v, want %v", err, context.Canceled)
+	}
+}
+
+func TestCollectSolveDistancePairs_StopsForCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	pairs, err := collectSolveDistancePairs(ctx, RouteModeDropoff, models.Coordinates{}, make([]models.Participant, 500), make([]models.Driver, 500))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("collectSolveDistancePairs() error = %v, want %v", err, context.Canceled)
+	}
+	if pairs != nil {
+		t.Fatalf("collectSolveDistancePairs() returned %d pairs after cancellation", len(pairs))
 	}
 }
 

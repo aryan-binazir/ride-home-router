@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 	"testing"
@@ -80,6 +81,43 @@ func TestRouteCalculation_AssignedVehicleSuccessCreatesRestorableSession(t *test
 	}
 	if got := session.Routes[0].OrgVehicleID; got != van.ID {
 		t.Fatalf("session route organization vehicle ID = %d, want %d", got, van.ID)
+	}
+}
+
+func TestRouteCalculation_CanceledAfterSolveDoesNotReturnSession(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+
+	calculation := newRouteCalculation(store, &captureRouter{
+		result:     &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: driver}}},
+		afterSolve: cancel,
+	}, handler.RouteSession)
+	outcome := calculation.calculate(ctx, routeCalculationInput{
+		ParticipantIDs:     []int64{participant.ID},
+		DriverIDs:          []int64{driver.ID},
+		ActivityLocationID: location.ID,
+		RouteTime:          "18:30",
+		Mode:               models.RouteModeDropoff,
+	})
+
+	if outcome.Kind != routeCalculationRouteFailure || !errors.Is(outcome.Err, context.Canceled) {
+		t.Fatalf("outcome = kind %v err %v, want canceled route failure", outcome.Kind, outcome.Err)
+	}
+	if outcome.Session.ID != "" {
+		t.Fatalf("outcome session ID = %q, want no session", outcome.Session.ID)
 	}
 }
 

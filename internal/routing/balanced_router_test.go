@@ -559,6 +559,33 @@ func TestMaximizeNonemptyRoutes_AllSingletonRoutesReturnQuickly(t *testing.T) {
 	}
 }
 
+func TestMaximizeNonemptyRoutes_StopsForCanceledContext(t *testing.T) {
+	driverOne := &models.Driver{ID: 1, VehicleCapacity: 2}
+	driverTwo := &models.Driver{ID: 2, VehicleCapacity: 1}
+	routes := map[int64]*balancedRoute{
+		1: {
+			driver: driverOne,
+			stops: []*models.Participant{
+				{ID: 1, Address: "First"},
+				{ID: 2, Address: "Second"},
+			},
+		},
+		2: {driver: driverTwo},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := (&BalancedRouter{}).maximizeNonemptyRoutes(
+		ctx,
+		newRouteContext(stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff),
+		routes,
+		[]int64{1, 2},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("maximizeNonemptyRoutes() error = %v, want %v", err, context.Canceled)
+	}
+}
+
 func TestOptimizeAssignments_StopsForCanceledContext(t *testing.T) {
 	driverOne := &models.Driver{ID: 1, VehicleCapacity: 1}
 	driverTwo := &models.Driver{ID: 2, VehicleCapacity: 1}

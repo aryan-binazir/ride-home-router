@@ -387,6 +387,12 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 
 		var search func(int64, map[int64][]*models.Participant, map[int64]struct{}) error
 		search = func(emptyDriverID int64, workingStops map[int64][]*models.Participant, visited map[int64]struct{}) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			if searchNodes >= maxNonemptyRouteSearchNodes {
 				budgetExhausted = true
 				return nil
