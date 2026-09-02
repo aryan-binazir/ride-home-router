@@ -71,6 +71,62 @@ func TestStoreEvictsLeastRecentlyAccessedNonCommittingSession(t *testing.T) {
 	}
 }
 
+func TestStoreCapacityEvictionSkipsCommittingSession(t *testing.T) {
+	now := time.Unix(100, 0)
+	db := newFakeDataStore()
+	batchStarted := make(chan struct{})
+	batchRelease := make(chan struct{})
+	db.participants.beforeBatch = func(ctx context.Context) error {
+		close(batchStarted)
+		select {
+		case <-batchRelease:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, func() time.Time { return now })
+	t.Cleanup(store.Close)
+	grid := testGrid(t, "name,address\nRider,\n")
+	committing, err := store.Create(KindParticipant, "committing.csv", grid)
+	if err != nil {
+		t.Fatalf("Create(committing) error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), committing.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+
+	for i := 1; i < MaxConcurrentSessions; i++ {
+		now = now.Add(time.Second)
+		if _, err := store.Create(KindParticipant, fmt.Sprintf("waiting-%d.csv", i), grid); err != nil {
+			t.Fatalf("Create(waiting %d) error = %v", i, err)
+		}
+	}
+	commitErr := make(chan error, 1)
+	go func() {
+		_, err := store.Commit(context.Background(), committing.ID)
+		commitErr <- err
+	}()
+	select {
+	case <-batchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not reach the repository")
+	}
+
+	now = now.Add(time.Second)
+	if _, err := store.Create(KindParticipant, "replacement.csv", grid); err != nil {
+		t.Fatalf("Create(replacement) error = %v", err)
+	}
+	if snapshot, ok := store.Snapshot(committing.ID); !ok || snapshot.Status != StatusCommitting {
+		t.Fatalf("committing session was evicted: ok=%v status=%s", ok, snapshot.Status)
+	}
+
+	close(batchRelease)
+	if err := <-commitErr; err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+}
+
 func TestCancelDuringStalledApplyMappingDoesNotBlockStore(t *testing.T) {
 	db := newFakeDataStore()
 	listStarted := make(chan struct{})
@@ -194,6 +250,62 @@ func TestCanceledApplyMappingAfterListLeavesSessionRetryable(t *testing.T) {
 	}
 }
 
+func TestStoreCloseCancelsAndWaitsForApplyMapping(t *testing.T) {
+	db := newFakeDataStore()
+	listStarted := make(chan struct{})
+	listCancelled := make(chan struct{})
+	listRelease := make(chan struct{})
+	db.participants.beforeList = func(ctx context.Context) error {
+		close(listStarted)
+		<-ctx.Done()
+		close(listCancelled)
+		<-listRelease
+		return ctx.Err()
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	applyErr := make(chan error, 1)
+	go func() {
+		_, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers))
+		applyErr <- err
+	}()
+	select {
+	case <-listStarted:
+	case <-time.After(time.Second):
+		t.Fatal("ApplyMapping did not reach the repository")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		store.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-listCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not cancel ApplyMapping")
+	}
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned before ApplyMapping repository work stopped")
+	default:
+	}
+
+	close(listRelease)
+	if err := <-applyErr; !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("ApplyMapping() error = %v, want ErrSessionNotFound", err)
+	}
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after ApplyMapping stopped")
+	}
+}
+
 func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	db := newFakeDataStore()
 	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
@@ -277,6 +389,65 @@ func TestCancelRacingCommitDoesNotPersist(t *testing.T) {
 	}
 	if db.participants.batchCall != 1 {
 		t.Fatalf("UpsertBatch calls = %d, want 1", db.participants.batchCall)
+	}
+}
+
+func TestStoreCloseCancelsAndWaitsForCommit(t *testing.T) {
+	db := newFakeDataStore()
+	batchStarted := make(chan struct{})
+	batchCancelled := make(chan struct{})
+	batchRelease := make(chan struct{})
+	db.participants.beforeBatch = func(ctx context.Context) error {
+		close(batchStarted)
+		<-ctx.Done()
+		close(batchCancelled)
+		<-batchRelease
+		return ctx.Err()
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	grid := testGrid(t, "name,address\nRider,\n")
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	commitErr := make(chan error, 1)
+	go func() {
+		_, err := store.Commit(context.Background(), created.ID)
+		commitErr <- err
+	}()
+	select {
+	case <-batchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not reach the repository")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		store.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-batchCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not cancel Commit")
+	}
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned before Commit repository work stopped")
+	default:
+	}
+
+	close(batchRelease)
+	if err := <-commitErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Commit() error = %v, want context.Canceled", err)
+	}
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after Commit stopped")
 	}
 }
 
