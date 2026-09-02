@@ -3,16 +3,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
 const planner = require('./event-planner.js');
 const {
     createParticipantMoveBatcher,
+    createPlannerState,
     createRouteHandoff,
     applyLocalEventDate,
     createRouteSessionOrchestrator,
     installRouteResults,
     localISODate,
     sanitizeVanAssignments,
-    saveDraft,
 } = planner;
 
 test('applyLocalEventDate overwrites the server date on injected forms but keeps user edits', () => {
@@ -51,6 +55,7 @@ test('installRouteResults installs HTML before processing and performs all resul
     };
     const target = {
         set innerHTML(html) { installedHtml = html; },
+        querySelector: () => null,
         querySelectorAll() {
             assert.notEqual(installedHtml, '');
             return [dateInput];
@@ -66,7 +71,7 @@ test('installRouteResults installs HTML before processing and performs all resul
                 processedTarget = element;
             },
         },
-        refreshEtas: () => {
+        afterRender: () => {
             assert.notEqual(installedHtml, '');
             etaRefreshes += 1;
         },
@@ -83,12 +88,12 @@ test('planner exports its browser-independent test seams', () => {
     assert.deepEqual(Object.keys(planner).sort(), [
         'applyLocalEventDate',
         'createParticipantMoveBatcher',
+        'createPlannerState',
         'createRouteHandoff',
         'createRouteSessionOrchestrator',
         'installRouteResults',
         'localISODate',
         'sanitizeVanAssignments',
-        'saveDraft',
     ]);
 });
 
@@ -582,6 +587,7 @@ function createRouteSessionHarness({
     let dateApplications = 0;
     const resultsSection = {
         set innerHTML(html) { rendered.push(html); },
+        querySelector: () => null,
         querySelectorAll() {
             dateApplications += 1;
             return [dateInput];
@@ -605,7 +611,7 @@ function createRouteSessionHarness({
         htmx: { process: element => processed.push(element) },
         moves: { hasPending, flush },
         reportError: html => errors.push(html),
-        refreshEtas: () => { etaRefreshes += 1; },
+        afterRender: () => { etaRefreshes += 1; },
     });
 
     return {
@@ -677,13 +683,14 @@ test('route edit errors are reported even after the requested session becomes st
     });
 });
 
-test('saving with queued moves restores typed fields and submits the replacement form', async () => {
+test('saving with queued moves submits the replacement form the flush rendered', async () => {
     const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
     let liveForm = originalForm;
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
         flush: async () => {
-            liveForm = createSaveForm({ sessionId: 'session-a' });
+            // installRouteResults carries the typed fields across each render.
+            liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', sessionId: 'session-a' });
             return true;
         },
     });
@@ -707,9 +714,9 @@ test('saving with queued moves restores typed fields and submits the replacement
     });
 });
 
-test('saving after a move restores fields without submitting an unsaveable replacement form', async () => {
+test('saving after a move does not submit an unsaveable replacement form', async () => {
     const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const liveForm = createSaveForm({ saveEnabled: false });
+    const liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', saveEnabled: false });
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
     });
@@ -732,9 +739,9 @@ test('saving after a successful replacement tolerates the live form being absent
     assert.equal(handled, true);
 });
 
-test('saving after a partial move flush restores fields but does not submit', async () => {
+test('saving after a partial move flush does not submit', async () => {
     const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const liveForm = createSaveForm();
+    const liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
         flush: async () => false,
@@ -815,21 +822,6 @@ test('a queued save waits for its own session when an earlier session fails', as
     });
 });
 
-test('saving a draft aborts an in-flight restore before clearing the active session', () => {
-    const actions = [];
-
-    saveDraft({
-        abortRestore: () => actions.push('abort restore'),
-        clearActiveSession: () => actions.push('clear active session'),
-        writeDraft: () => actions.push('write draft'),
-    });
-
-    assert.deepEqual(actions, [
-        'abort restore',
-        'clear active session',
-        'write draft',
-    ]);
-});
 
 
 test('participant moves flush sequentially in same-session batches with the existing payload contracts', async () => {
@@ -863,6 +855,27 @@ test('participant moves flush sequentially in same-session batches with the exis
         },
         { session_id: 'session-b', participant_id: 3, from_route_index: 0, to_route_index: 2, insert_at_position: -1 },
     ]);
+});
+
+test('discarding a session cancels its queued participant moves', async () => {
+    const sent = [];
+    let scheduled;
+    let cancelled = false;
+    const batcher = createParticipantMoveBatcher({
+        schedule: callback => { scheduled = callback; return 1; },
+        cancel: () => { cancelled = true; },
+        sendBatch: async payload => { sent.push(payload); return true; },
+    });
+
+    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
+    assert.equal(batcher.discardFor('session-a'), 1);
+    await scheduled();
+
+    assert.deepEqual({ cancelled, pending: batcher.hasPending(), sent }, {
+        cancelled: true,
+        pending: false,
+        sent: [],
+    });
 });
 
 test('flushing a session preserves an earlier failure across later successful batches', async () => {
@@ -905,4 +918,994 @@ test('driver copy shows friendly location names while Maps keeps real coordinate
     assert.match(copied[0], /Sam Rider - Collins Crossing \(5 Rider Street\)/);
     assert.match(copied[0], /destination=40.1%2C-74.1/);
     assert.doesNotMatch(copied[0], /Driver\+Home/);
+});
+
+
+// --- Minimal DOM good enough to boot the planner --------------------------
+
+class HTMLFormElement {}
+
+const SELECTOR_TOKEN = /^(?:([a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:=["']([^"']*)["'])?\]|:([\w-]+))/;
+
+function camel(name) {
+    return name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function attributeValue(element, name) {
+    if (name.startsWith('data-')) return element.dataset[camel(name.slice(5))];
+    if (element[name] !== undefined) return element[name];
+    return element.attributes[name];
+}
+
+function matchesCompound(element, compound) {
+    let rest = compound;
+    while (rest.length > 0) {
+        const token = SELECTOR_TOKEN.exec(rest);
+        if (!token) throw new Error(`unsupported selector: ${compound}`);
+        const [matched, tag, id, className, attribute, attributeValueWanted, pseudo] = token;
+        if (tag && element.tagName !== tag) return false;
+        if (id && element.id !== id) return false;
+        if (className && !element.classList.contains(className)) return false;
+        if (attribute) {
+            const actual = attributeValue(element, attribute);
+            if (actual === undefined || actual === null) return false;
+            if (attributeValueWanted !== undefined && String(actual) !== attributeValueWanted) return false;
+        }
+        if (pseudo === 'checked' && element.checked !== true) return false;
+        if (pseudo && pseudo !== 'checked') throw new Error(`unsupported pseudo: ${pseudo}`);
+        rest = rest.slice(matched.length);
+    }
+    return true;
+}
+
+function matchesSelector(element, selector) {
+    return selector.split(',').some(group => {
+        const compounds = group.trim().split(/\s+/);
+        const own = compounds.pop();
+        if (!matchesCompound(element, own)) return false;
+
+        let ancestor = element.parentNode;
+        for (const compound of compounds.reverse()) {
+            while (ancestor && !matchesCompound(ancestor, compound)) ancestor = ancestor.parentNode;
+            if (!ancestor) return false;
+            ancestor = ancestor.parentNode;
+        }
+        return true;
+    });
+}
+
+function domNode(tagName, props = {}) {
+    const { classes = [], children = [], form = false, ...rest } = props;
+    const classSet = new Set(classes);
+    const node = {
+        tagName,
+        id: '',
+        attributes: {},
+        dataset: {},
+        children: [],
+        parentNode: null,
+        textContent: '',
+        listeners: {},
+        classList: {
+            add: value => classSet.add(value),
+            remove: value => classSet.delete(value),
+            contains: value => classSet.has(value),
+            toggle: (value, force) => {
+                const next = force === undefined ? !classSet.has(value) : Boolean(force);
+                if (next) classSet.add(value); else classSet.delete(value);
+                return next;
+            },
+        },
+        get className() { return [...classSet].join(' '); },
+        set className(value) {
+            classSet.clear();
+            String(value).split(/\s+/).filter(Boolean).forEach(entry => classSet.add(entry));
+        },
+        get innerHTML() { return this._html || ''; },
+        set innerHTML(value) {
+            this._html = value;
+            this.children.forEach(child => { child.parentNode = null; });
+            this.children = [];
+        },
+        get firstChild() { return this.children[0] || null; },
+        appendChild(child) {
+            child.parentNode = this;
+            this.children.push(child);
+            return child;
+        },
+        insertBefore(child, reference) {
+            child.parentNode = this;
+            const index = reference ? this.children.indexOf(reference) : -1;
+            this.children.splice(index < 0 ? this.children.length : index, 0, child);
+            return child;
+        },
+        remove() {
+            if (!this.parentNode) return;
+            this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+            this.parentNode = null;
+        },
+        setAttribute(name, value) { this.attributes[name] = String(value); },
+        getAttribute(name) { return this.attributes[name] ?? null; },
+        removeAttribute(name) { delete this.attributes[name]; },
+        matches(selector) { return matchesSelector(this, selector); },
+        closest(selector) {
+            let current = this;
+            while (current) {
+                if (matchesSelector(current, selector)) return current;
+                current = current.parentNode;
+            }
+            return null;
+        },
+        querySelectorAll(selector) {
+            const found = [];
+            const walk = element => element.children.forEach(child => {
+                if (matchesSelector(child, selector)) found.push(child);
+                walk(child);
+            });
+            walk(this);
+            return found;
+        },
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+        addEventListener(type, handler) {
+            (this.listeners[type] = this.listeners[type] || []).push(handler);
+        },
+        dispatchEvent(event) {
+            event.target = event.target || this;
+            let current = this;
+            while (current && !event.stopped) {
+                for (const handler of current.listeners[event.type] || []) {
+                    handler(event);
+                    if (event.stopped) break;
+                }
+                current = current.parentNode;
+            }
+            return !event.defaultPrevented;
+        },
+        scrollIntoView() {},
+    };
+    Object.assign(node, rest);
+    children.forEach(child => node.appendChild(child));
+    if (form) Object.setPrototypeOf(node, HTMLFormElement.prototype);
+    return node;
+}
+
+// Models the server render: the old nodes go away and fresh ones take their place.
+function replaceOnRender(target, buildFields) {
+    Object.defineProperty(target, 'innerHTML', {
+        set() {
+            this.children.forEach(child => { child.parentNode = null; });
+            this.children = [];
+            buildFields().forEach(field => this.appendChild(field));
+        },
+    });
+}
+
+function fakeEvent(type, detail) {
+    return {
+        type,
+        detail,
+        defaultPrevented: false,
+        stopped: false,
+        preventDefault() { this.defaultPrevented = true; },
+        stopImmediatePropagation() { this.stopped = true; },
+    };
+}
+
+function fakeLocalStorage() {
+    const entries = new Map();
+    return {
+        entries,
+        getItem: key => (entries.has(key) ? entries.get(key) : null),
+        setItem: (key, value) => entries.set(key, String(value)),
+        removeItem: key => entries.delete(key),
+    };
+}
+
+function storedSessionId(planner) {
+    const stored = planner.storage.getItem('ride-home-router:active-session:v2');
+    return stored ? JSON.parse(stored).id : null;
+}
+
+const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8');
+
+// Boots the real planner against the fixture below so the invalidation rule is
+// exercised end to end, not through a re-implementation of it.
+function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null } = {}) {
+    const initialSessionId = storedSession?.id || legacySessionId || 'session-1';
+    const participants = ['1', '2'].map(value => domNode('input', {
+        classes: ['participant-checkbox'],
+        value,
+        checked: true,
+        dataset: { capacity: '0' },
+    }));
+    const driver = domNode('input', {
+        classes: ['driver-checkbox'],
+        value: '10',
+        checked: true,
+        dataset: { capacity: '4' },
+    });
+    const vanSelect = domNode('select', {
+        id: 'van-assignment-10',
+        classes: ['van-assignment-select'],
+        dataset: { driverId: '10' },
+        value: '',
+        disabled: false,
+        options: [{ value: '', dataset: { capacity: '4' } }, { value: '3', dataset: { capacity: '8' } }],
+    });
+    Object.defineProperty(vanSelect, 'selectedIndex', {
+        get() { return Math.max(0, this.options.findIndex(option => option.value === this.value)); },
+    });
+    const driverRow = domNode('label', {
+        classes: ['select-row'],
+        children: [driver, domNode('span', { classes: ['van-assignment-inline'], children: [vanSelect] })],
+    });
+    const activityLocation = domNode('select', { name: 'activity_location_id', value: '7' });
+    const dropoff = domNode('input', { name: 'mode', value: 'dropoff', checked: mode === 'dropoff' });
+    const pickup = domNode('input', { name: 'mode', value: 'pickup', checked: mode === 'pickup' });
+    const routeTime = domNode('input', { id: 'route-time', name: 'route_time', value: '15:30' });
+    const search = domNode('input', {
+        value: '',
+        dataset: { filterRole: 'search', listId: 'participants-selection' },
+    });
+    const form = domNode('form', {
+        id: 'event-form',
+        form: true,
+        children: [activityLocation, dropoff, pickup, routeTime, search,
+            ...participants.map(input => domNode('label', { classes: ['select-row'], children: [input] })),
+            driverRow],
+    });
+
+    const banner = domNode('div', { classes: ['alert', 'planner-plan-state-banner'], hidden: true });
+    const saveButton = domNode('button', { type: 'submit', disabled: false, dataset: { sessionAction: 'save' } });
+    const copyButton = domNode('button', { disabled: false, dataset: { sessionAction: 'copy' } });
+    const outOfBalanceCopy = domNode('button', { dataset: { sessionAction: 'copy' }, disabled: true });
+    const saveForm = domNode('form', {
+        form: true,
+        classes: ['save-event-card'],
+        attributes: { 'hx-post': '/api/v1/events' },
+        children: [domNode('input', { name: 'session_id', value: initialSessionId })],
+    });
+    // The server re-renders the save fields from its own defaults every time.
+    function renderServerSaveFields() {
+        saveForm.querySelectorAll('input[name="event_date"], textarea[name="notes"]')
+            .forEach(field => field.remove());
+        saveForm.appendChild(domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }));
+        saveForm.appendChild(domNode('textarea', { name: 'notes', value: '' }));
+        saveForm.appendChild(saveButton);
+    }
+    renderServerSaveFields();
+    saveForm.elements = {
+        namedItem: name => saveForm.querySelector(`[name="${name}"]`),
+    };
+    saveForm.requestSubmit = function() {
+        const event = Object.assign(fakeEvent('submit'), { target: this });
+        this.dispatchEvent(event);
+        return event;
+    };
+    const resultsBody = domNode('div', {
+        classes: ['results-body'],
+        children: [banner, copyButton, outOfBalanceCopy, saveForm],
+    });
+    const routesContainer = domNode('div', {
+        classes: ['routes-container'],
+        dataset: { sessionId: initialSessionId, routeMode: mode },
+        children: [resultsBody],
+    });
+    let renderedSessionCount = 0;
+    const resultsSection = domNode('div', { id: 'results-section', children: [routesContainer] });
+    // Manual edits re-render the same session's markup; an empty render clears it.
+    Object.defineProperty(resultsSection, 'innerHTML', {
+        set(html) {
+            this.children.forEach(child => { child.parentNode = null; });
+            this.children = [];
+            if (html) this.appendChild(routesContainer);
+        },
+    });
+
+    // The capacity-shortage pane's own recalculation form.
+    const recalcVanSelect = domNode('select', {
+        classes: ['org-vehicle-select'],
+        dataset: { driverId: '10' },
+        value: '',
+    });
+    const recalcForm = domNode('form', {
+        id: 'recalc-form',
+        form: true,
+        children: [
+            domNode('input', { type: 'hidden', name: 'participant_ids', value: '1' }),
+            domNode('input', { type: 'hidden', name: 'participant_ids', value: '2' }),
+            domNode('input', { type: 'hidden', name: 'driver_ids', value: '10' }),
+            domNode('input', { type: 'hidden', name: 'activity_location_id', value: '7' }),
+            domNode('input', { type: 'hidden', name: 'mode', value: mode }),
+            domNode('input', { type: 'hidden', name: 'route_time', value: '15:30' }),
+            recalcVanSelect,
+        ],
+    });
+
+    const routeTimeLabel = domNode('label', { id: 'route-time-label', textContent: 'x' });
+    const routeTimeHelp = domNode('p', { id: 'route-time-help', textContent: 'x' });
+    const body = domNode('body', {
+        children: [form, resultsSection, recalcForm, routeTimeLabel, routeTimeHelp,
+            domNode('template', { id: 'results-empty-state-template' })],
+    });
+    const root = domNode('html', { children: [body] });
+
+    const document = {
+        readyState: 'complete',
+        body,
+        listeners: root.listeners,
+        addEventListener: (type, handler) => root.addEventListener(type, handler),
+        getElementById(id) {
+            return root.querySelectorAll(`#${id}`)[0] || null;
+        },
+        querySelector: selector => root.querySelector(selector),
+        querySelectorAll: selector => root.querySelectorAll(selector),
+        createElement: tagName => domNode(tagName),
+    };
+    body.parentNode = root;
+
+    const storage = fakeLocalStorage();
+    if (storedSession) {
+        storage.setItem('ride-home-router:active-session:v2', JSON.stringify(storedSession));
+    }
+    if (legacySessionId) {
+        storage.setItem('ride-home-router:active-session-id', legacySessionId);
+    }
+    const scheduledCallbacks = new Map();
+    let nextTimeoutId = 0;
+    const fetches = [];
+    const context = {
+        document,
+        console,
+        HTMLFormElement,
+        Event: class { constructor(type) { return fakeEvent(type); } },
+        AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
+        htmx: { process() {} },
+        fetch: async (url, options) => {
+            fetches.push({ url, options });
+            return { ok: true, status: 200, text: async () => '<div>routes</div>' };
+        },
+        setTimeout: callback => {
+            nextTimeoutId += 1;
+            scheduledCallbacks.set(nextTimeoutId, callback);
+            return nextTimeoutId;
+        },
+        clearTimeout: timeoutId => { scheduledCallbacks.delete(timeoutId); },
+        JSON,
+        Intl,
+        window: {
+            localStorage: storage,
+            matchMedia: () => ({ matches: true }),
+            requestAnimationFrame: () => 0,
+        },
+    };
+    vm.runInNewContext(PLANNER_SOURCE, context, { filename: 'event-planner.js' });
+
+    return {
+        activityLocation,
+        banner,
+        context,
+        copyButton,
+        document,
+        driver,
+        dropoff,
+        outOfBalanceCopy,
+        participants,
+        pickup,
+        routeTime,
+        recalcVanSelect,
+        routeTimeLabel,
+        routesContainer,
+        vanSelect,
+        resultsSection,
+        saveButton,
+        saveForm,
+        storage,
+        fetches,
+        async flushTimers() {
+            const callbacks = Array.from(scheduledCallbacks.values());
+            scheduledCallbacks.clear();
+            for (const callback of callbacks) await callback();
+        },
+        // The restore fetch resolves over a few microtask turns.
+        async settleRestore() {
+            for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+        },
+        saveSucceeded() {
+            const saveResult = domNode('div', {
+                id: 'save-result',
+                children: [domNode('div', { classes: ['alert-success'] })],
+            });
+            body.appendChild(saveResult);
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: saveResult } }));
+        },
+        // The full htmx lifecycle: request, snapshot, server render, swap, settle.
+        // htmx reuses one detail object per request, so the same xhr identifies
+        // the calculation from beforeRequest through afterSwap.
+        startCalculation(xhr = {}, elt = { id: 'calculate-btn' }) {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt, xhr } }));
+            return xhr;
+        },
+        failCalculation(xhr, elt = { id: 'calculate-btn' }) {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:responseError'), { detail: { elt, xhr } }));
+        },
+        finishCalculation(xhr, { hasRoutes = true } = {}) {
+            const detail = { target: resultsSection, xhr, shouldSwap: true };
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail }));
+            if (!detail.shouldSwap) return;
+            resultsSection.children.forEach(child => { child.parentNode = null; });
+            resultsSection.children = [];
+            if (hasRoutes) {
+                renderedSessionCount += 1;
+                const sessionId = `session-${renderedSessionCount}`;
+                routesContainer.dataset.sessionId = sessionId;
+                saveForm.elements.namedItem('session_id').value = sessionId;
+                resultsSection.appendChild(routesContainer);
+                renderServerSaveFields();
+            }
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection, xhr } }));
+            root.dispatchEvent(Object.assign(fakeEvent('htmx:afterSettle'), { target: resultsSection }));
+        },
+        calculate({ elt = { id: 'calculate-btn' }, xhr = {} } = {}) {
+            this.startCalculation(xhr, elt);
+            this.finishCalculation(xhr);
+        },
+        saveFields() {
+            return {
+                eventDate: saveForm.querySelector('input[name="event_date"]'),
+                notes: saveForm.querySelector('textarea[name="notes"]'),
+            };
+        },
+        change(target) {
+            root.dispatchEvent(Object.assign(fakeEvent('change'), { target }));
+        },
+        submitSave() {
+            return saveForm.requestSubmit();
+        },
+    };
+}
+
+test('changing a route-defining input after calculating blocks saving until recalculation', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const afterCalculate = {
+        saveDisabled: planner.saveButton.disabled,
+        bannerHidden: planner.banner.hidden,
+        storedSession: storedSessionId(planner),
+    };
+
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+
+    assert.deepEqual({
+        afterCalculate,
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+        storedSession: storedSessionId(planner),
+        saveBlocked: planner.submitSave().defaultPrevented,
+    }, {
+        afterCalculate: { saveDisabled: false, bannerHidden: true, storedSession: 'session-1' },
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+        storedSession: null,
+        saveBlocked: true,
+    });
+
+    planner.calculate();
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        bannerHidden: planner.banner.hidden,
+        saveBlocked: planner.submitSave().defaultPrevented,
+    }, { saveDisabled: false, bannerHidden: true, saveBlocked: false });
+});
+
+test('requestSubmit rechecks live planner inputs even when no change event fired', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.routeTime.value = '16:00';
+
+    assert.deepEqual({
+        saveBlocked: planner.submitSave().defaultPrevented,
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+    }, {
+        saveBlocked: true,
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+    });
+});
+
+test('a queued participant move is discarded when planner inputs become stale', async () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.context.moveParticipant(1, 0, 1);
+    planner.routeTime.value = '16:00';
+    planner.change(planner.routeTime);
+    await planner.flushTimers();
+
+    assert.equal(planner.fetches.some(request => request.url === '/api/v1/routes/edit/move-participant'), false);
+});
+
+test('a queued participant move rechecks unannounced input changes before posting', async () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.context.moveParticipant(1, 0, 1);
+    planner.routeTime.value = '16:00';
+    await planner.flushTimers();
+
+    assert.deepEqual({
+        movePosted: planner.fetches.some(request => request.url === '/api/v1/routes/edit/move-participant'),
+        saveDisabled: planner.saveButton.disabled,
+    }, { movePosted: false, saveDisabled: true });
+});
+
+test('reverting a route-defining input re-enables saving without touching server-disabled controls', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.routeTime.value = '16:00';
+    planner.change(planner.routeTime);
+    const whileStale = { saveDisabled: planner.saveButton.disabled, copyDisabled: planner.outOfBalanceCopy.disabled };
+
+    planner.routeTime.value = '15:30';
+    planner.change(planner.routeTime);
+
+    assert.deepEqual({
+        whileStale,
+        saveDisabled: planner.saveButton.disabled,
+        // Disabled by the server for being over capacity; staleness must not clear that.
+        copyDisabled: planner.outOfBalanceCopy.disabled,
+        bannerHidden: planner.banner.hidden,
+    }, {
+        whileStale: { saveDisabled: true, copyDisabled: true },
+        saveDisabled: false,
+        copyDisabled: true,
+        bannerHidden: true,
+    });
+});
+
+test('filtering the roster leaves a calculated plan current', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.context.filterSelectList(planner.document.querySelector('[data-filter-role="search"]'), 'participants-selection');
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        storedSession: storedSessionId(planner),
+    }, { saveDisabled: false, storedSession: 'session-1' });
+});
+
+test('clearing all selections restores the dropoff route-time copy', () => {
+    const planner = bootPlanner({ mode: 'pickup' });
+
+    assert.equal(planner.routeTimeLabel.textContent, 'Arrive at activity location by');
+
+    planner.context.clearSelections();
+
+    assert.deepEqual({
+        label: planner.routeTimeLabel.textContent,
+        ariaLabel: planner.routeTime.getAttribute('aria-label'),
+        dropoffChecked: planner.dropoff.checked,
+        pickupChecked: planner.pickup.checked,
+    }, {
+        label: 'Depart activity location at',
+        ariaLabel: 'Depart activity location at',
+        dropoffChecked: true,
+        pickupChecked: false,
+    });
+});
+
+test('clearing all ignores a calculation response that arrives afterward', () => {
+    const planner = bootPlanner();
+
+    const lateCalculation = planner.startCalculation();
+    planner.context.clearSelections();
+    planner.finishCalculation(lateCalculation);
+
+    assert.equal(planner.resultsSection.querySelector('.routes-container'), null);
+});
+
+test('a route edit render carries the entered event date and notes onto the replacement form', () => {
+    const savedFields = () => [
+        domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
+        domNode('textarea', { name: 'notes', value: '' }),
+    ];
+    const target = domNode('div', { id: 'results-section', children: savedFields() });
+    const eventDate = target.querySelector('input[name="event_date"]');
+    const notes = target.querySelector('textarea[name="notes"]');
+    eventDate.value = '2026-10-04';
+    eventDate.dataset.userEdited = '1';
+    notes.value = 'Two vans, meet at the flagpole';
+
+    replaceOnRender(target, savedFields);
+
+    installRouteResults({
+        target,
+        html: '<form>routes</form>',
+        htmx: { process() {} },
+        afterRender() {},
+    });
+
+    assert.deepEqual({
+        eventDate: target.querySelector('input[name="event_date"]').value,
+        userEdited: target.querySelector('input[name="event_date"]').dataset.userEdited,
+        notes: target.querySelector('textarea[name="notes"]').value,
+    }, {
+        eventDate: '2026-10-04',
+        userEdited: '1',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('a render without entered fields keeps the server defaults', () => {
+    const target = domNode('div', {
+        children: [
+            domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
+            domNode('textarea', { name: 'notes', value: '' }),
+        ],
+    });
+    replaceOnRender(target, () => [
+        domNode('input', { type: 'date', name: 'event_date', value: '2026-09-02' }),
+        domNode('textarea', { name: 'notes', value: '' }),
+    ]);
+
+    installRouteResults({ target, html: '', htmx: { process() {} }, afterRender() {} });
+
+    assert.deepEqual({
+        userEdited: target.querySelector('input[name="event_date"]').dataset.userEdited,
+        notes: target.querySelector('textarea[name="notes"]').value,
+    }, { userEdited: undefined, notes: '' });
+    assert.equal(target.querySelector('input[name="event_date"]').value, localISODate(new Date()));
+});
+
+test('planner state stays stale until a recalculation and never leaves saved for current', () => {
+    const changes = [];
+    let fingerprint = 'plan-a';
+    const state = createPlannerState({
+        readFingerprint: () => fingerprint,
+        onChange: snapshot => changes.push(`${snapshot.status}:${snapshot.sessionId}`),
+    });
+
+    const beforeCalculation = state.refresh();
+    state.markCalculated('session-1');
+    fingerprint = 'plan-b';
+    const afterEdit = state.refresh();
+    // A calculation requested before the edit still lands stale.
+    state.markCalculated('session-2', 'plan-a');
+    const afterLateSwap = state.getSnapshot();
+    fingerprint = 'plan-b';
+    state.markCalculated('session-3');
+    state.markSaved();
+    fingerprint = 'plan-c';
+    const afterSavedEdit = state.refresh();
+    // Reverting the edit must not hand back a second save of the same session.
+    fingerprint = 'plan-b';
+    const afterSavedRevert = state.refresh();
+
+    assert.deepEqual({
+        beforeCalculation: beforeCalculation.status,
+        afterEdit: { status: afterEdit.status, canSave: afterEdit.canSave },
+        afterLateSwap: afterLateSwap.status,
+        afterSavedEdit: { status: afterSavedEdit.status, canSave: afterSavedEdit.canSave },
+        afterSavedRevert: { status: afterSavedRevert.status, canSave: afterSavedRevert.canSave },
+        changes,
+    }, {
+        beforeCalculation: 'empty',
+        afterEdit: { status: 'stale', canSave: false },
+        afterLateSwap: 'stale',
+        afterSavedEdit: { status: 'stale', canSave: false },
+        afterSavedRevert: { status: 'saved', canSave: false },
+        changes: [
+            'current:session-1',
+            'stale:session-1',
+            'stale:session-2',
+            'current:session-3',
+            'saved:session-3',
+            'stale:session-3',
+            'saved:session-3',
+        ],
+    });
+});
+
+test('clearing planner state drops the session and stops tracking the fingerprint', () => {
+    const changes = [];
+    let fingerprint = 'plan-a';
+    const state = createPlannerState({
+        readFingerprint: () => fingerprint,
+        onChange: snapshot => changes.push(snapshot.status),
+    });
+
+    state.markCalculated('session-1');
+    state.clear();
+    fingerprint = 'plan-b';
+
+    assert.deepEqual({ snapshot: state.refresh(), changes }, {
+        snapshot: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },
+        changes: ['current', 'empty'],
+    });
+});
+
+test('a results swap with no session clears the planner state', () => {
+    const changes = [];
+    const state = createPlannerState({
+        readFingerprint: () => 'plan-a',
+        onChange: snapshot => changes.push(snapshot.status),
+    });
+
+    state.markCalculated('session-1');
+    const cleared = state.markCalculated(null);
+
+    assert.deepEqual({ cleared, changes }, {
+        cleared: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },
+        changes: ['current', 'empty'],
+    });
+});
+
+test('the calculate swap carries entered save fields across the native htmx render', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+    planner.driver.checked = false;
+    planner.change(planner.driver);
+    planner.calculate();
+
+    const rendered = planner.saveFields();
+    assert.notEqual(rendered.eventDate, entered.eventDate);
+    assert.deepEqual({ eventDate: rendered.eventDate.value, notes: rendered.notes.value }, {
+        eventDate: '2026-10-04',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('a saved event locks re-saving and editing but leaves copying live', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.saveSucceeded();
+    const afterSave = {
+        saveDisabled: planner.saveButton.disabled,
+        copyDisabled: planner.copyButton.disabled,
+        banner: planner.banner.textContent,
+        saveBlocked: planner.submitSave().defaultPrevented,
+        storedSession: storedSessionId(planner),
+    };
+
+    // Editing the plan after saving is stale, not saved: copying is wrong too.
+    planner.driver.checked = false;
+    planner.change(planner.driver);
+
+    assert.deepEqual({
+        afterSave,
+        copyDisabled: planner.copyButton.disabled,
+        copyTitle: planner.copyButton.getAttribute('title'),
+    }, {
+        afterSave: {
+            saveDisabled: true,
+            copyDisabled: false,
+            banner: 'Event saved. Recalculate to plan another event.',
+            saveBlocked: true,
+            storedSession: null,
+        },
+        copyDisabled: true,
+        copyTitle: 'Plan changed — recalculate routes before copying or saving them.',
+    });
+});
+
+test('a saved event does not seed the next event with its date and notes', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+    planner.saveSucceeded();
+    planner.calculate();
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({
+        eventDate: rendered.eventDate.value,
+        userEdited: rendered.eventDate.dataset.userEdited,
+        notes: rendered.notes.value,
+        saveDisabled: planner.saveButton.disabled,
+    }, {
+        eventDate: localISODate(new Date()),
+        userEdited: undefined,
+        notes: '',
+        saveDisabled: false,
+    });
+});
+
+test('a saved event does not seed the next event after its planner inputs change', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+    planner.saveSucceeded();
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+    planner.calculate();
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({
+        eventDate: rendered.eventDate.value,
+        userEdited: rendered.eventDate.dataset.userEdited,
+        notes: rendered.notes.value,
+        saveDisabled: planner.saveButton.disabled,
+    }, {
+        eventDate: localISODate(new Date()),
+        userEdited: undefined,
+        notes: '',
+        saveDisabled: false,
+    });
+});
+
+test('a capacity-shortage recalculation adopts its own van assignments before fingerprinting', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.recalcVanSelect.value = '3';
+    planner.calculate({ elt: { id: 'recalc-form' } });
+    const afterRecalc = { saveDisabled: planner.saveButton.disabled, vanValue: planner.vanSelect.value };
+
+    // The plan form now describes the routes, so editing it still goes stale.
+    planner.vanSelect.value = '';
+    planner.context.handleVanAssignmentChange();
+
+    assert.deepEqual({ afterRecalc, saveDisabled: planner.saveButton.disabled }, {
+        afterRecalc: { saveDisabled: false, vanValue: '3' },
+        saveDisabled: true,
+    });
+});
+
+test('a capacity-shortage round trip preserves an unsaved event date and notes', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+
+    const shortageRequest = planner.startCalculation();
+    planner.finishCalculation(shortageRequest, { hasRoutes: false });
+    const failedRetry = planner.startCalculation();
+    planner.failCalculation(failedRetry);
+    planner.calculate({ elt: { id: 'recalc-form' } });
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({ eventDate: rendered.eventDate.value, notes: rendered.notes.value }, {
+        eventDate: '2026-10-04',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('clear all discards save fields buffered by a capacity shortage', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+    const shortageRequest = planner.startCalculation();
+    planner.finishCalculation(shortageRequest, { hasRoutes: false });
+
+    planner.context.clearSelections();
+    planner.activityLocation.value = '7';
+    planner.participants.forEach(participant => { participant.checked = true; });
+    planner.driver.checked = true;
+    planner.change(planner.driver);
+    planner.calculate();
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({
+        eventDate: rendered.eventDate.value,
+        userEdited: rendered.eventDate.dataset.userEdited,
+        notes: rendered.notes.value,
+    }, {
+        eventDate: localISODate(new Date()),
+        userEdited: undefined,
+        notes: '',
+    });
+});
+
+test('a capacity-shortage recalculation of a superseded plan is not saveable', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    // The recalc form still carries both participants; the plan form no longer does.
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+    planner.calculate({ elt: { id: 'recalc-form' } });
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+        saveBlocked: planner.submitSave().defaultPrevented,
+    }, {
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+        saveBlocked: true,
+    });
+});
+
+test('overlapping calculations each commit their own fingerprint', () => {
+    const planner = bootPlanner();
+    const first = {};
+    const second = {};
+
+    // Both requests start; the plan changes between them.
+    planner.startCalculation(first);
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+    planner.startCalculation(second);
+
+    planner.finishCalculation(second);
+    const afterSecond = planner.saveButton.disabled;
+    planner.finishCalculation(first);
+
+    assert.deepEqual({ afterSecond, afterFirst: planner.saveButton.disabled }, {
+        afterSecond: false,
+        afterFirst: true,
+    });
+});
+
+test('a results swap that belongs to no tracked calculation is not saveable', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.finishCalculation({});
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        storedSession: storedSessionId(planner),
+    }, { saveDisabled: true, storedSession: null });
+});
+
+test('a restored session whose inputs moved on is restored stale', async () => {
+    const planner = bootPlanner({
+        storedSession: { id: 'session-1', fingerprint: 'a plan that no longer matches these inputs' },
+    });
+
+    await planner.settleRestore();
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+        storedSession: storedSessionId(planner),
+    }, {
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+        storedSession: null,
+    });
+});
+
+test('a legacy active session is restored and migrated to the fingerprinted key', async () => {
+    const planner = bootPlanner({ legacySessionId: 'legacy-session' });
+
+    await planner.settleRestore();
+
+    assert.deepEqual({
+        restored: planner.fetches.some(request => request.url === '/api/v1/routes/session?session_id=legacy-session'),
+        legacy: planner.storage.getItem('ride-home-router:active-session-id'),
+        active: storedSessionId(planner),
+    }, {
+        restored: true,
+        legacy: null,
+        active: 'legacy-session',
+    });
 });
