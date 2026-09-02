@@ -326,6 +326,12 @@ func TestOptimizeRouteOrder_LateLookupFailureLeavesRouteUntouched(t *testing.T) 
 
 	route := newRoute()
 	want := newRoute()
+	wantDriver := *want.Driver
+	want.Driver = &wantDriver
+	for i := range want.Stops {
+		participant := *want.Stops[i].Participant
+		want.Stops[i].Participant = &participant
+	}
 	wantErr := errors.New("late distance failure")
 	failing := &ordinalFailDistanceCalculator{failAt: counter.calls, err: wantErr}
 	err := OptimizeRouteOrder(context.Background(), failing, models.Coordinates{}, RouteModeDropoff, &route)

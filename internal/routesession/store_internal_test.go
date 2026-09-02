@@ -12,9 +12,9 @@ func TestCreatePastCapacityEvictsLeastRecentlyAccessedSession(t *testing.T) {
 	store := newStore(nil, time.Hour, time.Hour, func() time.Time { return now })
 	t.Cleanup(store.Close)
 
-	oldest := store.Create(CreateInput{})
-	now = now.Add(time.Second)
 	touched := store.Create(CreateInput{})
+	now = now.Add(time.Second)
+	oldest := store.Create(CreateInput{})
 	now = now.Add(time.Second)
 	if _, ok := store.Snapshot(touched.ID); !ok {
 		t.Fatal("session disappeared before capacity eviction")

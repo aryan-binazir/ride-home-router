@@ -100,11 +100,12 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 			h.renderMobileStoreError(w, r, err, "Location not found")
 			return
 		}
+		oldSessionID := draft.RouteSessionID
 		h.PlanDraft.Update(id, func(d *plandraft.Draft) {
 			d.LocationID = locationID
 			d.RouteSessionID = ""
 		})
-		h.RouteSession.Delete(draft.RouteSessionID)
+		h.RouteSession.Delete(oldSessionID)
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
@@ -146,11 +147,12 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 			h.mobileRedirectError(w, r, "/m/plan/riders", mobileSelectionLimitMessage())
 			return
 		}
+		oldSessionID := draft.RouteSessionID
 		h.PlanDraft.Update(id, func(d *plandraft.Draft) {
 			d.ParticipantIDs = participantIDs
 			d.RouteSessionID = ""
 		})
-		h.RouteSession.Delete(draft.RouteSessionID)
+		h.RouteSession.Delete(oldSessionID)
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
@@ -236,12 +238,13 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
+		oldSessionID := draft.RouteSessionID
 		h.PlanDraft.Update(id, func(d *plandraft.Draft) {
 			d.DriverIDs = driverIDs
 			d.DriverVehicleIDs = assignments
 			d.RouteSessionID = ""
 		})
-		h.RouteSession.Delete(draft.RouteSessionID)
+		h.RouteSession.Delete(oldSessionID)
 		if err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
 			return
@@ -345,12 +348,13 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 			h.mobileRedirectError(w, r, "/m/plan/when", messageInvalidRouteMode)
 			return
 		}
+		oldSessionID := draft.RouteSessionID
 		h.PlanDraft.Update(id, func(d *plandraft.Draft) {
 			d.RouteTime = routeTime
 			d.Mode = string(mode)
 			d.RouteSessionID = ""
 		})
-		h.RouteSession.Delete(draft.RouteSessionID)
+		h.RouteSession.Delete(oldSessionID)
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
