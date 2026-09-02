@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -79,7 +80,8 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/org-vehicles: name=%s capacity=%d", req.Name, req.Capacity)
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	log.Printf("[HTTP] POST /api/v1/org-vehicles: name=%s capacity=%d", logutil.SafeString(req.Name), req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
 		Name:     req.Name,
@@ -94,7 +96,7 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	}
 
 	log.Printf("[HTTP] Created organization vehicle: id=%d name=%s capacity=%d",
-		createdVehicle.ID, createdVehicle.Name, createdVehicle.Capacity)
+		createdVehicle.ID, logutil.SafeString(createdVehicle.Name), createdVehicle.Capacity)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityAdded("Van", createdVehicle.Name), toastTypeSuccess)
@@ -109,11 +111,13 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		log.Printf("[HTTP] GET /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] GET /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
 		h.handleValidationError(w, messageInvalidOrganizationVehicleID)
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] GET /api/v1/org-vehicles/%d", id)
 	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
 	if err != nil {
@@ -121,7 +125,8 @@ func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to get organization vehicle: id=%d err=%v", id, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to get organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
 	}
@@ -159,7 +164,8 @@ func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		log.Printf("[HTTP] PUT /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] PUT /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageInvalidOrganizationVehicleID)
 		return
 	}
@@ -202,7 +208,8 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Printf("[HTTP] PUT /api/v1/org-vehicles/%d: name=%s capacity=%d", id, req.Name, req.Capacity)
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	log.Printf("[HTTP] PUT /api/v1/org-vehicles/%d: name=%s capacity=%d", id, logutil.SafeString(req.Name), req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
 		ID:       id,
@@ -212,7 +219,8 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	updatedVehicle, err := h.DB.OrganizationVehicles().Update(r.Context(), vehicle)
 	if err != nil {
-		log.Printf("[ERROR] Failed to update organization vehicle: id=%d err=%v", id, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to update organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if errors.Is(err, database.ErrNotFound) {
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageOrganizationVehicleNotFound)
 			return
@@ -221,6 +229,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] Updated organization vehicle: id=%d", id)
 
 	if h.isHTMX(r) {
@@ -236,15 +245,18 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		log.Printf("[HTTP] DELETE /api/v1/org-vehicles/{id}: invalid_id path=%s err=%v", r.URL.Path, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] DELETE /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
 		h.handleValidationErrorHTMX(w, r, messageInvalidOrganizationVehicleID)
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] DELETE /api/v1/org-vehicles/%d", id)
 
 	if err := h.DB.OrganizationVehicles().Delete(r.Context(), id); err != nil {
-		log.Printf("[ERROR] Failed to delete organization vehicle: id=%d err=%v", id, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to delete organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if errors.Is(err, database.ErrNotFound) {
 			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 			return
@@ -253,6 +265,7 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] Deleted organization vehicle: id=%d", id)
 
 	if h.isHTMX(r) {

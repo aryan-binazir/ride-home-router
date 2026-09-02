@@ -27,11 +27,13 @@ type DriverResponse struct {
 // HandleListDrivers handles GET /api/v1/drivers
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
-	log.Printf("[HTTP] GET /api/v1/drivers: search=%s", search)
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	log.Printf("[HTTP] GET /api/v1/drivers: search=%s", logutil.SafeString(search))
 
 	drivers, err := h.DB.Drivers().List(r.Context(), search)
 	if err != nil {
-		log.Printf("[ERROR] Failed to list drivers: search=%s err=%v", search, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to list drivers: search=%s err=%s", logutil.SafeString(search), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -40,6 +42,7 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
 	if h.isHTMX(r) {
 		view, err := h.driverListView(r, drivers)
@@ -107,7 +110,8 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		log.Printf("[HTTP] GET /api/v1/drivers/{id}: invalid_id=%s err=%v", idStr, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] GET /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		h.handleValidationError(w, messageInvalidDriverID)
 		return
 	}
@@ -213,10 +217,11 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/drivers: name=%s address=%s capacity=%d", logutil.SafeString(req.Name), logutil.SafeString(req.Address), req.VehicleCapacity)
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	log.Printf("[HTTP] POST /api/v1/drivers: name=%s capacity=%d", logutil.SafeString(req.Name), req.VehicleCapacity)
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
-		log.Printf("[ERROR] Failed to geocode driver address: address=%s err=%v", req.Address, err)
+		log.Printf("[ERROR] Failed to geocode driver address")
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -236,7 +241,8 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 
 	driver, err = h.DB.Drivers().CreateWithLabels(r.Context(), driver, labelIDs)
 	if err != nil {
-		log.Printf("[ERROR] Failed to create driver: name=%s err=%v", req.Name, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to create driver: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -245,7 +251,8 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, driver.Name)
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, logutil.SafeString(driver.Name))
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
@@ -265,7 +272,8 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load driver labels after create: id=%d err=%v", driver.ID, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to load driver labels after create: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
 	}
@@ -281,7 +289,8 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%v", idStr, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageInvalidDriverID))
 			return
@@ -441,7 +450,8 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, driver.Name)
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, logutil.SafeString(driver.Name))
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
@@ -461,7 +471,8 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load driver labels after update: id=%d err=%v", driver.ID, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to load driver labels after update: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
 	}
@@ -474,7 +485,8 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%v", idStr, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageInvalidDriverID))
 			return
@@ -518,19 +530,23 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/drivers/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
 		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/drivers/restore: id=%d", id)
 	if err := h.DB.Drivers().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
+			//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 			log.Printf("[HTTP] Driver not found for restore: id=%d", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to restore driver: id=%d err=%v", id, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to restore driver: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -539,6 +555,7 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] Restored driver: id=%d", id)
 	if h.isHTMX(r) {
 		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Driver"), toastTypeSuccess)

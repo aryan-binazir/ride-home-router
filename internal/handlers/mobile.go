@@ -119,13 +119,15 @@ func mobileID(path, prefix, suffix string) (int64, error) {
 
 func (h *Handler) renderMobileError(w http.ResponseWriter, r *http.Request, status int, message string, err error) {
 	if err != nil {
-		log.Printf("[ERROR] Mobile request failed: method=%s path=%s err=%v", logutil.SafeString(r.Method), logutil.SafeString(r.URL.Path), err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Mobile request failed: method=%s path=%s err=%s", logutil.SafeString(r.Method), logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
 	}
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 	w.WriteHeader(status)
 	view := mobileErrorView{mobileBaseView: newMobileBase(http.StatusText(status), mobileActiveTab(r.URL.Path), ""), Message: message}
 	if renderErr := h.Renderer.Render(w, "mobile/error.html", view); renderErr != nil {
-		log.Printf("[ERROR] Mobile error template failed: path=%s err=%v", logutil.SafeString(r.URL.Path), renderErr)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Mobile error template failed: path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(renderErr.Error()))
 	}
 }
 
@@ -133,7 +135,8 @@ func (h *Handler) renderMobileTemplateStatus(w http.ResponseWriter, r *http.Requ
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 	w.WriteHeader(status)
 	if err := h.Renderer.Render(w, name, view); err != nil {
-		log.Printf("[ERROR] Mobile template failed: path=%s template=%s err=%v", logutil.SafeString(r.URL.Path), name, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Mobile template failed: path=%s template=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(name), logutil.SafeString(err.Error()))
 	}
 }
 
@@ -159,6 +162,7 @@ func mobileActiveTab(path string) string {
 }
 
 func logMobileRequest(r *http.Request) {
+	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
 	log.Printf("[HTTP] %s %s", logutil.SafeString(r.Method), logutil.SafeString(r.URL.Path))
 }
 

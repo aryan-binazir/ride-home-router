@@ -20,15 +20,6 @@ linters:
     - rowserrcheck
     - sloglint
     - sqlclosecheck
-  exclusions:
-    rules:
-      # Handler request logging is deliberately verbose; user-controlled values are
-      # passed through logutil.SafeString at the call sites that log them.
-      - path: internal/handlers/
-        linters:
-          - gosec
-        text: "G706"
-
 formatters:
   enable:
     - gofumpt

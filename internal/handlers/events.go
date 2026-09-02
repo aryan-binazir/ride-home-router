@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/eventsnapshot"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
@@ -162,7 +163,8 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		log.Printf("[HTTP] GET /api/v1/events/{id}: invalid_id=%s err=%v", idStr, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] GET /api/v1/events/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		h.handleValidationError(w, messageInvalidEventID)
 		return
 	}
@@ -243,15 +245,15 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(sessionErr, routesession.ErrAlreadyCommitted):
-		log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", req.SessionID)
+		log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrNotFound):
-		log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", req.SessionID)
+		log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrUnbalanced):
-		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
+		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
 		return
 	case sessionErr != nil:
@@ -313,7 +315,8 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, result m
 	}
 	eventDate, err := time.Parse("2006-01-02", date)
 	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", date, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%s", logutil.SafeString(date), logutil.SafeString(err.Error()))
 		return nil, 0, eventValidationError{message: messageInvalidEventDateFormat, cause: err}
 	}
 
@@ -330,7 +333,8 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, result m
 	event := &models.Event{EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
 	created, err := h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
 	if err != nil {
-		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%v", date, len(snapshot.Routes), err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%s", logutil.SafeString(date), len(snapshot.Routes), logutil.SafeString(err.Error()))
 		return nil, 0, err
 	}
 	return created, len(snapshot.Routes), nil
@@ -341,7 +345,8 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		log.Printf("[HTTP] DELETE /api/v1/events/{id}: invalid_id=%s err=%v", idStr, err)
+		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		log.Printf("[HTTP] DELETE /api/v1/events/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		h.handleValidationError(w, messageInvalidEventID)
 		return
 	}

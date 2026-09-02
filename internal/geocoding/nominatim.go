@@ -43,7 +43,7 @@ var ErrNoGeocodingResults = errors.New("geocoding: no results found")
 
 // ErrGeocodingFailed is returned when an address cannot be geocoded
 type ErrGeocodingFailed struct {
-	Address      string
+	address      string
 	Reason       string
 	Cause        error
 	HTTPStatus   int
@@ -52,7 +52,7 @@ type ErrGeocodingFailed struct {
 }
 
 func (e *ErrGeocodingFailed) Error() string {
-	return fmt.Sprintf("geocoding failed for address: %s - %s", e.Address, e.Reason)
+	return "geocoding failed: " + e.Reason
 }
 
 func (e *ErrGeocodingFailed) Unwrap() error {
@@ -142,7 +142,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
 		log.Printf("[ERROR] Nominatim geocode outcome=request_creation_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "request creation failed", Cause: err}
+		return nil, &ErrGeocodingFailed{address: address, Reason: "request creation failed", Cause: err}
 	}
 
 	req.Header.Set("User-Agent", "RideHomeRouter/1.0 (+https://github.com/aryan-binazir/ride-home-router)")
@@ -150,7 +150,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		log.Printf("[ERROR] Nominatim geocode outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "provider request failed", Cause: &nominatimTransportError{Cause: err}}
+		return nil, &ErrGeocodingFailed{address: address, Reason: "provider request failed", Cause: &nominatimTransportError{Cause: err}}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -158,7 +158,7 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, providerBodyLimit))
 		log.Printf("[ERROR] Nominatim geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{
-			Address:      address,
+			address:      address,
 			Reason:       "provider returned an error",
 			HTTPStatus:   resp.StatusCode,
 			RetryAfter:   parseNominatimRetryAfter(resp.Header.Get("Retry-After")),
@@ -169,23 +169,23 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 	results, err := decodeNominatimResults(resp.Body)
 	if err != nil {
 		log.Printf("[ERROR] Nominatim geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "malformed provider response", Cause: err}
+		return nil, &ErrGeocodingFailed{address: address, Reason: "malformed provider response", Cause: err}
 	}
 
 	if len(results) == 0 {
 		log.Printf("[GEOCODING] Nominatim geocode outcome=no_results status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "no results found", Cause: ErrNoGeocodingResults}
+		return nil, &ErrGeocodingFailed{address: address, Reason: "no results found", Cause: ErrNoGeocodingResults}
 	}
 
 	result := results[0]
 	var lat, lng float64
 	if _, err := fmt.Sscanf(result.Lat, "%f", &lat); err != nil {
 		log.Printf("[ERROR] Nominatim geocode outcome=invalid_latitude status=%d value=%s duration=%s", resp.StatusCode, logutil.SafeString(result.Lat), time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "invalid latitude"}
+		return nil, &ErrGeocodingFailed{address: address, Reason: "invalid latitude"}
 	}
 	if _, err := fmt.Sscanf(result.Lon, "%f", &lng); err != nil {
 		log.Printf("[ERROR] Nominatim geocode outcome=invalid_longitude status=%d value=%s duration=%s", resp.StatusCode, logutil.SafeString(result.Lon), time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: address, Reason: "invalid longitude"}
+		return nil, &ErrGeocodingFailed{address: address, Reason: "invalid longitude"}
 	}
 
 	log.Printf("[GEOCODING] Nominatim geocode outcome=success status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
@@ -239,7 +239,7 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
 		log.Printf("[ERROR] Nominatim search outcome=request_creation_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: query, Reason: "request creation failed", Cause: err}
+		return nil, &ErrGeocodingFailed{address: query, Reason: "request creation failed", Cause: err}
 	}
 
 	req.Header.Set("User-Agent", "RideHomeRouter/1.0 (+https://github.com/aryan-binazir/ride-home-router)")
@@ -247,7 +247,7 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		log.Printf("[ERROR] Nominatim search outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: query, Reason: "provider request failed", Cause: &nominatimTransportError{Cause: err}}
+		return nil, &ErrGeocodingFailed{address: query, Reason: "provider request failed", Cause: &nominatimTransportError{Cause: err}}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -255,7 +255,7 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, providerBodyLimit))
 		log.Printf("[ERROR] Nominatim search outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{
-			Address:      query,
+			address:      query,
 			Reason:       "provider returned an error",
 			HTTPStatus:   resp.StatusCode,
 			RetryAfter:   parseNominatimRetryAfter(resp.Header.Get("Retry-After")),
@@ -266,7 +266,7 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 	results, err := decodeNominatimResults(resp.Body)
 	if err != nil {
 		log.Printf("[ERROR] Nominatim search outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Address: query, Reason: "malformed provider response", Cause: err}
+		return nil, &ErrGeocodingFailed{address: query, Reason: "malformed provider response", Cause: err}
 	}
 
 	log.Printf("[GEOCODING] Nominatim search outcome=success status=%d results_count=%d duration=%s", resp.StatusCode, len(results), time.Since(started).Round(time.Millisecond))
