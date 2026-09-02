@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"html"
 	"log"
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/plandraft"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +33,26 @@ type routeIntakePolicy struct {
 	staleEntityErrorsUseJSON bool
 }
 
+const (
+	routeSolveTimeout          = 30 * time.Second
+	messageCalculationTimedOut = "calculation timed out — reduce the selection"
+)
+
 var errInvalidRouteActivityLocation = errors.New("invalid route activity location")
+
+func routeSelectionLimitMessage(selection string) string {
+	return fmt.Sprintf("Choose no more than %d %s.", plandraft.MaxSelectionSize, selection)
+}
+
+func routeCalculationTimeoutError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
 
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
@@ -145,6 +167,14 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 			return false
 		}
+		if len(req.ParticipantIDs) > plandraft.MaxSelectionSize {
+			h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("participants"))
+			return false
+		}
+		if len(req.DriverIDs) > plandraft.MaxSelectionSize {
+			h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("drivers"))
+			return false
+		}
 		return true
 	}
 	if policy.validateSelectionsFirst && !validateSelections() {
@@ -178,7 +208,9 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 	log.Printf("[HTTP] POST %s: participants=%d drivers=%d org_assignments=%d mode=%s",
 		r.URL.Path, len(req.ParticipantIDs), len(req.DriverIDs), len(orgVehicleAssignments), mode)
 
-	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
+	calculationCtx, cancel := context.WithTimeout(r.Context(), routeSolveTimeout)
+	defer cancel()
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs:        req.ParticipantIDs,
 		DriverIDs:             req.DriverIDs,
 		ActivityLocationID:    req.ActivityLocationID,
@@ -186,6 +218,10 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		Mode:                  mode,
 		OrgVehicleAssignments: orgVehicleAssignments,
 	})
+	if timeoutErr := routeCalculationTimeoutError(calculationCtx, outcome.Err); timeoutErr != nil {
+		h.handleRouteCalculationError(w, r, timeoutErr)
+		return
+	}
 	if outcome.Kind == routeCalculationValidationFailure {
 		message := routeCalculationValidationMessage(outcome.Err)
 		staleEntity := errors.Is(outcome.Err, errSomeParticipantsNotFound) || errors.Is(outcome.Err, errSomeDriversNotFound)
@@ -269,7 +305,10 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 	status := http.StatusServiceUnavailable
 	code := "DISTANCE_PROVIDER_FAILED"
 
-	if errors.Is(err, distance.ErrProviderNotConfigured) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		message = messageCalculationTimedOut
+		code = "CALCULATION_TIMED_OUT"
+	} else if errors.Is(err, distance.ErrProviderNotConfigured) {
 		message = "Google Maps API key is not configured. Set GOOGLE_MAPS_API_KEY on the server."
 		status = http.StatusBadRequest
 		code = "DISTANCE_PROVIDER_NOT_CONFIGURED"

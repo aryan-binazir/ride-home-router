@@ -177,6 +177,33 @@ func TestBalancedRouter_ReturnsErrorForMissingDistanceResult(t *testing.T) {
 	}
 }
 
+func TestBalancedRouter_PreCanceledContextStopsCalculation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := NewBalancedRouter(&recordingSolveSource{}).CalculateRoutes(ctx, solveDistanceTestRequest())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CalculateRoutes() error = %v, want %v", err, context.Canceled)
+	}
+}
+
+func TestSolveDistanceLookup_CanceledContextOverridesMemoizedResult(t *testing.T) {
+	origin := models.Coordinates{Lat: 1, Lng: 2}
+	destination := models.Coordinates{Lat: 3, Lng: 4}
+	lookup := &solveDistanceLookup{
+		values: map[string]distance.DistanceResult{
+			distance.PairCacheKey(origin, destination): {DistanceMeters: 100},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := lookup.GetDistance(ctx, origin, destination)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetDistance() error = %v, want %v", err, context.Canceled)
+	}
+}
+
 func solveDistanceTestRequest() *RoutingRequest {
 	return &RoutingRequest{
 		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},

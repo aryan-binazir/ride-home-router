@@ -95,6 +95,12 @@ type solveDistanceLookup struct {
 }
 
 func (l *solveDistanceLookup) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	key := distance.PairCacheKey(origin, dest)
 	if cached, ok := l.values[key]; ok {
 		result := cached
