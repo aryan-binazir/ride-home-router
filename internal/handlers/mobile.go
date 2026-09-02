@@ -180,7 +180,7 @@ func (h *Handler) mobileRedirectError(w http.ResponseWriter, r *http.Request, pa
 func mobileRouteErrorMessage(err error) string {
 	switch {
 	case errors.Is(err, routesession.ErrNotFound), errors.Is(err, routesession.ErrAlreadyCommitted):
-		return "That route plan expired. Calculate it again."
+		return messageRoutePlanExpired
 	case errors.Is(err, routesession.ErrInvalidRouteIndex):
 		return messageInvalidRouteIndex
 	case errors.Is(err, routesession.ErrParticipantNotFound), errors.Is(err, routesession.ErrParticipantNotInSource):
