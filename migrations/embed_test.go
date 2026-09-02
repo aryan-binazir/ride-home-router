@@ -352,74 +352,134 @@ func TestSMERouteFeedbackMigrationAppliesDownAndUp(t *testing.T) {
 	assertFeedbackSchema(t, db, true)
 }
 
-func TestSoftDeleteRosterMigrationRemovesArchivedRowsOnDown(t *testing.T) {
+func TestSoftDeleteRosterMigrationRefusesDownWithArchivedRows(t *testing.T) {
+	tests := []struct {
+		name      string
+		table     string
+		insertSQL string
+		wantError string
+	}{
+		{name: "participant", table: "participants", insertSQL: `INSERT INTO participants (name, address, lat, lng, deleted_at) VALUES ('Archived Rider', '2 Main St', 40, -73, now())`, wantError: "archived participants"},
+		{name: "driver", table: "drivers", insertSQL: `INSERT INTO drivers (name, address, lat, lng, deleted_at) VALUES ('Archived Driver', '4 Main St', 40, -73, now())`, wantError: "archived drivers"},
+		{name: "activity location", table: "activity_locations", insertSQL: `INSERT INTO activity_locations (name, address, lat, lng, deleted_at) VALUES ('Archived Gym', '6 Main St', 40, -73, now())`, wantError: "archived activity locations"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, migrator := openMigrator(t)
+			ctx := t.Context()
+			if _, err := db.ExecContext(ctx, test.insertSQL); err != nil {
+				t.Fatalf("insert archived %s: %v", test.name, err)
+			}
+
+			err := migrator.Migrate(20260829000000)
+			for _, want := range []string{test.wantError, "export or explicitly purge"} {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("migrate soft-delete roster down error = %v, want containing %q", err, want)
+				}
+			}
+			var count int
+			if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+test.table+` WHERE deleted_at IS NOT NULL`).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("archived %s after refused down = %d, err=%v; want 1", test.name, count, err)
+			}
+			assertSoftDeleteColumns(t, db, true)
+
+			var version uint
+			var dirty bool
+			if err := db.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
+				t.Fatalf("inspect migration state after refused down: %v", err)
+			}
+			if version != 20260829000000 || !dirty {
+				t.Fatalf("migration state after refused down = (%d, %t), want (20260829000000, true)", version, dirty)
+			}
+		})
+	}
+}
+
+func TestSoftDeleteRosterMigrationDownSucceedsWithoutArchivedRows(t *testing.T) {
 	db, migrator := openMigrator(t)
 	ctx := t.Context()
-
-	var liveParticipantID, archivedParticipantID int64
-	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng) VALUES ('Live Rider', '1 Main St', 40, -73) RETURNING id`).Scan(&liveParticipantID); err != nil {
-		t.Fatalf("insert live participant: %v", err)
+	liveRows := map[string]string{
+		"participants":       `INSERT INTO participants (name, address, lat, lng) VALUES ('Live Rider', '1 Main St', 40, -73)`,
+		"drivers":            `INSERT INTO drivers (name, address, lat, lng) VALUES ('Live Driver', '3 Main St', 40, -73)`,
+		"activity_locations": `INSERT INTO activity_locations (name, address, lat, lng) VALUES ('Live Gym', '5 Main St', 40, -73)`,
 	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng, deleted_at) VALUES ('Archived Rider', '2 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedParticipantID); err != nil {
-		t.Fatalf("insert archived participant: %v", err)
-	}
-	var liveDriverID, archivedDriverID int64
-	if err := db.QueryRowContext(ctx, `INSERT INTO drivers (name, address, lat, lng) VALUES ('Live Driver', '3 Main St', 40, -73) RETURNING id`).Scan(&liveDriverID); err != nil {
-		t.Fatalf("insert live driver: %v", err)
-	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO drivers (name, address, lat, lng, deleted_at) VALUES ('Archived Driver', '4 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedDriverID); err != nil {
-		t.Fatalf("insert archived driver: %v", err)
-	}
-	var archivedLocationID int64
-	if _, err := db.ExecContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng) VALUES ('Live Gym', '5 Main St', 40, -73)`); err != nil {
-		t.Fatalf("insert live activity location: %v", err)
-	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO activity_locations (name, address, lat, lng, deleted_at) VALUES ('Archived Gym', '6 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedLocationID); err != nil {
-		t.Fatalf("insert archived activity location: %v", err)
-	}
-	var labelID int64
-	if err := db.QueryRowContext(ctx, `INSERT INTO labels (name) VALUES ('Retained') RETURNING id`).Scan(&labelID); err != nil {
-		t.Fatalf("insert label: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO participant_labels (label_id, participant_id) VALUES ($1, $2), ($1, $3)`, labelID, liveParticipantID, archivedParticipantID); err != nil {
-		t.Fatalf("insert participant labels: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO driver_labels (label_id, driver_id) VALUES ($1, $2), ($1, $3)`, labelID, liveDriverID, archivedDriverID); err != nil {
-		t.Fatalf("insert driver labels: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE settings SET selected_activity_location_id = $1 WHERE id = 1`, archivedLocationID); err != nil {
-		t.Fatalf("select archived activity location: %v", err)
+	for table, insertSQL := range liveRows {
+		if _, err := db.ExecContext(ctx, insertSQL); err != nil {
+			t.Fatalf("insert live row in %s: %v", table, err)
+		}
 	}
 
 	if err := migrator.Migrate(20260829000000); err != nil {
 		t.Fatalf("migrate soft-delete roster down: %v", err)
 	}
-	for table, wantName := range map[string]string{
-		"participants":       "Live Rider",
-		"drivers":            "Live Driver",
-		"activity_locations": "Live Gym",
-	} {
-		var count int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE name = $1`, wantName).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("live row in %s after down = %d, err=%v; want 1", table, count, err)
-		}
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("total rows in %s after down = %d, err=%v; want archived row removed", table, count, err)
-		}
-	}
-	for _, table := range []string{"participant_labels", "driver_labels"} {
+	assertSoftDeleteColumns(t, db, false)
+	for table := range liveRows {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("rows in %s after down = %d, err=%v; want archived membership cascaded", table, count, err)
+			t.Fatalf("live rows in %s after down = %d, err=%v; want 1", table, count, err)
 		}
 	}
-	var selectedLocationID sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT selected_activity_location_id FROM settings WHERE id = 1`).Scan(&selectedLocationID); err != nil || selectedLocationID.Valid {
-		t.Fatalf("selected location after down = %#v, err=%v; want NULL", selectedLocationID, err)
-	}
-
 	if err := migrator.Migrate(20260830000000); err != nil {
 		t.Fatalf("migrate soft-delete roster up: %v", err)
+	}
+	assertSoftDeleteColumns(t, db, true)
+}
+
+func TestSoftDeleteRosterMigrationDownWaitsForWriterBeforeCheckingArchivedRows(t *testing.T) {
+	db, migrator := openMigrator(t)
+	ctx := t.Context()
+
+	var participantID int64
+	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng) VALUES ('Concurrent Rider', '7 Main St', 40, -73) RETURNING id`).Scan(&participantID); err != nil {
+		t.Fatalf("insert participant: %v", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin concurrent writer: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	if _, err := tx.ExecContext(ctx, `UPDATE participants SET deleted_at = now() WHERE id = $1`, participantID); err != nil {
+		t.Fatalf("archive participant in concurrent writer: %v", err)
+	}
+
+	downResult := make(chan error, 1)
+	go func() { downResult <- migrator.Migrate(20260829000000) }()
+	waitingForTableLock := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := db.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pg_locks AS lock
+				JOIN pg_class AS class ON class.oid = lock.relation
+				JOIN pg_namespace AS namespace ON namespace.oid = class.relnamespace
+				WHERE namespace.nspname = current_schema()
+				  AND class.relname = 'participants'
+				  AND lock.mode = 'AccessExclusiveLock'
+				  AND NOT lock.granted
+			)
+		`).Scan(&waitingForTableLock); err != nil {
+			t.Fatalf("inspect migration table lock: %v", err)
+		}
+		if waitingForTableLock {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !waitingForTableLock {
+		t.Fatal("down migration did not wait for the concurrent roster writer")
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit concurrent archive: %v", err)
+	}
+
+	select {
+	case err := <-downResult:
+		if err == nil || !strings.Contains(err.Error(), "archived participants") {
+			t.Fatalf("down migration after concurrent archive error = %v, want archived participant guard", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("down migration did not finish after concurrent writer committed")
 	}
 	assertSoftDeleteColumns(t, db, true)
 }
@@ -432,7 +492,7 @@ func openMigrator(t *testing.T) (*sql.DB, *migrate.Migrate) {
 		t.Fatalf("parse database URL: %v", err)
 	}
 	db := stdlib.OpenDB(*config)
-	db.SetMaxOpenConns(2)
+	db.SetMaxOpenConns(3)
 
 	source, err := iofs.New(migrationFiles, ".")
 	if err != nil {

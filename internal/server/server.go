@@ -33,6 +33,8 @@ type Server struct {
 	handler      *handlers.Handler
 	db           database.DataStore
 	listener     net.Listener
+	serveErrors  chan error
+	serveDone    chan struct{}
 	addr         string
 	allowedHosts []string
 }
@@ -112,6 +114,8 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		handler:      handler,
 		db:           db,
 		listener:     nil,
+		serveErrors:  make(chan error, 1),
+		serveDone:    nil,
 		addr:         cfg.Addr,
 		allowedHosts: cfg.AllowedHosts,
 	}, nil
@@ -133,14 +137,23 @@ func (s *Server) Start() (string, error) {
 	}
 	s.httpServer.Handler = loggingMiddleware(requestSecurityMiddleware(allowlist, s.httpServer.Handler))
 	log.Printf("Starting server on %s", actualAddr)
+	s.serveDone = make(chan struct{})
 
 	go func() {
-		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+		defer close(s.serveDone)
+		if err := s.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
+			s.serveErrors <- err
 		}
 	}()
 
 	return actualAddr, nil
+}
+
+// Errors reports the first unexpected error from HTTP serving. The channel is
+// never closed and receives at most one value.
+func (s *Server) Errors() <-chan error {
+	return s.serveErrors
 }
 
 // Shutdown stops sessions, HTTP serving, and database access.
@@ -154,7 +167,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.handler != nil && s.handler.PlanDraft != nil {
 		s.handler.PlanDraft.Close()
 	}
-	return errors.Join(s.httpServer.Shutdown(ctx), s.db.Close())
+	shutdownErr := s.httpServer.Shutdown(ctx)
+	if s.serveDone != nil {
+		select {
+		case <-s.serveDone:
+		case <-ctx.Done():
+			shutdownErr = errors.Join(shutdownErr, ctx.Err())
+		}
+	}
+	return errors.Join(shutdownErr, s.db.Close())
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/plandraft"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +31,10 @@ type routeIntakePolicy struct {
 	staleEntityErrorsUseJSON bool
 }
 
-var errInvalidRouteActivityLocation = errors.New("invalid route activity location")
+var (
+	errInvalidRouteActivityLocation = errors.New("invalid route activity location")
+	errInvalidRouteSelection        = errors.New("invalid route selection")
+)
 
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
@@ -44,18 +48,15 @@ func parseRouteTime(value string) (string, error) {
 }
 
 func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
-	var req CalculateRoutesRequest
-
-	for _, idStr := range form["participant_ids"] {
-		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-			req.ParticipantIDs = append(req.ParticipantIDs, id)
-		}
+	participantIDs, err := parseRouteIDs(form["participant_ids"])
+	if err != nil {
+		return CalculateRoutesRequest{}, err
 	}
-	for _, idStr := range form["driver_ids"] {
-		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-			req.DriverIDs = append(req.DriverIDs, id)
-		}
+	driverIDs, err := parseRouteIDs(form["driver_ids"])
+	if err != nil {
+		return CalculateRoutesRequest{}, err
 	}
+	req := CalculateRoutesRequest{ParticipantIDs: participantIDs, DriverIDs: driverIDs}
 	if idStr := form.Get("activity_location_id"); idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -67,6 +68,26 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 	req.Mode = form.Get("mode")
 
 	return req, nil
+}
+
+func parseRouteIDs(values []string) ([]int64, error) {
+	if len(values) > plandraft.MaxSelectionSize {
+		return nil, errInvalidRouteSelection
+	}
+	ids := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, errInvalidRouteSelection
+		}
+		if _, exists := seen[id]; exists {
+			return nil, errInvalidRouteSelection
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func routeFormValidationMessage(err error) string {

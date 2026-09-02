@@ -119,7 +119,7 @@ clean:
 	rm -rf bin coverage.out
 
 postgres-up:
-	podman run -d --name $(POSTGRES_CONTAINER) -p $(POSTGRES_PORT):5432 \
+	podman run -d --name $(POSTGRES_CONTAINER) -p 127.0.0.1:$(POSTGRES_PORT):5432 \
 		-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ride_home_router \
 		docker.io/library/postgres:18
 	@for i in $$(seq 1 30); do podman exec $(POSTGRES_CONTAINER) pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
