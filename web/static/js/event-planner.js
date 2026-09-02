@@ -16,15 +16,32 @@
     function createPlannerState({ readFingerprint, onChange }) {
         let status = 'empty';
         let sessionId = null;
+        let savedSessionId = null;
         let calculatedFingerprint = null;
 
         function getSnapshot() {
             return { status, sessionId, canSave: status === 'current' };
         }
 
+        // Staleness wins over savedness: a saved session whose inputs then moved
+        // is stale, and reverting the inputs returns it to saved, never current.
+        function statusForInputs() {
+            if (readFingerprint() !== calculatedFingerprint) return 'stale';
+            return sessionId === savedSessionId ? 'saved' : 'current';
+        }
+
+        function settle(next) {
+            if (next === status) return getSnapshot();
+
+            status = next;
+            onChange(getSnapshot());
+            return getSnapshot();
+        }
+
         function clear() {
             status = 'empty';
             sessionId = null;
+            savedSessionId = null;
             calculatedFingerprint = null;
             onChange(getSnapshot());
             return getSnapshot();
@@ -37,7 +54,7 @@
 
             sessionId = id;
             calculatedFingerprint = fingerprint === undefined ? readFingerprint() : fingerprint;
-            status = readFingerprint() === calculatedFingerprint ? 'current' : 'stale';
+            status = statusForInputs();
             onChange(getSnapshot());
             return getSnapshot();
         }
@@ -45,22 +62,15 @@
         function markSaved() {
             if (status === 'empty') return getSnapshot();
 
-            status = 'saved';
-            onChange(getSnapshot());
-            return getSnapshot();
+            savedSessionId = sessionId;
+            return settle(statusForInputs());
         }
 
         function refresh() {
-            // 'empty' has nothing to compare against; 'saved' is terminal until
-            // the next calculation.
-            if (status === 'empty' || status === 'saved') return getSnapshot();
+            // 'empty' has nothing to compare against.
+            if (status === 'empty') return getSnapshot();
 
-            const next = readFingerprint() === calculatedFingerprint ? 'current' : 'stale';
-            if (next === status) return getSnapshot();
-
-            status = next;
-            onChange(getSnapshot());
-            return getSnapshot();
+            return settle(statusForInputs());
         }
 
         return { clear, getSnapshot, markCalculated, markSaved, refresh };
@@ -200,14 +210,10 @@
             try {
                 flushed = await moves.flush(requestedSessionId);
             } finally {
-                if (getActiveSessionId() === requestedSessionId) {
-                    // Each flushed move re-renders the pane; installRouteResults
-                    // carries the typed date and notes onto the replacement form.
-                    const candidate = findLiveSaveForm();
-                    if (candidate && getSaveFormSessionId(candidate) === requestedSessionId) {
-                        liveForm = candidate;
-                    }
-                }
+                // Each flushed move re-renders the pane; installRouteResults carries
+                // the typed date and notes onto the replacement form.
+                const candidate = getActiveSessionId() === requestedSessionId ? findLiveSaveForm() : null;
+                liveForm = candidate && getSaveFormSessionId(candidate) === requestedSessionId ? candidate : null;
                 // requestSubmit re-enters the capture listener, so unlock first.
                 savesInFlight.delete(requestedSessionId);
             }
@@ -959,7 +965,8 @@
         });
 
         const EVENT_PLANNER_DRAFT_KEY = 'ride-home-router:event-planner-draft:v1';
-        const ACTIVE_SESSION_KEY = 'ride-home-router:active-session-id';
+        const LEGACY_ACTIVE_SESSION_KEY = 'ride-home-router:active-session-id';
+        const ACTIVE_SESSION_KEY = 'ride-home-router:active-session:v2';
         const EVENT_PLANNER_MODES = new Set(['dropoff', 'pickup']);
         let isRestoringEventPlannerDraft = false;
         let restoreController = null;
@@ -967,25 +974,45 @@
         let calculateFingerprint = null;
         let swappedSaveFields = null;
 
-        function saveActiveSessionId(id) {
-            try { window.localStorage.setItem(ACTIVE_SESSION_KEY, id || ''); } catch (e) {}
+        // The fingerprint rides with the session id so a restored session is
+        // verified against the inputs that produced it rather than assumed current.
+        function saveActiveSession(id, fingerprint) {
+            try {
+                window.localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({ id, fingerprint }));
+                window.localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
+            } catch (e) {}
         }
 
-        function getActiveSessionId() {
-            try { return window.localStorage.getItem(ACTIVE_SESSION_KEY) || ''; } catch (e) { return ''; }
+        function getActiveSession() {
+            try {
+                const stored = JSON.parse(window.localStorage.getItem(ACTIVE_SESSION_KEY) || 'null');
+                if (!stored || typeof stored.id !== 'string' || !stored.id) return null;
+                return { id: stored.id, fingerprint: typeof stored.fingerprint === 'string' ? stored.fingerprint : null };
+            } catch (err) {
+                return null;
+            }
         }
 
-        function clearActiveSessionId() {
-            try { window.localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) {}
+        function clearActiveSession() {
+            try {
+                window.localStorage.removeItem(ACTIVE_SESSION_KEY);
+                window.localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
+            } catch (e) {}
         }
 
         const PLAN_STATE_MESSAGES = {
             stale: 'Plan changed — recalculate routes before copying or saving them.',
             saved: 'Event saved. Recalculate to plan another event.',
         };
-        // Every control that mutates, exports, or saves the calculated session
-        // carries data-session-action; Preview only opens a map, so it stays live.
+        // Controls that act on the calculated session are tagged copy / edit /
+        // save; Preview only opens a map, so it is never locked. A stale plan
+        // invalidates all three. A saved plan is still the routes on screen, so
+        // copying stays live and only editing and re-saving are locked.
         const SESSION_ACTION_CONTROLS = '[data-session-action]';
+        const PLAN_STATE_LOCKS = {
+            stale: '[data-session-action]',
+            saved: '[data-session-action="edit"], [data-session-action="save"]',
+        };
 
         function setPlanStateBanner(container, message) {
             const banner = container.querySelector('.planner-plan-state-banner');
@@ -995,17 +1022,21 @@
             banner.hidden = !message;
         }
 
-        function setSessionActionsLocked(container, locked) {
+        function setSessionActionsLocked(container, lockSelector, reason) {
             container.querySelectorAll(SESSION_ACTION_CONTROLS).forEach(control => {
-                if (locked) {
-                    // Controls the server already disabled (over capacity) stay disabled.
+                if (lockSelector && control.matches(lockSelector)) {
+                    // Controls the server already disabled (over capacity) stay
+                    // disabled, and keep their own explanation.
                     if (control.disabled) return;
                     control.disabled = true;
                     control.dataset.planLocked = '1';
+                    // The banner scrolls with the route list; the header buttons do not.
+                    control.setAttribute('title', reason);
                     return;
                 }
                 if (!control.dataset.planLocked) return;
                 control.disabled = false;
+                control.removeAttribute('title');
                 delete control.dataset.planLocked;
             });
         }
@@ -1018,7 +1049,7 @@
 
             const message = PLAN_STATE_MESSAGES[status] || '';
             setPlanStateBanner(container, message);
-            setSessionActionsLocked(container, Boolean(message));
+            setSessionActionsLocked(container, PLAN_STATE_LOCKS[status] || null, message);
         }
 
         // The draft and the fingerprint read the same inputs once, so they cannot
@@ -1061,9 +1092,9 @@
             readFingerprint: readPlannerFingerprint,
             onChange: function(state) {
                 if (state.status === 'current') {
-                    saveActiveSessionId(state.sessionId);
+                    saveActiveSession(state.sessionId, readPlannerFingerprint());
                 } else {
-                    clearActiveSessionId();
+                    clearActiveSession();
                 }
                 applyPlanStateAffordance(state.status);
             },
@@ -1629,17 +1660,19 @@
             }
         });
 
-        function restoreRouteSession(sessionId) {
+        function restoreRouteSession(session) {
             var resultsSection = document.getElementById('results-section');
             if (!resultsSection) return;
 
             if (restoreController) restoreController.abort();
             restoreController = new AbortController();
             restoreFingerprint = readPlannerFingerprint();
-            const requestedFingerprint = restoreFingerprint;
+            // Prefer the fingerprint the session was calculated with; a session
+            // stored before this key existed falls back to the restored draft.
+            const requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
 
             // This same-origin HTML uses the same trusted templates as HTMX swaps.
-            fetch('/api/v1/routes/session?session_id=' + encodeURIComponent(sessionId), {
+            fetch('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
                 signal: restoreController.signal
             })
@@ -1678,9 +1711,9 @@
             updateRouteTimeCopy();
             ensureDefaultRouteTime();
 
-            var activeSessionId = getActiveSessionId();
-            if (activeSessionId) {
-                restoreRouteSession(activeSessionId);
+            var activeSession = getActiveSession();
+            if (activeSession) {
+                restoreRouteSession(activeSession);
             }
 
             document.body.addEventListener('htmx:beforeRequest', function(event) {
@@ -1703,6 +1736,7 @@
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
                     calculateFingerprint = null;
+                    swappedSaveFields = null;
                     setCalculateButtonLoading(false);
                 }
             });
@@ -1711,15 +1745,22 @@
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
                     calculateFingerprint = null;
+                    swappedSaveFields = null;
                     setCalculateButtonLoading(false);
                 }
             });
 
+            // The native calculate swap is a results replacement too, so it does
+            // installRouteResults' three jobs from htmx's own lifecycle events:
+            // snapshot here, restore in afterSwap, applyLocalEventDate in afterSettle.
             document.body.addEventListener('htmx:beforeSwap', function(event) {
                 const target = event.detail && event.detail.target;
-                if (target && target.id === 'results-section') {
-                    swappedSaveFields = snapshotSaveFields(target);
-                }
+                if (!target || target.id !== 'results-section') return;
+
+                // A saved event's date and notes belong to that event, not the next one.
+                swappedSaveFields = plannerState.getSnapshot().status === 'saved'
+                    ? null
+                    : snapshotSaveFields(target);
             });
 
             document.body.addEventListener('htmx:afterSwap', function(event) {

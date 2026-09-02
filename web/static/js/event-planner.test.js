@@ -969,7 +969,11 @@ function domNode(tagName, props = {}) {
             add: value => classSet.add(value),
             remove: value => classSet.delete(value),
             contains: value => classSet.has(value),
-            toggle: (value, force) => (force ? classSet.add(value) : classSet.delete(value)),
+            toggle: (value, force) => {
+                const next = force === undefined ? !classSet.has(value) : Boolean(force);
+                if (next) classSet.add(value); else classSet.delete(value);
+                return next;
+            },
         },
         get className() { return [...classSet].join(' '); },
         set className(value) {
@@ -1027,8 +1031,11 @@ function domNode(tagName, props = {}) {
         dispatchEvent(event) {
             event.target = event.target || this;
             let current = this;
-            while (current) {
-                (current.listeners[event.type] || []).forEach(handler => handler(event));
+            while (current && !event.stopped) {
+                for (const handler of current.listeners[event.type] || []) {
+                    handler(event);
+                    if (event.stopped) break;
+                }
                 current = current.parentNode;
             }
             return !event.defaultPrevented;
@@ -1046,8 +1053,9 @@ function fakeEvent(type, detail) {
         type,
         detail,
         defaultPrevented: false,
+        stopped: false,
         preventDefault() { this.defaultPrevented = true; },
-        stopImmediatePropagation() {},
+        stopImmediatePropagation() { this.stopped = true; },
     };
 }
 
@@ -1061,11 +1069,16 @@ function fakeLocalStorage() {
     };
 }
 
+function storedSessionId(planner) {
+    const stored = planner.storage.getItem('ride-home-router:active-session:v2');
+    return stored ? JSON.parse(stored).id : null;
+}
+
 const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8');
 
 // Boots the real planner against the fixture below so the invalidation rule is
 // exercised end to end, not through a re-implementation of it.
-function bootPlanner({ mode = 'dropoff' } = {}) {
+function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
     const participants = ['1', '2'].map(value => domNode('input', {
         classes: ['participant-checkbox'],
         value,
@@ -1099,8 +1112,9 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
     });
 
     const banner = domNode('div', { classes: ['alert', 'planner-plan-state-banner'], hidden: true });
-    const saveButton = domNode('button', { type: 'submit', disabled: false, dataset: { sessionAction: '' } });
-    const outOfBalanceCopy = domNode('button', { dataset: { sessionAction: '' }, disabled: true });
+    const saveButton = domNode('button', { type: 'submit', disabled: false, dataset: { sessionAction: 'save' } });
+    const copyButton = domNode('button', { disabled: false, dataset: { sessionAction: 'copy' } });
+    const outOfBalanceCopy = domNode('button', { dataset: { sessionAction: 'copy' }, disabled: true });
     const saveForm = domNode('form', {
         form: true,
         classes: ['save-event-card'],
@@ -1117,7 +1131,7 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
     };
     const resultsBody = domNode('div', {
         classes: ['results-body'],
-        children: [banner, outOfBalanceCopy, saveForm],
+        children: [banner, copyButton, outOfBalanceCopy, saveForm],
     });
     const routesContainer = domNode('div', {
         classes: ['routes-container'],
@@ -1125,6 +1139,14 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
         children: [resultsBody],
     });
     const resultsSection = domNode('div', { id: 'results-section', children: [routesContainer] });
+    // The server re-renders the same session's markup; an empty render clears it.
+    Object.defineProperty(resultsSection, 'innerHTML', {
+        set(html) {
+            this.children.forEach(child => { child.parentNode = null; });
+            this.children = [];
+            if (html) this.appendChild(routesContainer);
+        },
+    });
 
     const routeTimeLabel = domNode('label', { id: 'route-time-label', textContent: 'x' });
     const routeTimeHelp = domNode('p', { id: 'route-time-help', textContent: 'x' });
@@ -1149,6 +1171,9 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
     body.parentNode = root;
 
     const storage = fakeLocalStorage();
+    if (storedSession) {
+        storage.setItem('ride-home-router:active-session:v2', JSON.stringify(storedSession));
+    }
     const context = {
         document,
         console,
@@ -1156,6 +1181,7 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
         Event: class { constructor(type) { return fakeEvent(type); } },
         AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
         htmx: { process() {} },
+        fetch: async () => ({ ok: true, status: 200, text: async () => '<div>routes</div>' }),
         setTimeout: () => 0,
         clearTimeout: () => {},
         JSON,
@@ -1172,6 +1198,7 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
         activityLocation,
         banner,
         context,
+        copyButton,
         document,
         driver,
         dropoff,
@@ -1185,6 +1212,18 @@ function bootPlanner({ mode = 'dropoff' } = {}) {
         saveButton,
         saveForm,
         storage,
+        // The restore fetch resolves over a few microtask turns.
+        async settleRestore() {
+            for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+        },
+        saveSucceeded() {
+            const saveResult = domNode('div', {
+                id: 'save-result',
+                children: [domNode('div', { classes: ['alert-success'] })],
+            });
+            body.appendChild(saveResult);
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: saveResult } }));
+        },
         calculate() {
             body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt: { id: 'calculate-btn' } } }));
             body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection } }));
@@ -1207,7 +1246,7 @@ test('changing a route-defining input after calculating blocks saving until reca
     const afterCalculate = {
         saveDisabled: planner.saveButton.disabled,
         bannerHidden: planner.banner.hidden,
-        storedSession: planner.storage.getItem('ride-home-router:active-session-id'),
+        storedSession: storedSessionId(planner),
     };
 
     planner.participants[1].checked = false;
@@ -1217,7 +1256,7 @@ test('changing a route-defining input after calculating blocks saving until reca
         afterCalculate,
         saveDisabled: planner.saveButton.disabled,
         banner: planner.banner.hidden ? '' : planner.banner.textContent,
-        storedSession: planner.storage.getItem('ride-home-router:active-session-id'),
+        storedSession: storedSessionId(planner),
         saveBlocked: planner.submitSave().defaultPrevented,
     }, {
         afterCalculate: { saveDisabled: false, bannerHidden: true, storedSession: 'session-1' },
@@ -1269,7 +1308,7 @@ test('filtering the roster leaves a calculated plan current', () => {
 
     assert.deepEqual({
         saveDisabled: planner.saveButton.disabled,
-        storedSession: planner.storage.getItem('ride-home-router:active-session-id'),
+        storedSession: storedSessionId(planner),
     }, { saveDisabled: false, storedSession: 'session-1' });
 });
 
@@ -1356,7 +1395,7 @@ test('a render without entered fields keeps the server defaults', () => {
     assert.equal(target.querySelector('input[name="event_date"]').value, localISODate(new Date()));
 });
 
-test('planner state stays stale until a recalculation and is terminal once saved', () => {
+test('planner state stays stale until a recalculation and never leaves saved for current', () => {
     const changes = [];
     let fingerprint = 'plan-a';
     const state = createPlannerState({
@@ -1371,27 +1410,35 @@ test('planner state stays stale until a recalculation and is terminal once saved
     // A calculation requested before the edit still lands stale.
     state.markCalculated('session-2', 'plan-a');
     const afterLateSwap = state.getSnapshot();
+    fingerprint = 'plan-b';
     state.markCalculated('session-3');
     state.markSaved();
     fingerprint = 'plan-c';
     const afterSavedEdit = state.refresh();
+    // Reverting the edit must not hand back a second save of the same session.
+    fingerprint = 'plan-b';
+    const afterSavedRevert = state.refresh();
 
     assert.deepEqual({
         beforeCalculation: beforeCalculation.status,
         afterEdit: { status: afterEdit.status, canSave: afterEdit.canSave },
         afterLateSwap: afterLateSwap.status,
         afterSavedEdit: { status: afterSavedEdit.status, canSave: afterSavedEdit.canSave },
+        afterSavedRevert: { status: afterSavedRevert.status, canSave: afterSavedRevert.canSave },
         changes,
     }, {
         beforeCalculation: 'empty',
         afterEdit: { status: 'stale', canSave: false },
         afterLateSwap: 'stale',
-        afterSavedEdit: { status: 'saved', canSave: false },
+        afterSavedEdit: { status: 'stale', canSave: false },
+        afterSavedRevert: { status: 'saved', canSave: false },
         changes: [
             'current:session-1',
             'stale:session-1',
             'stale:session-2',
             'current:session-3',
+            'saved:session-3',
+            'stale:session-3',
             'saved:session-3',
         ],
     });
@@ -1428,5 +1475,94 @@ test('a results swap with no session clears the planner state', () => {
     assert.deepEqual({ cleared, changes }, {
         cleared: { status: 'empty', sessionId: null, canSave: false },
         changes: ['current', 'empty'],
+    });
+});
+
+test('the calculate swap carries entered save fields across the native htmx render', () => {
+    const planner = bootPlanner();
+    const eventDate = planner.saveForm.querySelector('input[name="event_date"]');
+    const notes = planner.saveForm.querySelector('textarea[name="notes"]');
+
+    planner.calculate();
+    eventDate.value = '2026-10-04';
+    eventDate.dataset.userEdited = '1';
+    notes.value = 'Two vans, meet at the flagpole';
+    planner.driver.checked = false;
+    planner.change(planner.driver);
+    planner.calculate();
+
+    assert.deepEqual({ eventDate: eventDate.value, notes: notes.value }, {
+        eventDate: '2026-10-04',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('a saved event locks re-saving and editing but leaves copying live', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.saveSucceeded();
+    const afterSave = {
+        saveDisabled: planner.saveButton.disabled,
+        copyDisabled: planner.copyButton.disabled,
+        banner: planner.banner.textContent,
+        saveBlocked: planner.submitSave().defaultPrevented,
+        storedSession: storedSessionId(planner),
+    };
+
+    // Editing the plan after saving is stale, not saved: copying is wrong too.
+    planner.driver.checked = false;
+    planner.change(planner.driver);
+
+    assert.deepEqual({
+        afterSave,
+        copyDisabled: planner.copyButton.disabled,
+        copyTitle: planner.copyButton.getAttribute('title'),
+    }, {
+        afterSave: {
+            saveDisabled: true,
+            copyDisabled: false,
+            banner: 'Event saved. Recalculate to plan another event.',
+            saveBlocked: true,
+            storedSession: null,
+        },
+        copyDisabled: true,
+        copyTitle: 'Plan changed — recalculate routes before copying or saving them.',
+    });
+});
+
+test('a saved event does not seed the next event with its date and notes', () => {
+    const planner = bootPlanner();
+    const eventDate = planner.saveForm.querySelector('input[name="event_date"]');
+    const notes = planner.saveForm.querySelector('textarea[name="notes"]');
+
+    planner.calculate();
+    eventDate.value = '2026-10-04';
+    eventDate.dataset.userEdited = '1';
+    notes.value = 'Two vans, meet at the flagpole';
+    planner.saveSucceeded();
+    planner.calculate();
+
+    assert.deepEqual({ userEdited: eventDate.dataset.userEdited, notes: notes.value }, {
+        userEdited: '1',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('a restored session whose inputs moved on is restored stale', async () => {
+    const planner = bootPlanner({
+        storedSession: { id: 'session-1', fingerprint: 'a plan that no longer matches these inputs' },
+    });
+
+    await planner.settleRestore();
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+        storedSession: storedSessionId(planner),
+    }, {
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+        storedSession: null,
     });
 });
