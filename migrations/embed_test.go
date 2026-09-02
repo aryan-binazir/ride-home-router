@@ -24,6 +24,18 @@ import (
 //go:embed *.sql
 var migrationFiles embed.FS
 
+func TestLatestVersionMatchesNewestEmbeddedMigration(t *testing.T) {
+	version, err := migrations.LatestVersion()
+	if err != nil {
+		t.Fatalf("LatestVersion() error = %v", err)
+	}
+	// Keep this literal independent of LatestVersion so every new migration
+	// requires an explicit readiness expectation update.
+	if version != 20260830000000 {
+		t.Fatalf("LatestVersion() = %d, want 20260830000000", version)
+	}
+}
+
 func TestEmbeddedMigrationsArePairedAndParseable(t *testing.T) {
 	entries, err := fs.ReadDir(migrationFiles, ".")
 	if err != nil {

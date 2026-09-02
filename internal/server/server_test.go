@@ -12,6 +12,7 @@ import (
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	appTemplates "ride-home-router/internal/templates"
 	"ride-home-router/web"
@@ -52,6 +53,39 @@ func TestNewDoesNotApplyDatabaseMigrations(t *testing.T) {
 	}
 	if migrationTable || applicationTable {
 		t.Fatalf("New() created schema = migrations:%t participants:%t, want neither", migrationTable, applicationTable)
+	}
+}
+
+func TestSetupRoutesSeparatesLivenessFromReadiness(t *testing.T) {
+	databaseURL := postgrestest.UnmigratedDatabase(t)
+	store, err := postgres.New(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("open unmigrated store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	mux := setupRoutes(&handlers.Handler{DB: store}, web.Static)
+
+	for _, tt := range []struct {
+		path       string
+		wantStatus int
+	}{
+		{path: "/api/v1/health", wantStatus: http.StatusOK},
+		{path: "/api/v1/ready", wantStatus: http.StatusServiceUnavailable},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
+			recorder := httptest.NewRecorder()
+
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d body=%q", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -148,6 +182,18 @@ func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d: the browser client opens URLs itself", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestSetupRoutesRejectsNonGetReadiness(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/ready", nil)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
 	}
 }
 
