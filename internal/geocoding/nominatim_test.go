@@ -3,8 +3,10 @@ package geocoding
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +19,23 @@ type nominatimRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f nominatimRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+type nominatimReadErrorBody struct {
+	data []byte
+	done bool
+}
+
+func (b *nominatimReadErrorBody) Read(p []byte) (int, error) {
+	if !b.done {
+		b.done = true
+		return copy(p, b.data), nil
+	}
+	return 0, io.ErrUnexpectedEOF
+}
+
+func (b *nominatimReadErrorBody) Close() error {
+	return nil
 }
 
 func newTestNominatimGeocoder(t *testing.T, handler http.HandlerFunc) *nominatimGeocoder {
@@ -180,6 +199,62 @@ func TestNominatimGeocodeWithRetry_RetriesNetworkError(t *testing.T) {
 	}
 }
 
+func TestNominatim_RetriesResponseBodyNetworkError(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*nominatimGeocoder) error
+	}{
+		{
+			name: "geocode",
+			run: func(g *nominatimGeocoder) error {
+				_, err := g.GeocodeWithRetry(context.Background(), "823 Redfield Dr", 3)
+				return err
+			},
+		},
+		{
+			name: "search",
+			run: func(g *nominatimGeocoder) error {
+				_, err := g.Search(context.Background(), "Chapel Hill", 5)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(validNominatimResult))
+			}))
+			t.Cleanup(server.Close)
+
+			requests := 0
+			transport := server.Client().Transport
+			client := &http.Client{Transport: nominatimRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				requests++
+				if requests == 1 {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     make(http.Header),
+						Body:       &nominatimReadErrorBody{data: []byte(`[{"lat":"35`)},
+						Request:    request,
+					}, nil
+				}
+				return transport.RoundTrip(request)
+			})}
+			ticker := time.NewTicker(time.Millisecond)
+			t.Cleanup(ticker.Stop)
+			g := newNominatimGeocoder(server.URL, client, ticker)
+
+			if err := tt.run(g); err != nil {
+				t.Fatalf("provider call error = %v", err)
+			}
+			if requests != 2 {
+				t.Fatalf("requests = %d, want 2", requests)
+			}
+		})
+	}
+}
+
 func TestNominatimGeocodeWithRetry_DoesNotRetryPermanentHTTPError(t *testing.T) {
 	var requests atomic.Int32
 	g := newTestNominatimGeocoder(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -214,6 +289,22 @@ func TestNominatimGeocodeWithRetry_DoesNotRetryPermanentHTTPError(t *testing.T) 
 	}
 	if strings.Contains(err.Error(), "provider-secret") {
 		t.Fatalf("public error contains upstream body: %v", err)
+	}
+}
+
+func TestNominatimGeocodeWithRetry_SaturatesOversizedRetryAfter(t *testing.T) {
+	g := newTestNominatimGeocoder(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", strconv.FormatInt(int64(maxNominatimRetryAfter/time.Second)+1, 10))
+		http.Error(w, "permanent", http.StatusBadRequest)
+	})
+
+	_, err := g.GeocodeWithRetry(context.Background(), "823 Redfield Dr", 3)
+	var geocodingErr *ErrGeocodingFailed
+	if !errors.As(err, &geocodingErr) {
+		t.Fatalf("error = %T, want *ErrGeocodingFailed", err)
+	}
+	if geocodingErr.RetryAfter != maxNominatimRetryAfter {
+		t.Fatalf("RetryAfter = %s, want saturation at %s", geocodingErr.RetryAfter, maxNominatimRetryAfter)
 	}
 }
 

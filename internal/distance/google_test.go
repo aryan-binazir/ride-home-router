@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -16,72 +16,33 @@ import (
 	"time"
 )
 
-type googleTestCache struct {
-	mu      sync.Mutex
-	entries map[string]*models.DistanceCacheEntry
-}
-
 type googleRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f googleRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
 }
 
-func newGoogleTestCache() *googleTestCache {
-	return &googleTestCache{entries: make(map[string]*models.DistanceCacheEntry)}
+type googleReadErrorBody struct {
+	data []byte
+	done bool
 }
 
-func (c *googleTestCache) Get(_ context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	entry := c.entries[PairCacheKey(origin, dest)]
-	if entry == nil {
-		return nil, database.ErrCacheMiss
+func (b *googleReadErrorBody) Read(p []byte) (int, error) {
+	if !b.done {
+		b.done = true
+		return copy(p, b.data), nil
 	}
-	return entry, nil
+	return 0, io.ErrUnexpectedEOF
 }
 
-func (c *googleTestCache) GetBatch(_ context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	result := make(map[string]*models.DistanceCacheEntry)
-	for _, pair := range pairs {
-		key := PairCacheKey(pair.Origin, pair.Dest)
-		if entry := c.entries[key]; entry != nil {
-			result[key] = entry
-		}
-	}
-	return result, nil
-}
-
-func (c *googleTestCache) Set(_ context.Context, entry *models.DistanceCacheEntry) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries[PairCacheKey(entry.Origin, entry.Destination)] = entry
+func (b *googleReadErrorBody) Close() error {
 	return nil
 }
 
-func (c *googleTestCache) SetBatch(_ context.Context, entries []models.DistanceCacheEntry) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for i := range entries {
-		entry := entries[i]
-		c.entries[PairCacheKey(entry.Origin, entry.Destination)] = &entry
-	}
-	return nil
-}
-
-func (c *googleTestCache) Clear(_ context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries = make(map[string]*models.DistanceCacheEntry)
-	return nil
-}
-
-func newTestGoogleCalculator(t *testing.T, handler http.HandlerFunc) (*googleCalculator, *googleTestCache) {
+func newTestGoogleCalculator(t *testing.T, handler http.HandlerFunc) (*googleCalculator, *mockDistanceCache) {
 	t.Helper()
 
-	cache := newGoogleTestCache()
+	cache := newMockDistanceCache()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -261,7 +222,7 @@ func TestGoogleCalculator_RetriesNetworkError(t *testing.T) {
 
 	requests := 0
 	transport := server.Client().Transport
-	calc := NewGoogleCalculator(newGoogleTestCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
 	calc.endpoint = server.URL
 	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		requests++
@@ -277,6 +238,64 @@ func TestGoogleCalculator_RetriesNetworkError(t *testing.T) {
 	}
 	if len(results) != 1 || requests != 2 {
 		t.Fatalf("results/requests = %d/%d, want 1/2", len(results), requests)
+	}
+}
+
+func TestGoogleCalculator_RetriesTransientStatusWhenErrorBodyReadFails(t *testing.T) {
+	requests := 0
+	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if requests == 1 {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     make(http.Header),
+				Body:       &googleReadErrorBody{data: []byte("partial provider body")},
+				Request:    request,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(
+				`{"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}` + "\n",
+			)),
+			Request: request,
+		}, nil
+	})}
+
+	if _, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}}); err != nil {
+		t.Fatalf("GetDistancesFromPoint() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
+
+func TestGoogleCalculator_RetriesResponseBodyNetworkError(t *testing.T) {
+	requests := 0
+	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		body := io.ReadCloser(&googleReadErrorBody{data: []byte(`{"originIndex":0`)})
+		if requests > 1 {
+			body = io.NopCloser(strings.NewReader(
+				`{"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}` + "\n",
+			))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       body,
+			Request:    request,
+		}, nil
+	})}
+
+	if _, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}}); err != nil {
+		t.Fatalf("GetDistancesFromPoint() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
 	}
 }
 
@@ -317,6 +336,22 @@ func TestGoogleCalculator_DoesNotRetryHTTP500AndPreservesPrivateBoundedMetadata(
 	}
 }
 
+func TestGoogleCalculator_SaturatesOversizedRetryAfter(t *testing.T) {
+	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", strconv.FormatInt(int64(maxGoogleRetryAfter/time.Second)+1, 10))
+		http.Error(w, "permanent", http.StatusInternalServerError)
+	})
+
+	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
+	var httpErr *googleHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error = %T, want retained *googleHTTPError metadata", err)
+	}
+	if httpErr.RetryAfter != maxGoogleRetryAfter {
+		t.Fatalf("RetryAfter = %s, want saturation at %s", httpErr.RetryAfter, maxGoogleRetryAfter)
+	}
+}
+
 func TestGoogleCalculator_PrewarmContinuesAfterTransientBlockFailure(t *testing.T) {
 	var mu sync.Mutex
 	requestsByOrigin := make(map[string]int)
@@ -354,7 +389,7 @@ func TestGoogleCalculator_PrewarmContinuesAfterTransientBlockFailure(t *testing.
 }
 
 func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
-	calc := NewGoogleCalculator(newGoogleTestCache(), func() (string, error) {
+	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) {
 		return "", nil
 	})
 	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
@@ -364,7 +399,7 @@ func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
 }
 
 func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
-	cache := newGoogleTestCache()
+	cache := newMockDistanceCache()
 
 	origin := models.Coordinates{Lat: 35, Lng: -79}
 	dest := models.Coordinates{Lat: 36, Lng: -79}

@@ -27,6 +27,7 @@ const (
 	googleMaxAttempts            = 3
 	googleRetryBaseDelay         = 250 * time.Millisecond
 	providerErrorBodyLimit       = 4 << 10
+	maxGoogleRetryAfter          = time.Duration(1<<63 - 1)
 )
 
 var ErrProviderNotConfigured = errors.New("distance provider is not configured")
@@ -423,10 +424,7 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		responseBody, err := io.ReadAll(io.LimitReader(resp.Body, providerErrorBodyLimit))
-		if err != nil {
-			return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
-		}
+		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, providerErrorBodyLimit))
 		return nil, &googleHTTPError{
 			StatusCode: resp.StatusCode,
 			RetryAfter: parseGoogleRetryAfter(resp.Header.Get("Retry-After")),
@@ -434,8 +432,12 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 		}
 	}
 
-	elements, err := parseGoogleMatrixElements(resp.Body)
+	responseBody := &googleResponseReader{Reader: resp.Body}
+	elements, err := parseGoogleMatrixElements(responseBody)
 	if err != nil {
+		if responseBody.Err != nil {
+			return nil, &googleTransportError{Cause: responseBody.Err}
+		}
 		return nil, err
 	}
 
@@ -470,6 +472,19 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 
 type googleTransportError struct {
 	Cause error
+}
+
+type googleResponseReader struct {
+	io.Reader
+	Err error
+}
+
+func (r *googleResponseReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		r.Err = err
+	}
+	return n, err
 }
 
 func (e *googleTransportError) Error() string {
@@ -563,6 +578,9 @@ func parseGoogleRetryAfter(value string) time.Duration {
 	value = strings.TrimSpace(value)
 	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
 		if seconds > 0 {
+			if seconds > int64(maxGoogleRetryAfter/time.Second) {
+				return maxGoogleRetryAfter
+			}
 			return time.Duration(seconds) * time.Second
 		}
 		return 0
