@@ -10,9 +10,11 @@ import (
 	"io"
 	"log"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,6 +24,9 @@ const (
 	googleRouteMatrixFieldMask   = "originIndex,destinationIndex,status,condition,distanceMeters,duration"
 	googleRouteMatrixMaxElements = 625
 	googleHTTPTimeout            = 60 * time.Second
+	googleMaxAttempts            = 3
+	googleRetryBaseDelay         = 250 * time.Millisecond
+	providerErrorBodyLimit       = 4 << 10
 )
 
 var ErrProviderNotConfigured = errors.New("distance provider is not configured")
@@ -250,14 +255,20 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
 	}
 
+	var firstErr error
 	for originKey, destinations := range byOrigin {
 		destinations = uniqueCoordinates(destinations)
 		if _, err := c.GetDistancesFromPoint(ctx, originCoords[originKey], destinations); err != nil {
-			return err
+			if !isGoogleRetryableFailure(err) {
+				return err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func uniqueCoordinates(points []models.Coordinates) []models.Coordinates {
@@ -354,6 +365,31 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 		return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix batch exceeds 625 elements"}
 	}
 
+	for attempt := range googleMaxAttempts {
+		results, err := c.fetchMatrixOnce(ctx, origins, destinations)
+		if err == nil {
+			return results, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		delay, retryable := googleRetryDelay(ctx, err, attempt)
+		if !retryable {
+			return nil, googleMatrixPublicError(err)
+		}
+		if attempt == googleMaxAttempts-1 {
+			return nil, &googleRetryError{ErrDistanceCalculationFailed: googleMatrixPublicError(err)}
+		}
+		if err := waitForGoogleRetry(ctx, delay); err != nil {
+			return nil, err
+		}
+	}
+
+	panic("unreachable")
+}
+
+func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destinations []models.Coordinates) (map[matrixIndex]DistanceResult, error) {
 	apiKey, err := c.currentAPIKey()
 	if err != nil {
 		return nil, err
@@ -382,16 +418,20 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+		return nil, &googleTransportError{Cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		responseBody, err := io.ReadAll(resp.Body)
+		responseBody, err := io.ReadAll(io.LimitReader(resp.Body, providerErrorBodyLimit))
 		if err != nil {
 			return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
 		}
-		return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("Google route matrix HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))}
+		return nil, &googleHTTPError{
+			StatusCode: resp.StatusCode,
+			RetryAfter: parseGoogleRetryAfter(resp.Header.Get("Retry-After")),
+			Body:       strings.TrimSpace(string(responseBody)),
+		}
 	}
 
 	elements, err := parseGoogleMatrixElements(resp.Body)
@@ -426,6 +466,110 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 	}
 
 	return results, nil
+}
+
+type googleTransportError struct {
+	Cause error
+}
+
+func (e *googleTransportError) Error() string {
+	return e.Cause.Error()
+}
+
+func (e *googleTransportError) Unwrap() error {
+	return e.Cause
+}
+
+type googleHTTPError struct {
+	StatusCode int
+	RetryAfter time.Duration
+	Body       string
+}
+
+func (e *googleHTTPError) Error() string {
+	return fmt.Sprintf("Google route matrix HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+type googleRetryError struct {
+	*ErrDistanceCalculationFailed
+}
+
+func (e *googleRetryError) Unwrap() error {
+	return e.ErrDistanceCalculationFailed
+}
+
+func isGoogleRetryableFailure(err error) bool {
+	_, ok := errors.AsType[*googleRetryError](err)
+	return ok
+}
+
+func googleRetryDelay(ctx context.Context, err error, attempt int) (time.Duration, bool) {
+	if ctx.Err() != nil {
+		return 0, false
+	}
+
+	if _, ok := errors.AsType[*googleTransportError](err); ok {
+		return jitteredGoogleBackoff(attempt), true
+	}
+
+	var httpErr *googleHTTPError
+	if !errors.As(err, &httpErr) || !isGoogleRetryableStatus(httpErr.StatusCode) {
+		return 0, false
+	}
+	delay := max(jitteredGoogleBackoff(attempt), httpErr.RetryAfter)
+	return delay, true
+}
+
+func isGoogleRetryableStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func jitteredGoogleBackoff(attempt int) time.Duration {
+	base := googleRetryBaseDelay << attempt
+	//nolint:gosec // G404: retry jitter does not need cryptographic randomness.
+	return base + time.Duration(rand.Int64N(int64(base/2)+1))
+}
+
+func waitForGoogleRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func parseGoogleRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		return 0
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0
+	}
+	return max(time.Until(when), 0)
+}
+
+func googleMatrixPublicError(err error) *ErrDistanceCalculationFailed {
+	if distanceErr, ok := errors.AsType[*ErrDistanceCalculationFailed](err); ok {
+		return distanceErr
+	}
+	return &ErrDistanceCalculationFailed{Reason: err.Error()}
 }
 
 func (c *googleCalculator) currentAPIKey() (string, error) {
