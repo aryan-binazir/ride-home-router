@@ -458,6 +458,23 @@ func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestDeletePreservesSuccessfulCommitMarker(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+	store.Delete(created.ID)
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error {
+		t.Fatal("Commit invoked persistence after Delete removed a committed marker")
+		return nil
+	}); !errors.Is(err, routesession.ErrAlreadyCommitted) {
+		t.Fatalf("Commit after Delete error = %v, want ErrAlreadyCommitted", err)
+	}
+}
+
 func TestCommitWaitsForInFlightEditAndPersistsItsResult(t *testing.T) {
 	calc := newBlockingCalculator()
 	defer calc.unblock()

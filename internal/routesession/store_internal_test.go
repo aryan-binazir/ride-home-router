@@ -37,6 +37,28 @@ func TestCreatePastCapacityEvictsLeastRecentlyAccessedSession(t *testing.T) {
 	}
 }
 
+func TestCreateAtCapacityBreaksAccessTiesBySessionID(t *testing.T) {
+	now := time.Unix(100, 0)
+	store := newStore(nil, time.Hour, time.Hour, func() time.Time { return now })
+	t.Cleanup(store.Close)
+
+	oldestID := ""
+	for range MaxConcurrentSessions {
+		created := store.Create(CreateInput{})
+		if oldestID == "" || created.ID < oldestID {
+			oldestID = created.ID
+		}
+	}
+	newest := store.Create(CreateInput{})
+
+	if _, ok := store.Snapshot(oldestID); ok {
+		t.Fatalf("lowest session ID %q survived an access-time tie", oldestID)
+	}
+	if _, ok := store.Snapshot(newest.ID); !ok {
+		t.Fatal("newly created session was evicted")
+	}
+}
+
 func TestCommitPastMarkerCapacityEvictsOldestMarker(t *testing.T) {
 	now := time.Unix(100, 0)
 	store := newStore(nil, time.Hour, time.Hour, func() time.Time { return now })

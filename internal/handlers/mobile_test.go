@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -46,10 +47,11 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler.Router = &captureRouter{result: &models.RoutingResult{Routes: []models.CalculatedRoute{
+	calculatedResult := &models.RoutingResult{Routes: []models.CalculatedRoute{
 		{Driver: firstDriver, Stops: []models.RouteStop{{Participant: firstRider}}, EffectiveCapacity: 3, Mode: models.RouteModeDropoff},
 		{Driver: secondDriver, Stops: []models.RouteStop{{Participant: secondRider}}, EffectiveCapacity: 3, Mode: models.RouteModeDropoff},
-	}, Summary: models.RoutingSummary{TotalParticipants: 2, TotalDriversUsed: 2}, Mode: models.RouteModeDropoff}}
+	}, Summary: models.RoutingSummary{TotalParticipants: 2, TotalDriversUsed: 2}, Mode: models.RouteModeDropoff}
+	handler.Router = &captureRouter{result: calculatedResult}
 
 	locationResponse := postMobileForm(t, nil, "/m/plan/location", url.Values{"location_id": {fmt.Sprint(location.ID)}}, handler.HandleMobileLocation)
 	cookies := locationResponse.Result().Cookies()
@@ -81,6 +83,20 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		t.Fatal("calculate did not save the route session ID in the draft")
 	}
 	oldSessionID := draft.RouteSessionID
+	handler.Router = &captureRouter{err: errors.New("routing failed")}
+	failedResponse := postMobileForm(t, draftCookie, "/m/calculate", nil, handler.HandleMobileCalculate)
+	if failedResponse.Code != http.StatusSeeOther || !strings.HasPrefix(failedResponse.Header().Get("Location"), "/m?error=") {
+		t.Fatalf("failed calculate redirect = %d %q", failedResponse.Code, failedResponse.Header().Get("Location"))
+	}
+	draft, ok = handler.PlanDraft.Get(draftCookie.Value)
+	if !ok || draft.RouteSessionID != oldSessionID {
+		t.Fatalf("draft after failed replacement = %#v, want session %q", draft, oldSessionID)
+	}
+	if _, ok := handler.RouteSession.Snapshot(oldSessionID); !ok {
+		t.Fatal("failed replacement deleted the existing route session")
+	}
+
+	handler.Router = &captureRouter{result: calculatedResult}
 	calculateResponse = postMobileForm(t, draftCookie, "/m/calculate", nil, handler.HandleMobileCalculate)
 	assertMobileRedirect(t, calculateResponse, "/m/routes")
 	draft, ok = handler.PlanDraft.Get(draftCookie.Value)
