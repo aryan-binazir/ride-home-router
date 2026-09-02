@@ -359,7 +359,7 @@ func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request
 		h.renderTemplate(w, "import_mapping", newImportMappingView(snapshot, problems))
 		return http.StatusOK, -1
 	}
-	updated, err := h.ImportSession.ApplyMapping(id, mapping)
+	updated, err := h.ImportSession.ApplyMapping(r.Context(), id, mapping)
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), len(updated.Rows)
 	}
@@ -391,7 +391,7 @@ func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id s
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil)
 	}
-	result, err := h.ImportSession.Commit(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+	result, err := h.ImportSession.Commit(r.Context(), id)
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err)
 	}

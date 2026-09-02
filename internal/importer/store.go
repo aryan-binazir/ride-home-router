@@ -21,6 +21,7 @@ const (
 
 	defaultSessionTTL      = 30 * time.Minute
 	defaultCleanupInterval = 5 * time.Minute
+	defaultCommitTimeout   = 60 * time.Second
 	geocodeMaxRetries      = 3
 )
 
@@ -87,6 +88,7 @@ type session struct {
 	status         Status
 	failure        string
 	commitResult   CommitResult
+	applying       bool
 	commitStarted  bool
 	createdAt      time.Time
 	lastAccessedAt time.Time
@@ -113,7 +115,10 @@ type Store struct {
 	closed          bool
 	closeOnce       sync.Once
 	jobs            sync.WaitGroup
-	mu              sync.Mutex
+	// lifecycleMu serializes session-map membership changes that require
+	// inspecting session state. It is never acquired while state.mu is held.
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
 }
 
 // NewStore creates an import staging store with a 30-minute sliding TTL.
@@ -150,22 +155,30 @@ func (s *Store) Create(kind Kind, filename string, grid *Grid) (Snapshot, error)
 		status: StatusMapping, createdAt: now, lastAccessedAt: now, ctx: ctx, cancel: cancel,
 	}
 
-	s.mu.Lock()
-	if s.closed {
+	snapshot := snapshotOf(state)
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	for attempts := 0; ; attempts++ {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			cancel()
+			return Snapshot{}, ErrStoreClosed
+		}
+		if len(s.sessions) < MaxConcurrentSessions {
+			s.sessions[id] = state
+			s.mu.Unlock()
+			break
+		}
 		s.mu.Unlock()
-		cancel()
-		return Snapshot{}, ErrStoreClosed
+		if attempts >= MaxConcurrentSessions || !s.evictOldest() {
+			cancel()
+			return Snapshot{}, ErrStoreFull
+		}
 	}
-	if len(s.sessions) >= MaxConcurrentSessions && !s.evictOldestLocked() {
-		s.mu.Unlock()
-		cancel()
-		return Snapshot{}, ErrStoreFull
-	}
-	s.sessions[id] = state
-	s.mu.Unlock()
 
 	log.Printf("[IMPORT] Created staging session: kind=%s rows=%d", kind, grid.Len())
-	return snapshotOf(state), nil
+	return snapshot, nil
 }
 
 // Snapshot returns the current session state and extends its sliding TTL.
@@ -179,24 +192,59 @@ func (s *Store) Snapshot(id string) (Snapshot, bool) {
 }
 
 // ApplyMapping validates the staged grid and starts its serial geocoding job.
-func (s *Store) ApplyMapping(id string, mapping Mapping) (Snapshot, error) {
+func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (Snapshot, error) {
 	state, err := s.lockSession(id)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	defer state.mu.Unlock()
 	if state.status != StatusMapping {
-		return Snapshot{}, fmt.Errorf("%w: cannot apply mapping while %s", ErrInvalidSessionState, state.status)
+		status := state.status
+		state.mu.Unlock()
+		return Snapshot{}, fmt.Errorf("%w: cannot apply mapping while %s", ErrInvalidSessionState, status)
+	}
+	if state.applying {
+		state.mu.Unlock()
+		return Snapshot{}, fmt.Errorf("%w: another mapping is already in progress", ErrInvalidSessionState)
+	}
+	state.applying = true
+	grid := copyGrid(state.grid)
+	kind := state.kind
+	mappingCtx, cancel := context.WithCancel(ctx)
+	stopCancel := state.afterCancel(cancel)
+	// Close marks every session deleted under this lock before waiting, so no
+	// mapping operation can be added after the wait begins.
+	s.jobs.Add(1)
+	state.mu.Unlock()
+	defer func() {
+		stopCancel()
+		cancel()
+		state.mu.Lock()
+		state.applying = false
+		state.mu.Unlock()
+		s.jobs.Done()
+	}()
+
+	existing, err := s.listExisting(mappingCtx, kind)
+	var rows []Row
+	var groups []geocodeGroup
+	if err == nil {
+		rows = Validate(&grid, mapping, kind, existing)
+		groups = geocodeGroups(rows)
 	}
 
-	existing, err := s.listExisting(state.ctx, state.kind)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return Snapshot{}, ErrSessionNotFound
+	}
+	if ctx.Err() != nil && state.ctx.Err() == nil {
+		return snapshotOf(state), ctx.Err()
+	}
 	if err != nil {
 		state.status = StatusFailed
 		state.failure = "could not load the current roster"
 		return snapshotOf(state), fmt.Errorf("load current roster for import: %w", err)
 	}
-	rows := Validate(&state.grid, mapping, state.kind, existing)
-	groups := geocodeGroups(rows)
 	if len(groups) > MaxGeocodeAddresses {
 		state.status = StatusFailed
 		state.failure = fmt.Sprintf("import needs geocoding for %d unique addresses; maximum is %d", len(groups), MaxGeocodeAddresses)
@@ -210,6 +258,8 @@ func (s *Store) ApplyMapping(id string, mapping Mapping) (Snapshot, error) {
 	state.status = StatusPreviewing
 	state.failure = ""
 	if len(groups) > 0 {
+		// Close marks every session deleted under this lock before waiting, so
+		// no job can be added after the wait begins.
 		s.jobs.Add(1)
 		go s.runGeocodeJob(state, groups)
 	}
@@ -234,7 +284,7 @@ func (s *Store) SelectRows(id string, selected []bool) (Snapshot, error) {
 }
 
 // Commit consumes the token before writing, so retries cannot duplicate a batch.
-func (s *Store) Commit(ctx context.Context, id string, selected []bool) (CommitResult, error) {
+func (s *Store) Commit(ctx context.Context, id string) (CommitResult, error) {
 	state, err := s.lockSession(id)
 	if err != nil {
 		return CommitResult{}, err
@@ -252,27 +302,45 @@ func (s *Store) Commit(ctx context.Context, id string, selected []bool) (CommitR
 		state.mu.Unlock()
 		return CommitResult{}, ErrGeocodingInProgress
 	}
-	if len(selected) != len(state.rows) {
+	if len(state.selected) != len(state.rows) {
 		state.mu.Unlock()
 		return CommitResult{}, ErrInvalidSelection
 	}
-	state.selected = append([]bool(nil), selected...)
+	commitCtx, cancel := context.WithTimeout(ctx, defaultCommitTimeout)
+	stopCancel := state.afterCancel(cancel)
 	state.status = StatusCommitting
 	state.commitStarted = true
 	rows := copyRows(state.rows)
+	selected := append([]bool(nil), state.selected...)
 	kind := state.kind
+	// Close marks every session deleted under this lock before waiting, so no
+	// commit can be added after the wait begins.
+	s.jobs.Add(1)
 	state.mu.Unlock()
 
-	commitCtx, cancel := context.WithCancel(ctx)
-	stopCancel := state.afterCancel(cancel)
 	defer func() {
 		stopCancel()
 		cancel()
+		s.jobs.Done()
 	}()
 
-	result, err := s.createBatch(commitCtx, kind, rows, selected)
+	var result CommitResult
+	state.mu.Lock()
+	deleted := state.deleted
+	state.mu.Unlock()
+	if deleted {
+		err = ErrSessionNotFound
+	} else if err = commitCtx.Err(); err == nil {
+		result, err = s.createBatch(commitCtx, kind, rows, selected)
+	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	if state.deleted {
+		if err != nil {
+			return CommitResult{}, err
+		}
+		return result, nil
+	}
 	if err != nil {
 		state.status = StatusFailed
 		state.failure = "the import batch could not be saved"
@@ -290,25 +358,31 @@ func (s *Store) Commit(ctx context.Context, id string, selected []bool) (CommitR
 
 // Cancel removes a session immediately and cancels any running work.
 func (s *Store) Cancel(id string) bool {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
 	state := s.sessions[id]
+	s.mu.Unlock()
 	if state == nil {
-		s.mu.Unlock()
 		return false
 	}
-	delete(s.sessions, id)
 	state.mu.Lock()
-	s.mu.Unlock()
+	if state.deleted {
+		state.mu.Unlock()
+		return false
+	}
 	state.deleted = true
 	state.cancel()
 	clearSessionData(state)
 	state.mu.Unlock()
+	s.removeSession(id, state)
 	return true
 }
 
 // Close cancels jobs, releases sessions, and waits for workers to stop.
 func (s *Store) Close() {
 	s.closeOnce.Do(func() {
+		s.lifecycleMu.Lock()
 		s.mu.Lock()
 		s.closed = true
 		states := make([]*session, 0, len(s.sessions))
@@ -325,6 +399,7 @@ func (s *Store) Close() {
 			clearSessionData(state)
 			state.mu.Unlock()
 		}
+		s.lifecycleMu.Unlock()
 		<-s.cleanupDone
 		s.jobs.Wait()
 	})
@@ -490,54 +565,99 @@ func defaultSelections(rows []Row) []bool {
 func (s *Store) lockSession(id string) (*session, error) {
 	s.mu.Lock()
 	state := s.sessions[id]
+	s.mu.Unlock()
 	if state == nil {
-		s.mu.Unlock()
 		return nil, ErrSessionNotFound
 	}
 	state.mu.Lock()
 	if state.deleted {
 		state.mu.Unlock()
-		s.mu.Unlock()
 		return nil, ErrSessionNotFound
 	}
 	now := s.now()
-	if now.Sub(state.lastAccessedAt) > s.ttl {
-		delete(s.sessions, id)
-		state.deleted = true
-		state.cancel()
-		clearSessionData(state)
+	if state.status != StatusCommitting && now.Sub(state.lastAccessedAt) > s.ttl {
 		state.mu.Unlock()
-		s.mu.Unlock()
-		return nil, ErrSessionNotFound
+
+		s.lifecycleMu.Lock()
+		state.mu.Lock()
+		if state.deleted {
+			state.mu.Unlock()
+			s.lifecycleMu.Unlock()
+			return nil, ErrSessionNotFound
+		}
+		now = s.now()
+		if state.status != StatusCommitting && now.Sub(state.lastAccessedAt) > s.ttl {
+			state.deleted = true
+			state.cancel()
+			clearSessionData(state)
+			state.mu.Unlock()
+			s.removeSession(id, state)
+			s.lifecycleMu.Unlock()
+			return nil, ErrSessionNotFound
+		}
+		state.lastAccessedAt = now
+		s.lifecycleMu.Unlock()
+		return state, nil
 	}
 	state.lastAccessedAt = now
-	s.mu.Unlock()
 	return state, nil
 }
 
-func (s *Store) evictOldestLocked() bool {
-	var oldest *session
-	for _, state := range s.sessions {
-		state.mu.Lock()
-		eligible := !state.deleted && state.status != StatusCommitting
-		if eligible && (oldest == nil || state.lastAccessedAt.Before(oldest.lastAccessedAt)) {
-			if oldest != nil {
-				oldest.mu.Unlock()
+func (s *Store) evictOldest() bool {
+	for range MaxConcurrentSessions {
+		s.mu.Lock()
+		states := make([]*session, 0, len(s.sessions))
+		for _, state := range s.sessions {
+			states = append(states, state)
+		}
+		s.mu.Unlock()
+
+		var oldest *session
+		var oldestAccess time.Time
+		deleted := make([]*session, 0, len(states))
+		for _, state := range states {
+			state.mu.Lock()
+			eligible := !state.deleted && state.status != StatusCommitting
+			lastAccessedAt := state.lastAccessedAt
+			if state.deleted {
+				deleted = append(deleted, state)
 			}
-			oldest = state
+			state.mu.Unlock()
+			if eligible && (oldest == nil || lastAccessedAt.Before(oldestAccess)) {
+				oldest = state
+				oldestAccess = lastAccessedAt
+			}
+		}
+		if len(deleted) > 0 {
+			for _, state := range deleted {
+				s.removeSession(state.id, state)
+			}
+			return true
+		}
+		if oldest == nil {
+			return false
+		}
+		oldest.mu.Lock()
+		if oldest.deleted || oldest.status == StatusCommitting {
+			oldest.mu.Unlock()
 			continue
 		}
-		state.mu.Unlock()
+		oldest.deleted = true
+		oldest.cancel()
+		clearSessionData(oldest)
+		oldest.mu.Unlock()
+		s.removeSession(oldest.id, oldest)
+		return true
 	}
-	if oldest == nil {
-		return false
+	return false
+}
+
+func (s *Store) removeSession(id string, state *session) {
+	s.mu.Lock()
+	if s.sessions[id] == state {
+		delete(s.sessions, id)
 	}
-	delete(s.sessions, oldest.id)
-	oldest.deleted = true
-	oldest.cancel()
-	clearSessionData(oldest)
-	oldest.mu.Unlock()
-	return true
+	s.mu.Unlock()
 }
 
 func (s *Store) cleanupLoop() {
@@ -555,19 +675,26 @@ func (s *Store) cleanupLoop() {
 }
 
 func (s *Store) deleteExpired(now time.Time) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, state := range s.sessions {
-		if !state.mu.TryLock() {
-			continue
-		}
-		if !state.deleted && now.Sub(state.lastAccessedAt) > s.ttl {
-			delete(s.sessions, id)
+	states := make([]*session, 0, len(s.sessions))
+	for _, state := range s.sessions {
+		states = append(states, state)
+	}
+	s.mu.Unlock()
+	for _, state := range states {
+		state.mu.Lock()
+		expired := !state.deleted && state.status != StatusCommitting && now.Sub(state.lastAccessedAt) > s.ttl
+		if expired {
 			state.deleted = true
 			state.cancel()
 			clearSessionData(state)
 		}
 		state.mu.Unlock()
+		if expired {
+			s.removeSession(state.id, state)
+		}
 	}
 }
 
