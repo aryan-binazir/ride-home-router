@@ -625,6 +625,31 @@ func TestStoreSupportsConcurrentSnapshotsAndResets(t *testing.T) {
 	}
 }
 
+func TestStoreSupportsConcurrentCreationAndAccessAtCapacity(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	ids := make([]string, 0, routesession.MaxConcurrentSessions)
+	for range routesession.MaxConcurrentSessions {
+		ids = append(ids, store.Create(routesession.CreateInput{}).ID)
+	}
+
+	var wait sync.WaitGroup
+	for worker := range 16 {
+		wait.Go(func() {
+			for i := range 16 {
+				_, _ = store.Snapshot(ids[(worker+i)%len(ids)])
+				store.Create(routesession.CreateInput{})
+			}
+		})
+	}
+	wait.Wait()
+
+	newest := store.Create(routesession.CreateInput{})
+	if _, ok := store.Snapshot(newest.ID); !ok {
+		t.Fatal("new session disappeared after concurrent capacity eviction")
+	}
+}
+
 func TestDeleteWaitsForInFlightEditAndPreventsDetachedSuccess(t *testing.T) {
 	calc := newBlockingCalculator()
 	defer calc.unblock()

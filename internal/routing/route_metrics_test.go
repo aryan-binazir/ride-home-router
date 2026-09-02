@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"math"
 	"reflect"
 	"ride-home-router/internal/distance"
@@ -21,6 +22,24 @@ func (stableDistanceCalculator) GetDistance(ctx context.Context, origin, dest mo
 }
 
 func (stableDistanceCalculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
+	return nil
+}
+
+type ordinalFailDistanceCalculator struct {
+	calls  int
+	failAt int
+	err    error
+}
+
+func (c *ordinalFailDistanceCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	c.calls++
+	if c.calls == c.failAt {
+		return nil, c.err
+	}
+	return stableDistanceCalculator{}.GetDistance(ctx, origin, dest)
+}
+
+func (*ordinalFailDistanceCalculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
 	return nil
 }
 
@@ -273,6 +292,52 @@ func TestOptimizeRouteOrder_ReordersAndRefreshesMetrics(t *testing.T) {
 	}
 	if route.EffectiveCapacity != 5 {
 		t.Fatalf("EffectiveCapacity = %d, want assigned vehicle capacity 5", route.EffectiveCapacity)
+	}
+}
+
+func TestOptimizeRouteOrder_LateLookupFailureLeavesRouteUntouched(t *testing.T) {
+	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2}
+	first := &models.Participant{ID: 1, Name: "First", Lat: 1, Lng: 100}
+	second := &models.Participant{ID: 2, Name: "Second", Lat: 9, Lng: 0}
+	newRoute := func() models.CalculatedRoute {
+		return models.CalculatedRoute{
+			Driver:                     driver,
+			EffectiveCapacity:          7,
+			Mode:                       models.RouteModePickup,
+			TotalDistanceMeters:        123,
+			RouteDurationSecs:          456,
+			BaselineDurationSecs:       789,
+			DistanceToDriverHomeMeters: 321,
+			Stops: []models.RouteStop{
+				{Participant: first, Order: 8, DistanceFromPrevMeters: 11},
+				{Participant: second, Order: 9, DistanceFromPrevMeters: 22},
+			},
+		}
+	}
+
+	probe := newRoute()
+	counter := &ordinalFailDistanceCalculator{}
+	if err := OptimizeRouteOrder(context.Background(), counter, models.Coordinates{}, RouteModeDropoff, &probe); err != nil {
+		t.Fatalf("counting OptimizeRouteOrder() error = %v", err)
+	}
+	if counter.calls == 0 {
+		t.Fatal("OptimizeRouteOrder() made no distance lookups")
+	}
+
+	route := newRoute()
+	want := newRoute()
+	wantErr := errors.New("late distance failure")
+	failing := &ordinalFailDistanceCalculator{failAt: counter.calls, err: wantErr}
+	err := OptimizeRouteOrder(context.Background(), failing, models.Coordinates{}, RouteModeDropoff, &route)
+
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("OptimizeRouteOrder() error = %v, want %v", err, wantErr)
+	}
+	if !reflect.DeepEqual(route, want) {
+		t.Fatalf("route after failure = %#v, want untouched %#v", route, want)
+	}
+	if route.Driver != driver || route.Stops[0].Participant != first || route.Stops[1].Participant != second {
+		t.Fatal("route pointer identity changed after failure")
 	}
 }
 

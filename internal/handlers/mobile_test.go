@@ -80,6 +80,19 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	if draft.RouteSessionID == "" {
 		t.Fatal("calculate did not save the route session ID in the draft")
 	}
+	oldSessionID := draft.RouteSessionID
+	calculateResponse = postMobileForm(t, draftCookie, "/m/calculate", nil, handler.HandleMobileCalculate)
+	assertMobileRedirect(t, calculateResponse, "/m/routes")
+	draft, ok = handler.PlanDraft.Get(draftCookie.Value)
+	if !ok || draft.RouteSessionID == oldSessionID {
+		t.Fatalf("replacement route session = %#v, want a new session ID", draft)
+	}
+	if _, ok := handler.RouteSession.Snapshot(oldSessionID); ok {
+		t.Fatal("superseded route session remains available")
+	}
+	if _, ok := handler.RouteSession.Snapshot(draft.RouteSessionID); !ok {
+		t.Fatal("replacement route session is unavailable")
+	}
 
 	routesRequest := httptest.NewRequestWithContext(ctx, http.MethodGet, "/m/routes", nil)
 	routesRequest.AddCookie(draftCookie)
@@ -247,6 +260,31 @@ func TestMobileWhenUsesArrivalCopyForPickupMode(t *testing.T) {
 	}
 }
 
+func TestMobileWhenInvalidationDeletesRouteSession(t *testing.T) {
+	drafts := plandraft.NewStore()
+	t.Cleanup(drafts.Close)
+	sessions := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(sessions.Close)
+	session := sessions.Create(routesession.CreateInput{})
+	id := drafts.NewID()
+	drafts.Update(id, func(d *plandraft.Draft) {
+		d.RouteTime = "18:30"
+		d.Mode = string(models.RouteModeDropoff)
+		d.RouteSessionID = session.ID
+	})
+	handler := &Handler{PlanDraft: drafts, RouteSession: sessions}
+
+	response := postMobileForm(t, mobileTestCookie(id), "/m/plan/when", url.Values{
+		"route_time": {"19:00"},
+		"mode":       {"dropoff"},
+	}, handler.HandleMobileWhen)
+
+	assertMobileRedirect(t, response, "/m")
+	if _, ok := sessions.Snapshot(session.ID); ok {
+		t.Fatal("invalidated route session remains available")
+	}
+}
+
 func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 	ctx := context.Background()
@@ -391,9 +429,11 @@ func TestMobileRidersPrunesSoftDeletedParticipantFromDraft(t *testing.T) {
 	if err := store.Participants().Delete(ctx, deleted.ID); err != nil {
 		t.Fatal(err)
 	}
+	session := handler.RouteSession.Create(routesession.CreateInput{})
 	id := handler.PlanDraft.NewID()
 	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
 		d.ParticipantIDs = []int64{deleted.ID, active.ID}
+		d.RouteSessionID = session.ID
 	})
 	cookie := mobileTestCookie(id)
 	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/m/plan/riders", nil)
@@ -410,6 +450,9 @@ func TestMobileRidersPrunesSoftDeletedParticipantFromDraft(t *testing.T) {
 	draft, ok := handler.PlanDraft.Get(id)
 	if !ok || len(draft.ParticipantIDs) != 1 || draft.ParticipantIDs[0] != active.ID {
 		t.Fatalf("pruned draft = %#v ok=%v", draft, ok)
+	}
+	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
+		t.Fatal("route session invalidated by pruning remains available")
 	}
 }
 

@@ -10,10 +10,13 @@ import (
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
+	MaxConcurrentSessions  = 256
+	MaxCommittedSessions   = 256
 	defaultTTL             = 2 * time.Hour
 	defaultCleanupInterval = 15 * time.Minute
 )
@@ -98,7 +101,7 @@ type session struct {
 	useMiles          bool
 	routeTime         string
 	mode              models.RouteMode
-	lastAccessedAt    time.Time
+	lastAccessedAt    atomic.Int64
 	deleted           bool
 	mu                sync.Mutex
 }
@@ -142,13 +145,36 @@ func (s *Store) Create(input CreateInput) Snapshot {
 		useMiles:          input.UseMiles,
 		routeTime:         input.RouteTime,
 		mode:              input.Mode,
-		lastAccessedAt:    s.now(),
 	}
+	state.lastAccessedAt.Store(s.now().UnixNano())
 	s.mu.Lock()
+	evictedID := ""
+	if len(s.sessions) >= MaxConcurrentSessions {
+		evictedID = s.evictOldestSessionLocked()
+	}
 	s.sessions[state.id] = state
 	s.mu.Unlock()
+	if evictedID != "" {
+		log.Printf("[SESSION] Evicted route session at capacity: id=%s", evictedID)
+	}
 	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
 	return snapshotOf(state)
+}
+
+func (s *Store) evictOldestSessionLocked() string {
+	oldestID := ""
+	var oldestAccess int64
+	for id, state := range s.sessions {
+		lastAccess := state.lastAccessedAt.Load()
+		if oldestID == "" || lastAccess < oldestAccess || (lastAccess == oldestAccess && id < oldestID) {
+			oldestID = id
+			oldestAccess = lastAccess
+		}
+	}
+	if oldestID != "" {
+		delete(s.sessions, oldestID)
+	}
+	return oldestID
 }
 
 func (s *Store) Snapshot(id string) (Snapshot, bool) {
@@ -288,7 +314,7 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 	unlocked := false
 	defer func() {
 		if !unlocked {
-			state.lastAccessedAt = s.now()
+			state.lastAccessedAt.Store(s.now().UnixNano())
 			state.mu.Unlock()
 		}
 	}()
@@ -311,6 +337,9 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 	}
 	state.deleted = true
 	s.mu.Lock()
+	if _, exists := s.committed[id]; !exists && len(s.committed) >= MaxCommittedSessions {
+		s.evictOldestCommittedLocked()
+	}
 	s.committed[id] = s.now()
 	if s.sessions[id] == state {
 		delete(s.sessions, id)
@@ -322,7 +351,24 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 	return nil
 }
 
+func (s *Store) evictOldestCommittedLocked() {
+	oldestID := ""
+	var oldestCommit time.Time
+	for id, committedAt := range s.committed {
+		if oldestID == "" || committedAt.Before(oldestCommit) || (committedAt.Equal(oldestCommit) && id < oldestID) {
+			oldestID = id
+			oldestCommit = committedAt
+		}
+	}
+	if oldestID != "" {
+		delete(s.committed, oldestID)
+	}
+}
+
 func (s *Store) Delete(id string) {
+	if id == "" {
+		return
+	}
 	s.mu.Lock()
 	state := s.sessions[id]
 	s.mu.Unlock()
@@ -331,8 +377,8 @@ func (s *Store) Delete(id string) {
 		state.deleted = true
 		state.mu.Unlock()
 		s.remove(id, state)
+		log.Printf("[SESSION] Deleted route session: id=%s", id)
 	}
-	log.Printf("[SESSION] Deleted route session: id=%s", id)
 }
 
 func (s *Store) Close() { s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone }) }
@@ -349,14 +395,22 @@ func (s *Store) lockSession(id string) (*session, error) {
 		state.mu.Unlock()
 		return nil, ErrNotFound
 	}
+	s.mu.Lock()
+	live := s.sessions[id] == state
+	s.mu.Unlock()
+	if !live {
+		state.mu.Unlock()
+		return nil, ErrNotFound
+	}
 	now := s.now()
-	if now.Sub(state.lastAccessedAt) > s.ttl {
+	lastAccessedAt := time.Unix(0, state.lastAccessedAt.Load())
+	if now.Sub(lastAccessedAt) > s.ttl {
 		state.deleted = true
 		state.mu.Unlock()
 		s.remove(id, state)
 		return nil, ErrNotFound
 	}
-	state.lastAccessedAt = now
+	state.lastAccessedAt.Store(now.UnixNano())
 	return state, nil
 }
 
@@ -414,7 +468,8 @@ func (s *Store) deleteExpired(now time.Time) {
 		if !state.mu.TryLock() {
 			continue
 		}
-		expired := !state.deleted && now.Sub(state.lastAccessedAt) > s.ttl
+		lastAccessedAt := time.Unix(0, state.lastAccessedAt.Load())
+		expired := !state.deleted && now.Sub(lastAccessedAt) > s.ttl
 		if expired {
 			state.deleted = true
 		}
