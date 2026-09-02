@@ -124,7 +124,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	}
 
 	log.Printf("[HTTP] Created activity location: id=%d name=%s lat=%.6f lng=%.6f",
-		createdLocation.ID, createdLocation.Name, createdLocation.Lat, createdLocation.Lng)
+		createdLocation.ID, logutil.SafeString(createdLocation.Name), createdLocation.Lat, createdLocation.Lng)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityAdded("Location", createdLocation.Name), toastTypeSuccess)

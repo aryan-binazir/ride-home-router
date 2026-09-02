@@ -10,7 +10,6 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -180,11 +179,11 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 	result := results[0]
 	var lat, lng float64
 	if _, err := fmt.Sscanf(result.Lat, "%f", &lat); err != nil {
-		log.Printf("[ERROR] Nominatim geocode outcome=invalid_latitude status=%d value=%s duration=%s", resp.StatusCode, logutil.SafeString(result.Lat), time.Since(started).Round(time.Millisecond))
+		log.Printf("[ERROR] Nominatim geocode outcome=invalid_latitude status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{address: address, Reason: "invalid latitude"}
 	}
 	if _, err := fmt.Sscanf(result.Lon, "%f", &lng); err != nil {
-		log.Printf("[ERROR] Nominatim geocode outcome=invalid_longitude status=%d value=%s duration=%s", resp.StatusCode, logutil.SafeString(result.Lon), time.Since(started).Round(time.Millisecond))
+		log.Printf("[ERROR] Nominatim geocode outcome=invalid_longitude status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{address: address, Reason: "invalid longitude"}
 	}
 
@@ -275,11 +274,11 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 	for _, result := range results {
 		var lat, lng float64
 		if _, err := fmt.Sscanf(result.Lat, "%f", &lat); err != nil {
-			log.Printf("[ERROR] Nominatim search result outcome=invalid_latitude value=%s", logutil.SafeString(result.Lat))
+			log.Print("[ERROR] Nominatim search result outcome=invalid_latitude")
 			continue
 		}
 		if _, err := fmt.Sscanf(result.Lon, "%f", &lng); err != nil {
-			log.Printf("[ERROR] Nominatim search result outcome=invalid_longitude value=%s", logutil.SafeString(result.Lon))
+			log.Print("[ERROR] Nominatim search result outcome=invalid_longitude")
 			continue
 		}
 
@@ -514,8 +513,11 @@ type nominatimTransportError struct {
 }
 
 func newNominatimTransportError(cause error) *nominatimTransportError {
-	var urlErr *url.Error
-	if errors.As(cause, &urlErr) {
+	for {
+		var urlErr *url.Error
+		if !errors.As(cause, &urlErr) {
+			break
+		}
 		cause = urlErr.Err
 	}
 	return &nominatimTransportError{Cause: cause}
