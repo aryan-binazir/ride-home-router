@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
 )
 
@@ -67,7 +68,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	if len(moves) == 1 {
 		log.Printf("[EDIT] Moved participant %d from route %d to route %d", moves[0].ParticipantID, moves[0].FromRouteIndex, moves[0].ToRouteIndex)
 	} else {
-		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), req.SessionID)
+		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), logutil.SafeString(req.SessionID))
 	}
 	h.writeRouteSession(w, r, snapshot)
 }
@@ -101,7 +102,8 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	log.Printf("[EDIT] Reset routes for session %s", id)
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	log.Printf("[EDIT] Reset routes for session %s", logutil.SafeString(id))
 	if h.isHTMX(r) {
 		view := buildRouteResultsView(snapshot)
 		view.IsEditing = true

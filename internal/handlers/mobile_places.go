@@ -119,7 +119,8 @@ func (h *Handler) saveMobilePlace(r *http.Request, kind string, id int64) error 
 	if name == "" {
 		return mobileFormError{messageNameRequired}
 	}
-	log.Printf("[HTTP] Mobile save place: kind=%s id=%d name=%s", kind, id, logutil.SafeString(name))
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	log.Printf("[HTTP] Mobile save place: kind=%s id=%d name=%s", logutil.SafeString(kind), id, logutil.SafeString(name))
 	if kind == "van" {
 		capacity, err := strconv.Atoi(r.FormValue("capacity"))
 		if err != nil || capacity < 1 {

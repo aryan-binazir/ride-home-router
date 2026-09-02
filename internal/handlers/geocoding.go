@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
 )
 
 // HandleAddressSearch handles GET /api/v1/address-search
@@ -17,7 +16,8 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query().Get("address")
-	log.Printf("[HTTP] GET /api/v1/address-search: query=%s", logutil.SafeString(query))
+	//nolint:gosec // G706: the query is logged only as a numeric length.
+	log.Printf("[HTTP] GET /api/v1/address-search: outcome=started query_len=%d", len(query))
 
 	if len(query) < 4 {
 		log.Printf("[HTTP] GET /api/v1/address-search: query too short, returning empty HTML")
@@ -28,7 +28,7 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 
 	results, err := h.Geocoder.Search(r.Context(), query, 5)
 	if err != nil {
-		log.Printf("[ERROR] Failed to search addresses: query=%s err=%v", query, err)
+		log.Print("[ERROR] Failed to search addresses")
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)
 		return
@@ -45,7 +45,8 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	results = uniqueResults
 
-	log.Printf("[HTTP] GET /api/v1/address-search: query=%s results_count=%d", query, len(results))
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
+	log.Printf("[HTTP] GET /api/v1/address-search: results_count=%d", len(results))
 
 	templateName := "address_suggestions.html"
 	if r.Header.Get("X-RHR-Mobile") == "1" {
