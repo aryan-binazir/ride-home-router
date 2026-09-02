@@ -12,6 +12,7 @@ import (
 	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -298,6 +299,48 @@ func TestMobileWhenInvalidationDeletesRouteSession(t *testing.T) {
 	assertMobileRedirect(t, response, "/m")
 	if _, ok := sessions.Snapshot(session.ID); ok {
 		t.Fatal("invalidated route session remains available")
+	}
+}
+
+func TestMobileDraftUpdateDeletesConcurrentDisplacedSessions(t *testing.T) {
+	drafts := plandraft.NewStore()
+	t.Cleanup(drafts.Close)
+	sessions := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(sessions.Close)
+	initial := sessions.Create(routesession.CreateInput{})
+	replacements := []routesession.Snapshot{
+		sessions.Create(routesession.CreateInput{}),
+		sessions.Create(routesession.CreateInput{}),
+	}
+	id := drafts.NewID()
+	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = initial.ID })
+	handler := &Handler{PlanDraft: drafts, RouteSession: sessions}
+
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	for _, replacement := range replacements {
+		wait.Go(func() {
+			<-start
+			handler.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+				d.RouteSessionID = replacement.ID
+			})
+		})
+	}
+	close(start)
+	wait.Wait()
+
+	draft, ok := drafts.Get(id)
+	if !ok {
+		t.Fatal("updated draft not found")
+	}
+	if draft.RouteSessionID != replacements[0].ID && draft.RouteSessionID != replacements[1].ID {
+		t.Fatalf("final route session = %q, want one replacement", draft.RouteSessionID)
+	}
+	for _, session := range append([]routesession.Snapshot{initial}, replacements...) {
+		_, live := sessions.Snapshot(session.ID)
+		if live != (session.ID == draft.RouteSessionID) {
+			t.Fatalf("session %q live = %t, want only final session %q live", session.ID, live, draft.RouteSessionID)
+		}
 	}
 }
 
