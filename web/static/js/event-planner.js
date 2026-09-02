@@ -974,8 +974,24 @@
         let isRestoringEventPlannerDraft = false;
         let restoreController = null;
         let restoreFingerprint = null;
-        let calculateFingerprint = null;
+        // Keyed by the request's XHR because a plan calculation and a capacity
+        // recalculation can overlap; a swap we cannot attribute to a request is
+        // committed as unattributable, which lands it stale rather than saveable.
+        const UNATTRIBUTED_CALCULATION = '\u0000unattributed';
+        const calculationFingerprints = new WeakMap();
         let swappedSaveFields = null;
+
+        function rememberCalculation(xhr, fingerprint) {
+            if (xhr) calculationFingerprints.set(xhr, fingerprint);
+        }
+
+        function takeCalculationFingerprint(xhr) {
+            if (!xhr || !calculationFingerprints.has(xhr)) return UNATTRIBUTED_CALCULATION;
+
+            const fingerprint = calculationFingerprints.get(xhr);
+            calculationFingerprints.delete(xhr);
+            return fingerprint;
+        }
 
         // The fingerprint rides with the session id so a restored session is
         // verified against the inputs that produced it rather than assumed current.
@@ -1076,10 +1092,7 @@
             };
         }
 
-        function readPlannerFingerprint(preRead) {
-            const inputs = preRead === undefined ? readPlannerInputs() : preRead;
-            if (!inputs) return '';
-
+        function fingerprintInputs(inputs) {
             return JSON.stringify({
                 activityLocationId: inputs.activityLocationId,
                 participantIds: [...inputs.participantIds].sort(),
@@ -1089,6 +1102,11 @@
                 vanAssignments: Object.keys(inputs.vanAssignments).sort()
                     .map(key => [key, inputs.vanAssignments[key]]),
             });
+        }
+
+        function readPlannerFingerprint(preRead) {
+            const inputs = preRead === undefined ? readPlannerInputs() : preRead;
+            return inputs ? fingerprintInputs(inputs) : '';
         }
 
         const plannerState = createPlannerState({
@@ -1479,8 +1497,8 @@
         }
 
         function filterSelectList(input, listId) {
+            // Search text is not part of the draft or the fingerprint.
             recomputeSelectListVisibility(listId);
-            saveEventPlannerDraft();
         }
 
         function toggleLabelFilter(button) {
@@ -1721,35 +1739,51 @@
             }
 
             // The capacity-shortage pane recalculates from its own hidden copy of
-            // the plan plus its own van assignments. Mirror those assignments back
-            // into the plan form, so the fingerprint we commit describes the routes
-            // that come back instead of whatever the left pane happens to say.
-            function adoptCapacityShortageVanAssignments() {
-                const recalcForm = document.getElementById('recalc-form');
-                if (!recalcForm) return;
+            // the plan plus its own van assignments, so the routes it returns
+            // belong to that payload, not to whatever the plan form now says.
+            // Mirror its van assignments back into the plan form and fingerprint
+            // the payload itself, so a plan edited in between lands stale.
+            function readCapacityShortageFingerprint(recalcForm) {
+                const hidden = name => Array.from(recalcForm.querySelectorAll(`input[name="${name}"]`))
+                    .map(input => input.value);
+                const single = name => recalcForm.querySelector(`input[name="${name}"]`);
+                const vanAssignments = {};
 
                 recalcForm.querySelectorAll('.org-vehicle-select').forEach(source => {
                     const target = document.getElementById(`van-assignment-${source.dataset.driverId}`);
                     if (target && !target.disabled) target.value = source.value;
+                    if (source.value) vanAssignments[source.dataset.driverId] = source.value;
                 });
                 handleVanAssignmentChange();
+
+                return fingerprintInputs({
+                    activityLocationId: single('activity_location_id')?.value || '',
+                    participantIds: hidden('participant_ids'),
+                    driverIds: hidden('driver_ids'),
+                    mode: single('mode')?.value || 'dropoff',
+                    routeTime: single('route_time')?.value || '',
+                    vanAssignments,
+                });
             }
 
             document.body.addEventListener('htmx:beforeRequest', function(event) {
-                const elt = event.detail && event.detail.elt;
+                const detail = event.detail;
+                const elt = detail && detail.elt;
                 if (!elt) return;
 
                 if (elt.id === 'calculate-btn') {
                     if (restoreController) restoreController.abort();
-                    calculateFingerprint = readPlannerFingerprint();
+                    rememberCalculation(detail.xhr, readPlannerFingerprint());
                     setCalculateButtonLoading(true);
                     return;
                 }
 
-                if (elt.id === 'recalc-form' || elt.id === 'recalc-btn') {
+                const recalcForm = elt.id === 'recalc-form' || elt.id === 'recalc-btn'
+                    ? document.getElementById('recalc-form')
+                    : null;
+                if (recalcForm) {
                     if (restoreController) restoreController.abort();
-                    adoptCapacityShortageVanAssignments();
-                    calculateFingerprint = readPlannerFingerprint();
+                    rememberCalculation(detail.xhr, readCapacityShortageFingerprint(recalcForm));
                 }
             });
 
@@ -1763,7 +1797,6 @@
             document.body.addEventListener('htmx:sendError', function(event) {
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
-                    calculateFingerprint = null;
                     swappedSaveFields = null;
                     setCalculateButtonLoading(false);
                 }
@@ -1772,7 +1805,6 @@
             document.body.addEventListener('htmx:responseError', function(event) {
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
-                    calculateFingerprint = null;
                     swappedSaveFields = null;
                     setCalculateButtonLoading(false);
                 }
@@ -1802,8 +1834,7 @@
                         swappedSaveFields = null;
                     }
                     scrollResultsIntoView(target);
-                    plannerState.markCalculated(getSessionId(), calculateFingerprint ?? undefined);
-                    calculateFingerprint = null;
+                    plannerState.markCalculated(getSessionId(), takeCalculationFingerprint(event.detail.xhr));
                     refreshEtas();
                     return;
                 }

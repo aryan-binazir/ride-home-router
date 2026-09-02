@@ -1180,7 +1180,19 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         dataset: { driverId: '10' },
         value: '',
     });
-    const recalcForm = domNode('form', { id: 'recalc-form', form: true, children: [recalcVanSelect] });
+    const recalcForm = domNode('form', {
+        id: 'recalc-form',
+        form: true,
+        children: [
+            domNode('input', { type: 'hidden', name: 'participant_ids', value: '1' }),
+            domNode('input', { type: 'hidden', name: 'participant_ids', value: '2' }),
+            domNode('input', { type: 'hidden', name: 'driver_ids', value: '10' }),
+            domNode('input', { type: 'hidden', name: 'activity_location_id', value: '7' }),
+            domNode('input', { type: 'hidden', name: 'mode', value: mode }),
+            domNode('input', { type: 'hidden', name: 'route_time', value: '15:30' }),
+            recalcVanSelect,
+        ],
+    });
 
     const routeTimeLabel = domNode('label', { id: 'route-time-label', textContent: 'x' });
     const routeTimeHelp = domNode('p', { id: 'route-time-help', textContent: 'x' });
@@ -1261,12 +1273,21 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
             body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: saveResult } }));
         },
         // The full htmx lifecycle: request, snapshot, server render, swap, settle.
-        calculate({ elt = { id: 'calculate-btn' } } = {}) {
-            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt } }));
-            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail: { target: resultsSection } }));
+        // htmx reuses one detail object per request, so the same xhr identifies
+        // the calculation from beforeRequest through afterSwap.
+        startCalculation(xhr = {}, elt = { id: 'calculate-btn' }) {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt, xhr } }));
+            return xhr;
+        },
+        finishCalculation(xhr) {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail: { target: resultsSection, xhr } }));
             renderServerSaveFields();
-            body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection } }));
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection, xhr } }));
             root.dispatchEvent(Object.assign(fakeEvent('htmx:afterSettle'), { target: resultsSection }));
+        },
+        calculate({ elt = { id: 'calculate-btn' }, xhr = {} } = {}) {
+            this.startCalculation(xhr, elt);
+            this.finishCalculation(xhr);
         },
         saveFields() {
             return {
@@ -1607,6 +1628,59 @@ test('a capacity-shortage recalculation adopts its own van assignments before fi
         afterRecalc: { saveDisabled: false, vanValue: '3' },
         saveDisabled: true,
     });
+});
+
+test('a capacity-shortage recalculation of a superseded plan is not saveable', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    // The recalc form still carries both participants; the plan form no longer does.
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+    planner.calculate({ elt: { id: 'recalc-form' } });
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+        saveBlocked: planner.submitSave().defaultPrevented,
+    }, {
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+        saveBlocked: true,
+    });
+});
+
+test('overlapping calculations each commit their own fingerprint', () => {
+    const planner = bootPlanner();
+    const first = {};
+    const second = {};
+
+    // Both requests start; the plan changes between them.
+    planner.startCalculation(first);
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+    planner.startCalculation(second);
+
+    planner.finishCalculation(second);
+    const afterSecond = planner.saveButton.disabled;
+    planner.finishCalculation(first);
+
+    assert.deepEqual({ afterSecond, afterFirst: planner.saveButton.disabled }, {
+        afterSecond: false,
+        afterFirst: true,
+    });
+});
+
+test('a results swap that belongs to no tracked calculation is not saveable', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.finishCalculation({});
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        storedSession: storedSessionId(planner),
+    }, { saveDisabled: true, storedSession: null });
 });
 
 test('a restored session whose inputs moved on is restored stale', async () => {
