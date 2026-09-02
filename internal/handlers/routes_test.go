@@ -11,10 +11,12 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -37,6 +39,112 @@ func (r orgVehicleRepoWithError) GetByIDs(_ context.Context, _ []int64) ([]model
 type testDataStore struct {
 	database.DataStore
 	orgVehicleRepo database.OrganizationVehicleRepository
+}
+
+func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *testing.T) {
+	tooMany := make([]string, plandraft.MaxSelectionSize+1)
+	for i := range tooMany {
+		tooMany[i] = strconv.Itoa(i + 1)
+	}
+
+	tests := []struct {
+		name           string
+		participantIDs []string
+		driverIDs      []string
+	}{
+		{name: "mixed valid and malformed participant IDs", participantIDs: []string{"12", "garbage"}, driverIDs: []string{"1"}},
+		{name: "malformed driver ID", participantIDs: []string{"1"}, driverIDs: []string{"garbage"}},
+		{name: "duplicate participant ID", participantIDs: []string{"12", "12"}, driverIDs: []string{"1"}},
+		{name: "duplicate driver ID", participantIDs: []string{"1"}, driverIDs: []string{"9", "9"}},
+		{name: "zero participant ID", participantIDs: []string{"0"}, driverIDs: []string{"1"}},
+		{name: "negative driver ID", participantIDs: []string{"1"}, driverIDs: []string{"-1"}},
+		{name: "too many participant IDs", participantIDs: tooMany, driverIDs: []string{"1"}},
+		{name: "too many driver IDs", participantIDs: []string{"1"}, driverIDs: tooMany},
+	}
+	endpoints := []struct {
+		name   string
+		path   string
+		handle func(*Handler, http.ResponseWriter, *http.Request)
+	}{
+		{name: "calculate", path: "/api/v1/routes/calculate", handle: (*Handler).HandleCalculateRoutes},
+		{name: "calculate with organization vehicles", path: "/api/v1/routes/calculate-with-org-vehicles", handle: (*Handler).HandleCalculateRoutesWithOrgVehicles},
+	}
+
+	for _, endpoint := range endpoints {
+		for _, test := range tests {
+			t.Run(endpoint.name+"/"+test.name, func(t *testing.T) {
+				router := &captureRouter{}
+				handler := &Handler{Router: router}
+				form := url.Values{
+					"participant_ids":      test.participantIDs,
+					"driver_ids":           test.driverIDs,
+					"activity_location_id": {"1"},
+					"route_time":           {"18:30"},
+					"mode":                 {"dropoff"},
+				}
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.Header.Set("HX-Request", "true")
+				rr := httptest.NewRecorder()
+
+				endpoint.handle(handler, rr, req)
+
+				if rr.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+				}
+				if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageInvalidFormData) {
+					t.Fatalf("HX-Trigger = %q, want %q", got, messageInvalidFormData)
+				}
+				if router.lastRequest != nil {
+					t.Fatalf("router received request %#v", router.lastRequest)
+				}
+			})
+		}
+	}
+}
+
+func TestRouteCalculationEndpoints_AcceptSelectionLimit(t *testing.T) {
+	participantIDs := make([]string, plandraft.MaxSelectionSize)
+	for i := range participantIDs {
+		participantIDs[i] = strconv.Itoa(i + 1)
+	}
+	endpoints := []struct {
+		name   string
+		path   string
+		handle func(*Handler, http.ResponseWriter, *http.Request)
+	}{
+		{name: "calculate", path: "/api/v1/routes/calculate", handle: (*Handler).HandleCalculateRoutes},
+		{name: "calculate with organization vehicles", path: "/api/v1/routes/calculate-with-org-vehicles", handle: (*Handler).HandleCalculateRoutesWithOrgVehicles},
+	}
+	for _, endpoint := range endpoints {
+		t.Run(endpoint.name, func(t *testing.T) {
+			router := &captureRouter{}
+			handler := &Handler{Router: router}
+			form := url.Values{
+				"participant_ids":      participantIDs,
+				"driver_ids":           {"1"},
+				"activity_location_id": {"1"},
+				"route_time":           {"not-a-time"},
+				"mode":                 {"dropoff"},
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			rr := httptest.NewRecorder()
+
+			endpoint.handle(handler, rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageChooseValidRouteTime) {
+				t.Fatalf("HX-Trigger = %q, want route-time validation after accepting %d selections", got, plandraft.MaxSelectionSize)
+			}
+			if router.lastRequest != nil {
+				t.Fatalf("router received request %#v", router.lastRequest)
+			}
+		})
+	}
 }
 
 func (s testDataStore) OrganizationVehicles() database.OrganizationVehicleRepository {

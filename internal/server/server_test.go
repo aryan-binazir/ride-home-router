@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -70,6 +71,50 @@ func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
 	}
 	if _, err := server.handler.ImportSession.Create(importer.KindParticipant, "closed.csv", grid); !errors.Is(err, importer.ErrStoreClosed) {
 		t.Fatalf("Create() after Shutdown error = %v, want ErrStoreClosed", err)
+	}
+}
+
+func TestServerReportsUnexpectedServeError(t *testing.T) {
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := server.listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	select {
+	case err := <-server.Errors():
+		if err == nil || !strings.Contains(err.Error(), "closed network connection") {
+			t.Fatalf("Errors() = %v, want closed listener error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Errors() did not report the listener failure")
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
+func TestServerCleanShutdownDoesNotReportServeError(t *testing.T) {
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	select {
+	case err := <-server.Errors():
+		t.Fatalf("Errors() after clean shutdown = %v, want no error", err)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

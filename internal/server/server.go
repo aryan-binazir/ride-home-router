@@ -33,6 +33,7 @@ type Server struct {
 	handler      *handlers.Handler
 	db           database.DataStore
 	listener     net.Listener
+	serveErrors  chan error
 	addr         string
 	allowedHosts []string
 }
@@ -112,6 +113,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		handler:      handler,
 		db:           db,
 		listener:     nil,
+		serveErrors:  make(chan error, 1),
 		addr:         cfg.Addr,
 		allowedHosts: cfg.AllowedHosts,
 	}, nil
@@ -136,11 +138,17 @@ func (s *Server) Start() (string, error) {
 
 	go func() {
 		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("Server error: %v", err)
+			s.serveErrors <- err
 		}
 	}()
 
 	return actualAddr, nil
+}
+
+// Errors reports the first unexpected error from HTTP serving. The channel is
+// never closed and receives at most one value.
+func (s *Server) Errors() <-chan error {
+	return s.serveErrors
 }
 
 // Shutdown stops sessions, HTTP serving, and database access.
