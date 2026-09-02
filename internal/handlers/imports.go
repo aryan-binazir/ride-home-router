@@ -296,7 +296,7 @@ func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id
 		return h.writeImportJSONBodyError(w, r, id, err), -1
 	}
 	mapping := mergeImportMapping(snapshot, request)
-	updated, err := h.ImportSession.ApplyMapping(id, mapping)
+	updated, err := h.ImportSession.ApplyMapping(r.Context(), id, mapping)
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), len(updated.Rows)
 	}
@@ -321,12 +321,7 @@ func (h *Handler) commitImportSession(w http.ResponseWriter, r *http.Request, id
 	if _, err := io.Copy(io.Discard, r.Body); err != nil {
 		return h.writeImportJSONBodyError(w, r, id, err)
 	}
-	snapshot, ok := h.ImportSession.Snapshot(id)
-	if !ok {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
-		return http.StatusNotFound
-	}
-	result, err := h.ImportSession.Commit(r.Context(), id, snapshot.Selected)
+	result, err := h.ImportSession.Commit(r.Context(), id)
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err)
 	}

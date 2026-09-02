@@ -9,6 +9,7 @@ import (
 	"ride-home-router/internal/models"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -70,6 +71,69 @@ func TestStoreEvictsLeastRecentlyAccessedNonCommittingSession(t *testing.T) {
 	}
 }
 
+func TestCancelDuringStalledApplyMappingDoesNotBlockStore(t *testing.T) {
+	db := newFakeDataStore()
+	listStarted := make(chan struct{})
+	listRelease := make(chan struct{})
+	var listCalls atomic.Int32
+	db.participants.beforeList = func(ctx context.Context) error {
+		if listCalls.Add(1) != 1 {
+			return nil
+		}
+		close(listStarted)
+		select {
+		case <-listRelease:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
+	stalled, err := store.Create(KindParticipant, "stalled.csv", grid)
+	if err != nil {
+		t.Fatalf("Create(stalled) error = %v", err)
+	}
+	usable, err := store.Create(KindParticipant, "usable.csv", grid)
+	if err != nil {
+		t.Fatalf("Create(usable) error = %v", err)
+	}
+
+	applyErr := make(chan error, 1)
+	go func() {
+		_, err := store.ApplyMapping(context.Background(), stalled.ID, AutoMap(grid.Headers))
+		applyErr <- err
+	}()
+	select {
+	case <-listStarted:
+	case <-time.After(time.Second):
+		t.Fatal("ApplyMapping did not reach the repository")
+	}
+
+	cancelled := make(chan bool, 1)
+	go func() { cancelled <- store.Cancel(stalled.ID) }()
+	select {
+	case ok := <-cancelled:
+		if !ok {
+			t.Fatal("Cancel() = false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Cancel blocked behind ApplyMapping")
+	}
+	if _, ok := store.Snapshot(usable.ID); !ok {
+		t.Fatal("other session became unavailable")
+	}
+	if _, err := store.ApplyMapping(context.Background(), usable.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping(other session) error = %v", err)
+	}
+
+	close(listRelease)
+	if err := <-applyErr; !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("stalled ApplyMapping error = %v, want ErrSessionNotFound", err)
+	}
+}
+
 func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	db := newFakeDataStore()
 	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
@@ -79,7 +143,7 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	_, err = store.ApplyMapping(created.ID, AutoMap(grid.Headers))
+	_, err = store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers))
 	if err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
@@ -95,18 +159,191 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	if selectedSnapshot.Selected[2] {
 		t.Fatal("SelectRows() did not retain the deselected row")
 	}
-	result, err := store.Commit(context.Background(), created.ID, selected)
+	result, err := store.Commit(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	if result != (CommitResult{Created: 1, Updated: 1, NotSelected: 1}) {
 		t.Fatalf("Commit() result = %#v", result)
 	}
-	if _, err := store.Commit(context.Background(), created.ID, selected); !errors.Is(err, ErrCommitConsumed) {
+	if _, err := store.Commit(context.Background(), created.ID); !errors.Is(err, ErrCommitConsumed) {
 		t.Fatalf("second Commit() error = %v, want ErrCommitConsumed", err)
 	}
 	if calls := db.participants.batchCalls(); calls != 1 {
 		t.Fatalf("CreateBatch calls = %d, want 1", calls)
+	}
+}
+
+func TestCancelRacingCommitDoesNotPersist(t *testing.T) {
+	db := newFakeDataStore()
+	batchStarted := make(chan struct{})
+	db.participants.beforeBatch = func(ctx context.Context) error {
+		close(batchStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	waitForGeocoding(t, store, created.ID)
+
+	commitErr := make(chan error, 1)
+	go func() {
+		_, err := store.Commit(context.Background(), created.ID)
+		commitErr <- err
+	}()
+	select {
+	case <-batchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not reach the repository")
+	}
+	if !store.Cancel(created.ID) {
+		t.Fatal("Cancel() = false")
+	}
+	if err := <-commitErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Commit() error = %v, want context.Canceled", err)
+	}
+	db.participants.mu.Lock()
+	defer db.participants.mu.Unlock()
+	if len(db.participants.rows) != 0 {
+		t.Fatalf("persisted participants = %d, want 0", len(db.participants.rows))
+	}
+	if db.participants.batchCall != 1 {
+		t.Fatalf("UpsertBatch calls = %d, want 1", db.participants.batchCall)
+	}
+}
+
+func TestCommitUsesLatestStoredSelection(t *testing.T) {
+	db := newFakeDataStore()
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, "name,address\nFirst,1 Main St\nSecond,2 Main St\n")
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	waitForGeocoding(t, store, created.ID)
+	if _, err := store.SelectRows(created.ID, []bool{true, false}); err != nil {
+		t.Fatalf("SelectRows() error = %v", err)
+	}
+
+	result, err := store.Commit(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if result != (CommitResult{Created: 1, NotSelected: 1}) {
+		t.Fatalf("Commit() result = %#v", result)
+	}
+	db.participants.mu.Lock()
+	defer db.participants.mu.Unlock()
+	if len(db.participants.rows) != 1 || db.participants.rows[0].Name != "First" {
+		t.Fatalf("persisted participants = %#v", db.participants.rows)
+	}
+}
+
+func TestSelectRowsDuringCommitIsRejectedWithoutLosingSelection(t *testing.T) {
+	db := newFakeDataStore()
+	batchStarted := make(chan struct{})
+	batchRelease := make(chan struct{})
+	db.participants.beforeBatch = func(ctx context.Context) error {
+		close(batchStarted)
+		select {
+		case <-batchRelease:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, "name,address\nFirst,1 Main St\nSecond,2 Main St\n")
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	waitForGeocoding(t, store, created.ID)
+
+	commitResult := make(chan CommitResult, 1)
+	commitErr := make(chan error, 1)
+	go func() {
+		result, err := store.Commit(context.Background(), created.ID)
+		commitResult <- result
+		commitErr <- err
+	}()
+	select {
+	case <-batchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not reach the repository")
+	}
+	if _, err := store.SelectRows(created.ID, []bool{true, false}); !errors.Is(err, ErrInvalidSessionState) {
+		t.Fatalf("SelectRows() error = %v, want ErrInvalidSessionState", err)
+	}
+	close(batchRelease)
+	if err := <-commitErr; err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if result := <-commitResult; result != (CommitResult{Created: 2}) {
+		t.Fatalf("Commit() result = %#v, want original two-row selection", result)
+	}
+}
+
+func TestDeleteExpiredSkipsCommittingSession(t *testing.T) {
+	now := time.Unix(100, 0)
+	db := newFakeDataStore()
+	batchStarted := make(chan struct{})
+	batchRelease := make(chan struct{})
+	db.participants.beforeBatch = func(ctx context.Context) error {
+		close(batchStarted)
+		select {
+		case <-batchRelease:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Minute, time.Hour, func() time.Time { return now })
+	t.Cleanup(store.Close)
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	waitForGeocoding(t, store, created.ID)
+
+	commitErr := make(chan error, 1)
+	go func() {
+		_, err := store.Commit(context.Background(), created.ID)
+		commitErr <- err
+	}()
+	select {
+	case <-batchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not reach the repository")
+	}
+	now = now.Add(2 * time.Minute)
+	store.deleteExpired(now)
+	if snapshot, ok := store.Snapshot(created.ID); !ok || snapshot.Status != StatusCommitting {
+		t.Fatalf("committing session expired: ok=%v status=%s", ok, snapshot.Status)
+	}
+	close(batchRelease)
+	if err := <-commitErr; err != nil {
+		t.Fatalf("Commit() error = %v", err)
 	}
 }
 
@@ -120,7 +357,7 @@ func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	preview, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers))
+	preview, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers))
 	if err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
@@ -128,7 +365,7 @@ func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 		t.Fatalf("duplicate preview row = %#v selected=%v, want flagged and selected", preview.Rows[0], preview.Selected[0])
 	}
 	waitForGeocoding(t, store, created.ID)
-	result, err := store.Commit(context.Background(), created.ID, []bool{true})
+	result, err := store.Commit(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -149,11 +386,11 @@ func TestCommitCreatesDriverBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	waitForGeocoding(t, store, created.ID)
-	result, err := store.Commit(context.Background(), created.ID, []bool{true})
+	result, err := store.Commit(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -176,11 +413,11 @@ func TestCommitSendsZeroCapacityWhenColumnUnmapped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	waitForGeocoding(t, store, created.ID)
-	if _, err := store.Commit(context.Background(), created.ID, []bool{true}); err != nil {
+	if _, err := store.Commit(context.Background(), created.ID); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	db.drivers.mu.Lock()
@@ -207,7 +444,7 @@ func TestGeocodeJobDeduplicatesAndMarksFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	finished := waitForGeocoding(t, store, created.ID)
@@ -243,7 +480,7 @@ func TestCommitSkipsRowsWithoutGeocodedCoordinates(t *testing.T) {
 	}
 	store.sessions[state.id] = state
 
-	result, err := store.Commit(context.Background(), state.id, []bool{true})
+	result, err := store.Commit(context.Background(), state.id)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -269,7 +506,7 @@ func TestGeocodeJobCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	select {
@@ -322,7 +559,7 @@ func TestStoreCloseCancelsGeocodeJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers)); err != nil {
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	select {
@@ -355,7 +592,7 @@ func TestApplyMappingRejectsGeocodeAddressCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	snapshot, err := store.ApplyMapping(created.ID, AutoMap(grid.Headers))
+	snapshot, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers))
 	if !errors.Is(err, ErrTooManyGeocodeAddresses) {
 		t.Fatalf("ApplyMapping() error = %v, want ErrTooManyGeocodeAddresses", err)
 	}
@@ -441,22 +678,36 @@ func (s *fakeDataStore) Drivers() database.DriverRepository           { return s
 
 type fakeParticipantRepository struct {
 	database.ParticipantRepository
-	mu        sync.Mutex
-	rows      []models.Participant
-	nextID    int64
-	batchCall int
+	mu          sync.Mutex
+	rows        []models.Participant
+	nextID      int64
+	batchCall   int
+	beforeList  func(context.Context) error
+	beforeBatch func(context.Context) error
 }
 
-func (r *fakeParticipantRepository) List(context.Context, string) ([]models.Participant, error) {
+func (r *fakeParticipantRepository) List(ctx context.Context, _ string) ([]models.Participant, error) {
+	if r.beforeList != nil {
+		if err := r.beforeList(ctx); err != nil {
+			return nil, err
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]models.Participant(nil), r.rows...), nil
 }
 
-func (r *fakeParticipantRepository) UpsertBatch(_ context.Context, batch []*models.Participant) (database.BatchUpsertResult, error) {
+func (r *fakeParticipantRepository) UpsertBatch(ctx context.Context, batch []*models.Participant) (database.BatchUpsertResult, error) {
+	r.mu.Lock()
+	r.batchCall++
+	r.mu.Unlock()
+	if r.beforeBatch != nil {
+		if err := r.beforeBatch(ctx); err != nil {
+			return database.BatchUpsertResult{}, err
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.batchCall++
 	keys := make(map[string]int, len(r.rows))
 	for i := range r.rows {
 		keys[DuplicateKey(r.rows[i].Name, r.rows[i].Address)] = i
