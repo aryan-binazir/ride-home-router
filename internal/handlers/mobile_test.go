@@ -10,12 +10,37 @@ import (
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
+	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+type mobileCalculationBarrierRouter struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (r mobileCalculationBarrierRouter) CalculateRoutes(ctx context.Context, req *routing.RoutingRequest) (*models.RoutingResult, error) {
+	select {
+	case r.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	driver := req.Drivers[0]
+	participant := req.Participants[0]
+	return &models.RoutingResult{
+		Routes: []models.CalculatedRoute{{Driver: &driver, Stops: []models.RouteStop{{Participant: &participant}}, EffectiveCapacity: 1, Mode: req.Mode}},
+		Mode:   req.Mode,
+	}, nil
+}
 
 func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	handler, store := newTestRouteHandler(t)
@@ -271,35 +296,47 @@ func TestMobileCalculateRedirectsToRoutesWhenAnotherCalculationWins(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	winner := handler.RouteSession.Create(routesession.CreateInput{})
+	oldestSession := handler.RouteSession.Create(routesession.CreateInput{})
+	time.Sleep(time.Millisecond)
+	for range routesession.MaxConcurrentSessions - 3 {
+		handler.RouteSession.Create(routesession.CreateInput{})
+	}
 	id := handler.PlanDraft.NewID()
-	draft := handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
 		d.LocationID = location.ID
 		d.ParticipantIDs = []int64{participant.ID}
 		d.DriverIDs = []int64{driver.ID}
 		d.RouteTime = "18:30"
 		d.Mode = string(models.RouteModeDropoff)
 	})
-	handler.Router = &captureRouter{
-		result: &models.RoutingResult{
-			Routes: []models.CalculatedRoute{{Driver: driver, Stops: []models.RouteStop{{Participant: participant}}, EffectiveCapacity: 1, Mode: models.RouteModeDropoff}},
-			Mode:   models.RouteModeDropoff,
-		},
-		afterSolve: func() {
-			if _, ok := handler.PlanDraft.SetRouteSessionIDIfUnchanged(id, draft.Revision, winner.ID); !ok {
-				t.Error("winning calculation could not attach its session")
-			}
-		},
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	handler.Router = mobileCalculationBarrierRouter{
+		started: started,
+		release: release,
 	}
 
-	response := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
-	assertMobileRedirect(t, response, "/m/routes")
-	got, ok := handler.PlanDraft.Get(id)
-	if !ok || got.RouteSessionID != winner.ID {
-		t.Fatalf("draft after concurrent calculations = (%#v, %t), want winner %q", got, ok, winner.ID)
+	done := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() {
+			done <- postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+		}()
 	}
-	if _, live := handler.RouteSession.Snapshot(winner.ID); !live {
-		t.Fatal("winning route session was deleted by losing calculation")
+	<-started
+	<-started
+	close(release)
+	assertMobileRedirect(t, <-done, "/m/routes")
+	assertMobileRedirect(t, <-done, "/m/routes")
+	got, ok := handler.PlanDraft.Get(id)
+	if !ok || got.RouteSessionID == "" {
+		t.Fatalf("draft after concurrent calculations = (%#v, %t), want a winning session", got, ok)
+	}
+	if _, live := handler.RouteSession.Snapshot(got.RouteSessionID); !live {
+		t.Fatal("winning route session is unavailable")
+	}
+	handler.RouteSession.Create(routesession.CreateInput{})
+	if _, live := handler.RouteSession.Snapshot(oldestSession.ID); !live {
+		t.Fatal("losing calculation leaked its session and evicted the oldest live session")
 	}
 }
 

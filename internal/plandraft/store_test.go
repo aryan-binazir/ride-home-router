@@ -280,16 +280,20 @@ func TestStoreConditionalSessionWritesDoNotCreateOrReviveDrafts(t *testing.T) {
 		t.Fatalf("conditional writes inserted %d missing drafts, want 0", draftCount)
 	}
 
-	draft := store.Update("expired", func(d *Draft) { d.RouteSessionID = "old-session" })
+	setDraft := store.Update("expired-set", func(d *Draft) { d.RouteSessionID = "old-session" })
+	store.Update("expired-clear", func(d *Draft) { d.RouteSessionID = "old-session" })
 	clock.Advance(time.Hour + time.Nanosecond)
-	if _, ok := store.SetRouteSessionIDIfUnchanged("expired", draft.Revision, "new-session"); ok {
+	if _, ok := store.SetRouteSessionIDIfUnchanged("expired-set", setDraft.Revision, "new-session"); ok {
 		t.Fatal("conditional set revived an expired draft")
 	}
-	if store.ClearRouteSessionIDIfCurrent("expired", "old-session") {
+	if store.ClearRouteSessionIDIfCurrent("expired-clear", "old-session") {
 		t.Fatal("conditional clear revived an expired draft")
 	}
-	if _, ok := store.Get("expired"); ok {
-		t.Fatal("expired draft remains after conditional writes")
+	if _, ok := store.Get("expired-set"); ok {
+		t.Fatal("expired set draft remains after conditional write")
+	}
+	if _, ok := store.Get("expired-clear"); ok {
+		t.Fatal("expired clear draft remains after conditional write")
 	}
 }
 
