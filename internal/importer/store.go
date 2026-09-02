@@ -115,7 +115,10 @@ type Store struct {
 	closed          bool
 	closeOnce       sync.Once
 	jobs            sync.WaitGroup
-	mu              sync.Mutex
+	// lifecycleMu serializes session-map membership changes that require
+	// inspecting session state. It is never acquired while state.mu is held.
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
 }
 
 // NewStore creates an import staging store with a 30-minute sliding TTL.
@@ -152,7 +155,9 @@ func (s *Store) Create(kind Kind, filename string, grid *Grid) (Snapshot, error)
 		status: StatusMapping, createdAt: now, lastAccessedAt: now, ctx: ctx, cancel: cancel,
 	}
 
-	var snapshot Snapshot
+	snapshot := snapshotOf(state)
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	for attempts := 0; ; attempts++ {
 		s.mu.Lock()
 		if s.closed {
@@ -161,7 +166,6 @@ func (s *Store) Create(kind Kind, filename string, grid *Grid) (Snapshot, error)
 			return Snapshot{}, ErrStoreClosed
 		}
 		if len(s.sessions) < MaxConcurrentSessions {
-			snapshot = snapshotOf(state)
 			s.sessions[id] = state
 			s.mu.Unlock()
 			break
@@ -229,10 +233,10 @@ func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (S
 	if state.deleted {
 		return Snapshot{}, ErrSessionNotFound
 	}
+	if ctx.Err() != nil && state.ctx.Err() == nil {
+		return snapshotOf(state), ctx.Err()
+	}
 	if err != nil {
-		if ctx.Err() != nil && state.ctx.Err() == nil {
-			return snapshotOf(state), err
-		}
 		state.status = StatusFailed
 		state.failure = "could not load the current roster"
 		return snapshotOf(state), fmt.Errorf("load current roster for import: %w", err)
@@ -350,6 +354,8 @@ func (s *Store) Commit(ctx context.Context, id string) (CommitResult, error) {
 
 // Cancel removes a session immediately and cancels any running work.
 func (s *Store) Cancel(id string) bool {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
 	state := s.sessions[id]
 	s.mu.Unlock()
@@ -372,6 +378,7 @@ func (s *Store) Cancel(id string) bool {
 // Close cancels jobs, releases sessions, and waits for workers to stop.
 func (s *Store) Close() {
 	s.closeOnce.Do(func() {
+		s.lifecycleMu.Lock()
 		s.mu.Lock()
 		s.closed = true
 		states := make([]*session, 0, len(s.sessions))
@@ -388,6 +395,7 @@ func (s *Store) Close() {
 			clearSessionData(state)
 			state.mu.Unlock()
 		}
+		s.lifecycleMu.Unlock()
 		<-s.cleanupDone
 		s.jobs.Wait()
 	})
@@ -564,12 +572,28 @@ func (s *Store) lockSession(id string) (*session, error) {
 	}
 	now := s.now()
 	if state.status != StatusCommitting && now.Sub(state.lastAccessedAt) > s.ttl {
-		state.deleted = true
-		state.cancel()
-		clearSessionData(state)
 		state.mu.Unlock()
-		s.removeSession(id, state)
-		return nil, ErrSessionNotFound
+
+		s.lifecycleMu.Lock()
+		state.mu.Lock()
+		if state.deleted {
+			state.mu.Unlock()
+			s.lifecycleMu.Unlock()
+			return nil, ErrSessionNotFound
+		}
+		now = s.now()
+		if state.status != StatusCommitting && now.Sub(state.lastAccessedAt) > s.ttl {
+			state.deleted = true
+			state.cancel()
+			clearSessionData(state)
+			state.mu.Unlock()
+			s.removeSession(id, state)
+			s.lifecycleMu.Unlock()
+			return nil, ErrSessionNotFound
+		}
+		state.lastAccessedAt = now
+		s.lifecycleMu.Unlock()
+		return state, nil
 	}
 	state.lastAccessedAt = now
 	return state, nil
@@ -647,6 +671,8 @@ func (s *Store) cleanupLoop() {
 }
 
 func (s *Store) deleteExpired(now time.Time) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
 	states := make([]*session, 0, len(s.sessions))
 	for _, state := range s.sessions {

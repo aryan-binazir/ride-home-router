@@ -110,6 +110,12 @@ func TestCancelDuringStalledApplyMappingDoesNotBlockStore(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("ApplyMapping did not reach the repository")
 	}
+	if _, err := store.ApplyMapping(context.Background(), stalled.ID, AutoMap(grid.Headers)); !errors.Is(err, ErrInvalidSessionState) {
+		t.Fatalf("concurrent ApplyMapping error = %v, want ErrInvalidSessionState", err)
+	}
+	if calls := listCalls.Load(); calls != 1 {
+		t.Fatalf("concurrent repository List calls = %d, want 1", calls)
+	}
 
 	cancelled := make(chan bool, 1)
 	go func() { cancelled <- store.Cancel(stalled.ID) }()
@@ -161,6 +167,30 @@ func TestCanceledApplyMappingRequestLeavesSessionRetryable(t *testing.T) {
 	db.participants.beforeList = nil
 	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatalf("retry ApplyMapping() error = %v", err)
+	}
+}
+
+func TestCanceledApplyMappingAfterListLeavesSessionRetryable(t *testing.T) {
+	db := newFakeDataStore()
+	ctx, cancel := context.WithCancel(context.Background())
+	db.participants.beforeList = func(context.Context) error {
+		cancel()
+		return nil
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if _, err := store.ApplyMapping(ctx, created.ID, AutoMap(grid.Headers)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplyMapping() error = %v, want context.Canceled", err)
+	}
+	snapshot, ok := store.Snapshot(created.ID)
+	if !ok || snapshot.Status != StatusMapping {
+		t.Fatalf("session after canceled request: ok=%v status=%s, want mapping", ok, snapshot.Status)
 	}
 }
 
