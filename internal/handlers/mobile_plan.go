@@ -410,6 +410,12 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 	displacedSessionID, ok := h.PlanDraft.SetRouteSessionIDIfUnchanged(id, expectedRevision, outcome.Session.ID)
 	if !ok {
 		h.RouteSession.Delete(outcome.Session.ID)
+		if currentDraft, found := h.PlanDraft.Get(id); found && currentDraft.RouteSessionID != "" {
+			if _, live := h.RouteSession.Snapshot(currentDraft.RouteSessionID); live {
+				http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+				return
+			}
+		}
 		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)
 		return
 	}
