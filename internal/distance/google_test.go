@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -15,6 +16,60 @@ import (
 	"testing"
 	"time"
 )
+
+type mockDistanceCache struct {
+	entries map[string]*models.DistanceCacheEntry
+}
+
+func newMockDistanceCache() *mockDistanceCache {
+	return &mockDistanceCache{
+		entries: make(map[string]*models.DistanceCacheEntry),
+	}
+}
+
+func (c *mockDistanceCache) cacheKey(origin, dest models.Coordinates) string {
+	return fmt.Sprintf("%.5f,%.5f->%.5f,%.5f",
+		models.RoundCoordinate(origin.Lat),
+		models.RoundCoordinate(origin.Lng),
+		models.RoundCoordinate(dest.Lat),
+		models.RoundCoordinate(dest.Lng))
+}
+
+func (c *mockDistanceCache) Get(_ context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error) {
+	key := c.cacheKey(origin, dest)
+	if entry, ok := c.entries[key]; ok {
+		return entry, nil
+	}
+	return nil, database.ErrCacheMiss
+}
+
+func (c *mockDistanceCache) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
+	result := make(map[string]*models.DistanceCacheEntry)
+	for _, pair := range pairs {
+		entry, _ := c.Get(ctx, pair.Origin, pair.Dest)
+		if entry != nil {
+			result[c.cacheKey(pair.Origin, pair.Dest)] = entry
+		}
+	}
+	return result, nil
+}
+
+func (c *mockDistanceCache) Set(_ context.Context, entry *models.DistanceCacheEntry) error {
+	c.entries[c.cacheKey(entry.Origin, entry.Destination)] = entry
+	return nil
+}
+
+func (c *mockDistanceCache) SetBatch(_ context.Context, entries []models.DistanceCacheEntry) error {
+	for _, entry := range entries {
+		c.entries[c.cacheKey(entry.Origin, entry.Destination)] = &entry
+	}
+	return nil
+}
+
+func (c *mockDistanceCache) Clear(_ context.Context) error {
+	c.entries = make(map[string]*models.DistanceCacheEntry)
+	return nil
+}
 
 type googleRoundTripFunc func(*http.Request) (*http.Response, error)
 
