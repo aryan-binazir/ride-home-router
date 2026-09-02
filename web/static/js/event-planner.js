@@ -628,6 +628,20 @@
             return activeSessionId === sessionId || queue.some(move => move.session_id === sessionId);
         }
 
+        function discardFor(sessionId) {
+            let removed = 0;
+            for (let index = queue.length - 1; index >= 0; index -= 1) {
+                if (queue[index]?.session_id !== sessionId) continue;
+                queue.splice(index, 1);
+                removed += 1;
+            }
+            if (queue.length === 0 && timeout !== null) {
+                cancel(timeout);
+                timeout = null;
+            }
+            return removed;
+        }
+
         async function flushFor(sessionId) {
             let succeeded = true;
             while (hasPendingFor(sessionId)) {
@@ -637,7 +651,7 @@
             return succeeded;
         }
 
-        return { enqueue, flush, flushFor, hasPending, hasPendingFor };
+        return { discardFor, enqueue, flush, flushFor, hasPending, hasPendingFor };
     }
 
     function bootBrowser() {
@@ -770,6 +784,12 @@
 
         participantMoveBatcher = createParticipantMoveBatcher({
             sendBatch: async function(payload) {
+                const state = plannerState.refresh();
+                if (!state.canSave || state.sessionId !== payload.session_id) {
+                    participantMoveBatcher.discardFor(payload.session_id);
+                    return false;
+                }
+
                 try {
                     const response = await fetch('/api/v1/routes/edit/move-participant', {
                         method: 'POST',
@@ -991,18 +1011,26 @@
         // committed as unattributable, which lands it stale rather than saveable.
         const UNATTRIBUTED_CALCULATION = '\u0000unattributed';
         const calculationFingerprints = new WeakMap();
+        let calculationGeneration = 0;
         let swappedSaveFields = null;
 
         function rememberCalculation(xhr, fingerprint) {
-            if (xhr) calculationFingerprints.set(xhr, fingerprint);
+            if (xhr) calculationFingerprints.set(xhr, { fingerprint, generation: calculationGeneration });
+        }
+
+        function isInvalidatedCalculation(xhr) {
+            if (!xhr || !calculationFingerprints.has(xhr)) return false;
+            return calculationFingerprints.get(xhr).generation !== calculationGeneration;
         }
 
         function takeCalculationFingerprint(xhr) {
             if (!xhr || !calculationFingerprints.has(xhr)) return UNATTRIBUTED_CALCULATION;
 
-            const fingerprint = calculationFingerprints.get(xhr);
+            const calculation = calculationFingerprints.get(xhr);
             calculationFingerprints.delete(xhr);
-            return fingerprint;
+            return calculation.generation === calculationGeneration
+                ? calculation.fingerprint
+                : UNATTRIBUTED_CALCULATION;
         }
 
         // The fingerprint rides with the session id so a restored session is
@@ -1015,13 +1043,19 @@
         }
 
         function getActiveSession() {
+            let stored = null;
             try {
-                const stored = JSON.parse(window.localStorage.getItem(ACTIVE_SESSION_KEY) || 'null');
-                if (!stored || typeof stored.id !== 'string' || !stored.id) return null;
+                stored = JSON.parse(window.localStorage.getItem(ACTIVE_SESSION_KEY) || 'null');
+            } catch (err) {}
+            if (stored && typeof stored.id === 'string' && stored.id) {
                 return { id: stored.id, fingerprint: typeof stored.fingerprint === 'string' ? stored.fingerprint : null };
-            } catch (err) {
-                return null;
             }
+
+            try {
+                const legacyId = window.localStorage.getItem(LEGACY_ACTIVE_SESSION_KEY);
+                return legacyId ? { id: legacyId, fingerprint: null } : null;
+            } catch (err) {}
+            return null;
         }
 
         function clearActiveSession() {
@@ -1127,6 +1161,7 @@
                 if (state.status === 'current') {
                     saveActiveSession(state.sessionId, readPlannerFingerprint());
                 } else {
+                    participantMoveBatcher.discardFor(state.sessionId);
                     clearActiveSession();
                 }
                 applyPlanStateAffordance(state.status);
@@ -1560,6 +1595,8 @@
         function clearSelections() {
             const form = getEventForm();
             if (restoreController) restoreController.abort();
+            calculationGeneration += 1;
+            participantMoveBatcher.discardFor(getSessionId());
             // Suppress per-step draft writes so the reset lands as one change; the
             // draft and the planner state are settled once, at the end.
             isRestoringEventPlannerDraft = true;
@@ -1827,6 +1864,12 @@
             document.body.addEventListener('htmx:beforeSwap', function(event) {
                 const target = event.detail && event.detail.target;
                 if (!target || target.id !== 'results-section') return;
+
+                if (isInvalidatedCalculation(event.detail.xhr)) {
+                    calculationFingerprints.delete(event.detail.xhr);
+                    event.detail.shouldSwap = false;
+                    return;
+                }
 
                 // A saved event's date and notes belong to that event, not the next one.
                 if (plannerState.getSnapshot().hasBeenSaved) {

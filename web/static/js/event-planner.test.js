@@ -857,6 +857,27 @@ test('participant moves flush sequentially in same-session batches with the exis
     ]);
 });
 
+test('discarding a session cancels its queued participant moves', async () => {
+    const sent = [];
+    let scheduled;
+    let cancelled = false;
+    const batcher = createParticipantMoveBatcher({
+        schedule: callback => { scheduled = callback; return 1; },
+        cancel: () => { cancelled = true; },
+        sendBatch: async payload => { sent.push(payload); return true; },
+    });
+
+    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
+    assert.equal(batcher.discardFor('session-a'), 1);
+    await scheduled();
+
+    assert.deepEqual({ cancelled, pending: batcher.hasPending(), sent }, {
+        cancelled: true,
+        pending: false,
+        sent: [],
+    });
+});
+
 test('flushing a session preserves an earlier failure across later successful batches', async () => {
     let calls = 0;
     const batcher = createParticipantMoveBatcher({
@@ -1089,7 +1110,8 @@ const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'),
 
 // Boots the real planner against the fixture below so the invalidation rule is
 // exercised end to end, not through a re-implementation of it.
-function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
+function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null } = {}) {
+    const initialSessionId = storedSession?.id || legacySessionId || 'session-1';
     const participants = ['1', '2'].map(value => domNode('input', {
         classes: ['participant-checkbox'],
         value,
@@ -1141,7 +1163,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         form: true,
         classes: ['save-event-card'],
         attributes: { 'hx-post': '/api/v1/events' },
-        children: [domNode('input', { name: 'session_id', value: 'session-1' })],
+        children: [domNode('input', { name: 'session_id', value: initialSessionId })],
     });
     // The server re-renders the save fields from its own defaults every time.
     function renderServerSaveFields() {
@@ -1166,7 +1188,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
     });
     const routesContainer = domNode('div', {
         classes: ['routes-container'],
-        dataset: { sessionId: 'session-1', routeMode: mode },
+        dataset: { sessionId: initialSessionId, routeMode: mode },
         children: [resultsBody],
     });
     let renderedSessionCount = 0;
@@ -1226,6 +1248,12 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
     if (storedSession) {
         storage.setItem('ride-home-router:active-session:v2', JSON.stringify(storedSession));
     }
+    if (legacySessionId) {
+        storage.setItem('ride-home-router:active-session-id', legacySessionId);
+    }
+    const scheduledCallbacks = new Map();
+    let nextTimeoutId = 0;
+    const fetches = [];
     const context = {
         document,
         console,
@@ -1233,9 +1261,16 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         Event: class { constructor(type) { return fakeEvent(type); } },
         AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
         htmx: { process() {} },
-        fetch: async () => ({ ok: true, status: 200, text: async () => '<div>routes</div>' }),
-        setTimeout: () => 0,
-        clearTimeout: () => {},
+        fetch: async (url, options) => {
+            fetches.push({ url, options });
+            return { ok: true, status: 200, text: async () => '<div>routes</div>' };
+        },
+        setTimeout: callback => {
+            nextTimeoutId += 1;
+            scheduledCallbacks.set(nextTimeoutId, callback);
+            return nextTimeoutId;
+        },
+        clearTimeout: timeoutId => { scheduledCallbacks.delete(timeoutId); },
         JSON,
         Intl,
         window: {
@@ -1266,6 +1301,12 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         saveButton,
         saveForm,
         storage,
+        fetches,
+        async flushTimers() {
+            const callbacks = Array.from(scheduledCallbacks.values());
+            scheduledCallbacks.clear();
+            for (const callback of callbacks) await callback();
+        },
         // The restore fetch resolves over a few microtask turns.
         async settleRestore() {
             for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
@@ -1289,7 +1330,9 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
             body.dispatchEvent(Object.assign(fakeEvent('htmx:responseError'), { detail: { elt, xhr } }));
         },
         finishCalculation(xhr, { hasRoutes = true } = {}) {
-            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail: { target: resultsSection, xhr } }));
+            const detail = { target: resultsSection, xhr, shouldSwap: true };
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail }));
+            if (!detail.shouldSwap) return;
             resultsSection.children.forEach(child => { child.parentNode = null; });
             resultsSection.children = [];
             if (hasRoutes) {
@@ -1375,6 +1418,32 @@ test('requestSubmit rechecks live planner inputs even when no change event fired
     });
 });
 
+test('a queued participant move is discarded when planner inputs become stale', async () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.context.moveParticipant(1, 0, 1);
+    planner.routeTime.value = '16:00';
+    planner.change(planner.routeTime);
+    await planner.flushTimers();
+
+    assert.equal(planner.fetches.some(request => request.url === '/api/v1/routes/edit/move-participant'), false);
+});
+
+test('a queued participant move rechecks unannounced input changes before posting', async () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.context.moveParticipant(1, 0, 1);
+    planner.routeTime.value = '16:00';
+    await planner.flushTimers();
+
+    assert.deepEqual({
+        movePosted: planner.fetches.some(request => request.url === '/api/v1/routes/edit/move-participant'),
+        saveDisabled: planner.saveButton.disabled,
+    }, { movePosted: false, saveDisabled: true });
+});
+
 test('reverting a route-defining input re-enables saving without touching server-disabled controls', () => {
     const planner = bootPlanner();
 
@@ -1430,6 +1499,16 @@ test('clearing all selections restores the dropoff route-time copy', () => {
         dropoffChecked: true,
         pickupChecked: false,
     });
+});
+
+test('clearing all ignores a calculation response that arrives afterward', () => {
+    const planner = bootPlanner();
+
+    const lateCalculation = planner.startCalculation();
+    planner.context.clearSelections();
+    planner.finishCalculation(lateCalculation);
+
+    assert.equal(planner.resultsSection.querySelector('.routes-container'), null);
 });
 
 test('a route edit render carries the entered event date and notes onto the replacement form', () => {
@@ -1812,5 +1891,21 @@ test('a restored session whose inputs moved on is restored stale', async () => {
         saveDisabled: true,
         banner: 'Plan changed — recalculate routes before copying or saving them.',
         storedSession: null,
+    });
+});
+
+test('a legacy active session is restored and migrated to the fingerprinted key', async () => {
+    const planner = bootPlanner({ legacySessionId: 'legacy-session' });
+
+    await planner.settleRestore();
+
+    assert.deepEqual({
+        restored: planner.fetches.some(request => request.url === '/api/v1/routes/session?session_id=legacy-session'),
+        legacy: planner.storage.getItem('ride-home-router:active-session-id'),
+        active: storedSessionId(planner),
+    }, {
+        restored: true,
+        legacy: null,
+        active: 'legacy-session',
     });
 });
