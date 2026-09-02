@@ -134,6 +134,36 @@ func TestCancelDuringStalledApplyMappingDoesNotBlockStore(t *testing.T) {
 	}
 }
 
+func TestCanceledApplyMappingRequestLeavesSessionRetryable(t *testing.T) {
+	db := newFakeDataStore()
+	db.participants.beforeList = func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, addressCSV("Rider", "1 Main St"))
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := store.ApplyMapping(ctx, created.ID, AutoMap(grid.Headers)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplyMapping() error = %v, want context.Canceled", err)
+	}
+	snapshot, ok := store.Snapshot(created.ID)
+	if !ok || snapshot.Status != StatusMapping {
+		t.Fatalf("session after canceled request: ok=%v status=%s, want mapping", ok, snapshot.Status)
+	}
+
+	db.participants.beforeList = nil
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("retry ApplyMapping() error = %v", err)
+	}
+}
+
 func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	db := newFakeDataStore()
 	store := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
@@ -233,8 +263,11 @@ func TestCommitUsesLatestStoredSelection(t *testing.T) {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	waitForGeocoding(t, store, created.ID)
+	if _, err := store.SelectRows(created.ID, []bool{true, true}); err != nil {
+		t.Fatalf("first SelectRows() error = %v", err)
+	}
 	if _, err := store.SelectRows(created.ID, []bool{true, false}); err != nil {
-		t.Fatalf("SelectRows() error = %v", err)
+		t.Fatalf("latest SelectRows() error = %v", err)
 	}
 
 	result, err := store.Commit(context.Background(), created.ID)

@@ -152,7 +152,7 @@ func (s *Store) Create(kind Kind, filename string, grid *Grid) (Snapshot, error)
 		status: StatusMapping, createdAt: now, lastAccessedAt: now, ctx: ctx, cancel: cancel,
 	}
 
-	snapshot := snapshotOf(state)
+	var snapshot Snapshot
 	for attempts := 0; ; attempts++ {
 		s.mu.Lock()
 		if s.closed {
@@ -161,6 +161,7 @@ func (s *Store) Create(kind Kind, filename string, grid *Grid) (Snapshot, error)
 			return Snapshot{}, ErrStoreClosed
 		}
 		if len(s.sessions) < MaxConcurrentSessions {
+			snapshot = snapshotOf(state)
 			s.sessions[id] = state
 			s.mu.Unlock()
 			break
@@ -209,6 +210,9 @@ func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (S
 	defer func() {
 		stopCancel()
 		cancel()
+		state.mu.Lock()
+		state.applying = false
+		state.mu.Unlock()
 		s.jobs.Done()
 	}()
 
@@ -222,11 +226,13 @@ func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (S
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	state.applying = false
 	if state.deleted {
 		return Snapshot{}, ErrSessionNotFound
 	}
 	if err != nil {
+		if ctx.Err() != nil && state.ctx.Err() == nil {
+			return snapshotOf(state), err
+		}
 		state.status = StatusFailed
 		state.failure = "could not load the current roster"
 		return snapshotOf(state), fmt.Errorf("load current roster for import: %w", err)
@@ -570,45 +576,51 @@ func (s *Store) lockSession(id string) (*session, error) {
 }
 
 func (s *Store) evictOldest() bool {
-	s.mu.Lock()
-	states := make([]*session, 0, len(s.sessions))
-	for _, state := range s.sessions {
-		states = append(states, state)
-	}
-	s.mu.Unlock()
-
-	var oldest *session
-	var oldestAccess time.Time
-	deletionPending := false
-	for _, state := range states {
-		state.mu.Lock()
-		eligible := !state.deleted && state.status != StatusCommitting
-		deletionPending = deletionPending || state.deleted
-		lastAccessedAt := state.lastAccessedAt
-		state.mu.Unlock()
-		if eligible && (oldest == nil || lastAccessedAt.Before(oldestAccess)) {
-			oldest = state
-			oldestAccess = lastAccessedAt
+	for range MaxConcurrentSessions {
+		s.mu.Lock()
+		states := make([]*session, 0, len(s.sessions))
+		for _, state := range s.sessions {
+			states = append(states, state)
 		}
-	}
-	if deletionPending {
-		// A deletion has claimed a mapped session and will remove it without
-		// holding the session lock. Let Create retry instead of evicting twice.
+		s.mu.Unlock()
+
+		var oldest *session
+		var oldestAccess time.Time
+		deleted := make([]*session, 0, len(states))
+		for _, state := range states {
+			state.mu.Lock()
+			eligible := !state.deleted && state.status != StatusCommitting
+			lastAccessedAt := state.lastAccessedAt
+			if state.deleted {
+				deleted = append(deleted, state)
+			}
+			state.mu.Unlock()
+			if eligible && (oldest == nil || lastAccessedAt.Before(oldestAccess)) {
+				oldest = state
+				oldestAccess = lastAccessedAt
+			}
+		}
+		if len(deleted) > 0 {
+			for _, state := range deleted {
+				s.removeSession(state.id, state)
+			}
+			return true
+		}
+		if oldest == nil {
+			return false
+		}
+		oldest.mu.Lock()
+		if oldest.deleted || oldest.status == StatusCommitting || !oldest.lastAccessedAt.Equal(oldestAccess) {
+			oldest.mu.Unlock()
+			continue
+		}
+		oldest.deleted = true
+		oldest.cancel()
+		clearSessionData(oldest)
+		oldest.mu.Unlock()
+		s.removeSession(oldest.id, oldest)
 		return true
 	}
-	if oldest == nil {
-		return false
-	}
-	oldest.mu.Lock()
-	if oldest.deleted || oldest.status == StatusCommitting || !oldest.lastAccessedAt.Equal(oldestAccess) {
-		oldest.mu.Unlock()
-		return false
-	}
-	oldest.deleted = true
-	oldest.cancel()
-	clearSessionData(oldest)
-	oldest.mu.Unlock()
-	s.removeSession(oldest.id, oldest)
 	return true
 }
 
