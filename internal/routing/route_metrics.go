@@ -235,10 +235,15 @@ func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.Lookup, insti
 	}
 	optimized := routes[driverID].stops
 
-	route.Stops = make([]models.RouteStop, len(optimized))
+	working := *route
+	working.Stops = make([]models.RouteStop, len(optimized))
 	for i, participant := range optimized {
-		route.Stops[i].Participant = participant
+		working.Stops[i].Participant = participant
+	}
+	if err := PopulateRouteMetrics(ctx, distanceCalc, instituteCoords, mode, &working); err != nil {
+		return err
 	}
 
-	return PopulateRouteMetrics(ctx, distanceCalc, instituteCoords, mode, route)
+	*route = working
+	return nil
 }

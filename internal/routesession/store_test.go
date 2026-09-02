@@ -458,6 +458,23 @@ func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestDeletePreservesSuccessfulCommitMarker(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	created := store.Create(testInput())
+
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
+		t.Fatalf("Commit error = %v", err)
+	}
+	store.Delete(created.ID)
+	if err := store.Commit(context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error {
+		t.Fatal("Commit invoked persistence after Delete removed a committed marker")
+		return nil
+	}); !errors.Is(err, routesession.ErrAlreadyCommitted) {
+		t.Fatalf("Commit after Delete error = %v, want ErrAlreadyCommitted", err)
+	}
+}
+
 func TestCommitWaitsForInFlightEditAndPersistsItsResult(t *testing.T) {
 	calc := newBlockingCalculator()
 	defer calc.unblock()
@@ -622,6 +639,31 @@ func TestStoreSupportsConcurrentSnapshotsAndResets(t *testing.T) {
 	wait.Wait()
 	if _, ok := store.Snapshot(created.ID); !ok {
 		t.Fatal("session disappeared during concurrent access")
+	}
+}
+
+func TestStoreSupportsConcurrentCreationAndAccessAtCapacity(t *testing.T) {
+	store := routesession.NewStore(calculator{})
+	t.Cleanup(store.Close)
+	ids := make([]string, 0, routesession.MaxConcurrentSessions)
+	for range routesession.MaxConcurrentSessions {
+		ids = append(ids, store.Create(routesession.CreateInput{}).ID)
+	}
+
+	var wait sync.WaitGroup
+	for worker := range 16 {
+		wait.Go(func() {
+			for i := range 16 {
+				_, _ = store.Snapshot(ids[(worker+i)%len(ids)])
+				store.Create(routesession.CreateInput{})
+			}
+		})
+	}
+	wait.Wait()
+
+	newest := store.Create(routesession.CreateInput{})
+	if _, ok := store.Snapshot(newest.ID); !ok {
+		t.Fatal("new session disappeared after concurrent capacity eviction")
 	}
 }
 
