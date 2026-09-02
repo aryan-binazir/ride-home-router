@@ -52,7 +52,8 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		{Driver: firstDriver, Stops: []models.RouteStop{{Participant: firstRider}}, EffectiveCapacity: 3, Mode: models.RouteModeDropoff},
 		{Driver: secondDriver, Stops: []models.RouteStop{{Participant: secondRider}}, EffectiveCapacity: 3, Mode: models.RouteModeDropoff},
 	}, Summary: models.RoutingSummary{TotalParticipants: 2, TotalDriversUsed: 2}, Mode: models.RouteModeDropoff}
-	handler.Router = &captureRouter{result: calculatedResult}
+	router := &captureRouter{result: calculatedResult}
+	handler.Router = router
 
 	locationResponse := postMobileForm(t, nil, "/m/plan/location", url.Values{"location_id": {fmt.Sprint(location.ID)}}, handler.HandleMobileLocation)
 	cookies := locationResponse.Result().Cookies()
@@ -76,6 +77,9 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 
 	calculateResponse := postMobileForm(t, draftCookie, "/m/calculate", nil, handler.HandleMobileCalculate)
 	assertMobileRedirect(t, calculateResponse, "/m/routes")
+	if _, ok := router.lastContext.Deadline(); !ok {
+		t.Fatal("expected mobile route calculation context to have a deadline")
+	}
 	draft, ok := handler.PlanDraft.Get(draftCookie.Value)
 	if !ok {
 		t.Fatal("calculated draft was not found")
@@ -148,6 +152,43 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	}
 	assertMobilePage(t, draftCookie, "/m/history", handler.HandleMobileHistory, "Mobile test event")
 	assertMobilePage(t, draftCookie, saveResponse.Header().Get("Location"), handler.HandleMobileHistoryDetail, "Copy for parents")
+}
+
+func TestMobileCalculate_CanceledSolveReturnsTimeoutMessage(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	ctx := context.Background()
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "1 Event Rd", Lat: 1, Lng: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "2 Rider Rd", Lat: 2, Lng: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "3 Driver Rd", Lat: 3, Lng: 3, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
+		d.LocationID = location.ID
+		d.ParticipantIDs = []int64{participant.ID}
+		d.DriverIDs = []int64{driver.ID}
+		d.RouteTime = "18:30"
+		d.Mode = string(models.RouteModeDropoff)
+	})
+	handler.Router = &captureRouter{err: context.Canceled}
+
+	response := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+	target, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	if response.Code != http.StatusSeeOther || target.Path != "/m" || target.Query().Get("error") != messageCalculationTimedOut {
+		t.Fatalf("response = %d location=%q, want timeout redirect", response.Code, response.Header().Get("Location"))
+	}
 }
 
 func TestFormatSavedMobileHandoffKeepsParentCopyPrivate(t *testing.T) {

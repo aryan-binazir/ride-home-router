@@ -9,7 +9,10 @@ import (
 
 // prepareSolveDistances prewarms and memoizes one solve's directed pairs.
 func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {
-	pairs := collectSolveDistancePairs(normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
+	pairs, err := collectSolveDistancePairs(ctx, normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
+	if err != nil {
+		return nil, err
+	}
 	if len(pairs) > 0 {
 		if err := source.PrewarmPairs(ctx, pairs); err != nil {
 			return nil, err
@@ -22,7 +25,11 @@ func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req
 	}, nil
 }
 
-func collectSolveDistancePairs(mode RouteMode, institute models.Coordinates, participants []models.Participant, drivers []models.Driver) []distance.DistancePair {
+func collectSolveDistancePairs(ctx context.Context, mode RouteMode, institute models.Coordinates, participants []models.Participant, drivers []models.Driver) ([]distance.DistancePair, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	seen := make(map[string]struct{})
 	pairs := make([]distance.DistancePair, 0)
 
@@ -40,22 +47,34 @@ func collectSolveDistancePairs(mode RouteMode, institute models.Coordinates, par
 
 	participantCoords := make([]models.Coordinates, len(participants))
 	for i := range participants {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		participantCoords[i] = participants[i].GetCoords()
 	}
 
 	driverCoords := make([]models.Coordinates, len(drivers))
 	for i := range drivers {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		driverCoords[i] = drivers[i].GetCoords()
 	}
 
 	if mode == RouteModePickup {
 		for _, driverCoord := range driverCoords {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			for _, participantCoord := range participantCoords {
 				addPair(driverCoord, participantCoord)
 			}
 			addPair(driverCoord, institute)
 		}
 		for i := range participantCoords {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			for j := range participantCoords {
 				if i == j {
 					continue
@@ -64,13 +83,19 @@ func collectSolveDistancePairs(mode RouteMode, institute models.Coordinates, par
 			}
 			addPair(participantCoords[i], institute)
 		}
-		return pairs
+		return pairs, nil
 	}
 
 	for _, participantCoord := range participantCoords {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		addPair(institute, participantCoord)
 	}
 	for i := range participantCoords {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		for j := range participantCoords {
 			if i == j {
 				continue
@@ -82,10 +107,13 @@ func collectSolveDistancePairs(mode RouteMode, institute models.Coordinates, par
 		}
 	}
 	for _, driverCoord := range driverCoords {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		addPair(institute, driverCoord)
 	}
 
-	return pairs
+	return pairs, nil
 }
 
 // solveDistanceLookup is isolated to one synchronous routing solve.
@@ -95,6 +123,12 @@ type solveDistanceLookup struct {
 }
 
 func (l *solveDistanceLookup) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	key := distance.PairCacheKey(origin, dest)
 	if cached, ok := l.values[key]; ok {
 		result := cached

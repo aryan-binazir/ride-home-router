@@ -52,7 +52,7 @@ func BenchmarkCollectSolveDistancePairs(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = collectSolveDistancePairs(RouteModePickup, req.InstituteCoords, req.Participants, req.Drivers)
+		_, _ = collectSolveDistancePairs(context.Background(), RouteModePickup, req.InstituteCoords, req.Participants, req.Drivers)
 	}
 }
 
@@ -174,6 +174,46 @@ func TestBalancedRouter_ReturnsErrorForMissingDistanceResult(t *testing.T) {
 	_, err := NewBalancedRouter(calc).CalculateRoutes(context.Background(), solveDistanceTestRequest())
 	if err == nil {
 		t.Fatal("CalculateRoutes() error = nil, want missing distance result error")
+	}
+}
+
+func TestBalancedRouter_PreCanceledContextStopsCalculation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := NewBalancedRouter(&recordingSolveSource{}).CalculateRoutes(ctx, solveDistanceTestRequest())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CalculateRoutes() error = %v, want %v", err, context.Canceled)
+	}
+}
+
+func TestCollectSolveDistancePairs_StopsForCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	pairs, err := collectSolveDistancePairs(ctx, RouteModeDropoff, models.Coordinates{}, make([]models.Participant, 500), make([]models.Driver, 500))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("collectSolveDistancePairs() error = %v, want %v", err, context.Canceled)
+	}
+	if pairs != nil {
+		t.Fatalf("collectSolveDistancePairs() returned %d pairs after cancellation", len(pairs))
+	}
+}
+
+func TestSolveDistanceLookup_CanceledContextOverridesMemoizedResult(t *testing.T) {
+	origin := models.Coordinates{Lat: 1, Lng: 2}
+	destination := models.Coordinates{Lat: 3, Lng: 4}
+	lookup := &solveDistanceLookup{
+		values: map[string]distance.DistanceResult{
+			distance.PairCacheKey(origin, destination): {DistanceMeters: 100},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := lookup.GetDistance(ctx, origin, destination)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetDistance() error = %v, want %v", err, context.Canceled)
 	}
 }
 

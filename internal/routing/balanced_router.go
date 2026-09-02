@@ -10,6 +10,7 @@ import (
 	"ride-home-router/internal/models"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,6 +23,7 @@ type BalancedRouter struct {
 const (
 	scoreImprovementEpsilon           = 0.001
 	maxAssignmentCandidateEvaluations = 10000
+	maxHouseholdPackingSearchNodes    = 10000
 	maxNonemptyRouteSearchNodes       = 10000
 )
 
@@ -84,7 +86,11 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	// Phase 1 builds a feasible bearing-sweep seed.
 	phase1Start := time.Now()
 	seedName := "bearing-sweep"
-	if r.bearingSweepInsertion(req.InstituteCoords, routes, driverIDs, unassigned) {
+	seeded, err := r.bearingSweepInsertion(ctx, req.InstituteCoords, routes, driverIDs, unassigned)
+	if err != nil {
+		return nil, err
+	}
+	if seeded {
 		unassigned = nil
 	} else {
 		seedName = "round-robin fallback"
@@ -154,18 +160,18 @@ type balancedRoute struct {
 
 // bearingSweepInsertion matches household arcs to nearby driver bearings.
 // It commits only a complete sweep.
-func (r *BalancedRouter) bearingSweepInsertion(institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) bool {
+func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) (bool, error) {
 	if len(unassigned) == 0 {
-		return true
+		return true, nil
 	}
 	if len(driverIDs) == 0 {
-		return false
+		return false, nil
 	}
 
 	groups := bearingSweepGroups(institute, unassigned)
 	workingRoutes := cloneBalancedRoutes(routes, driverIDs)
 	if len(workingRoutes) != len(driverIDs) {
-		return false
+		return false, nil
 	}
 
 	orderedDriverIDs := slices.Clone(driverIDs)
@@ -186,7 +192,7 @@ func (r *BalancedRouter) bearingSweepInsertion(institute models.Coordinates, rou
 	for len(groups) > 0 {
 		driverID, ok := closestUnusedDriverByBearing(institute, groups[0], workingRoutes, orderedDriverIDs, usedDrivers, rejectedForGroup)
 		if !ok {
-			return false
+			return false, nil
 		}
 		route := workingRoutes[driverID]
 		arcHasGroup := false
@@ -214,7 +220,11 @@ func (r *BalancedRouter) bearingSweepInsertion(institute models.Coordinates, rou
 			if arcHasGroup && remainingGroupCount < remainingUnusedDrivers {
 				break
 			}
-			if !assignmentPreservesCapacityFeasibility(workingRoutes, driverID, groups, 0, assignedCount, splittableHouseholds) {
+			feasible, err := assignmentPreservesCapacityFeasibility(ctx, workingRoutes, driverID, groups, 0, assignedCount, splittableHouseholds)
+			if err != nil {
+				return false, err
+			}
+			if !feasible {
 				break
 			}
 
@@ -236,12 +246,12 @@ func (r *BalancedRouter) bearingSweepInsertion(institute models.Coordinates, rou
 	}
 
 	if reserveEveryDriver && len(driversWithGroups) != len(orderedDriverIDs) {
-		return false
+		return false, nil
 	}
 	for _, driverID := range orderedDriverIDs {
 		routes[driverID].stops = workingRoutes[driverID].stops
 	}
-	return true
+	return true, nil
 }
 
 func bearingSweepGroups(institute models.Coordinates, participants []*models.Participant) []*participantGroup {
@@ -377,6 +387,12 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 
 		var search func(int64, map[int64][]*models.Participant, map[int64]struct{}) error
 		search = func(emptyDriverID int64, workingStops map[int64][]*models.Participant, visited map[int64]struct{}) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			if searchNodes >= maxNonemptyRouteSearchNodes {
 				budgetExhausted = true
 				return nil
@@ -527,7 +543,11 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 			if groupSize > remainingCapacity {
 				continue
 			}
-			if !assignmentPreservesCapacityFeasibility(routes, currentDriverID, groups, groupIdx, groupSize, splittableHouseholds) {
+			feasible, err := assignmentPreservesCapacityFeasibility(ctx, routes, currentDriverID, groups, groupIdx, groupSize, splittableHouseholds)
+			if err != nil {
+				return nil, err
+			}
+			if !feasible {
 				continue
 			}
 
@@ -555,7 +575,11 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 				if _, ok := splittableHouseholds[participantGroupKey(group)]; !ok {
 					continue
 				}
-				if !assignmentPreservesCapacityFeasibility(routes, currentDriverID, groups, groupIdx, 1, splittableHouseholds) {
+				feasible, err := assignmentPreservesCapacityFeasibility(ctx, routes, currentDriverID, groups, groupIdx, 1, splittableHouseholds)
+				if err != nil {
+					return nil, err
+				}
+				if !feasible {
 					continue
 				}
 
@@ -786,6 +810,12 @@ func (rc routeContext) optimizeStopsForSolution(
 	currentMetrics := make(map[int64]routeObjectiveMetrics, len(baseMetrics))
 	maps.Copy(currentMetrics, baseMetrics)
 	for driverID, stops := range changedStops {
+		select {
+		case <-ctx.Done():
+			return nil, nil, solutionScore{}, ctx.Err()
+		default:
+		}
+
 		stops = coalesceHouseholdStops(stops)
 		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, stops)
 		if err != nil {
@@ -798,6 +828,12 @@ func (rc routeContext) optimizeStopsForSolution(
 	currentScore := scoreSolution(currentMetrics, driverIDs)
 	const maxOrderIterations = 50
 	for range maxOrderIterations {
+		select {
+		case <-ctx.Done():
+			return nil, nil, solutionScore{}, ctx.Err()
+		default:
+		}
+
 		bestDriverID := int64(0)
 		var bestStops []*models.Participant
 		var bestMetrics routeObjectiveMetrics
@@ -812,6 +848,12 @@ func (rc routeContext) optimizeStopsForSolution(
 			blocks := routeHouseholdBlocks(stops)
 			for i := 0; i < len(blocks)-1; i++ {
 				for j := i + 2; j <= len(blocks); j++ {
+					select {
+					case <-ctx.Done():
+						return nil, nil, solutionScore{}, ctx.Err()
+					default:
+					}
+
 					candidateBlocks := append([]*participantGroup(nil), blocks...)
 					reverseParticipantGroups(candidateBlocks, i, j-1)
 					candidateStops := flattenParticipantGroups(candidateBlocks)
@@ -861,6 +903,12 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 	candidateEvaluations := 0
 	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
 	for _, driverID := range driverIDs {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+
 		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
 		if err != nil {
 			return 0, err
@@ -870,18 +918,28 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 
 	const maxIterations = 50
 	for iteration := range maxIterations {
+		select {
+		case <-ctx.Done():
+			return iteration, ctx.Err()
+		default:
+		}
+
 		currentScore := scoreSolution(routeMetrics, driverIDs)
 		best := assignmentChange{}
 		budgetExhausted := false
 
-		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant, countsTowardBudget bool) error {
-			if countsTowardBudget {
-				if candidateEvaluations >= maxAssignmentCandidateEvaluations {
-					budgetExhausted = true
-					return nil
-				}
-				candidateEvaluations++
+		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
 			}
+
+			if candidateEvaluations >= maxAssignmentCandidateEvaluations {
+				budgetExhausted = true
+				return nil
+			}
+			candidateEvaluations++
 
 			optimizedStops, _, candidateScore, err := rc.optimizeStopsForSolution(
 				ctx,
@@ -911,7 +969,8 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			return nil
 		}
 
-		// Check route-activating moves before the bounded candidate budget.
+		// Check route-activating moves first, within the shared candidate budget.
+	routeActivationSearch:
 		for _, sourceDriverID := range driverIDs {
 			sourceRoute := routes[sourceDriverID]
 			sourceBlocks := routeHouseholdBlocks(sourceRoute.stops)
@@ -922,21 +981,30 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			for _, sourceGroup := range sourceBlocks {
 				groupSize := len(sourceGroup.members)
 				for _, destinationDriverID := range driverIDs {
+					select {
+					case <-ctx.Done():
+						return iteration, ctx.Err()
+					default:
+					}
+
 					destinationRoute := routes[destinationDriverID]
 					if len(destinationRoute.stops) != 0 || groupSize > destinationRoute.driver.VehicleCapacity {
 						continue
 					}
 					newSourceStops := removeRange(sourceRoute.stops, sourcePosition, sourcePosition+groupSize)
 					newDestinationStops := slices.Clone(sourceGroup.members)
-					if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops, false); err != nil {
+					if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops); err != nil {
 						return iteration, err
+					}
+					if budgetExhausted {
+						break routeActivationSearch
 					}
 				}
 				sourcePosition += groupSize
 			}
 		}
 
-		if !best.found {
+		if !best.found && !budgetExhausted {
 		relocationSearch:
 			for _, sourceDriverID := range driverIDs {
 				sourceRoute := routes[sourceDriverID]
@@ -945,6 +1013,12 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 				for _, sourceGroup := range sourceBlocks {
 					groupSize := len(sourceGroup.members)
 					for _, destinationDriverID := range driverIDs {
+						select {
+						case <-ctx.Done():
+							return iteration, ctx.Err()
+						default:
+						}
+
 						if destinationDriverID == sourceDriverID {
 							continue
 						}
@@ -956,7 +1030,7 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 						for _, destinationPosition := range householdBoundaryPositions(destinationRoute.stops) {
 							newSourceStops := removeRange(sourceRoute.stops, sourcePosition, sourcePosition+groupSize)
 							newDestinationStops := insertGroupAt(destinationRoute.stops, sourceGroup, destinationPosition)
-							if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops, true); err != nil {
+							if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops); err != nil {
 								return iteration, err
 							}
 							if budgetExhausted {
@@ -978,15 +1052,27 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 				for _, firstGroup := range routeHouseholdBlocks(firstRoute.stops) {
 					firstSize := len(firstGroup.members)
 					for _, secondDriverID := range driverIDs[firstIndex+1:] {
+						select {
+						case <-ctx.Done():
+							return iteration, ctx.Err()
+						default:
+						}
+
 						secondRoute := routes[secondDriverID]
 						secondPosition := 0
 						for _, secondGroup := range routeHouseholdBlocks(secondRoute.stops) {
+							select {
+							case <-ctx.Done():
+								return iteration, ctx.Err()
+							default:
+							}
+
 							secondSize := len(secondGroup.members)
 							if len(firstRoute.stops)-firstSize+secondSize <= firstRoute.driver.VehicleCapacity &&
 								len(secondRoute.stops)-secondSize+firstSize <= secondRoute.driver.VehicleCapacity {
 								newFirstStops := replaceRangeWithGroup(firstRoute.stops, firstPosition, firstPosition+firstSize, secondGroup)
 								newSecondStops := replaceRangeWithGroup(secondRoute.stops, secondPosition, secondPosition+secondSize, firstGroup)
-								if err := consider(firstDriverID, secondDriverID, newFirstStops, newSecondStops, true); err != nil {
+								if err := consider(firstDriverID, secondDriverID, newFirstStops, newSecondStops); err != nil {
 									return iteration, err
 								}
 								if budgetExhausted {
@@ -1248,7 +1334,13 @@ func maxRouteVehicleCapacity(routes map[int64]*balancedRoute) int {
 	return maxCapacity
 }
 
-func assignmentPreservesCapacityFeasibility(routes map[int64]*balancedRoute, currentDriverID int64, groups []*participantGroup, assignedGroupIndex, assignedCount int, splittableHouseholds map[string]struct{}) bool {
+func assignmentPreservesCapacityFeasibility(ctx context.Context, routes map[int64]*balancedRoute, currentDriverID int64, groups []*participantGroup, assignedGroupIndex, assignedCount int, splittableHouseholds map[string]struct{}) (bool, error) {
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
 	capacities := make([]int, 0, len(routes))
 	totalCapacity := 0
 	for driverID, route := range routes {
@@ -1257,7 +1349,7 @@ func assignmentPreservesCapacityFeasibility(routes map[int64]*balancedRoute, cur
 			capacity -= assignedCount
 		}
 		if capacity < 0 {
-			return false
+			return false, nil
 		}
 		capacities = append(capacities, capacity)
 		totalCapacity += capacity
@@ -1280,15 +1372,20 @@ func assignmentPreservesCapacityFeasibility(routes map[int64]*balancedRoute, cur
 		}
 	}
 	if remainingParticipants > totalCapacity {
-		return false
+		return false, nil
 	}
 
-	return canPackAtomicGroupSizes(atomicSizes, capacities)
+	return canPackAtomicGroupSizes(ctx, atomicSizes, capacities)
 }
 
-func canPackAtomicGroupSizes(groupSizes []int, capacities []int) bool {
+type householdPackingState struct {
+	groupIndex          int
+	remainingCapacities string
+}
+
+func canPackAtomicGroupSizes(ctx context.Context, groupSizes []int, capacities []int) (bool, error) {
 	if len(groupSizes) == 0 {
-		return true
+		return true, nil
 	}
 
 	groupSizes = slices.Clone(groupSizes)
@@ -1296,10 +1393,30 @@ func canPackAtomicGroupSizes(groupSizes []int, capacities []int) bool {
 	sort.Sort(sort.Reverse(sort.IntSlice(groupSizes)))
 	sort.Sort(sort.Reverse(sort.IntSlice(capacities)))
 
-	var pack func(int) bool
-	pack = func(groupIndex int) bool {
+	failedStates := make(map[householdPackingState]struct{})
+	searchNodes := 0
+	var pack func(int) (bool, error)
+	pack = func(groupIndex int) (bool, error) {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
+
+		searchNodes++
+		if searchNodes > maxHouseholdPackingSearchNodes {
+			return false, nil
+		}
 		if groupIndex == len(groupSizes) {
-			return true
+			return true, nil
+		}
+
+		state := householdPackingState{
+			groupIndex:          groupIndex,
+			remainingCapacities: normalizedCapacitiesKey(capacities),
+		}
+		if _, failed := failedStates[state]; failed {
+			return false, nil
 		}
 
 		size := groupSizes[groupIndex]
@@ -1310,17 +1427,33 @@ func canPackAtomicGroupSizes(groupSizes []int, capacities []int) bool {
 			}
 
 			capacities[i] -= size
-			if pack(groupIndex + 1) {
-				return true
-			}
+			packed, err := pack(groupIndex + 1)
 			capacities[i] += size
+			if err != nil {
+				return false, err
+			}
+			if packed {
+				return true, nil
+			}
 			lastTriedCapacity = capacity
 		}
 
-		return false
+		failedStates[state] = struct{}{}
+		return false, nil
 	}
 
 	return pack(0)
+}
+
+func normalizedCapacitiesKey(capacities []int) string {
+	normalized := slices.Clone(capacities)
+	sort.Sort(sort.Reverse(sort.IntSlice(normalized)))
+	key := make([]byte, 0, len(normalized)*3)
+	for _, capacity := range normalized {
+		key = strconv.AppendInt(key, int64(capacity), 10)
+		key = append(key, ',')
+	}
+	return string(key)
 }
 
 func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int) []*models.Participant {

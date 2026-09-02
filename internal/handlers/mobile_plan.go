@@ -354,8 +354,18 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice := h.mobileDraft(w, r)
+	if len(draft.ParticipantIDs) > plandraft.MaxSelectionSize || len(draft.DriverIDs) > plandraft.MaxSelectionSize {
+		h.mobileRedirectError(w, r, "/m", mobileSelectionLimitMessage())
+		return
+	}
+	calculationCtx, cancel := context.WithTimeout(r.Context(), routeSolveTimeout)
+	defer cancel()
 	var err error
-	draft, notice, err = h.pruneMobileDraft(r.Context(), id, draft, notice)
+	draft, notice, err = h.pruneMobileDraft(calculationCtx, id, draft, notice)
+	if timeoutErr := routeCalculationTimeoutError(calculationCtx, err); timeoutErr != nil {
+		h.mobileRedirectError(w, r, "/m", messageCalculationTimedOut)
+		return
+	}
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Plan not found")
 		return
@@ -377,10 +387,14 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", messageInvalidRouteMode)
 		return
 	}
-	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(r.Context(), routeCalculationInput{
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs: draft.ParticipantIDs, DriverIDs: draft.DriverIDs, ActivityLocationID: draft.LocationID,
 		RouteTime: draft.RouteTime, Mode: mode, OrgVehicleAssignments: draft.DriverVehicleIDs,
 	})
+	if timeoutErr := routeCalculationTimeoutError(calculationCtx, outcome.Err); timeoutErr != nil {
+		h.mobileRedirectError(w, r, "/m", messageCalculationTimedOut)
+		return
+	}
 	if outcome.Kind != routeCalculationSuccess {
 		message := "Could not calculate routes."
 		if outcome.Err != nil {

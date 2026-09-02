@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"ride-home-router/internal/distance"
@@ -362,13 +363,23 @@ func TestRoundRobinInsertion_ReservesOnlyFittingVehicleForHousehold(t *testing.T
 	}
 }
 
+func TestCanPackAtomicGroupSizes_RejectsImpossiblePacking(t *testing.T) {
+	feasible, err := canPackAtomicGroupSizes(context.Background(), []int{3, 3}, []int{4, 2})
+	if err != nil {
+		t.Fatalf("canPackAtomicGroupSizes() error = %v", err)
+	}
+	if feasible {
+		t.Fatal("canPackAtomicGroupSizes() = true, want false")
+	}
+}
+
 func TestBearingSweepInsertion_AssignsClearBearingClustersToMatchingDrivers(t *testing.T) {
 	routes, participants := bearingSweepFixture(
 		[]float64{85, 95, 265, 275},
 		[]bearingSweepDriver{{id: 1, bearing: 90, capacity: 2}, {id: 2, bearing: 270, capacity: 2}},
 	)
 
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2}, participants); !ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), models.Coordinates{}, routes, []int64{1, 2}, participants); err != nil || !ok {
 		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
 	}
 	assertSweepRouteParticipantIDs(t, routes[1], 1, 2)
@@ -381,7 +392,7 @@ func TestBearingSweepInsertion_MatchesDriverByHomeBearingNotDriverOrder(t *testi
 		[]bearingSweepDriver{{id: 1, bearing: 270, capacity: 2}, {id: 2, bearing: 90, capacity: 2}},
 	)
 
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2}, participants); !ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), models.Coordinates{}, routes, []int64{1, 2}, participants); err != nil || !ok {
 		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
 	}
 	assertSweepRouteParticipantIDs(t, routes[2], 1, 2)
@@ -394,7 +405,7 @@ func TestBearingSweepInsertion_KeepsWraparoundClusterContiguous(t *testing.T) {
 		[]bearingSweepDriver{{id: 1, bearing: 355, capacity: 2}, {id: 2, bearing: 5, capacity: 2}},
 	)
 
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2}, participants); !ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), models.Coordinates{}, routes, []int64{1, 2}, participants); err != nil || !ok {
 		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
 	}
 	assertSweepRouteParticipantIDs(t, routes[1], 1, 2)
@@ -407,7 +418,7 @@ func TestBearingSweepInsertion_ReservesOneGroupPerRemainingDriver(t *testing.T) 
 		[]bearingSweepDriver{{id: 1, bearing: 0, capacity: 3}, {id: 2, bearing: 10, capacity: 3}, {id: 3, bearing: 20, capacity: 3}},
 	)
 
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{1, 2, 3}, participants); !ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), models.Coordinates{}, routes, []int64{1, 2, 3}, participants); err != nil || !ok {
 		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
 	}
 	for _, driverID := range []int64{1, 2, 3} {
@@ -433,7 +444,7 @@ func TestBearingSweepInsertion_DeterministicTieBreaks(t *testing.T) {
 		[]float64{0},
 		[]bearingSweepDriver{{id: 2, bearing: 0, capacity: 1}, {id: 1, bearing: 0, capacity: 1}},
 	)
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(models.Coordinates{}, routes, []int64{2, 1}, oneGroup); !ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), models.Coordinates{}, routes, []int64{2, 1}, oneGroup); err != nil || !ok {
 		t.Fatal("bearingSweepInsertion() failed, want a complete sweep seed")
 	}
 	assertSweepRouteParticipantIDs(t, routes[1], 1)
@@ -454,7 +465,7 @@ func TestBearingSweepInsertion_DoesNotBurnDriverOnUnfittingGroup(t *testing.T) {
 		small.ID: {driver: small},
 		large.ID: {driver: large},
 	}
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(institute, routes, []int64{small.ID, large.ID}, participants); !ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), institute, routes, []int64{small.ID, large.ID}, participants); err != nil || !ok {
 		t.Fatal("bearingSweepInsertion() failed after the small driver rejected only the oversized group")
 	}
 	assertSweepRouteParticipantIDs(t, routes[small.ID], 3)
@@ -548,6 +559,49 @@ func TestMaximizeNonemptyRoutes_AllSingletonRoutesReturnQuickly(t *testing.T) {
 	}
 }
 
+func TestMaximizeNonemptyRoutes_StopsForCanceledContext(t *testing.T) {
+	driverOne := &models.Driver{ID: 1, VehicleCapacity: 2}
+	driverTwo := &models.Driver{ID: 2, VehicleCapacity: 1}
+	routes := map[int64]*balancedRoute{
+		1: {
+			driver: driverOne,
+			stops: []*models.Participant{
+				{ID: 1, Address: "First"},
+				{ID: 2, Address: "Second"},
+			},
+		},
+		2: {driver: driverTwo},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := (&BalancedRouter{}).maximizeNonemptyRoutes(
+		ctx,
+		newRouteContext(stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff),
+		routes,
+		[]int64{1, 2},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("maximizeNonemptyRoutes() error = %v, want %v", err, context.Canceled)
+	}
+}
+
+func TestOptimizeAssignments_StopsForCanceledContext(t *testing.T) {
+	driverOne := &models.Driver{ID: 1, VehicleCapacity: 1}
+	driverTwo := &models.Driver{ID: 2, VehicleCapacity: 1}
+	routes := map[int64]*balancedRoute{
+		1: {driver: driverOne},
+		2: {driver: driverTwo},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := optimizeAssignments(ctx, newRouteContext(stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff), routes, []int64{1, 2})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("optimizeAssignments() error = %v, want %v", err, context.Canceled)
+	}
+}
+
 func TestBalancedRouter_MaximizesDriversWithHeterogeneousCapacities(t *testing.T) {
 	for _, mode := range []RouteMode{RouteModeDropoff, RouteModePickup} {
 		t.Run(string(mode), func(t *testing.T) {
@@ -619,7 +673,7 @@ func TestBalancedRouter_HeterogeneousCapacityForcedFallbackUsesAllDrivers(t *tes
 		drivers[0].ID: {driver: drivers[0]},
 		drivers[1].ID: {driver: drivers[1]},
 	}
-	if ok := (&BalancedRouter{}).bearingSweepInsertion(institute, routes, []int64{1, 2}, participants); ok {
+	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), institute, routes, []int64{1, 2}, participants); err != nil || ok {
 		t.Fatal("bearingSweepInsertion() succeeded, want a forced fallback for noncontiguous capacity packing")
 	}
 

@@ -23,8 +23,10 @@ import (
 
 type captureRouter struct {
 	lastRequest *routing.RoutingRequest
+	lastContext context.Context
 	result      *models.RoutingResult
 	err         error
+	afterSolve  func()
 }
 
 type orgVehicleRepoWithError struct {
@@ -161,8 +163,12 @@ func (s testDataStore) OrganizationVehicles() database.OrganizationVehicleReposi
 	return s.orgVehicleRepo
 }
 
-func (r *captureRouter) CalculateRoutes(_ context.Context, req *routing.RoutingRequest) (*models.RoutingResult, error) {
+func (r *captureRouter) CalculateRoutes(ctx context.Context, req *routing.RoutingRequest) (*models.RoutingResult, error) {
+	r.lastContext = ctx
 	r.lastRequest = req
+	if r.afterSolve != nil {
+		r.afterSolve()
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -229,6 +235,9 @@ func TestHandleCalculateRoutes_JSONPickupPropagatesTypedMode(t *testing.T) {
 	if router.lastRequest == nil {
 		t.Fatal("expected router to receive a request")
 	}
+	if _, ok := router.lastContext.Deadline(); !ok {
+		t.Fatal("expected route calculation context to have a deadline")
+	}
 	if router.lastRequest.Mode != models.RouteModePickup {
 		t.Fatalf("expected pickup mode, got %q", router.lastRequest.Mode)
 	}
@@ -274,6 +283,89 @@ func TestHandleCalculateRoutes_InvalidModeReturnsValidationError(t *testing.T) {
 	}
 	if router.lastRequest != nil {
 		t.Fatalf("expected router to not receive a request, got %#v", router.lastRequest)
+	}
+}
+
+func TestHandleCalculateRoutes_RejectsParticipantSelectionOverLimitBeforeSolving(t *testing.T) {
+	participantIDs := make([]int64, 501)
+	for i := range participantIDs {
+		participantIDs[i] = int64(i + 1)
+	}
+	body, err := json.Marshal(CalculateRoutesRequest{
+		ParticipantIDs:     participantIDs,
+		DriverIDs:          []int64{1},
+		ActivityLocationID: 1,
+		RouteTime:          "18:30",
+		Mode:               "dropoff",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	router := &captureRouter{}
+	handler := &Handler{Router: router}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got, want := response.Error.Message, "Choose no more than 500 participants."; got != want {
+		t.Fatalf("message = %q, want %q", got, want)
+	}
+	if router.lastRequest != nil {
+		t.Fatal("router was called for an oversized selection")
+	}
+}
+
+func TestHandleCalculateRoutes_PreCanceledContextReturnsTimeoutError(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 1, Lng: 1})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 2, Lng: 2, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{Name: "Gym", Address: "3 Event Rd", Lat: 3, Lng: 3})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+
+	body, err := json.Marshal(CalculateRoutesRequest{
+		ParticipantIDs:     []int64{participant.ID},
+		DriverIDs:          []int64{driver.ID},
+		ActivityLocationID: location.ID,
+		RouteTime:          "18:30",
+		Mode:               "dropoff",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCalculateRoutes(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusServiceUnavailable, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "CALCULATION_TIMED_OUT" || response.Error.Message != messageCalculationTimedOut {
+		t.Fatalf("error = %#v, want timeout error", response.Error)
 	}
 }
 
@@ -580,6 +672,28 @@ func TestHandleCalculateRoutes_DistanceProviderFailureReturnsVisibleError(t *tes
 	}
 	if !strings.Contains(rr.Body.String(), "Google Maps API key is not configured") {
 		t.Fatalf("body = %q, want provider setup message", rr.Body.String())
+	}
+}
+
+func TestHandleRouteCalculationError_TimeoutIsDistinctFromProviderFailure(t *testing.T) {
+	handler := &Handler{}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", nil)
+	rr := httptest.NewRecorder()
+
+	handler.handleRouteCalculationError(rr, req, context.DeadlineExceeded)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusServiceUnavailable, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got, want := response.Error.Code, "CALCULATION_TIMED_OUT"; got != want {
+		t.Fatalf("code = %q, want %q", got, want)
+	}
+	if got, want := response.Error.Message, "calculation timed out — reduce the selection"; got != want {
+		t.Fatalf("message = %q, want %q", got, want)
 	}
 }
 
