@@ -638,7 +638,7 @@ func (s *Store) evictOldest() bool {
 			return false
 		}
 		oldest.mu.Lock()
-		if oldest.deleted || oldest.status == StatusCommitting || !oldest.lastAccessedAt.Equal(oldestAccess) {
+		if oldest.deleted || oldest.status == StatusCommitting {
 			oldest.mu.Unlock()
 			continue
 		}
@@ -649,7 +649,7 @@ func (s *Store) evictOldest() bool {
 		s.removeSession(oldest.id, oldest)
 		return true
 	}
-	return true
+	return false
 }
 
 func (s *Store) removeSession(id string, state *session) {
