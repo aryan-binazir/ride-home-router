@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
+	"ride-home-router/migrations"
 	"time"
 
 	"github.com/jackc/pgerrcode"
@@ -57,6 +58,25 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // HealthCheck verifies the database connection.
 func (s *Store) HealthCheck(ctx context.Context) error { return s.db.PingContext(ctx) }
+
+// ReadinessCheck verifies that the database schema matches this build.
+func (s *Store) ReadinessCheck(ctx context.Context) error {
+	expected, err := migrations.LatestVersion()
+	if err != nil {
+		return fmt.Errorf("find expected schema migration version: %w", err)
+	}
+	applied, dirty, err := migrations.VersionFromDB(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("inspect schema migration version: %w", err)
+	}
+	if dirty {
+		return fmt.Errorf("schema migration version %d is dirty", applied)
+	}
+	if applied != expected {
+		return fmt.Errorf("schema migration version %d does not match expected version %d", applied, expected)
+	}
+	return nil
+}
 
 func (s *Store) Participants() database.ParticipantRepository {
 	return &participantRepository{db: s.db}

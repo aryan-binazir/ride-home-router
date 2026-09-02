@@ -43,7 +43,7 @@ Allowed hosts omit schemes, ports, and paths. Unlisted hosts get `403`; add the 
 
 ## Deploy
 
-The Docker image contains the server and `migrate` binaries, supports `amd64` and `arm64`, runs the server as a non-root user, and checks `/api/v1/health`.
+The Docker image contains the server and `migrate` binaries, supports `amd64` and `arm64`, runs the server as a non-root user, and checks `/api/v1/ready`. The readiness endpoint requires the applied database migration version to exactly match the image's latest embedded migration. `/api/v1/health` remains a database connectivity check for liveness.
 
 Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
 

@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -34,6 +36,34 @@ const (
 //go:embed *.sql
 var files embed.FS
 
+var latestVersion = sync.OnceValues(findLatestVersion)
+
+// LatestVersion returns the newest embedded migration version.
+func LatestVersion() (uint, error) {
+	return latestVersion()
+}
+
+func findLatestVersion() (uint, error) {
+	driver, err := iofs.New(files, ".")
+	if err != nil {
+		return 0, fmt.Errorf("open embedded migrations: %w", err)
+	}
+	version, err := driver.First()
+	if err != nil {
+		return 0, fmt.Errorf("find first embedded migration: %w", err)
+	}
+	for {
+		next, nextErr := driver.Next(version)
+		if errors.Is(nextErr, fs.ErrNotExist) {
+			return version, nil
+		}
+		if nextErr != nil {
+			return 0, fmt.Errorf("find embedded migration after %d: %w", version, nextErr)
+		}
+		version = next
+	}
+}
+
 // Run applies pending migrations to the URL's search path.
 func Run(ctx context.Context, databaseURL string) error {
 	return withMigrator(ctx, databaseURL, func(migrator *migrate.Migrate, _ source.Driver) error {
@@ -52,7 +82,11 @@ func Version(ctx context.Context, databaseURL string) (version uint, dirty bool,
 		return 0, false, err
 	}
 	defer func() { err = errors.Join(err, database.Close()) }()
+	return VersionFromDB(ctx, database)
+}
 
+// VersionFromDB returns the migration state using an existing connection pool.
+func VersionFromDB(ctx context.Context, database *sql.DB) (version uint, dirty bool, err error) {
 	var currentSchema sql.NullString
 	var exists bool
 	if err := database.QueryRowContext(ctx, `

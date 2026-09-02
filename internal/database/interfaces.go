@@ -15,6 +15,7 @@ type BatchUpsertResult struct {
 type DataStore interface {
 	Close() error
 	HealthCheck(ctx context.Context) error
+	ReadinessCheck(ctx context.Context) error
 	Participants() ParticipantRepository
 	Drivers() DriverRepository
 	Settings() SettingsRepository
