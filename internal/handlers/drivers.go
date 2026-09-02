@@ -27,12 +27,12 @@ type DriverResponse struct {
 // HandleListDrivers handles GET /api/v1/drivers
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] GET /api/v1/drivers: search=%s", logutil.SafeString(search))
 
 	drivers, err := h.DB.Drivers().List(r.Context(), search)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to list drivers: search=%s err=%s", logutil.SafeString(search), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -42,7 +42,7 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
 	if h.isHTMX(r) {
 		view, err := h.driverListView(r, drivers)
@@ -110,7 +110,7 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		h.handleValidationError(w, messageInvalidDriverID)
 		return
@@ -217,11 +217,11 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/drivers: name=%s capacity=%d", logutil.SafeString(req.Name), req.VehicleCapacity)
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
-		log.Printf("[ERROR] Failed to geocode driver address")
+		log.Print("[ERROR] Failed to geocode driver address")
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -241,7 +241,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 
 	driver, err = h.DB.Drivers().CreateWithLabels(r.Context(), driver, labelIDs)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to create driver: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -251,7 +251,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, logutil.SafeString(driver.Name))
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
@@ -272,7 +272,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to load driver labels after create: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
@@ -289,7 +289,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageInvalidDriverID))
@@ -450,7 +450,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, logutil.SafeString(driver.Name))
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
@@ -471,7 +471,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to load driver labels after update: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
@@ -485,7 +485,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageInvalidDriverID))
@@ -530,22 +530,22 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/drivers/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
 		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/drivers/restore: id=%d", id)
 	if err := h.DB.Drivers().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
-			//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+			//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 			log.Printf("[HTTP] Driver not found for restore: id=%d", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
 			return
 		}
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to restore driver: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -555,7 +555,7 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Restored driver: id=%d", id)
 	if h.isHTMX(r) {
 		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Driver"), toastTypeSuccess)

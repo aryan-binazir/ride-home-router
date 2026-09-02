@@ -174,7 +174,7 @@ func (h *Handler) saveMobilePerson(r *http.Request, kind string, id int64) error
 	if err := h.validateLabelIDs(r.Context(), labels); err != nil {
 		return mobileFormError{messageInvalidLabelSelection}
 	}
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Mobile save person: kind=%s id=%d name=%s", logutil.SafeString(kind), id, logutil.SafeString(name))
 	if kind == "participant" {
 		participant := &models.Participant{ID: id, Name: name, Address: address, AddressName: addressName}
@@ -227,7 +227,7 @@ func (h *Handler) saveMobilePerson(r *http.Request, kind string, id int64) error
 func (h *Handler) geocodeMobile(ctx context.Context, address string, lat, lng *float64) error {
 	result, err := h.Geocoder.GeocodeWithRetry(ctx, address, 3)
 	if err != nil {
-		log.Printf("[ERROR] Mobile geocoding failed")
+		log.Print("[ERROR] Mobile geocoding failed")
 		return mobileFormError{messageMobileAddressLookupFailed}
 	}
 	*lat, *lng = result.Coords.Lat, result.Coords.Lng

@@ -102,7 +102,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[EDIT] Reset routes for session %s", logutil.SafeString(id))
 	if h.isHTMX(r) {
 		view := buildRouteResultsView(snapshot)

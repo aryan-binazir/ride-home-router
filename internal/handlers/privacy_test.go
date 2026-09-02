@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -47,20 +46,6 @@ func (privacyLabelRepository) GetByIDs(context.Context, []int64) ([]models.Label
 	return nil, nil
 }
 
-type failingPrivacyGeocoder struct{}
-
-func (failingPrivacyGeocoder) Geocode(context.Context, string) (*geocoding.GeocodingResult, error) {
-	return nil, errors.New(privateErrorSentinel)
-}
-
-func (failingPrivacyGeocoder) GeocodeWithRetry(context.Context, string, int) (*geocoding.GeocodingResult, error) {
-	return nil, errors.New(privateErrorSentinel)
-}
-
-func (failingPrivacyGeocoder) Search(context.Context, string, int) ([]geocoding.GeocodingResult, error) {
-	return nil, errors.New(privateErrorSentinel)
-}
-
 func TestHandlerLogsDoNotContainAddressesOrAddressQueries(t *testing.T) {
 	var logs bytes.Buffer
 	previousOutput := log.Writer()
@@ -80,7 +65,7 @@ func TestHandlerLogsDoNotContainAddressesOrAddressQueries(t *testing.T) {
 			participants: privacyParticipantRepository{},
 			labels:       privacyLabelRepository{},
 		},
-		Geocoder: failingPrivacyGeocoder{},
+		Geocoder: stubGeocoder{err: errors.New(privateErrorSentinel)},
 	}
 
 	requests := []*http.Request{

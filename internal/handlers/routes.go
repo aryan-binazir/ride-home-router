@@ -179,13 +179,13 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req CalculateRoutesRequest, policy routeIntakePolicy) {
 	validateSelections := func() bool {
 		if len(req.ParticipantIDs) == 0 {
-			//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+			//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 			log.Printf("[HTTP] POST %s: missing participants", logutil.SafeString(r.URL.Path))
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
 			return false
 		}
 		if len(req.DriverIDs) == 0 {
-			//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+			//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 			log.Printf("[HTTP] POST %s: missing drivers", logutil.SafeString(r.URL.Path))
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 			return false
@@ -228,7 +228,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST %s: participants=%d drivers=%d org_assignments=%d mode=%s",
 		logutil.SafeString(r.URL.Path), len(req.ParticipantIDs), len(req.DriverIDs), len(orgVehicleAssignments), logutil.SafeString(string(mode)))
 
@@ -262,14 +262,14 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		return
 	}
 	if outcome.Kind == routeCalculationRouteFailure {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] POST %s: route calculation failed: err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(outcome.Err.Error()))
 		h.handleRouteCalculationError(w, r, outcome.Err)
 		return
 	}
 	if outcome.Kind == routeCalculationShortage {
 		shortage := outcome.Shortage
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] POST %s: routing failed: participants=%d unassigned=%d capacity=%d reason=%s",
 			logutil.SafeString(r.URL.Path), shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, logutil.SafeString(shortage.RoutingError.Reason))
 		if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
@@ -297,7 +297,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 
 	result := outcome.Result
 	session := outcome.Session
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST %s: routes calculated: drivers=%d org_vehicles=%d total_distance=%.0f",
 		logutil.SafeString(r.URL.Path), result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 

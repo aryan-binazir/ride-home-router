@@ -27,12 +27,12 @@ type ParticipantResponse struct {
 // HandleListParticipants handles GET /api/v1/participants
 func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] GET /api/v1/participants: search=%s", logutil.SafeString(search))
 
 	participants, err := h.DB.Participants().List(r.Context(), search)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to list participants: search=%s err=%s", logutil.SafeString(search), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -42,7 +42,7 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Listed participants: count=%d", len(participants))
 	if h.isHTMX(r) {
 		view, err := h.participantListView(r, participants)
@@ -110,7 +110,7 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		h.handleValidationError(w, "Invalid participant ID")
 		return
@@ -175,7 +175,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	req.AddressName = strings.TrimSpace(req.AddressName)
 
 	if req.Name == "" || req.Address == "" {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: request fields are logged only as presence booleans.
 		log.Printf("[HTTP] POST /api/v1/participants: missing_name=%t missing_address=%t", req.Name == "", req.Address == "")
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
@@ -202,11 +202,11 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/participants: name=%s", logutil.SafeString(req.Name))
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
-		log.Printf("[ERROR] Failed to geocode participant address")
+		log.Print("[ERROR] Failed to geocode participant address")
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -225,7 +225,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	participant, err = h.DB.Participants().CreateWithLabels(r.Context(), participant, labelIDs)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to create participant: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -235,7 +235,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Created participant: id=%d name=%s", participant.ID, logutil.SafeString(participant.Name))
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
@@ -256,7 +256,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	response, err := h.participantResponse(r.Context(), participant)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to load participant labels after create: id=%d err=%s", participant.ID, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
@@ -273,7 +273,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageInvalidParticipantID))
@@ -417,7 +417,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Updated participant: id=%d name=%s", participant.ID, logutil.SafeString(participant.Name))
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
@@ -438,7 +438,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 
 	response, err := h.participantResponse(r.Context(), participant)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to load participant labels after update: id=%d err=%s", participant.ID, logutil.SafeString(err.Error()))
 		h.handleInternalError(w, err)
 		return
@@ -452,7 +452,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, errors.New(messageInvalidParticipantID))
@@ -497,22 +497,22 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/participants/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
 		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/participants/restore: id=%d", id)
 	if err := h.DB.Participants().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
-			//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+			//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 			log.Printf("[HTTP] Participant not found for restore: id=%d", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
 			return
 		}
-		//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to restore participant: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
@@ -522,7 +522,7 @@ func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	//nolint:gosec // G706: dynamic values are numeric, boolean, or escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Restored participant: id=%d", id)
 	if h.isHTMX(r) {
 		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Participant"), toastTypeSuccess)

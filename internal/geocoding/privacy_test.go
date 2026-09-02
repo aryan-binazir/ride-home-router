@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +72,25 @@ func TestGeocodingFailureErrorDoesNotContainAddress(t *testing.T) {
 	}
 	if !errors.Is(err, ErrNoGeocodingResults) {
 		t.Fatalf("error no longer unwraps to ErrNoGeocodingResults: %v", err)
+	}
+}
+
+func TestNominatimTransportFailureDoesNotContainAddress(t *testing.T) {
+	const address = "8123 Private Transport Sentinel Ave, Boston, MA 02110"
+	providerErr := &url.Error{
+		Op:  http.MethodGet,
+		URL: "https://nominatim.example/search?q=" + url.QueryEscape(address),
+		Err: errors.New("connection refused"),
+	}
+	err := &ErrGeocodingFailed{
+		address: address,
+		Reason:  "provider request failed",
+		Cause:   newNominatimTransportError(providerErr),
+	}
+
+	for current := error(err); current != nil; current = errors.Unwrap(current) {
+		if strings.Contains(current.Error(), address) || strings.Contains(current.Error(), "Private+Transport+Sentinel") {
+			t.Fatalf("error chain contains private address: %v", current)
+		}
 	}
 }
