@@ -197,10 +197,14 @@ func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (S
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if state.status != StatusMapping || state.applying {
+	if state.status != StatusMapping {
 		status := state.status
 		state.mu.Unlock()
 		return Snapshot{}, fmt.Errorf("%w: cannot apply mapping while %s", ErrInvalidSessionState, status)
+	}
+	if state.applying {
+		state.mu.Unlock()
+		return Snapshot{}, fmt.Errorf("%w: another mapping is already in progress", ErrInvalidSessionState)
 	}
 	state.applying = true
 	grid := copyGrid(state.grid)

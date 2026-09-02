@@ -166,7 +166,7 @@ func TestCancelDuringStalledApplyMappingDoesNotBlockStore(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("ApplyMapping did not reach the repository")
 	}
-	if _, err := store.ApplyMapping(context.Background(), stalled.ID, AutoMap(grid.Headers)); !errors.Is(err, ErrInvalidSessionState) {
+	if _, err := store.ApplyMapping(context.Background(), stalled.ID, AutoMap(grid.Headers)); !errors.Is(err, ErrInvalidSessionState) || !strings.Contains(err.Error(), "another mapping is already in progress") {
 		t.Fatalf("concurrent ApplyMapping error = %v, want ErrInvalidSessionState", err)
 	}
 	if calls := listCalls.Load(); calls != 1 {
