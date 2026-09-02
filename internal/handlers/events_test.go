@@ -168,6 +168,42 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	}
 }
 
+func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+	session := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: []models.CalculatedRoute{{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Stops:             []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
+			Mode:              models.RouteModeDropoff,
+		}},
+		Mode: models.RouteModeDropoff,
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("session_id="+session.ID))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "VALIDATION_ERROR" || response.Error.Message != messageEventDateRequired {
+		t.Fatalf("error = %#v", response.Error)
+	}
+	if _, ok := handler.RouteSession.Snapshot(session.ID); !ok {
+		t.Fatal("session was removed after event date validation failed")
+	}
+	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
+		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
+	}
+}
+
 func TestHandleCreateEvent_ConcurrentRetryDoesNotCreateDuplicate(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	result := models.RoutingResult{
@@ -207,6 +243,13 @@ func TestHandleCreateEvent_ConcurrentRetryDoesNotCreateDuplicate(t *testing.T) {
 	}
 	if second.Code != http.StatusConflict {
 		t.Fatalf("retry status = %d, want 409; body=%s", second.Code, second.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(second.Body).Decode(&response); err != nil {
+		t.Fatalf("decode retry response: %v", err)
+	}
+	if response.Error.Code != "SESSION_EXPIRED" || response.Error.Message != messageRoutePlanExpired {
+		t.Fatalf("retry error = %#v", response.Error)
 	}
 	events, _, err := store.Events().List(context.Background(), 10, 0)
 	if err != nil {
@@ -294,6 +337,30 @@ func TestHandleCreateEvent_BogusSessionRejectsSave(t *testing.T) {
 
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusConflict, rr.Code, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "SESSION_EXPIRED" || response.Error.Message != messageRoutePlanExpired {
+		t.Fatalf("error = %#v", response.Error)
+	}
+	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
+		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
+	}
+}
+
+func TestHandleCreateEvent_BogusSessionWithoutDateReturnsSessionExpired(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("session_id=expired-session-id"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusConflict, rr.Body.String())
 	}
 	var response ErrorResponse
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {

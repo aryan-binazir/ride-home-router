@@ -237,12 +237,6 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.EventDate == "" {
-		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
-		h.handleValidationError(w, messageEventDateRequired)
-		return
-	}
-
 	createdEvent, savedRouteCount, sessionErr := h.commitEventSession(r, req.SessionID, req.EventDate, req.Notes)
 	if h.handleEventValidationError(w, sessionErr) {
 		return
@@ -313,6 +307,10 @@ func (h *Handler) commitEventSession(r *http.Request, sessionID, date, notes str
 }
 
 func (h *Handler) persistEvent(ctx context.Context, date, notes string, result models.RoutingResult) (*models.Event, int, error) {
+	if date == "" {
+		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
+		return nil, 0, eventValidationError{message: messageEventDateRequired}
+	}
 	eventDate, err := time.Parse("2006-01-02", date)
 	if err != nil {
 		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%v", date, err)
