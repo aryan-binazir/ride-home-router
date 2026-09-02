@@ -16,15 +16,16 @@
         </div>
         <div class="routes-actions">
             {{if .IsEditing}}
-            <button type="button" class="btn btn-sm btn-warning" onclick="resetRoutes()">Reset to Original</button>
+            <button type="button" class="btn btn-sm btn-warning" data-session-action onclick="resetRoutes()">Reset to Original</button>
             {{end}}
-            <button type="button" class="btn btn-sm btn-secondary" onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy All Routes</button>
-            <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth'})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save This Event</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-session-action onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy All Routes</button>
+            <button type="button" class="btn btn-sm btn-primary" data-session-action onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth'})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save This Event</button>
         </div>
     </div>
 
     <div class="results-scroll scroll">
         <div class="results-body">
+            <div class="alert alert-warning mb-3 planner-plan-state-banner" role="status" hidden></div>
             {{if .IsOutOfBalance}}
             <div class="notice notice-danger mb-3" role="alert">
                 <strong>Vehicles are over capacity; redistribute passengers before copying or saving.</strong>
@@ -58,13 +59,13 @@
                     </div>
                     {{if gt $routeCount 1}}
                     <div class="route-tools">
-                        <select class="form-select form-input-sm form-input-inline" id="swap-select-{{$routeIndex}}" aria-label="Swap {{.Driver.Name}} with another driver">
+                        <select class="form-select form-input-sm form-input-inline" data-session-action id="swap-select-{{$routeIndex}}" aria-label="Swap {{.Driver.Name}} with another driver">
                             <option value="">Swap driver with...</option>
                             {{range $i, $r := $.Routes}}
                             {{if ne $i $routeIndex}}<option value="{{$i}}">{{$r.Driver.Name}}</option>{{end}}
                             {{end}}
                         </select>
-                        <button type="button" class="btn btn-sm btn-outline" onclick="swapDrivers({{$routeIndex}})">Swap</button>
+                        <button type="button" class="btn btn-sm btn-outline" data-session-action onclick="swapDrivers({{$routeIndex}})">Swap</button>
                     </div>
                     {{end}}
                 </div>
@@ -113,6 +114,7 @@
                         {{if gt $routeCount 1}}
                         <div class="stop-actions">
                             <select class="form-select form-input-sm form-input-inline"
+                                    data-session-action
                                     aria-label="Move {{.Participant.Name}} to another route"
                                     onchange="moveParticipant({{.Participant.ID}}, {{$routeIndex}}, this.value); this.value='';">
                                 <option value="">Move to...</option>
@@ -133,8 +135,8 @@
 
                 <div class="route-footer">
                     <span>Route</span>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for Parents</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-session-action onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-session-action onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for Parents</button>
                     <button type="button" class="btn btn-sm btn-outline" onclick="previewRoute(this)">Preview</button>
                 </div>
             </section>
@@ -151,7 +153,7 @@
                             <span class="driver-name">{{.Name}}</span>
                             <span class="driver-capacity text-muted">{{.VehicleCapacity}} personal seats</span>
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline" onclick="addUnusedDriver({{.ID}})">+ Add to Routes</button>
+                        <button type="button" class="btn btn-sm btn-outline" data-session-action onclick="addUnusedDriver({{.ID}})">+ Add to Routes</button>
                     </div>
                     {{end}}
                 </div>
@@ -198,7 +200,7 @@
                             <label class="form-label">Notes (Optional)</label>
                             <textarea name="notes" class="form-textarea" placeholder="Add a note about this event"></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save Event to History</button>
+                        <button type="submit" class="btn btn-primary" data-session-action {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save Event to History</button>
                         <span class="loading htmx-indicator" id="save-loading"></span>
                     </div>
                     {{if .IsOutOfBalance}}<p class="text-danger mt-2 mb-0">Saving is disabled while vehicles are over capacity.</p>{{end}}

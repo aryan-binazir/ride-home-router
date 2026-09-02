@@ -3,16 +3,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
 const planner = require('./event-planner.js');
 const {
     createParticipantMoveBatcher,
+    createPlannerState,
     createRouteHandoff,
     applyLocalEventDate,
     createRouteSessionOrchestrator,
     installRouteResults,
     localISODate,
     sanitizeVanAssignments,
-    saveDraft,
 } = planner;
 
 test('applyLocalEventDate overwrites the server date on injected forms but keeps user edits', () => {
@@ -51,6 +55,7 @@ test('installRouteResults installs HTML before processing and performs all resul
     };
     const target = {
         set innerHTML(html) { installedHtml = html; },
+        querySelector: () => null,
         querySelectorAll() {
             assert.notEqual(installedHtml, '');
             return [dateInput];
@@ -66,7 +71,7 @@ test('installRouteResults installs HTML before processing and performs all resul
                 processedTarget = element;
             },
         },
-        refreshEtas: () => {
+        afterRender: () => {
             assert.notEqual(installedHtml, '');
             etaRefreshes += 1;
         },
@@ -83,12 +88,12 @@ test('planner exports its browser-independent test seams', () => {
     assert.deepEqual(Object.keys(planner).sort(), [
         'applyLocalEventDate',
         'createParticipantMoveBatcher',
+        'createPlannerState',
         'createRouteHandoff',
         'createRouteSessionOrchestrator',
         'installRouteResults',
         'localISODate',
         'sanitizeVanAssignments',
-        'saveDraft',
     ]);
 });
 
@@ -582,6 +587,7 @@ function createRouteSessionHarness({
     let dateApplications = 0;
     const resultsSection = {
         set innerHTML(html) { rendered.push(html); },
+        querySelector: () => null,
         querySelectorAll() {
             dateApplications += 1;
             return [dateInput];
@@ -605,7 +611,7 @@ function createRouteSessionHarness({
         htmx: { process: element => processed.push(element) },
         moves: { hasPending, flush },
         reportError: html => errors.push(html),
-        refreshEtas: () => { etaRefreshes += 1; },
+        afterRender: () => { etaRefreshes += 1; },
     });
 
     return {
@@ -677,13 +683,14 @@ test('route edit errors are reported even after the requested session becomes st
     });
 });
 
-test('saving with queued moves restores typed fields and submits the replacement form', async () => {
+test('saving with queued moves submits the replacement form the flush rendered', async () => {
     const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
     let liveForm = originalForm;
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
         flush: async () => {
-            liveForm = createSaveForm({ sessionId: 'session-a' });
+            // installRouteResults carries the typed fields across each render.
+            liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', sessionId: 'session-a' });
             return true;
         },
     });
@@ -707,9 +714,9 @@ test('saving with queued moves restores typed fields and submits the replacement
     });
 });
 
-test('saving after a move restores fields without submitting an unsaveable replacement form', async () => {
+test('saving after a move does not submit an unsaveable replacement form', async () => {
     const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const liveForm = createSaveForm({ saveEnabled: false });
+    const liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', saveEnabled: false });
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
     });
@@ -732,9 +739,9 @@ test('saving after a successful replacement tolerates the live form being absent
     assert.equal(handled, true);
 });
 
-test('saving after a partial move flush restores fields but does not submit', async () => {
+test('saving after a partial move flush does not submit', async () => {
     const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const liveForm = createSaveForm();
+    const liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
         flush: async () => false,
@@ -815,21 +822,6 @@ test('a queued save waits for its own session when an earlier session fails', as
     });
 });
 
-test('saving a draft aborts an in-flight restore before clearing the active session', () => {
-    const actions = [];
-
-    saveDraft({
-        abortRestore: () => actions.push('abort restore'),
-        clearActiveSession: () => actions.push('clear active session'),
-        writeDraft: () => actions.push('write draft'),
-    });
-
-    assert.deepEqual(actions, [
-        'abort restore',
-        'clear active session',
-        'write draft',
-    ]);
-});
 
 
 test('participant moves flush sequentially in same-session batches with the existing payload contracts', async () => {
@@ -905,4 +897,536 @@ test('driver copy shows friendly location names while Maps keeps real coordinate
     assert.match(copied[0], /Sam Rider - Collins Crossing \(5 Rider Street\)/);
     assert.match(copied[0], /destination=40.1%2C-74.1/);
     assert.doesNotMatch(copied[0], /Driver\+Home/);
+});
+
+
+// --- Minimal DOM good enough to boot the planner --------------------------
+
+class HTMLFormElement {}
+
+const SELECTOR_TOKEN = /^(?:([a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:=["']([^"']*)["'])?\]|:([\w-]+))/;
+
+function camel(name) {
+    return name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function attributeValue(element, name) {
+    if (name.startsWith('data-')) return element.dataset[camel(name.slice(5))];
+    if (element[name] !== undefined) return element[name];
+    return element.attributes[name];
+}
+
+function matchesCompound(element, compound) {
+    let rest = compound;
+    while (rest.length > 0) {
+        const token = SELECTOR_TOKEN.exec(rest);
+        if (!token) throw new Error(`unsupported selector: ${compound}`);
+        const [matched, tag, id, className, attribute, attributeValueWanted, pseudo] = token;
+        if (tag && element.tagName !== tag) return false;
+        if (id && element.id !== id) return false;
+        if (className && !element.classList.contains(className)) return false;
+        if (attribute) {
+            const actual = attributeValue(element, attribute);
+            if (actual === undefined || actual === null) return false;
+            if (attributeValueWanted !== undefined && String(actual) !== attributeValueWanted) return false;
+        }
+        if (pseudo === 'checked' && element.checked !== true) return false;
+        if (pseudo && pseudo !== 'checked') throw new Error(`unsupported pseudo: ${pseudo}`);
+        rest = rest.slice(matched.length);
+    }
+    return true;
+}
+
+function matchesSelector(element, selector) {
+    return selector.split(',').some(group => {
+        const compounds = group.trim().split(/\s+/);
+        const own = compounds.pop();
+        if (!matchesCompound(element, own)) return false;
+
+        let ancestor = element.parentNode;
+        for (const compound of compounds.reverse()) {
+            while (ancestor && !matchesCompound(ancestor, compound)) ancestor = ancestor.parentNode;
+            if (!ancestor) return false;
+            ancestor = ancestor.parentNode;
+        }
+        return true;
+    });
+}
+
+function domNode(tagName, props = {}) {
+    const { classes = [], children = [], form = false, ...rest } = props;
+    const classSet = new Set(classes);
+    const node = {
+        tagName,
+        id: '',
+        attributes: {},
+        dataset: {},
+        children: [],
+        parentNode: null,
+        textContent: '',
+        listeners: {},
+        classList: {
+            add: value => classSet.add(value),
+            remove: value => classSet.delete(value),
+            contains: value => classSet.has(value),
+            toggle: (value, force) => (force ? classSet.add(value) : classSet.delete(value)),
+        },
+        get className() { return [...classSet].join(' '); },
+        set className(value) {
+            classSet.clear();
+            String(value).split(/\s+/).filter(Boolean).forEach(entry => classSet.add(entry));
+        },
+        get innerHTML() { return this._html || ''; },
+        set innerHTML(value) {
+            this._html = value;
+            this.children.forEach(child => { child.parentNode = null; });
+            this.children = [];
+        },
+        get firstChild() { return this.children[0] || null; },
+        appendChild(child) {
+            child.parentNode = this;
+            this.children.push(child);
+            return child;
+        },
+        insertBefore(child, reference) {
+            child.parentNode = this;
+            const index = reference ? this.children.indexOf(reference) : -1;
+            this.children.splice(index < 0 ? this.children.length : index, 0, child);
+            return child;
+        },
+        remove() {
+            if (!this.parentNode) return;
+            this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+            this.parentNode = null;
+        },
+        setAttribute(name, value) { this.attributes[name] = String(value); },
+        getAttribute(name) { return this.attributes[name] ?? null; },
+        removeAttribute(name) { delete this.attributes[name]; },
+        matches(selector) { return matchesSelector(this, selector); },
+        closest(selector) {
+            let current = this;
+            while (current) {
+                if (matchesSelector(current, selector)) return current;
+                current = current.parentNode;
+            }
+            return null;
+        },
+        querySelectorAll(selector) {
+            const found = [];
+            const walk = element => element.children.forEach(child => {
+                if (matchesSelector(child, selector)) found.push(child);
+                walk(child);
+            });
+            walk(this);
+            return found;
+        },
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+        addEventListener(type, handler) {
+            (this.listeners[type] = this.listeners[type] || []).push(handler);
+        },
+        dispatchEvent(event) {
+            event.target = event.target || this;
+            let current = this;
+            while (current) {
+                (current.listeners[event.type] || []).forEach(handler => handler(event));
+                current = current.parentNode;
+            }
+            return !event.defaultPrevented;
+        },
+        scrollIntoView() {},
+    };
+    Object.assign(node, rest);
+    children.forEach(child => node.appendChild(child));
+    if (form) Object.setPrototypeOf(node, HTMLFormElement.prototype);
+    return node;
+}
+
+function fakeEvent(type, detail) {
+    return {
+        type,
+        detail,
+        defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; },
+        stopImmediatePropagation() {},
+    };
+}
+
+function fakeLocalStorage() {
+    const entries = new Map();
+    return {
+        entries,
+        getItem: key => (entries.has(key) ? entries.get(key) : null),
+        setItem: (key, value) => entries.set(key, String(value)),
+        removeItem: key => entries.delete(key),
+    };
+}
+
+const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8');
+
+// Boots the real planner against the fixture below so the invalidation rule is
+// exercised end to end, not through a re-implementation of it.
+function bootPlanner({ mode = 'dropoff' } = {}) {
+    const participants = ['1', '2'].map(value => domNode('input', {
+        classes: ['participant-checkbox'],
+        value,
+        checked: true,
+        dataset: { capacity: '0' },
+    }));
+    const driver = domNode('input', {
+        classes: ['driver-checkbox'],
+        value: '10',
+        checked: true,
+        dataset: { capacity: '4' },
+    });
+    const driverRow = domNode('label', {
+        classes: ['select-row'],
+        children: [driver, domNode('span', { classes: ['van-assignment-inline'] })],
+    });
+    const activityLocation = domNode('select', { name: 'activity_location_id', value: '7' });
+    const dropoff = domNode('input', { name: 'mode', value: 'dropoff', checked: mode === 'dropoff' });
+    const pickup = domNode('input', { name: 'mode', value: 'pickup', checked: mode === 'pickup' });
+    const routeTime = domNode('input', { id: 'route-time', name: 'route_time', value: '15:30' });
+    const search = domNode('input', {
+        value: '',
+        dataset: { filterRole: 'search', listId: 'participants-selection' },
+    });
+    const form = domNode('form', {
+        id: 'event-form',
+        form: true,
+        children: [activityLocation, dropoff, pickup, routeTime, search,
+            ...participants.map(input => domNode('label', { classes: ['select-row'], children: [input] })),
+            driverRow],
+    });
+
+    const banner = domNode('div', { classes: ['alert', 'planner-plan-state-banner'], hidden: true });
+    const saveButton = domNode('button', { type: 'submit', disabled: false, dataset: { sessionAction: '' } });
+    const outOfBalanceCopy = domNode('button', { dataset: { sessionAction: '' }, disabled: true });
+    const saveForm = domNode('form', {
+        form: true,
+        classes: ['save-event-card'],
+        attributes: { 'hx-post': '/api/v1/events' },
+        children: [
+            domNode('input', { name: 'session_id', value: 'session-1' }),
+            domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
+            domNode('textarea', { name: 'notes', value: '' }),
+            saveButton,
+        ],
+    });
+    saveForm.elements = {
+        namedItem: name => saveForm.querySelector(`[name="${name}"]`),
+    };
+    const resultsBody = domNode('div', {
+        classes: ['results-body'],
+        children: [banner, outOfBalanceCopy, saveForm],
+    });
+    const routesContainer = domNode('div', {
+        classes: ['routes-container'],
+        dataset: { sessionId: 'session-1', routeMode: mode },
+        children: [resultsBody],
+    });
+    const resultsSection = domNode('div', { id: 'results-section', children: [routesContainer] });
+
+    const routeTimeLabel = domNode('label', { id: 'route-time-label', textContent: 'x' });
+    const routeTimeHelp = domNode('p', { id: 'route-time-help', textContent: 'x' });
+    const body = domNode('body', {
+        children: [form, resultsSection, routeTimeLabel, routeTimeHelp,
+            domNode('template', { id: 'results-empty-state-template' })],
+    });
+    const root = domNode('html', { children: [body] });
+
+    const document = {
+        readyState: 'complete',
+        body,
+        listeners: root.listeners,
+        addEventListener: (type, handler) => root.addEventListener(type, handler),
+        getElementById(id) {
+            return root.querySelectorAll(`#${id}`)[0] || null;
+        },
+        querySelector: selector => root.querySelector(selector),
+        querySelectorAll: selector => root.querySelectorAll(selector),
+        createElement: tagName => domNode(tagName),
+    };
+    body.parentNode = root;
+
+    const storage = fakeLocalStorage();
+    const context = {
+        document,
+        console,
+        HTMLFormElement,
+        Event: class { constructor(type) { return fakeEvent(type); } },
+        AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
+        htmx: { process() {} },
+        setTimeout: () => 0,
+        clearTimeout: () => {},
+        JSON,
+        Intl,
+        window: {
+            localStorage: storage,
+            matchMedia: () => ({ matches: true }),
+            requestAnimationFrame: () => 0,
+        },
+    };
+    vm.runInNewContext(PLANNER_SOURCE, context, { filename: 'event-planner.js' });
+
+    return {
+        activityLocation,
+        banner,
+        context,
+        document,
+        driver,
+        dropoff,
+        outOfBalanceCopy,
+        participants,
+        pickup,
+        routeTime,
+        routeTimeLabel,
+        routesContainer,
+        resultsSection,
+        saveButton,
+        saveForm,
+        storage,
+        calculate() {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt: { id: 'calculate-btn' } } }));
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection } }));
+        },
+        change(target) {
+            root.dispatchEvent(Object.assign(fakeEvent('change'), { target }));
+        },
+        submitSave() {
+            const event = Object.assign(fakeEvent('submit'), { target: saveForm });
+            root.dispatchEvent(event);
+            return event;
+        },
+    };
+}
+
+test('changing a route-defining input after calculating blocks saving until recalculation', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const afterCalculate = {
+        saveDisabled: planner.saveButton.disabled,
+        bannerHidden: planner.banner.hidden,
+        storedSession: planner.storage.getItem('ride-home-router:active-session-id'),
+    };
+
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+
+    assert.deepEqual({
+        afterCalculate,
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+        storedSession: planner.storage.getItem('ride-home-router:active-session-id'),
+        saveBlocked: planner.submitSave().defaultPrevented,
+    }, {
+        afterCalculate: { saveDisabled: false, bannerHidden: true, storedSession: 'session-1' },
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+        storedSession: null,
+        saveBlocked: true,
+    });
+
+    planner.calculate();
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        bannerHidden: planner.banner.hidden,
+        saveBlocked: planner.submitSave().defaultPrevented,
+    }, { saveDisabled: false, bannerHidden: true, saveBlocked: false });
+});
+
+test('reverting a route-defining input re-enables saving without touching server-disabled controls', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.routeTime.value = '16:00';
+    planner.change(planner.routeTime);
+    const whileStale = { saveDisabled: planner.saveButton.disabled, copyDisabled: planner.outOfBalanceCopy.disabled };
+
+    planner.routeTime.value = '15:30';
+    planner.change(planner.routeTime);
+
+    assert.deepEqual({
+        whileStale,
+        saveDisabled: planner.saveButton.disabled,
+        // Disabled by the server for being over capacity; staleness must not clear that.
+        copyDisabled: planner.outOfBalanceCopy.disabled,
+        bannerHidden: planner.banner.hidden,
+    }, {
+        whileStale: { saveDisabled: true, copyDisabled: true },
+        saveDisabled: false,
+        copyDisabled: true,
+        bannerHidden: true,
+    });
+});
+
+test('filtering the roster leaves a calculated plan current', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.context.filterSelectList(planner.document.querySelector('[data-filter-role="search"]'), 'participants-selection');
+
+    assert.deepEqual({
+        saveDisabled: planner.saveButton.disabled,
+        storedSession: planner.storage.getItem('ride-home-router:active-session-id'),
+    }, { saveDisabled: false, storedSession: 'session-1' });
+});
+
+test('clearing all selections restores the dropoff route-time copy', () => {
+    const planner = bootPlanner({ mode: 'pickup' });
+
+    assert.equal(planner.routeTimeLabel.textContent, 'Arrive at activity location by');
+
+    planner.context.clearSelections();
+
+    assert.deepEqual({
+        label: planner.routeTimeLabel.textContent,
+        ariaLabel: planner.routeTime.getAttribute('aria-label'),
+        dropoffChecked: planner.dropoff.checked,
+        pickupChecked: planner.pickup.checked,
+    }, {
+        label: 'Depart activity location at',
+        ariaLabel: 'Depart activity location at',
+        dropoffChecked: true,
+        pickupChecked: false,
+    });
+});
+
+test('a route edit render carries the entered event date and notes onto the replacement form', () => {
+    const savedFields = () => [
+        domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
+        domNode('textarea', { name: 'notes', value: '' }),
+    ];
+    const target = domNode('div', { id: 'results-section', children: savedFields() });
+    const eventDate = target.querySelector('input[name="event_date"]');
+    const notes = target.querySelector('textarea[name="notes"]');
+    eventDate.value = '2026-10-04';
+    eventDate.dataset.userEdited = '1';
+    notes.value = 'Two vans, meet at the flagpole';
+
+    const originalInnerHTML = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target), 'innerHTML');
+    Object.defineProperty(target, 'innerHTML', {
+        set(html) {
+            if (originalInnerHTML) originalInnerHTML.set.call(this, html);
+            // The server always re-renders today's date and empty notes.
+            savedFields().forEach(field => this.appendChild(field));
+        },
+    });
+
+    installRouteResults({
+        target,
+        html: '<form>routes</form>',
+        htmx: { process() {} },
+        afterRender() {},
+    });
+
+    assert.deepEqual({
+        eventDate: target.querySelector('input[name="event_date"]').value,
+        userEdited: target.querySelector('input[name="event_date"]').dataset.userEdited,
+        notes: target.querySelector('textarea[name="notes"]').value,
+    }, {
+        eventDate: '2026-10-04',
+        userEdited: '1',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('a render without entered fields keeps the server defaults', () => {
+    const target = domNode('div', {
+        children: [
+            domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
+            domNode('textarea', { name: 'notes', value: '' }),
+        ],
+    });
+    const replacements = [
+        domNode('input', { type: 'date', name: 'event_date', value: '2026-09-02' }),
+        domNode('textarea', { name: 'notes', value: '' }),
+    ];
+    Object.defineProperty(target, 'innerHTML', {
+        set() { replacements.forEach(field => this.appendChild(field)); },
+    });
+
+    installRouteResults({ target, html: '', htmx: { process() {} }, afterRender() {} });
+
+    assert.deepEqual({
+        userEdited: target.querySelector('input[name="event_date"]').dataset.userEdited,
+        notes: target.querySelector('textarea[name="notes"]').value,
+    }, { userEdited: undefined, notes: '' });
+    assert.equal(target.querySelector('input[name="event_date"]').value, localISODate(new Date()));
+});
+
+test('planner state stays stale until a recalculation and is terminal once saved', () => {
+    const changes = [];
+    let fingerprint = 'plan-a';
+    const state = createPlannerState({
+        readFingerprint: () => fingerprint,
+        onChange: snapshot => changes.push(`${snapshot.status}:${snapshot.sessionId}`),
+    });
+
+    const beforeCalculation = state.refresh();
+    state.markCalculated('session-1');
+    fingerprint = 'plan-b';
+    const afterEdit = state.refresh();
+    // A calculation requested before the edit still lands stale.
+    state.markCalculated('session-2', 'plan-a');
+    const afterLateSwap = state.getSnapshot();
+    state.markCalculated('session-3');
+    state.markSaved();
+    fingerprint = 'plan-c';
+    const afterSavedEdit = state.refresh();
+
+    assert.deepEqual({
+        beforeCalculation: beforeCalculation.status,
+        afterEdit: { status: afterEdit.status, canSave: afterEdit.canSave },
+        afterLateSwap: afterLateSwap.status,
+        afterSavedEdit: { status: afterSavedEdit.status, canSave: afterSavedEdit.canSave },
+        changes,
+    }, {
+        beforeCalculation: 'empty',
+        afterEdit: { status: 'stale', canSave: false },
+        afterLateSwap: 'stale',
+        afterSavedEdit: { status: 'saved', canSave: false },
+        changes: [
+            'current:session-1',
+            'stale:session-1',
+            'stale:session-2',
+            'current:session-3',
+            'saved:session-3',
+        ],
+    });
+});
+
+test('clearing planner state drops the session and stops tracking the fingerprint', () => {
+    const changes = [];
+    let fingerprint = 'plan-a';
+    const state = createPlannerState({
+        readFingerprint: () => fingerprint,
+        onChange: snapshot => changes.push(snapshot.status),
+    });
+
+    state.markCalculated('session-1');
+    state.clear();
+    fingerprint = 'plan-b';
+
+    assert.deepEqual({ snapshot: state.refresh(), changes }, {
+        snapshot: { status: 'empty', sessionId: null, canSave: false },
+        changes: ['current', 'empty'],
+    });
+});
+
+test('a results swap with no session clears the planner state', () => {
+    const changes = [];
+    const state = createPlannerState({
+        readFingerprint: () => 'plan-a',
+        onChange: snapshot => changes.push(snapshot.status),
+    });
+
+    state.markCalculated('session-1');
+    const cleared = state.markCalculated(null);
+
+    assert.deepEqual({ cleared, changes }, {
+        cleared: { status: 'empty', sessionId: null, canSave: false },
+        changes: ['current', 'empty'],
+    });
 });
