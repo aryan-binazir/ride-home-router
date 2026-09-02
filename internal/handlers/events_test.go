@@ -72,7 +72,6 @@ func TestHandleCreateEvent_MissingSessionRejectsPostedRoutes(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 
 	form := url.Values{
-		"event_date":  {"2026-03-14"},
 		"routes_json": {`{"mode":"dropoff","routes":[{"driver":{"id":7,"name":"Forged Driver","vehicle_capacity":2},"stops":[{"participant":{"id":10,"name":"Alice"}}]}]}`},
 	}
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form.Encode()))
@@ -92,7 +91,7 @@ func TestHandleCreateEvent_MissingSessionRejectsPostedRoutes(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Error.Code != "SESSION_EXPIRED" || resp.Error.Message != "That route plan expired. Calculate it again." {
+	if resp.Error.Code != "SESSION_EXPIRED" || resp.Error.Message != messageRoutePlanExpired {
 		t.Fatalf("error = %#v", resp.Error)
 	}
 	events, total, err := store.Events().List(context.Background(), 10, 0)
@@ -296,12 +295,19 @@ func TestHandleCreateEvent_BogusSessionRejectsSave(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusConflict, rr.Code, rr.Body.String())
 	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "SESSION_EXPIRED" || response.Error.Message != messageRoutePlanExpired {
+		t.Fatalf("error = %#v", response.Error)
+	}
 	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
 		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
 	}
 }
 
-func TestHandleCreateEvent_ExpiredSessionRejectsPostedRoutesJSON(t *testing.T) {
+func TestHandleCreateEvent_DeletedSessionRejectsPostedRoutesJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	session := handler.RouteSession.Create(routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
@@ -324,6 +330,13 @@ func TestHandleCreateEvent_ExpiredSessionRejectsPostedRoutesJSON(t *testing.T) {
 
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusConflict, rr.Code, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "SESSION_EXPIRED" || response.Error.Message != messageRoutePlanExpired {
+		t.Fatalf("error = %#v", response.Error)
 	}
 	events, total, err := store.Events().List(context.Background(), 10, 0)
 	if err != nil {

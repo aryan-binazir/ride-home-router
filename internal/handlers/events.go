@@ -230,7 +230,8 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if strings.TrimSpace(req.SessionID) == "" {
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	if req.SessionID == "" {
 		log.Printf("[HTTP] POST /api/v1/events: missing session_id")
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
@@ -246,19 +247,20 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if h.handleEventValidationError(w, sessionErr) {
 		return
 	}
-	if errors.Is(sessionErr, routesession.ErrAlreadyCommitted) {
+	switch {
+	case errors.Is(sessionErr, routesession.ErrAlreadyCommitted):
 		log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", req.SessionID)
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
-	} else if errors.Is(sessionErr, routesession.ErrNotFound) {
+	case errors.Is(sessionErr, routesession.ErrNotFound):
 		log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", req.SessionID)
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
-	} else if errors.Is(sessionErr, routesession.ErrUnbalanced) {
+	case errors.Is(sessionErr, routesession.ErrUnbalanced):
 		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", req.SessionID)
 		h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
 		return
-	} else if sessionErr != nil {
+	case sessionErr != nil:
 		h.handleInternalError(w, sessionErr)
 		return
 	}

@@ -164,14 +164,18 @@ func TestHandleCreateEvent_RejectsPostedRoutesBeforeCapturingFeedback(t *testing
 		name      string
 		sessionID string
 	}{
-		{name: "direct routes"},
-		{name: "expired session fallback", sessionID: "expired-session"},
+		{name: "missing session"},
+		{name: "unavailable session", sessionID: "expired-session"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, store, conn := newRouteFeedbackHandler(t)
 			setSMEEmail(t, store, "sme@example.com")
-			form := url.Values{"event_date": {"2026-08-29"}, "routes_json": {`{"mode":"dropoff","routes":[]}`}}
+			payload, err := json.Marshal(feedbackRoutingResult())
+			if err != nil {
+				t.Fatalf("marshal routes: %v", err)
+			}
+			form := url.Values{"event_date": {"2026-08-29"}, "routes_json": {string(payload)}}
 			if tt.sessionID != "" {
 				form.Set("session_id", tt.sessionID)
 			}
