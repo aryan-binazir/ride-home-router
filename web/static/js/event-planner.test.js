@@ -1155,6 +1155,11 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
     saveForm.elements = {
         namedItem: name => saveForm.querySelector(`[name="${name}"]`),
     };
+    saveForm.requestSubmit = function() {
+        const event = Object.assign(fakeEvent('submit'), { target: this });
+        this.dispatchEvent(event);
+        return event;
+    };
     const resultsBody = domNode('div', {
         classes: ['results-body'],
         children: [banner, copyButton, outOfBalanceCopy, saveForm],
@@ -1164,8 +1169,9 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         dataset: { sessionId: 'session-1', routeMode: mode },
         children: [resultsBody],
     });
+    let renderedSessionCount = 0;
     const resultsSection = domNode('div', { id: 'results-section', children: [routesContainer] });
-    // The server re-renders the same session's markup; an empty render clears it.
+    // Manual edits re-render the same session's markup; an empty render clears it.
     Object.defineProperty(resultsSection, 'innerHTML', {
         set(html) {
             this.children.forEach(child => { child.parentNode = null; });
@@ -1279,9 +1285,21 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
             body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt, xhr } }));
             return xhr;
         },
-        finishCalculation(xhr) {
+        failCalculation(xhr, elt = { id: 'calculate-btn' }) {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:responseError'), { detail: { elt, xhr } }));
+        },
+        finishCalculation(xhr, { hasRoutes = true } = {}) {
             body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail: { target: resultsSection, xhr } }));
-            renderServerSaveFields();
+            resultsSection.children.forEach(child => { child.parentNode = null; });
+            resultsSection.children = [];
+            if (hasRoutes) {
+                renderedSessionCount += 1;
+                const sessionId = `session-${renderedSessionCount}`;
+                routesContainer.dataset.sessionId = sessionId;
+                saveForm.elements.namedItem('session_id').value = sessionId;
+                resultsSection.appendChild(routesContainer);
+                renderServerSaveFields();
+            }
             body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection, xhr } }));
             root.dispatchEvent(Object.assign(fakeEvent('htmx:afterSettle'), { target: resultsSection }));
         },
@@ -1299,9 +1317,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
             root.dispatchEvent(Object.assign(fakeEvent('change'), { target }));
         },
         submitSave() {
-            const event = Object.assign(fakeEvent('submit'), { target: saveForm });
-            root.dispatchEvent(event);
-            return event;
+            return saveForm.requestSubmit();
         },
     };
 }
@@ -1340,6 +1356,23 @@ test('changing a route-defining input after calculating blocks saving until reca
         bannerHidden: planner.banner.hidden,
         saveBlocked: planner.submitSave().defaultPrevented,
     }, { saveDisabled: false, bannerHidden: true, saveBlocked: false });
+});
+
+test('requestSubmit rechecks live planner inputs even when no change event fired', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.routeTime.value = '16:00';
+
+    assert.deepEqual({
+        saveBlocked: planner.submitSave().defaultPrevented,
+        saveDisabled: planner.saveButton.disabled,
+        banner: planner.banner.hidden ? '' : planner.banner.textContent,
+    }, {
+        saveBlocked: true,
+        saveDisabled: true,
+        banner: 'Plan changed — recalculate routes before copying or saving them.',
+    });
 });
 
 test('reverting a route-defining input re-enables saving without touching server-disabled controls', () => {
@@ -1514,7 +1547,7 @@ test('clearing planner state drops the session and stops tracking the fingerprin
     fingerprint = 'plan-b';
 
     assert.deepEqual({ snapshot: state.refresh(), changes }, {
-        snapshot: { status: 'empty', sessionId: null, canSave: false },
+        snapshot: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },
         changes: ['current', 'empty'],
     });
 });
@@ -1530,7 +1563,7 @@ test('a results swap with no session clears the planner state', () => {
     const cleared = state.markCalculated(null);
 
     assert.deepEqual({ cleared, changes }, {
-        cleared: { status: 'empty', sessionId: null, canSave: false },
+        cleared: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },
         changes: ['current', 'empty'],
     });
 });
@@ -1605,10 +1638,39 @@ test('a saved event does not seed the next event with its date and notes', () =>
         eventDate: rendered.eventDate.value,
         userEdited: rendered.eventDate.dataset.userEdited,
         notes: rendered.notes.value,
+        saveDisabled: planner.saveButton.disabled,
     }, {
         eventDate: localISODate(new Date()),
         userEdited: undefined,
         notes: '',
+        saveDisabled: false,
+    });
+});
+
+test('a saved event does not seed the next event after its planner inputs change', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+    planner.saveSucceeded();
+    planner.participants[1].checked = false;
+    planner.change(planner.participants[1]);
+    planner.calculate();
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({
+        eventDate: rendered.eventDate.value,
+        userEdited: rendered.eventDate.dataset.userEdited,
+        notes: rendered.notes.value,
+        saveDisabled: planner.saveButton.disabled,
+    }, {
+        eventDate: localISODate(new Date()),
+        userEdited: undefined,
+        notes: '',
+        saveDisabled: false,
     });
 });
 
@@ -1627,6 +1689,58 @@ test('a capacity-shortage recalculation adopts its own van assignments before fi
     assert.deepEqual({ afterRecalc, saveDisabled: planner.saveButton.disabled }, {
         afterRecalc: { saveDisabled: false, vanValue: '3' },
         saveDisabled: true,
+    });
+});
+
+test('a capacity-shortage round trip preserves an unsaved event date and notes', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+
+    const shortageRequest = planner.startCalculation();
+    planner.finishCalculation(shortageRequest, { hasRoutes: false });
+    const failedRetry = planner.startCalculation();
+    planner.failCalculation(failedRetry);
+    planner.calculate({ elt: { id: 'recalc-form' } });
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({ eventDate: rendered.eventDate.value, notes: rendered.notes.value }, {
+        eventDate: '2026-10-04',
+        notes: 'Two vans, meet at the flagpole',
+    });
+});
+
+test('clear all discards save fields buffered by a capacity shortage', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
+    const shortageRequest = planner.startCalculation();
+    planner.finishCalculation(shortageRequest, { hasRoutes: false });
+
+    planner.context.clearSelections();
+    planner.activityLocation.value = '7';
+    planner.participants.forEach(participant => { participant.checked = true; });
+    planner.driver.checked = true;
+    planner.change(planner.driver);
+    planner.calculate();
+
+    const rendered = planner.saveFields();
+    assert.deepEqual({
+        eventDate: rendered.eventDate.value,
+        userEdited: rendered.eventDate.dataset.userEdited,
+        notes: rendered.notes.value,
+    }, {
+        eventDate: localISODate(new Date()),
+        userEdited: undefined,
+        notes: '',
     });
 });
 

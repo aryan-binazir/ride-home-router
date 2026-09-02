@@ -20,7 +20,12 @@
         let calculatedFingerprint = null;
 
         function getSnapshot() {
-            return { status, sessionId, canSave: status === 'current' };
+            return {
+                status,
+                sessionId,
+                canSave: status === 'current',
+                hasBeenSaved: Boolean(sessionId) && sessionId === savedSessionId,
+            };
         }
 
         // Staleness wins over savedness: a saved session whose inputs then moved
@@ -84,6 +89,8 @@
     function snapshotSaveFields(scope) {
         const eventDate = scope.querySelector('input[name="event_date"]');
         const notes = scope.querySelector('textarea[name="notes"]');
+        if (!eventDate && !notes) return null;
+
         return {
             eventDate: eventDate && eventDate.dataset.userEdited ? eventDate.value : null,
             notes: notes ? notes.value : '',
@@ -91,8 +98,13 @@
     }
 
     function restoreSaveFields(scope, saved) {
+        if (!saved) return false;
+
+        const eventDate = scope.querySelector('input[name="event_date"]');
+        const notes = scope.querySelector('textarea[name="notes"]');
+        if (!eventDate && !notes) return false;
+
         if (saved.eventDate !== null) {
-            const eventDate = scope.querySelector('input[name="event_date"]');
             if (eventDate) {
                 eventDate.value = saved.eventDate;
                 // applyLocalEventDate leaves user-edited dates alone.
@@ -100,9 +112,9 @@
             }
         }
         if (saved.notes) {
-            const notes = scope.querySelector('textarea[name="notes"]');
             if (notes) notes.value = saved.notes;
         }
+        return true;
     }
 
     function sanitizeVanAssignments(driverIds, assignments) {
@@ -810,7 +822,7 @@
 
             // requestSubmit and Enter both bypass a disabled submit button, so the
             // state object, not the DOM, is what actually blocks a stale save.
-            const planState = plannerState.getSnapshot();
+            const planState = plannerState.refresh();
             if (!planState.canSave) {
                 evt.preventDefault();
                 evt.stopImmediatePropagation();
@@ -1593,6 +1605,7 @@
                 isRestoringEventPlannerDraft = false;
             }
             clearEventPlannerDraft();
+            swappedSaveFields = null;
             plannerState.clear();
         }
 
@@ -1797,7 +1810,6 @@
             document.body.addEventListener('htmx:sendError', function(event) {
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
-                    swappedSaveFields = null;
                     setCalculateButtonLoading(false);
                 }
             });
@@ -1805,7 +1817,6 @@
             document.body.addEventListener('htmx:responseError', function(event) {
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
-                    swappedSaveFields = null;
                     setCalculateButtonLoading(false);
                 }
             });
@@ -1818,9 +1829,14 @@
                 if (!target || target.id !== 'results-section') return;
 
                 // A saved event's date and notes belong to that event, not the next one.
-                swappedSaveFields = plannerState.getSnapshot().status === 'saved'
-                    ? null
-                    : snapshotSaveFields(target);
+                if (plannerState.getSnapshot().hasBeenSaved) {
+                    swappedSaveFields = null;
+                    return;
+                }
+
+                // A capacity-shortage pane has no save fields. Keep the values
+                // captured from the preceding route results until routes return.
+                swappedSaveFields = snapshotSaveFields(target) || swappedSaveFields;
             });
 
             document.body.addEventListener('htmx:afterSwap', function(event) {
@@ -1828,9 +1844,8 @@
                 if (!target) return;
 
                 if (target.id === 'results-section') {
-                    if (swappedSaveFields) {
+                    if (swappedSaveFields && restoreSaveFields(target, swappedSaveFields)) {
                         // Runs before htmx:afterSettle stamps the local date.
-                        restoreSaveFields(target, swappedSaveFields);
                         swappedSaveFields = null;
                     }
                     scrollResultsIntoView(target);
@@ -1843,6 +1858,7 @@
 
                 if (target.querySelector('.alert-success')) {
                     clearEventPlannerDraft();
+                    swappedSaveFields = null;
                     plannerState.markSaved();
                 }
             });
