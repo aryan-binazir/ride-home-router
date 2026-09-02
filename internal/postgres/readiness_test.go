@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"ride-home-router/internal/postgres/postgrestest"
+	"ride-home-router/migrations"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,18 @@ func TestReadinessCheckRequiresLatestMigration(t *testing.T) {
 		store := openStore(t, postgrestest.UnmigratedDatabase(t))
 		err := store.ReadinessCheck(t.Context())
 		if err == nil || !strings.Contains(err.Error(), "schema migration version 0") {
+			t.Fatalf("ReadinessCheck() error = %v, want migration version mismatch", err)
+		}
+	})
+
+	t.Run("schema behind build", func(t *testing.T) {
+		databaseURL := postgrestest.DatabaseURL(t)
+		if err := migrations.Down(t.Context(), databaseURL); err != nil {
+			t.Fatalf("roll back schema: %v", err)
+		}
+		store := openStore(t, databaseURL)
+		err := store.ReadinessCheck(t.Context())
+		if err == nil || !strings.Contains(err.Error(), "does not match expected version") {
 			t.Fatalf("ReadinessCheck() error = %v, want migration version mismatch", err)
 		}
 	})
