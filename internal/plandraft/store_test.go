@@ -192,6 +192,111 @@ func TestStoreCopiesDraftState(t *testing.T) {
 	}
 }
 
+func TestStoreUpdateIncrementsRevisionAndRejectsStaleSessionSet(t *testing.T) {
+	store := NewStore()
+	t.Cleanup(store.Close)
+
+	draft := store.Update("draft", func(d *Draft) { d.LocationID = 1 })
+	if draft.Revision != 1 {
+		t.Fatalf("first revision = %d, want 1", draft.Revision)
+	}
+	staleRevision := draft.Revision
+	draft = store.Update("draft", func(d *Draft) { d.LocationID = 2 })
+	if draft.Revision != 2 {
+		t.Fatalf("second revision = %d, want 2", draft.Revision)
+	}
+
+	if displaced, ok := store.SetRouteSessionIDIfUnchanged("draft", staleRevision, "stale-session"); ok || displaced != "" {
+		t.Fatalf("stale set = (%q, %t), want empty and false", displaced, ok)
+	}
+	got, ok := store.Get("draft")
+	if !ok || got.RouteSessionID != "" || got.Revision != 2 {
+		t.Fatalf("draft after stale set = (%#v, %t), want unchanged revision 2", got, ok)
+	}
+
+	if displaced, ok := store.SetRouteSessionIDIfUnchanged("draft", draft.Revision, "current-session"); !ok || displaced != "" {
+		t.Fatalf("current set = (%q, %t), want empty and true", displaced, ok)
+	}
+	got, ok = store.Get("draft")
+	if !ok || got.RouteSessionID != "current-session" || got.Revision != 3 {
+		t.Fatalf("draft after current set = (%#v, %t), want session and revision 3", got, ok)
+	}
+}
+
+func TestStoreSessionSetReturnsOnlyTheDisplacedSession(t *testing.T) {
+	store := NewStore()
+	t.Cleanup(store.Close)
+
+	draft := store.Update("draft", func(d *Draft) { d.RouteSessionID = "old-session" })
+	displaced, ok := store.SetRouteSessionIDIfUnchanged("draft", draft.Revision, "new-session")
+	if !ok || displaced != "old-session" {
+		t.Fatalf("session set = (%q, %t), want old-session and true", displaced, ok)
+	}
+	got, found := store.Get("draft")
+	if !found || got.RouteSessionID != "new-session" || got.Revision != 2 {
+		t.Fatalf("updated draft = (%#v, %t), want new-session at revision 2", got, found)
+	}
+}
+
+func TestStoreSessionClearPreservesNewerSession(t *testing.T) {
+	store := NewStore()
+	t.Cleanup(store.Close)
+
+	draft := store.Update("draft", func(d *Draft) { d.RouteSessionID = "saved-session" })
+	if _, ok := store.SetRouteSessionIDIfUnchanged("draft", draft.Revision, "newer-session"); !ok {
+		t.Fatal("failed to attach newer session")
+	}
+	if store.ClearRouteSessionIDIfCurrent("draft", "saved-session") {
+		t.Fatal("clear accepted a displaced session ID")
+	}
+	got, ok := store.Get("draft")
+	if !ok || got.RouteSessionID != "newer-session" || got.Revision != 2 {
+		t.Fatalf("draft after stale clear = (%#v, %t), want newer-session at revision 2", got, ok)
+	}
+	if !store.ClearRouteSessionIDIfCurrent("draft", "newer-session") {
+		t.Fatal("clear rejected the current session ID")
+	}
+	got, ok = store.Get("draft")
+	if !ok || got.RouteSessionID != "" || got.Revision != 3 {
+		t.Fatalf("draft after current clear = (%#v, %t), want empty session at revision 3", got, ok)
+	}
+}
+
+func TestStoreConditionalSessionWritesDoNotCreateOrReviveDrafts(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, time.August, 29, 10, 0, 0, 0, time.UTC)}
+	store := newStore(time.Hour, time.Hour, clock.Now)
+	t.Cleanup(store.Close)
+
+	if _, ok := store.SetRouteSessionIDIfUnchanged("missing", 0, "session"); ok {
+		t.Fatal("conditional set created a missing draft")
+	}
+	if store.ClearRouteSessionIDIfCurrent("missing", "session") {
+		t.Fatal("conditional clear created a missing draft")
+	}
+	store.mu.Lock()
+	draftCount := len(store.drafts)
+	store.mu.Unlock()
+	if draftCount != 0 {
+		t.Fatalf("conditional writes inserted %d missing drafts, want 0", draftCount)
+	}
+
+	setDraft := store.Update("expired-set", func(d *Draft) { d.RouteSessionID = "old-session" })
+	store.Update("expired-clear", func(d *Draft) { d.RouteSessionID = "old-session" })
+	clock.Advance(time.Hour + time.Nanosecond)
+	if _, ok := store.SetRouteSessionIDIfUnchanged("expired-set", setDraft.Revision, "new-session"); ok {
+		t.Fatal("conditional set revived an expired draft")
+	}
+	if store.ClearRouteSessionIDIfCurrent("expired-clear", "old-session") {
+		t.Fatal("conditional clear revived an expired draft")
+	}
+	if _, ok := store.Get("expired-set"); ok {
+		t.Fatal("expired set draft remains after conditional write")
+	}
+	if _, ok := store.Get("expired-clear"); ok {
+		t.Fatal("expired clear draft remains after conditional write")
+	}
+}
+
 func TestStoreNewIDIsRandomHex(t *testing.T) {
 	store := NewStore()
 	t.Cleanup(store.Close)

@@ -10,12 +10,37 @@ import (
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
+	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+type mobileCalculationBarrierRouter struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (r mobileCalculationBarrierRouter) CalculateRoutes(ctx context.Context, req *routing.RoutingRequest) (*models.RoutingResult, error) {
+	select {
+	case r.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	driver := req.Drivers[0]
+	participant := req.Participants[0]
+	return &models.RoutingResult{
+		Routes: []models.CalculatedRoute{{Driver: &driver, Stops: []models.RouteStop{{Participant: &participant}}, EffectiveCapacity: 1, Mode: req.Mode}},
+		Mode:   req.Mode,
+	}, nil
+}
 
 func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	handler, store := newTestRouteHandler(t)
@@ -188,6 +213,216 @@ func TestMobileCalculate_CanceledSolveReturnsTimeoutMessage(t *testing.T) {
 	}
 	if response.Code != http.StatusSeeOther || target.Path != "/m" || target.Query().Get("error") != messageCalculationTimedOut {
 		t.Fatalf("response = %d location=%q, want timeout redirect", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestMobileCalculateDiscardsRoutesWhenDraftChangesDuringSolve(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	ctx := context.Background()
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "1 Event Rd", Lat: 1, Lng: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "2 Rider Rd", Lat: 2, Lng: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "3 Driver Rd", Lat: 3, Lng: 3, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldestSession := handler.RouteSession.Create(routesession.CreateInput{})
+	time.Sleep(time.Millisecond)
+	// Leave one slot open: 1 oldest + 254 fillers + the calculated session = 256.
+	// After the stale session is deleted, the probe below must not evict oldestSession.
+	for range routesession.MaxConcurrentSessions - 2 {
+		handler.RouteSession.Create(routesession.CreateInput{})
+	}
+
+	id := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
+		d.LocationID = location.ID
+		d.ParticipantIDs = []int64{participant.ID}
+		d.DriverIDs = []int64{driver.ID}
+		d.RouteTime = "18:30"
+		d.Mode = string(models.RouteModeDropoff)
+	})
+	handler.Router = &captureRouter{
+		result: &models.RoutingResult{
+			Routes: []models.CalculatedRoute{{Driver: driver, Stops: []models.RouteStop{{Participant: participant}}, EffectiveCapacity: 1, Mode: models.RouteModeDropoff}},
+			Mode:   models.RouteModeDropoff,
+		},
+		afterSolve: func() {
+			handler.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+				d.RouteTime = "19:00"
+				d.RouteSessionID = ""
+			})
+		},
+	}
+
+	response := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+	target, err := url.Parse(response.Header().Get("Location"))
+	if err != nil || response.Code != http.StatusSeeOther || target.Path != "/m" || target.Query().Get("error") != messageRoutePlanExpired {
+		t.Fatalf("stale calculation response = %d location=%q err=%v", response.Code, response.Header().Get("Location"), err)
+	}
+	draft, ok := handler.PlanDraft.Get(id)
+	if !ok || draft.RouteTime != "19:00" || draft.RouteSessionID != "" {
+		t.Fatalf("draft after stale calculation = (%#v, %t), want current inputs and no session", draft, ok)
+	}
+
+	handler.RouteSession.Create(routesession.CreateInput{})
+	if _, ok := handler.RouteSession.Snapshot(oldestSession.ID); !ok {
+		t.Fatal("stale calculation leaked its session and evicted the oldest live session")
+	}
+}
+
+func TestMobileCalculateRedirectsToRoutesWhenAnotherCalculationWins(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	ctx := context.Background()
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "1 Event Rd", Lat: 1, Lng: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "2 Rider Rd", Lat: 2, Lng: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "3 Driver Rd", Lat: 3, Lng: 3, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldestSession := handler.RouteSession.Create(routesession.CreateInput{})
+	time.Sleep(time.Millisecond)
+	for range routesession.MaxConcurrentSessions - 3 {
+		handler.RouteSession.Create(routesession.CreateInput{})
+	}
+	id := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
+		d.LocationID = location.ID
+		d.ParticipantIDs = []int64{participant.ID}
+		d.DriverIDs = []int64{driver.ID}
+		d.RouteTime = "18:30"
+		d.Mode = string(models.RouteModeDropoff)
+	})
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	handler.Router = mobileCalculationBarrierRouter{
+		started: started,
+		release: release,
+	}
+
+	done := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() {
+			done <- postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+		}()
+	}
+	<-started
+	<-started
+	close(release)
+	assertMobileRedirect(t, <-done, "/m/routes")
+	assertMobileRedirect(t, <-done, "/m/routes")
+	got, ok := handler.PlanDraft.Get(id)
+	if !ok || got.RouteSessionID == "" {
+		t.Fatalf("draft after concurrent calculations = (%#v, %t), want a winning session", got, ok)
+	}
+	if _, live := handler.RouteSession.Snapshot(got.RouteSessionID); !live {
+		t.Fatal("winning route session is unavailable")
+	}
+	handler.RouteSession.Create(routesession.CreateInput{})
+	if _, live := handler.RouteSession.Snapshot(oldestSession.ID); !live {
+		t.Fatal("losing calculation leaked its session and evicted the oldest live session")
+	}
+}
+
+func TestMobileSaveDoesNotEraseSessionAttachedDuringCommit(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	ctx := context.Background()
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "1 Event Rd", Lat: 1, Lng: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "2 Rider Rd", Lat: 2, Lng: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "3 Driver Rd", Lat: 3, Lng: 3, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := &models.RoutingResult{
+		Routes: []models.CalculatedRoute{{
+			Driver:            driver,
+			EffectiveCapacity: 1,
+			Stops:             []models.RouteStop{{Participant: participant}},
+			Mode:              models.RouteModeDropoff,
+		}},
+		Mode: models.RouteModeDropoff,
+	}
+	oldSession := handler.RouteSession.Create(routesession.CreateInput{
+		Routes: result.Routes,
+		Mode:   models.RouteModeDropoff,
+	})
+	id := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
+		d.LocationID = location.ID
+		d.ParticipantIDs = []int64{participant.ID}
+		d.DriverIDs = []int64{driver.ID}
+		d.RouteTime = "18:30"
+		d.Mode = string(models.RouteModeDropoff)
+		d.RouteSessionID = oldSession.ID
+	})
+	handler.Router = &captureRouter{result: result}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	handler.DB = eventRepositoryDataStore{
+		DataStore: store,
+		events:    &blockingEventRepository{EventRepository: store.Events(), started: started, release: release},
+	}
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"event_date": {"2026-09-02"}}, handler.HandleMobileSave)
+	}()
+	<-started
+	calculationDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		calculationDone <- postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, handler.HandleMobileCalculate)
+	}()
+
+	newSessionID := ""
+	deadline := time.Now().Add(time.Second)
+	for newSessionID == "" {
+		draft, ok := handler.PlanDraft.Get(id)
+		if ok && draft.RouteSessionID != "" && draft.RouteSessionID != oldSession.ID {
+			newSessionID = draft.RouteSessionID
+			break
+		}
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("new calculation did not attach while save was blocked")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	response := <-done
+	if response.Code != http.StatusSeeOther || !strings.HasPrefix(response.Header().Get("Location"), "/m/history/") {
+		t.Fatalf("save response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	assertMobileRedirect(t, <-calculationDone, "/m/routes")
+	got, found := handler.PlanDraft.Get(id)
+	if !found || got.RouteSessionID != newSessionID {
+		t.Fatalf("draft after save = (%#v, %t), want newer session %q", got, found, newSessionID)
+	}
+	if _, live := handler.RouteSession.Snapshot(newSessionID); !live {
+		t.Fatal("newer route session was deleted during save")
 	}
 }
 
