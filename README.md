@@ -47,7 +47,7 @@ The Docker image contains the server and `migrate` binaries, supports `amd64` an
 
 Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
 
-Configure the platform's pre-deploy command as exactly `migrate` before deploying a revision that depends on a new schema. A non-zero migration exit must stop the deployment before the new server revision starts. The direct `ride-home-router` binary does not apply or inspect migrations; against an unprepared schema it can start successfully and then return database errors from requests.
+Configure the platform's pre-deploy command as exactly `migrate` before deploying a revision that depends on a new schema. A non-zero migration exit must stop the deployment before the new server revision starts. The direct `ride-home-router` binary does not apply migrations or gate startup on them; against an unprepared schema it can start successfully but remains unready and returns database errors from application requests.
 
 Keep the app and Postgres private. Use Cloudflare Tunnel with Access configured, or another authenticating proxy. Back up Postgres with your provider's tools.
 

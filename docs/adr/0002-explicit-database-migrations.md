@@ -10,7 +10,7 @@ The repository has one application and one timestamped migration stream. It does
 
 The `migrate` binary owns schema changes. It supports default or explicit `up`, read-only `version`, and one-step `down --confirm`.
 
-The server binary does not apply or inspect migrations. Local `make serve` depends on `make migrate`. Deployments must run `migrate` as a one-shot pre-deploy command and start the new server revision only after it exits successfully.
+The server binary does not apply migrations or gate startup on them. Its readiness check inspects migration state without changing it. Local `make serve` depends on `make migrate`. Deployments must run `migrate` as a one-shot pre-deploy command and start the new server revision only after it exits successfully.
 
 Migration execution reuses golang-migrate's Postgres advisory lock. The runner caps connections and advisory-lock waits at 10 seconds, other database lock waits at nine seconds, and migration statements at five minutes. It reports clean or dirty version state. Up and down operations refuse a dirty database with recovery guidance.
 
