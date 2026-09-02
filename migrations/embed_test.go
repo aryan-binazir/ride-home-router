@@ -425,6 +425,65 @@ func TestSoftDeleteRosterMigrationDownSucceedsWithoutArchivedRows(t *testing.T) 
 	assertSoftDeleteColumns(t, db, true)
 }
 
+func TestSoftDeleteRosterMigrationDownWaitsForWriterBeforeCheckingArchivedRows(t *testing.T) {
+	db, migrator := openMigrator(t)
+	ctx := t.Context()
+
+	var participantID int64
+	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng) VALUES ('Concurrent Rider', '7 Main St', 40, -73) RETURNING id`).Scan(&participantID); err != nil {
+		t.Fatalf("insert participant: %v", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin concurrent writer: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	if _, err := tx.ExecContext(ctx, `UPDATE participants SET deleted_at = now() WHERE id = $1`, participantID); err != nil {
+		t.Fatalf("archive participant in concurrent writer: %v", err)
+	}
+
+	downResult := make(chan error, 1)
+	go func() { downResult <- migrator.Migrate(20260829000000) }()
+	waitingForTableLock := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := db.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pg_locks AS lock
+				JOIN pg_class AS class ON class.oid = lock.relation
+				JOIN pg_namespace AS namespace ON namespace.oid = class.relnamespace
+				WHERE namespace.nspname = current_schema()
+				  AND class.relname = 'participants'
+				  AND lock.mode = 'AccessExclusiveLock'
+				  AND NOT lock.granted
+			)
+		`).Scan(&waitingForTableLock); err != nil {
+			t.Fatalf("inspect migration table lock: %v", err)
+		}
+		if waitingForTableLock {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !waitingForTableLock {
+		t.Fatal("down migration did not wait for the concurrent roster writer")
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit concurrent archive: %v", err)
+	}
+
+	select {
+	case err := <-downResult:
+		if err == nil || !strings.Contains(err.Error(), "archived participants") {
+			t.Fatalf("down migration after concurrent archive error = %v, want archived participant guard", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("down migration did not finish after concurrent writer committed")
+	}
+	assertSoftDeleteColumns(t, db, true)
+}
+
 func openMigrator(t *testing.T) (*sql.DB, *migrate.Migrate) {
 	t.Helper()
 	databaseURL := postgrestest.DatabaseURL(t)
@@ -433,7 +492,7 @@ func openMigrator(t *testing.T) (*sql.DB, *migrate.Migrate) {
 		t.Fatalf("parse database URL: %v", err)
 	}
 	db := stdlib.OpenDB(*config)
-	db.SetMaxOpenConns(2)
+	db.SetMaxOpenConns(3)
 
 	source, err := iofs.New(migrationFiles, ".")
 	if err != nil {

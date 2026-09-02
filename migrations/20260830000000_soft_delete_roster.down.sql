@@ -1,3 +1,5 @@
+LOCK TABLE participants, drivers, activity_locations IN ACCESS EXCLUSIVE MODE;
+
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM participants WHERE deleted_at IS NOT NULL) THEN
