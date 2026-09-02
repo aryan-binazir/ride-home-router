@@ -26,7 +26,9 @@ type Draft struct {
 	RouteTime        string
 	Mode             string
 	RouteSessionID   string
-	lastAccessedAt   time.Time
+	// Revision is assigned by the store and changes after every mutation.
+	Revision       uint64
+	lastAccessedAt time.Time
 }
 
 type Store struct {
@@ -93,11 +95,65 @@ func (s *Store) Update(id string, update func(*Draft)) Draft {
 		}
 		draft = defaultDraft(now)
 	}
+	revision := draft.Revision
 	update(&draft)
 	boundDraftSelections(&draft)
+	draft.Revision = revision + 1
 	draft.lastAccessedAt = now
 	s.drafts[id] = clone(draft)
 	return clone(draft)
+}
+
+// SetRouteSessionIDIfUnchanged sets the route session only when the draft still
+// has expectedRevision. It returns the session ID displaced by a successful set.
+func (s *Store) SetRouteSessionIDIfUnchanged(id string, expectedRevision uint64, sessionID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	draft, ok := s.drafts[id]
+	if !ok {
+		return "", false
+	}
+	if now.Sub(draft.lastAccessedAt) > s.ttl {
+		delete(s.drafts, id)
+		return "", false
+	}
+	if draft.Revision != expectedRevision {
+		return "", false
+	}
+	displacedSessionID := draft.RouteSessionID
+	draft.RouteSessionID = sessionID
+	draft.Revision++
+	draft.lastAccessedAt = now
+	s.drafts[id] = clone(draft)
+	return displacedSessionID, true
+}
+
+// ClearRouteSessionIDIfCurrent clears the route session only when it still has
+// expectedSessionID.
+func (s *Store) ClearRouteSessionIDIfCurrent(id, expectedSessionID string) bool {
+	if expectedSessionID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	draft, ok := s.drafts[id]
+	if !ok {
+		return false
+	}
+	if now.Sub(draft.lastAccessedAt) > s.ttl {
+		delete(s.drafts, id)
+		return false
+	}
+	if draft.RouteSessionID != expectedSessionID {
+		return false
+	}
+	draft.RouteSessionID = ""
+	draft.Revision++
+	draft.lastAccessedAt = now
+	s.drafts[id] = clone(draft)
+	return true
 }
 
 func (s *Store) evictOldestLocked() {

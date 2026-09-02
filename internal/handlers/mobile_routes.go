@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
@@ -123,7 +122,8 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	created, _, err := h.commitEventSession(r, draft.RouteSessionID, date, strings.TrimSpace(r.FormValue("notes")))
+	sessionID := draft.RouteSessionID
+	created, _, err := h.commitEventSession(r, sessionID, date, strings.TrimSpace(r.FormValue("notes")))
 	if err != nil {
 		log.Printf("[ERROR] Mobile event save failed: err=%v", err)
 		if validationErr, ok := errors.AsType[eventValidationError](err); ok {
@@ -133,7 +133,7 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = "" })
+	h.PlanDraft.ClearRouteSessionIDIfCurrent(id, sessionID)
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", created.ID), http.StatusSeeOther)
 }
 

@@ -387,6 +387,7 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", messageInvalidRouteMode)
 		return
 	}
+	expectedRevision := draft.Revision
 	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs: draft.ParticipantIDs, DriverIDs: draft.DriverIDs, ActivityLocationID: draft.LocationID,
 		RouteTime: draft.RouteTime, Mode: mode, OrgVehicleAssignments: draft.DriverVehicleIDs,
@@ -406,7 +407,13 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", message)
 		return
 	}
-	h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) { d.RouteSessionID = outcome.Session.ID })
+	displacedSessionID, ok := h.PlanDraft.SetRouteSessionIDIfUnchanged(id, expectedRevision, outcome.Session.ID)
+	if !ok {
+		h.RouteSession.Delete(outcome.Session.ID)
+		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)
+		return
+	}
+	h.RouteSession.Delete(displacedSessionID)
 	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 }
 
