@@ -465,7 +465,7 @@ var usStateAbbreviations = map[string]string{
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
 	var lastErr error
 	started := time.Now()
-	attempts := max(1, maxRetries)
+	attempts := max(1, min(maxRetries, nominatimMaxAttempts))
 
 	for i := range attempts {
 		result, err := geocode(ctx, address)

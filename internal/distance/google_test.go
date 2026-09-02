@@ -280,12 +280,13 @@ func TestGoogleCalculator_RetriesNetworkError(t *testing.T) {
 	}
 }
 
-func TestGoogleCalculator_DoesNotRetryPermanentHTTPErrorAndBoundsBody(t *testing.T) {
+func TestGoogleCalculator_DoesNotRetryHTTP500AndPreservesPrivateBoundedMetadata(t *testing.T) {
 	requests := 0
 	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, _ *http.Request) {
 		requests++
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(strings.Repeat("x", 8192) + "uncaptured-tail"))
+		w.Header().Set("Retry-After", time.Now().Add(2*time.Second).UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("provider-secret:" + strings.Repeat("x", 8192) + "uncaptured-tail"))
 	})
 
 	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
@@ -295,8 +296,24 @@ func TestGoogleCalculator_DoesNotRetryPermanentHTTPErrorAndBoundsBody(t *testing
 	if requests != 1 {
 		t.Fatalf("requests = %d, want 1", requests)
 	}
-	if strings.Contains(err.Error(), "uncaptured-tail") {
-		t.Fatalf("error captured body beyond limit: %v", err)
+	if strings.Contains(err.Error(), "provider-secret") {
+		t.Fatalf("public error contains upstream body: %v", err)
+	}
+	var httpErr *googleHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error = %T, want retained *googleHTTPError metadata", err)
+	}
+	if httpErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("StatusCode = %d, want 500", httpErr.StatusCode)
+	}
+	if httpErr.RetryAfter <= 0 || httpErr.RetryAfter > 2*time.Second {
+		t.Fatalf("RetryAfter = %s, want parsed future HTTP-date", httpErr.RetryAfter)
+	}
+	if len(httpErr.Body) != providerErrorBodyLimit {
+		t.Fatalf("body length = %d, want %d", len(httpErr.Body), providerErrorBodyLimit)
+	}
+	if strings.Contains(httpErr.Body, "uncaptured-tail") {
+		t.Fatalf("body captured data beyond limit: %q", httpErr.Body)
 	}
 }
 

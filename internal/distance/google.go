@@ -379,7 +379,7 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 			return nil, googleMatrixPublicError(err)
 		}
 		if attempt == googleMaxAttempts-1 {
-			return nil, &googleRetryError{ErrDistanceCalculationFailed: googleMatrixPublicError(err)}
+			return nil, &googleRetryError{googleMatrixError: googleMatrixPublicError(err)}
 		}
 		if err := waitForGoogleRetry(ctx, delay); err != nil {
 			return nil, err
@@ -487,15 +487,24 @@ type googleHTTPError struct {
 }
 
 func (e *googleHTTPError) Error() string {
-	return fmt.Sprintf("Google route matrix HTTP %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("Google route matrix HTTP %d", e.StatusCode)
+}
+
+type googleMatrixError struct {
+	*ErrDistanceCalculationFailed
+	Cause error
+}
+
+func (e *googleMatrixError) Unwrap() []error {
+	errs := []error{e.ErrDistanceCalculationFailed}
+	if e.Cause != nil {
+		errs = append(errs, e.Cause)
+	}
+	return errs
 }
 
 type googleRetryError struct {
-	*ErrDistanceCalculationFailed
-}
-
-func (e *googleRetryError) Unwrap() error {
-	return e.ErrDistanceCalculationFailed
+	*googleMatrixError
 }
 
 func isGoogleRetryableFailure(err error) bool {
@@ -565,11 +574,14 @@ func parseGoogleRetryAfter(value string) time.Duration {
 	return max(time.Until(when), 0)
 }
 
-func googleMatrixPublicError(err error) *ErrDistanceCalculationFailed {
+func googleMatrixPublicError(err error) *googleMatrixError {
 	if distanceErr, ok := errors.AsType[*ErrDistanceCalculationFailed](err); ok {
-		return distanceErr
+		return &googleMatrixError{ErrDistanceCalculationFailed: distanceErr}
 	}
-	return &ErrDistanceCalculationFailed{Reason: err.Error()}
+	return &googleMatrixError{
+		ErrDistanceCalculationFailed: &ErrDistanceCalculationFailed{Reason: err.Error()},
+		Cause:                        err,
+	}
 }
 
 func (c *googleCalculator) currentAPIKey() (string, error) {

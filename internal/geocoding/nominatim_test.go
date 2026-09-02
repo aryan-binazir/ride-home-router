@@ -140,9 +140,12 @@ func TestNominatimGeocodeWithRetry_BoundsPersistentServerErrors(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := g.GeocodeWithRetry(ctx, "823 Redfield Dr", 3)
+	result, err := g.GeocodeWithRetry(ctx, "823 Redfield Dr", 4)
 	if result != nil || err == nil {
 		t.Fatalf("GeocodeWithRetry() = %#v, %v, want nil, error", result, err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("GeocodeWithRetry() exceeded the three-attempt provider limit: %v", err)
 	}
 	if requests.Load() != 3 {
 		t.Fatalf("requests = %d, want 3", requests.Load())
@@ -181,8 +184,9 @@ func TestNominatimGeocodeWithRetry_DoesNotRetryPermanentHTTPError(t *testing.T) 
 	var requests atomic.Int32
 	g := newTestNominatimGeocoder(t, func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
+		w.Header().Set("Retry-After", time.Now().Add(2*time.Second).UTC().Format(http.TimeFormat))
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(strings.Repeat("x", 8192) + "uncaptured-tail"))
+		_, _ = w.Write([]byte("provider-secret:" + strings.Repeat("x", 8192) + "uncaptured-tail"))
 	})
 
 	result, err := g.GeocodeWithRetry(context.Background(), "823 Redfield Dr", 3)
@@ -199,10 +203,16 @@ func TestNominatimGeocodeWithRetry_DoesNotRetryPermanentHTTPError(t *testing.T) 
 	if geocodingErr.HTTPStatus != http.StatusBadRequest {
 		t.Fatalf("HTTPStatus = %d, want 400", geocodingErr.HTTPStatus)
 	}
+	if geocodingErr.RetryAfter <= 0 || geocodingErr.RetryAfter > 2*time.Second {
+		t.Fatalf("RetryAfter = %s, want parsed future HTTP-date", geocodingErr.RetryAfter)
+	}
+	if len(geocodingErr.ResponseBody) != providerBodyLimit {
+		t.Fatalf("ResponseBody length = %d, want %d", len(geocodingErr.ResponseBody), providerBodyLimit)
+	}
 	if strings.Contains(geocodingErr.ResponseBody, "uncaptured-tail") {
 		t.Fatalf("ResponseBody captured data beyond limit: %q", geocodingErr.ResponseBody)
 	}
-	if strings.Contains(err.Error(), "uncaptured-tail") {
+	if strings.Contains(err.Error(), "provider-secret") {
 		t.Fatalf("public error contains upstream body: %v", err)
 	}
 }
