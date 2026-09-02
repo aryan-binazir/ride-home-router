@@ -159,20 +159,19 @@ func TestHandleCreateEvent_DoesNotCaptureWithoutMatchingSME(t *testing.T) {
 	}
 }
 
-func TestHandleCreateEvent_DoesNotCapturePostedRouteFallbacks(t *testing.T) {
+func TestHandleCreateEvent_RejectsPostedRoutesBeforeCapturingFeedback(t *testing.T) {
 	tests := []struct {
 		name      string
 		sessionID string
 	}{
-		{name: "direct routes"},
-		{name: "expired session fallback", sessionID: "expired-session"},
+		{name: "missing session"},
+		{name: "unavailable session", sessionID: "expired-session"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, store, conn := newRouteFeedbackHandler(t)
 			setSMEEmail(t, store, "sme@example.com")
-			result := feedbackRoutingResult()
-			payload, err := json.Marshal(result)
+			payload, err := json.Marshal(feedbackRoutingResult())
 			if err != nil {
 				t.Fatalf("marshal routes: %v", err)
 			}
@@ -185,11 +184,15 @@ func TestHandleCreateEvent_DoesNotCapturePostedRouteFallbacks(t *testing.T) {
 			req.Header.Set(routefeedback.AuthenticatedUserEmailHeader, "sme@example.com")
 			rr := httptest.NewRecorder()
 			handler.HandleCreateEvent(rr, req)
-			if rr.Code != http.StatusCreated {
-				t.Fatalf("status = %d, want 201 body=%q", rr.Code, rr.Body.String())
+			if rr.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409 body=%q", rr.Code, rr.Body.String())
 			}
 			if countFeedbackRows(t, conn) != 0 {
 				t.Fatal("feedback captured for posted routes")
+			}
+			events, total, err := store.Events().List(context.Background(), 10, 0)
+			if err != nil || total != 0 || len(events) != 0 {
+				t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
 			}
 		})
 	}

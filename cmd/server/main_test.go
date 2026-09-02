@@ -1,10 +1,94 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"os"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 )
+
+type fakeApplicationServer struct {
+	serveErrors          chan error
+	serveErrorOnShutdown error
+	shutdownErr          error
+	shutdownCalled       bool
+}
+
+func (s *fakeApplicationServer) Start() (string, error) {
+	return "127.0.0.1:12345", nil
+}
+
+func (s *fakeApplicationServer) Errors() <-chan error {
+	return s.serveErrors
+}
+
+func (s *fakeApplicationServer) Shutdown(context.Context) error {
+	s.shutdownCalled = true
+	if s.serveErrorOnShutdown != nil {
+		s.serveErrors <- s.serveErrorOnShutdown
+	}
+	return s.shutdownErr
+}
+
+func TestServeReturnsServerErrorThatRacesWithSignal(t *testing.T) {
+	injectedErr := errors.New("concurrent serve failure")
+	server := &fakeApplicationServer{
+		serveErrors:          make(chan error, 1),
+		serveErrorOnShutdown: injectedErr,
+	}
+	signals := make(chan os.Signal, 1)
+	signals <- syscall.SIGTERM
+
+	err := serve(server, signals)
+
+	if err == nil || !errors.Is(err, injectedErr) {
+		t.Fatalf("serve() error = %v, want concurrent serve failure", err)
+	}
+}
+
+func TestServeJoinsShutdownError(t *testing.T) {
+	serveErr := errors.New("serve failure")
+	shutdownErr := errors.New("shutdown failure")
+	server := &fakeApplicationServer{serveErrors: make(chan error, 1), shutdownErr: shutdownErr}
+	server.serveErrors <- serveErr
+
+	err := serve(server, make(chan os.Signal))
+
+	if !errors.Is(err, serveErr) || !errors.Is(err, shutdownErr) {
+		t.Fatalf("serve() error = %v, want serve and shutdown failures", err)
+	}
+}
+
+func TestServeReturnsUnexpectedServerErrorAfterCleanup(t *testing.T) {
+	injectedErr := errors.New("injected serve failure")
+	server := &fakeApplicationServer{serveErrors: make(chan error, 1)}
+	server.serveErrors <- injectedErr
+
+	err := serve(server, make(chan os.Signal))
+
+	if err == nil || !errors.Is(err, injectedErr) {
+		t.Fatalf("serve() error = %v, want injected serve failure", err)
+	}
+	if !server.shutdownCalled {
+		t.Fatal("serve() did not shut down after the server failed")
+	}
+}
+
+func TestServeShutsDownCleanlyOnSignal(t *testing.T) {
+	server := &fakeApplicationServer{serveErrors: make(chan error, 1)}
+	signals := make(chan os.Signal, 1)
+	signals <- syscall.SIGTERM
+
+	if err := serve(server, signals); err != nil {
+		t.Fatalf("serve() error = %v, want nil", err)
+	}
+	if !server.shutdownCalled {
+		t.Fatal("serve() did not shut down after the signal")
+	}
+}
 
 func TestParseArgs(t *testing.T) {
 	tests := []struct {

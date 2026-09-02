@@ -5,18 +5,21 @@ import (
 	"context"
 	"errors"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	appTemplates "ride-home-router/internal/templates"
 	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -53,6 +56,39 @@ func TestNewDoesNotApplyDatabaseMigrations(t *testing.T) {
 	}
 }
 
+func TestSetupRoutesSeparatesLivenessFromReadiness(t *testing.T) {
+	databaseURL := postgrestest.UnmigratedDatabase(t)
+	store, err := postgres.New(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("open unmigrated store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	mux := setupRoutes(&handlers.Handler{DB: store}, web.Static)
+
+	for _, tt := range []struct {
+		path       string
+		wantStatus int
+	}{
+		{path: "/api/v1/health", wantStatus: http.StatusOK},
+		{path: "/api/v1/ready", wantStatus: http.StatusServiceUnavailable},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
+			recorder := httptest.NewRecorder()
+
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d body=%q", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
 	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
@@ -70,6 +106,50 @@ func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
 	}
 	if _, err := server.handler.ImportSession.Create(importer.KindParticipant, "closed.csv", grid); !errors.Is(err, importer.ErrStoreClosed) {
 		t.Fatalf("Create() after Shutdown error = %v, want ErrStoreClosed", err)
+	}
+}
+
+func TestServerReportsUnexpectedServeError(t *testing.T) {
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := server.listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	select {
+	case err := <-server.Errors():
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("Errors() = %v, want closed listener error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Errors() did not report the listener failure")
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
+func TestServerCleanShutdownDoesNotReportServeError(t *testing.T) {
+	server, err := New(context.Background(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	select {
+	case err := <-server.Errors():
+		t.Fatalf("Errors() after clean shutdown = %v, want no error", err)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -102,6 +182,18 @@ func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d: the browser client opens URLs itself", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestSetupRoutesRejectsNonGetReadiness(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/ready", nil)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
 	}
 }
 

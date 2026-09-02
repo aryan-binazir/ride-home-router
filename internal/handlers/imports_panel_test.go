@@ -42,7 +42,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	handler.HandleImportSession(mappingRecorder, mapping)
 	assertPanelFragment(t, mappingRecorder)
 	previewBody := mappingRecorder.Body.String()
-	for _, want := range []string{"Looking up addresses…", "<progress", `hx-trigger="every 2s"`, "2 of 2 rows selected", "Import 2 rows", "disabled"} {
+	for _, want := range []string{"Looking up addresses…", "<progress", `hx-trigger="every 2s"`, `hx-disabled-elt="#import-commit-button"`, `id="import-commit-button"`, "2 of 2 rows selected", "Import 2 rows", "disabled>"} {
 		if !strings.Contains(previewBody, want) {
 			t.Fatalf("preview fragment missing %q: %s", want, previewBody)
 		}
@@ -57,7 +57,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	if strings.Contains(polledBody, "Looking up addresses…") || strings.Contains(polledBody, "every 2s") {
 		t.Fatalf("finished preview should stop polling: %s", polledBody)
 	}
-	if !strings.Contains(polledBody, "Import 2 rows") || strings.Contains(polledBody, "disabled") {
+	if !strings.Contains(polledBody, "Import 2 rows") || strings.Contains(polledBody, "disabled>") {
 		t.Fatalf("finished preview should enable the commit button: %s", polledBody)
 	}
 

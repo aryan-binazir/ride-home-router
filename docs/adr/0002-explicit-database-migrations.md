@@ -10,7 +10,7 @@ The repository has one application and one timestamped migration stream. It does
 
 The `migrate` binary owns schema changes. It supports default or explicit `up`, read-only `version`, and one-step `down --confirm`.
 
-The server binary does not apply or inspect migrations. Local `make serve` depends on `make migrate`. Deployments must run `migrate` as a one-shot pre-deploy command and start the new server revision only after it exits successfully.
+The server binary does not apply migrations or gate startup on them. Its readiness check inspects migration state without changing it. Local `make serve` depends on `make migrate`. Deployments must run `migrate` as a one-shot pre-deploy command and start the new server revision only after it exits successfully.
 
 Migration execution reuses golang-migrate's Postgres advisory lock. The runner caps connections and advisory-lock waits at 10 seconds, other database lock waits at nine seconds, and migration statements at five minutes. It reports clean or dirty version state. Up and down operations refuse a dirty database with recovery guidance.
 
@@ -22,6 +22,8 @@ Applied SQL stays immutable. The baseline's session-only `SET lock_timeout = 0` 
 
 - Local startup still migrates first through the Make dependency.
 - Direct server startup can succeed against an unprepared schema because the runtime pool only verifies connectivity. Requests that need missing tables then fail. This matches the explicit ownership model and makes the pre-deploy gate mandatory.
+- Container readiness fails unless the applied schema version is clean and exactly matches the latest migration embedded in the running image. Liveness remains independent so an unready process can still report that it is running.
+- Strict equality makes old containers unhealthy after a newer revision migrates, and an application-only rollback stays unhealthy against a newer schema. Deploy and rollback procedures must keep the image and migration version together.
 - The container must ship both binaries. The platform's pre-deploy command must be configured before this ownership change is merged or deployed.
 - Concurrent migration commands serialize, clean retries are idempotent, and lock waits fail within a bound.
 - Dirty-state repair must restore the version matching the verified schema; clearing the dirty flag on golang-migrate's recorded target can skip a rolled-back up or misrecord a rolled-back down.

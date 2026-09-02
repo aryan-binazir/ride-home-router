@@ -28,6 +28,12 @@ type options struct {
 	GoogleMapsAPIKey string
 }
 
+type applicationServer interface {
+	Start() (string, error)
+	Errors() <-chan error
+	Shutdown(context.Context) error
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -42,6 +48,7 @@ func run(args []string) error {
 
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(shutdown)
 
 	srv, err := server.New(context.Background(), server.Config{
 		Addr:             opts.Addr,
@@ -53,20 +60,40 @@ func run(args []string) error {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
+	return serve(srv, shutdown)
+}
+
+func serve(srv applicationServer, shutdown <-chan os.Signal) error {
 	actualAddr, err := srv.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
 	log.Printf("Ride Home Router listening on http://%s", actualAddr)
 
-	sig := <-shutdown
-	log.Printf("Received signal %v, starting graceful shutdown", sig)
+	var serveErr error
+	select {
+	case sig := <-shutdown:
+		log.Printf("Received signal %v, starting graceful shutdown", sig)
+	case err := <-srv.Errors():
+		serveErr = fmt.Errorf("server stopped unexpectedly: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		return fmt.Errorf("could not gracefully shutdown the server: %w", err)
+	shutdownErr := srv.Shutdown(ctx)
+	if serveErr == nil {
+		select {
+		case err := <-srv.Errors():
+			serveErr = fmt.Errorf("server stopped unexpectedly: %w", err)
+		default:
+		}
+	}
+	if shutdownErr != nil {
+		shutdownErr = fmt.Errorf("could not gracefully shutdown the server: %w", shutdownErr)
+	}
+	if err := errors.Join(serveErr, shutdownErr); err != nil {
+		return err
 	}
 
 	log.Println("Server stopped")
