@@ -23,6 +23,7 @@ Applied SQL stays immutable. The baseline's session-only `SET lock_timeout = 0` 
 - Local startup still migrates first through the Make dependency.
 - Direct server startup can succeed against an unprepared schema because the runtime pool only verifies connectivity. Requests that need missing tables then fail. This matches the explicit ownership model and makes the pre-deploy gate mandatory.
 - Container readiness fails unless the applied schema version is clean and exactly matches the latest migration embedded in the running image. Liveness remains independent so an unready process can still report that it is running.
+- Strict equality makes old containers unhealthy after a newer revision migrates, and an application-only rollback stays unhealthy against a newer schema. Deploy and rollback procedures must keep the image and migration version together.
 - The container must ship both binaries. The platform's pre-deploy command must be configured before this ownership change is merged or deployed.
 - Concurrent migration commands serialize, clean retries are idempotent, and lock waits fail within a bound.
 - Dirty-state repair must restore the version matching the verified schema; clearing the dirty flag on golang-migrate's recorded target can skip a rolled-back up or misrecord a rolled-back down.

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 )
@@ -16,6 +17,7 @@ func (h *Handler) HandleReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	status := "ready"
 	code := http.StatusOK
 	if err := h.DB.ReadinessCheck(ctx); err != nil {
+		log.Printf("[ERROR] Readiness check failed: err=%v", err)
 		status = "not_ready"
 		code = http.StatusServiceUnavailable
 	}

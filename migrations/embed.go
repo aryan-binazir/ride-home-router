@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -36,14 +34,8 @@ const (
 //go:embed *.sql
 var files embed.FS
 
-var latestVersion = sync.OnceValues(findLatestVersion)
-
 // LatestVersion returns the newest embedded migration version.
 func LatestVersion() (uint, error) {
-	return latestVersion()
-}
-
-func findLatestVersion() (uint, error) {
 	driver, err := iofs.New(files, ".")
 	if err != nil {
 		return 0, fmt.Errorf("open embedded migrations: %w", err)
@@ -161,7 +153,7 @@ func preflightDown(migrator *migrate.Migrate, sourceDriver source.Driver) error 
 	}
 
 	migration, identifier, err := sourceDriver.ReadDown(version)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("refuse down at version %d: missing down migration", version)
 	}
 	if err != nil {

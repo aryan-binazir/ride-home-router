@@ -139,6 +139,18 @@ func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
 	}
 }
 
+func TestSetupRoutesRejectsNonGetReadiness(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/ready", nil)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestSetupRoutesRegistersImportEndpoints(t *testing.T) {
 	mux := setupRoutes(&handlers.Handler{}, web.Static)
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/imports", nil)
