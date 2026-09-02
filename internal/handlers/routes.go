@@ -75,16 +75,17 @@ func parseRouteIDs(values []string) ([]int64, error) {
 		return nil, errInvalidRouteSelection
 	}
 	ids := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
 	for _, value := range values {
 		id, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
+		if err != nil || id <= 0 {
 			return nil, errInvalidRouteSelection
 		}
+		if _, exists := seen[id]; exists {
+			return nil, errInvalidRouteSelection
+		}
+		seen[id] = struct{}{}
 		ids = append(ids, id)
-	}
-	uniqueIDs, ok := uniquePositiveIDs(ids)
-	if !ok || len(uniqueIDs) != len(ids) {
-		return nil, errInvalidRouteSelection
 	}
 	return ids, nil
 }

@@ -353,43 +353,72 @@ func TestSMERouteFeedbackMigrationAppliesDownAndUp(t *testing.T) {
 }
 
 func TestSoftDeleteRosterMigrationRefusesDownWithArchivedRows(t *testing.T) {
-	db, migrator := openMigrator(t)
-	ctx := t.Context()
+	tests := []struct {
+		name      string
+		table     string
+		insertSQL string
+		wantError string
+	}{
+		{name: "participant", table: "participants", insertSQL: `INSERT INTO participants (name, address, lat, lng, deleted_at) VALUES ('Archived Rider', '2 Main St', 40, -73, now())`, wantError: "archived participants"},
+		{name: "driver", table: "drivers", insertSQL: `INSERT INTO drivers (name, address, lat, lng, deleted_at) VALUES ('Archived Driver', '4 Main St', 40, -73, now())`, wantError: "archived drivers"},
+		{name: "activity location", table: "activity_locations", insertSQL: `INSERT INTO activity_locations (name, address, lat, lng, deleted_at) VALUES ('Archived Gym', '6 Main St', 40, -73, now())`, wantError: "archived activity locations"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, migrator := openMigrator(t)
+			ctx := t.Context()
+			if _, err := db.ExecContext(ctx, test.insertSQL); err != nil {
+				t.Fatalf("insert archived %s: %v", test.name, err)
+			}
 
-	var archivedParticipantID int64
-	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng, deleted_at) VALUES ('Archived Rider', '2 Main St', 40, -73, now()) RETURNING id`).Scan(&archivedParticipantID); err != nil {
-		t.Fatalf("insert archived participant: %v", err)
-	}
+			err := migrator.Migrate(20260829000000)
+			for _, want := range []string{test.wantError, "export or explicitly purge"} {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("migrate soft-delete roster down error = %v, want containing %q", err, want)
+				}
+			}
+			var count int
+			if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+test.table+` WHERE deleted_at IS NOT NULL`).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("archived %s after refused down = %d, err=%v; want 1", test.name, count, err)
+			}
+			assertSoftDeleteColumns(t, db, true)
 
-	err := migrator.Migrate(20260829000000)
-	for _, want := range []string{"archived participants", "export or explicitly purge"} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("migrate soft-delete roster down error = %v, want containing %q", err, want)
-		}
-	}
-	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM participants WHERE id = $1 AND deleted_at IS NOT NULL`, archivedParticipantID).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("archived participant after refused down = %d, err=%v; want 1", count, err)
-	}
-	assertSoftDeleteColumns(t, db, true)
-
-	var version uint
-	var dirty bool
-	if err := db.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
-		t.Fatalf("inspect migration state after refused down: %v", err)
-	}
-	if version != 20260829000000 || !dirty {
-		t.Fatalf("migration state after refused down = (%d, %t), want (20260829000000, true)", version, dirty)
+			var version uint
+			var dirty bool
+			if err := db.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
+				t.Fatalf("inspect migration state after refused down: %v", err)
+			}
+			if version != 20260829000000 || !dirty {
+				t.Fatalf("migration state after refused down = (%d, %t), want (20260829000000, true)", version, dirty)
+			}
+		})
 	}
 }
 
 func TestSoftDeleteRosterMigrationDownSucceedsWithoutArchivedRows(t *testing.T) {
 	db, migrator := openMigrator(t)
+	ctx := t.Context()
+	liveRows := map[string]string{
+		"participants":       `INSERT INTO participants (name, address, lat, lng) VALUES ('Live Rider', '1 Main St', 40, -73)`,
+		"drivers":            `INSERT INTO drivers (name, address, lat, lng) VALUES ('Live Driver', '3 Main St', 40, -73)`,
+		"activity_locations": `INSERT INTO activity_locations (name, address, lat, lng) VALUES ('Live Gym', '5 Main St', 40, -73)`,
+	}
+	for table, insertSQL := range liveRows {
+		if _, err := db.ExecContext(ctx, insertSQL); err != nil {
+			t.Fatalf("insert live row in %s: %v", table, err)
+		}
+	}
 
 	if err := migrator.Migrate(20260829000000); err != nil {
 		t.Fatalf("migrate soft-delete roster down: %v", err)
 	}
 	assertSoftDeleteColumns(t, db, false)
+	for table := range liveRows {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("live rows in %s after down = %d, err=%v; want 1", table, count, err)
+		}
+	}
 	if err := migrator.Migrate(20260830000000); err != nil {
 		t.Fatalf("migrate soft-delete roster up: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -88,7 +89,7 @@ func TestServerReportsUnexpectedServeError(t *testing.T) {
 
 	select {
 	case err := <-server.Errors():
-		if err == nil || !strings.Contains(err.Error(), "closed network connection") {
+		if !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("Errors() = %v, want closed listener error", err)
 		}
 	case <-time.After(time.Second):

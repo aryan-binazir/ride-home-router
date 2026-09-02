@@ -104,9 +104,17 @@ func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *t
 }
 
 func TestRouteCalculationEndpoints_AcceptSelectionLimit(t *testing.T) {
-	participantIDs := make([]string, plandraft.MaxSelectionSize)
-	for i := range participantIDs {
-		participantIDs[i] = strconv.Itoa(i + 1)
+	selectionLimit := make([]string, plandraft.MaxSelectionSize)
+	for i := range selectionLimit {
+		selectionLimit[i] = strconv.Itoa(i + 1)
+	}
+	selections := []struct {
+		name           string
+		participantIDs []string
+		driverIDs      []string
+	}{
+		{name: "participants", participantIDs: selectionLimit, driverIDs: []string{"1"}},
+		{name: "drivers", participantIDs: []string{"1"}, driverIDs: selectionLimit},
 	}
 	endpoints := []struct {
 		name   string
@@ -117,33 +125,35 @@ func TestRouteCalculationEndpoints_AcceptSelectionLimit(t *testing.T) {
 		{name: "calculate with organization vehicles", path: "/api/v1/routes/calculate-with-org-vehicles", handle: (*Handler).HandleCalculateRoutesWithOrgVehicles},
 	}
 	for _, endpoint := range endpoints {
-		t.Run(endpoint.name, func(t *testing.T) {
-			router := &captureRouter{}
-			handler := &Handler{Router: router}
-			form := url.Values{
-				"participant_ids":      participantIDs,
-				"driver_ids":           {"1"},
-				"activity_location_id": {"1"},
-				"route_time":           {"not-a-time"},
-				"mode":                 {"dropoff"},
-			}
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.Header.Set("HX-Request", "true")
-			rr := httptest.NewRecorder()
+		for _, selection := range selections {
+			t.Run(endpoint.name+"/"+selection.name, func(t *testing.T) {
+				router := &captureRouter{}
+				handler := &Handler{Router: router}
+				form := url.Values{
+					"participant_ids":      selection.participantIDs,
+					"driver_ids":           selection.driverIDs,
+					"activity_location_id": {"1"},
+					"route_time":           {"not-a-time"},
+					"mode":                 {"dropoff"},
+				}
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, endpoint.path, strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.Header.Set("HX-Request", "true")
+				rr := httptest.NewRecorder()
 
-			endpoint.handle(handler, rr, req)
+				endpoint.handle(handler, rr, req)
 
-			if rr.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
-			}
-			if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageChooseValidRouteTime) {
-				t.Fatalf("HX-Trigger = %q, want route-time validation after accepting %d selections", got, plandraft.MaxSelectionSize)
-			}
-			if router.lastRequest != nil {
-				t.Fatalf("router received request %#v", router.lastRequest)
-			}
-		})
+				if rr.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+				}
+				if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageChooseValidRouteTime) {
+					t.Fatalf("HX-Trigger = %q, want route-time validation after accepting %d selections", got, plandraft.MaxSelectionSize)
+				}
+				if router.lastRequest != nil {
+					t.Fatalf("router received request %#v", router.lastRequest)
+				}
+			})
+		}
 	}
 }
 
