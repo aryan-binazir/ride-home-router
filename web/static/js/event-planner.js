@@ -25,8 +25,9 @@
 
         // Staleness wins over savedness: a saved session whose inputs then moved
         // is stale, and reverting the inputs returns it to saved, never current.
-        function statusForInputs() {
-            if (readFingerprint() !== calculatedFingerprint) return 'stale';
+        function statusForInputs(fingerprint) {
+            const current = fingerprint === undefined ? readFingerprint() : fingerprint;
+            if (current !== calculatedFingerprint) return 'stale';
             return sessionId === savedSessionId ? 'saved' : 'current';
         }
 
@@ -66,11 +67,13 @@
             return settle(statusForInputs());
         }
 
-        function refresh() {
+        // Callers that have already read the inputs pass the fingerprint in
+        // rather than paying for a second scan of the roster.
+        function refresh(fingerprint) {
             // 'empty' has nothing to compare against.
             if (status === 'empty') return getSnapshot();
 
-            return settle(statusForInputs());
+            return settle(statusForInputs(fingerprint));
         }
 
         return { clear, getSnapshot, markCalculated, markSaved, refresh };
@@ -82,13 +85,13 @@
         const eventDate = scope.querySelector('input[name="event_date"]');
         const notes = scope.querySelector('textarea[name="notes"]');
         return {
-            eventDate: eventDate && eventDate.dataset.userEdited ? eventDate.value : '',
+            eventDate: eventDate && eventDate.dataset.userEdited ? eventDate.value : null,
             notes: notes ? notes.value : '',
         };
     }
 
     function restoreSaveFields(scope, saved) {
-        if (saved.eventDate) {
+        if (saved.eventDate !== null) {
             const eventDate = scope.querySelector('input[name="event_date"]');
             if (eventDate) {
                 eventDate.value = saved.eventDate;
@@ -1073,8 +1076,8 @@
             };
         }
 
-        function readPlannerFingerprint() {
-            const inputs = readPlannerInputs();
+        function readPlannerFingerprint(preRead) {
+            const inputs = preRead === undefined ? readPlannerInputs() : preRead;
             if (!inputs) return '';
 
             return JSON.stringify({
@@ -1136,8 +1139,7 @@
             }
         }
 
-        function writeEventPlannerDraft() {
-            const inputs = readPlannerInputs();
+        function writeEventPlannerDraft(inputs) {
             if (!inputs) return;
 
             const draft = Object.assign({}, inputs, { labelFilters: getPlannerLabelFilters() });
@@ -1151,9 +1153,9 @@
 
         // A restore only makes sense while the inputs still match the ones the
         // restored session was calculated from.
-        function abortSupersededRestore() {
+        function abortSupersededRestore(fingerprint) {
             if (!restoreController) return;
-            if (restoreFingerprint === readPlannerFingerprint()) return;
+            if (restoreFingerprint === fingerprint) return;
 
             restoreController.abort();
             // The stored session belonged to the inputs that were just replaced.
@@ -1163,9 +1165,11 @@
         function saveEventPlannerDraft() {
             if (isRestoringEventPlannerDraft) return;
 
-            abortSupersededRestore();
-            writeEventPlannerDraft();
-            plannerState.refresh();
+            const inputs = readPlannerInputs();
+            const fingerprint = readPlannerFingerprint(inputs);
+            abortSupersededRestore(fingerprint);
+            writeEventPlannerDraft(inputs);
+            plannerState.refresh(fingerprint);
         }
 
         function clearEventPlannerDraft() {
@@ -1716,12 +1720,36 @@
                 restoreRouteSession(activeSession);
             }
 
+            // The capacity-shortage pane recalculates from its own hidden copy of
+            // the plan plus its own van assignments. Mirror those assignments back
+            // into the plan form, so the fingerprint we commit describes the routes
+            // that come back instead of whatever the left pane happens to say.
+            function adoptCapacityShortageVanAssignments() {
+                const recalcForm = document.getElementById('recalc-form');
+                if (!recalcForm) return;
+
+                recalcForm.querySelectorAll('.org-vehicle-select').forEach(source => {
+                    const target = document.getElementById(`van-assignment-${source.dataset.driverId}`);
+                    if (target && !target.disabled) target.value = source.value;
+                });
+                handleVanAssignmentChange();
+            }
+
             document.body.addEventListener('htmx:beforeRequest', function(event) {
                 const elt = event.detail && event.detail.elt;
-                if (elt && elt.id === 'calculate-btn') {
+                if (!elt) return;
+
+                if (elt.id === 'calculate-btn') {
                     if (restoreController) restoreController.abort();
                     calculateFingerprint = readPlannerFingerprint();
                     setCalculateButtonLoading(true);
+                    return;
+                }
+
+                if (elt.id === 'recalc-form' || elt.id === 'recalc-btn') {
+                    if (restoreController) restoreController.abort();
+                    adoptCapacityShortageVanAssignments();
+                    calculateFingerprint = readPlannerFingerprint();
                 }
             });
 

@@ -1048,6 +1048,17 @@ function domNode(tagName, props = {}) {
     return node;
 }
 
+// Models the server render: the old nodes go away and fresh ones take their place.
+function replaceOnRender(target, buildFields) {
+    Object.defineProperty(target, 'innerHTML', {
+        set() {
+            this.children.forEach(child => { child.parentNode = null; });
+            this.children = [];
+            buildFields().forEach(field => this.appendChild(field));
+        },
+    });
+}
+
 function fakeEvent(type, detail) {
     return {
         type,
@@ -1091,9 +1102,20 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         checked: true,
         dataset: { capacity: '4' },
     });
+    const vanSelect = domNode('select', {
+        id: 'van-assignment-10',
+        classes: ['van-assignment-select'],
+        dataset: { driverId: '10' },
+        value: '',
+        disabled: false,
+        options: [{ value: '', dataset: { capacity: '4' } }, { value: '3', dataset: { capacity: '8' } }],
+    });
+    Object.defineProperty(vanSelect, 'selectedIndex', {
+        get() { return Math.max(0, this.options.findIndex(option => option.value === this.value)); },
+    });
     const driverRow = domNode('label', {
         classes: ['select-row'],
-        children: [driver, domNode('span', { classes: ['van-assignment-inline'] })],
+        children: [driver, domNode('span', { classes: ['van-assignment-inline'], children: [vanSelect] })],
     });
     const activityLocation = domNode('select', { name: 'activity_location_id', value: '7' });
     const dropoff = domNode('input', { name: 'mode', value: 'dropoff', checked: mode === 'dropoff' });
@@ -1119,13 +1141,17 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         form: true,
         classes: ['save-event-card'],
         attributes: { 'hx-post': '/api/v1/events' },
-        children: [
-            domNode('input', { name: 'session_id', value: 'session-1' }),
-            domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
-            domNode('textarea', { name: 'notes', value: '' }),
-            saveButton,
-        ],
+        children: [domNode('input', { name: 'session_id', value: 'session-1' })],
     });
+    // The server re-renders the save fields from its own defaults every time.
+    function renderServerSaveFields() {
+        saveForm.querySelectorAll('input[name="event_date"], textarea[name="notes"]')
+            .forEach(field => field.remove());
+        saveForm.appendChild(domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }));
+        saveForm.appendChild(domNode('textarea', { name: 'notes', value: '' }));
+        saveForm.appendChild(saveButton);
+    }
+    renderServerSaveFields();
     saveForm.elements = {
         namedItem: name => saveForm.querySelector(`[name="${name}"]`),
     };
@@ -1148,10 +1174,18 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         },
     });
 
+    // The capacity-shortage pane's own recalculation form.
+    const recalcVanSelect = domNode('select', {
+        classes: ['org-vehicle-select'],
+        dataset: { driverId: '10' },
+        value: '',
+    });
+    const recalcForm = domNode('form', { id: 'recalc-form', form: true, children: [recalcVanSelect] });
+
     const routeTimeLabel = domNode('label', { id: 'route-time-label', textContent: 'x' });
     const routeTimeHelp = domNode('p', { id: 'route-time-help', textContent: 'x' });
     const body = domNode('body', {
-        children: [form, resultsSection, routeTimeLabel, routeTimeHelp,
+        children: [form, resultsSection, recalcForm, routeTimeLabel, routeTimeHelp,
             domNode('template', { id: 'results-empty-state-template' })],
     });
     const root = domNode('html', { children: [body] });
@@ -1206,8 +1240,10 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
         participants,
         pickup,
         routeTime,
+        recalcVanSelect,
         routeTimeLabel,
         routesContainer,
+        vanSelect,
         resultsSection,
         saveButton,
         saveForm,
@@ -1224,9 +1260,19 @@ function bootPlanner({ mode = 'dropoff', storedSession = null } = {}) {
             body.appendChild(saveResult);
             body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: saveResult } }));
         },
-        calculate() {
-            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt: { id: 'calculate-btn' } } }));
+        // The full htmx lifecycle: request, snapshot, server render, swap, settle.
+        calculate({ elt = { id: 'calculate-btn' } } = {}) {
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt } }));
+            body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeSwap'), { detail: { target: resultsSection } }));
+            renderServerSaveFields();
             body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: resultsSection } }));
+            root.dispatchEvent(Object.assign(fakeEvent('htmx:afterSettle'), { target: resultsSection }));
+        },
+        saveFields() {
+            return {
+                eventDate: saveForm.querySelector('input[name="event_date"]'),
+                notes: saveForm.querySelector('textarea[name="notes"]'),
+            };
         },
         change(target) {
             root.dispatchEvent(Object.assign(fakeEvent('change'), { target }));
@@ -1344,14 +1390,7 @@ test('a route edit render carries the entered event date and notes onto the repl
     eventDate.dataset.userEdited = '1';
     notes.value = 'Two vans, meet at the flagpole';
 
-    const originalInnerHTML = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target), 'innerHTML');
-    Object.defineProperty(target, 'innerHTML', {
-        set(html) {
-            if (originalInnerHTML) originalInnerHTML.set.call(this, html);
-            // The server always re-renders today's date and empty notes.
-            savedFields().forEach(field => this.appendChild(field));
-        },
-    });
+    replaceOnRender(target, savedFields);
 
     installRouteResults({
         target,
@@ -1378,13 +1417,10 @@ test('a render without entered fields keeps the server defaults', () => {
             domNode('textarea', { name: 'notes', value: '' }),
         ],
     });
-    const replacements = [
+    replaceOnRender(target, () => [
         domNode('input', { type: 'date', name: 'event_date', value: '2026-09-02' }),
         domNode('textarea', { name: 'notes', value: '' }),
-    ];
-    Object.defineProperty(target, 'innerHTML', {
-        set() { replacements.forEach(field => this.appendChild(field)); },
-    });
+    ]);
 
     installRouteResults({ target, html: '', htmx: { process() {} }, afterRender() {} });
 
@@ -1480,18 +1516,19 @@ test('a results swap with no session clears the planner state', () => {
 
 test('the calculate swap carries entered save fields across the native htmx render', () => {
     const planner = bootPlanner();
-    const eventDate = planner.saveForm.querySelector('input[name="event_date"]');
-    const notes = planner.saveForm.querySelector('textarea[name="notes"]');
 
     planner.calculate();
-    eventDate.value = '2026-10-04';
-    eventDate.dataset.userEdited = '1';
-    notes.value = 'Two vans, meet at the flagpole';
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
     planner.driver.checked = false;
     planner.change(planner.driver);
     planner.calculate();
 
-    assert.deepEqual({ eventDate: eventDate.value, notes: notes.value }, {
+    const rendered = planner.saveFields();
+    assert.notEqual(rendered.eventDate, entered.eventDate);
+    assert.deepEqual({ eventDate: rendered.eventDate.value, notes: rendered.notes.value }, {
         eventDate: '2026-10-04',
         notes: 'Two vans, meet at the flagpole',
     });
@@ -1533,19 +1570,42 @@ test('a saved event locks re-saving and editing but leaves copying live', () => 
 
 test('a saved event does not seed the next event with its date and notes', () => {
     const planner = bootPlanner();
-    const eventDate = planner.saveForm.querySelector('input[name="event_date"]');
-    const notes = planner.saveForm.querySelector('textarea[name="notes"]');
 
     planner.calculate();
-    eventDate.value = '2026-10-04';
-    eventDate.dataset.userEdited = '1';
-    notes.value = 'Two vans, meet at the flagpole';
+    const entered = planner.saveFields();
+    entered.eventDate.value = '2026-10-04';
+    entered.eventDate.dataset.userEdited = '1';
+    entered.notes.value = 'Two vans, meet at the flagpole';
     planner.saveSucceeded();
     planner.calculate();
 
-    assert.deepEqual({ userEdited: eventDate.dataset.userEdited, notes: notes.value }, {
-        userEdited: '1',
-        notes: 'Two vans, meet at the flagpole',
+    const rendered = planner.saveFields();
+    assert.deepEqual({
+        eventDate: rendered.eventDate.value,
+        userEdited: rendered.eventDate.dataset.userEdited,
+        notes: rendered.notes.value,
+    }, {
+        eventDate: localISODate(new Date()),
+        userEdited: undefined,
+        notes: '',
+    });
+});
+
+test('a capacity-shortage recalculation adopts its own van assignments before fingerprinting', () => {
+    const planner = bootPlanner();
+
+    planner.calculate();
+    planner.recalcVanSelect.value = '3';
+    planner.calculate({ elt: { id: 'recalc-form' } });
+    const afterRecalc = { saveDisabled: planner.saveButton.disabled, vanValue: planner.vanSelect.value };
+
+    // The plan form now describes the routes, so editing it still goes stale.
+    planner.vanSelect.value = '';
+    planner.context.handleVanAssignmentChange();
+
+    assert.deepEqual({ afterRecalc, saveDisabled: planner.saveButton.disabled }, {
+        afterRecalc: { saveDisabled: false, vanValue: '3' },
+        saveDisabled: true,
     });
 });
 
