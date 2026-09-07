@@ -1158,6 +1158,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
     const banner = domNode('div', { classes: ['alert', 'planner-plan-state-banner'], hidden: true });
     const saveButton = domNode('button', { type: 'submit', disabled: false, dataset: { sessionAction: 'save' } });
     const copyButton = domNode('button', { disabled: false, dataset: { sessionAction: 'copy' } });
+    const previewButton = domNode('button', { disabled: false, dataset: { sessionAction: 'preview' } });
     const outOfBalanceCopy = domNode('button', { dataset: { sessionAction: 'copy' }, disabled: true });
     const saveForm = domNode('form', {
         form: true,
@@ -1184,7 +1185,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
     };
     const resultsBody = domNode('div', {
         classes: ['results-body'],
-        children: [banner, copyButton, outOfBalanceCopy, saveForm],
+        children: [banner, copyButton, previewButton, outOfBalanceCopy, saveForm],
     });
     const routesContainer = domNode('div', {
         classes: ['routes-container'],
@@ -1286,6 +1287,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         banner,
         context,
         copyButton,
+        previewButton,
         document,
         driver,
         dropoff,
@@ -1672,6 +1674,7 @@ test('a saved event locks re-saving and editing but leaves copying live', () => 
 
     planner.calculate();
     planner.saveSucceeded();
+    assert.equal(planner.previewButton.disabled, false);
     const afterSave = {
         saveDisabled: planner.saveButton.disabled,
         copyDisabled: planner.copyButton.disabled,
@@ -1684,6 +1687,7 @@ test('a saved event locks re-saving and editing but leaves copying live', () => 
     planner.driver.checked = false;
     planner.change(planner.driver);
 
+    assert.equal(planner.previewButton.disabled, false);
     assert.deepEqual({
         afterSave,
         copyDisabled: planner.copyButton.disabled,
@@ -1924,6 +1928,9 @@ test('manual route edits reach the server in order and keep handoffs locked unti
     assert.equal(app.copyButton.disabled, true);
     assert.equal(app.saveButton.disabled, true);
     assert.equal(await app.context.copyAllRoutes(), false);
+    assert.equal(app.previewButton.disabled, true);
+    assert.match(app.previewButton.getAttribute('title'), /Updating routes/);
+    assert.equal(app.context.previewRoute(app.previewButton), false);
 
     requests[0].resolve({ ok: true, text: async () => '<div>swapped routes</div>' });
     await swapping;
@@ -1935,6 +1942,7 @@ test('manual route edits reach the server in order and keep handoffs locked unti
     await app.settleRestore();
     assert.equal(app.copyButton.disabled, false);
     assert.equal(app.saveButton.disabled, false);
+    assert.equal(app.previewButton.disabled, false);
 });
 
 test('moves on either side of a reset stay ordered and Save waits for every edit', async () => {
@@ -2001,6 +2009,16 @@ test('changing the plan cancels queued manual edits without leaving their caller
     app.change(app.driver);
     await app.settleRestore();
     assert.equal(resetCancelled, true);
+    assert.equal(app.previewButton.disabled, true);
     finishRequest({ ok: true, text: async () => '<div>old plan</div>' });
     await adding;
+    await app.settleRestore();
+    assert.equal(app.previewButton.disabled, false);
+});
+
+test('an absent session has no pending route edits', () => {
+    const batcher = createParticipantMoveBatcher({ sendBatch: async () => true });
+    assert.equal(batcher.hasPendingFor(null), false);
+    assert.equal(batcher.hasPendingFor(undefined), false);
+    assert.equal(batcher.hasPendingFor(''), false);
 });

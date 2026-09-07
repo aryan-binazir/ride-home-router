@@ -274,7 +274,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 			logutil.SafeString(r.URL.Path), shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, logutil.SafeString(shortage.RoutingError.Reason))
 		if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 			if policy.warnOnShortage {
-				message := "Households do not fit the selected vehicles. Add a driver or assign larger vehicles."
+				message := messageHouseholdsDoNotFit
 				if seatsNeeded := shortage.RoutingError.TotalParticipants - shortage.RoutingError.TotalCapacity; seatsNeeded > 0 {
 					message = messageNotEnoughCapacity(seatsNeeded)
 				}

@@ -1189,6 +1189,7 @@ func TestHandleCalculateRoutes_HTMXRendersRouteTimeMetadataAndParentCopyButton(t
 		`data-route-duration-secs="900"`,
 		`data-stop-cumulative-duration-secs="600"`,
 		`Copy for Parents`,
+		`data-session-action="preview" onclick="previewRoute(this)"`,
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected rendered route results to contain %q, body=%q", fragment, body)

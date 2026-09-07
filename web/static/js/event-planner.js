@@ -640,7 +640,7 @@
         }
 
         function hasPendingFor(sessionId) {
-            return activeSessionId === sessionId || queue.some(move => move.session_id === sessionId);
+            return Boolean(sessionId) && (activeSessionId === sessionId || queue.some(move => move.session_id === sessionId));
         }
 
         function discardFor(sessionId) {
@@ -1050,13 +1050,11 @@
             stale: 'Plan changed — recalculate routes before copying or saving them.',
             saved: 'Event saved. Recalculate to plan another event.',
         };
-        // Controls that act on the calculated session are tagged copy / edit /
-        // save; Preview only opens a map, so it is never locked. A stale plan
-        // invalidates all three. A saved plan is still the routes on screen, so
-        // copying stays live and only editing and re-saving are locked.
+        // Stale plans lock copy, edit and save. Saved plans lock edit and save.
+        // Preview can inspect either snapshot, but waits while edits are pending.
         const SESSION_ACTION_CONTROLS = '[data-session-action]';
         const PLAN_STATE_LOCKS = {
-            stale: '[data-session-action]',
+            stale: '[data-session-action="copy"], [data-session-action="edit"], [data-session-action="save"]',
             saved: '[data-session-action="edit"], [data-session-action="save"]',
         };
 
@@ -1093,9 +1091,12 @@
             const container = resultsSection ? resultsSection.querySelector('.routes-container') : null;
             if (!container) return;
 
-            const pendingEdits = status === 'current' && participantMoveBatcher.hasPendingFor(container.dataset.sessionId);
-            const message = pendingEdits ? 'Updating routes. Copy and save will be available when edits finish.' : PLAN_STATE_MESSAGES[status] || '';
-            const lockedActions = pendingEdits ? '[data-session-action="copy"], [data-session-action="save"]' : PLAN_STATE_LOCKS[status] || null;
+            const pendingEdits = participantMoveBatcher.hasPendingFor(container.dataset.sessionId);
+            const message = pendingEdits ? 'Updating routes. Copy, preview and save will be available when edits finish.' : PLAN_STATE_MESSAGES[status] || '';
+            let lockedActions = PLAN_STATE_LOCKS[status] || '';
+            if (pendingEdits) {
+                lockedActions = [lockedActions, '[data-session-action="copy"], [data-session-action="preview"], [data-session-action="save"]'].filter(Boolean).join(', ');
+            }
             setPlanStateBanner(container, message);
             setSessionActionsLocked(container, lockedActions, message);
         }
