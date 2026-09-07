@@ -1,4 +1,18 @@
 (() => {
+    function initializeEventDate() {
+        const today = new Date();
+        const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        document.querySelectorAll('input[type="date"][name="event_date"]').forEach(input => {
+            if (input.value === input.defaultValue) input.value = localDate;
+        });
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        initializeEventDate();
+    } else {
+        document.addEventListener('DOMContentLoaded', initializeEventDate, { once: true });
+    }
+
     async function copyText(source) {
         if (navigator.clipboard?.writeText) {
             try {

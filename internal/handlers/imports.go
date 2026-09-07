@@ -321,7 +321,7 @@ func (h *Handler) commitImportSession(w http.ResponseWriter, r *http.Request, id
 	if _, err := io.Copy(io.Discard, r.Body); err != nil {
 		return h.writeImportJSONBodyError(w, r, id, err)
 	}
-	result, err := h.ImportSession.Commit(r.Context(), id)
+	result, err := h.ImportSession.Commit(r.Context(), id, nil)
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err)
 	}

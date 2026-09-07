@@ -42,7 +42,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	handler.HandleImportSession(mappingRecorder, mapping)
 	assertPanelFragment(t, mappingRecorder)
 	previewBody := mappingRecorder.Body.String()
-	for _, want := range []string{"Looking up addresses…", "<progress", `hx-trigger="every 2s"`, `hx-disabled-elt="#import-commit-button"`, `id="import-commit-button"`, "2 of 2 rows selected", "Import 2 rows", "disabled>"} {
+	for _, want := range []string{"Looking up addresses…", "<progress", `hx-trigger="every 2s"`, `hx-disabled-elt="#import-commit-button"`, `id="import-commit-button"`, `hx-include="#import-selection-form"`, `id="import-selection-form"`, `name="selected"`, "2 of 2 rows selected", "Import 2 rows", "disabled>"} {
 		if !strings.Contains(previewBody, want) {
 			t.Fatalf("preview fragment missing %q: %s", want, previewBody)
 		}
@@ -512,6 +512,38 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 			}
 			if !strings.Contains(body, `id="`+tt.listID+`"`) {
 				t.Fatalf("%s page missing roster list container", tt.name)
+			}
+		})
+	}
+}
+
+func TestImportPanelCommitUsesFinalCheckboxesWithoutSelectionRequest(t *testing.T) {
+	for _, selected := range []url.Values{{"selected": {"0"}}, {}} {
+		t.Run(selected.Encode(), func(t *testing.T) {
+			handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+			id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\nBlair,2 Main St\n", importer.KindParticipant)
+			mapped := httptest.NewRecorder()
+			handler.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
+			waitForImportHTTPGeocoding(t, handler, id)
+			// The earlier checkbox PUT never reached the server. Commit still
+			// includes the current form, including no keys when all are unchecked.
+			committed := httptest.NewRecorder()
+			handler.HandleImportSession(committed, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", selected))
+			assertPanelFragment(t, committed)
+			// A delayed selection request cannot change the committed batch.
+			lateSelection := httptest.NewRecorder()
+			handler.HandleImportSession(lateSelection, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection?view=panel", url.Values{"selected": {"0", "1"}}))
+			listed := httptest.NewRecorder()
+			handler.HandleListParticipants(listed, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/participants", nil))
+			var roster ParticipantListResponse
+			if err := json.Unmarshal(listed.Body.Bytes(), &roster); err != nil {
+				t.Fatal(err)
+			}
+			if roster.Total != len(selected["selected"]) {
+				t.Fatalf("final selection %v saved %d rows: %s", selected, roster.Total, listed.Body.String())
+			}
+			if roster.Total == 1 && roster.Participants[0].Name != "Alex" {
+				t.Fatalf("saved wrong participant: %s", listed.Body.String())
 			}
 		})
 	}

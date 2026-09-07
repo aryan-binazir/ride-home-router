@@ -721,3 +721,68 @@ func testInput() routesession.CreateInput {
 		RouteTime: "18:30", Mode: models.RouteModeDropoff,
 	}
 }
+
+type retryDistanceCalculator struct {
+	calculator
+	fail bool
+}
+
+func (c *retryDistanceCalculator) GetDistance(ctx context.Context, origin, dest models.Coordinates) (*distance.DistanceResult, error) {
+	if c.fail && dest.Lat == 4 {
+		return nil, errors.New("distance provider temporarily unavailable")
+	}
+	return c.calculator.GetDistance(ctx, origin, dest)
+}
+
+func TestSwapDriversRefreshesOtherDirtyRoutesBeforeCopyAndCommit(t *testing.T) {
+	ctx := context.Background()
+	calc := &retryDistanceCalculator{}
+	store := routesession.NewStore(calc)
+	t.Cleanup(store.Close)
+	input := routesession.CreateInput{
+		ActivityLocation: &models.ActivityLocation{}, Mode: models.RouteModeDropoff,
+		Routes: []models.CalculatedRoute{
+			{Driver: &models.Driver{ID: 1, Lat: 1, VehicleCapacity: 1}, EffectiveCapacity: 1, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Lat: 1}}}},
+			{Driver: &models.Driver{ID: 2, Lat: 2, VehicleCapacity: 3}, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 2, Lat: 2}}}},
+			{Driver: &models.Driver{ID: 3, Lat: 5, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 3, Lat: 8}}, {Participant: &models.Participant{ID: 4, Lat: 4}}}},
+		},
+	}
+	for i := range input.Routes {
+		if err := routing.PopulateRouteMetrics(ctx, calc, models.Coordinates{}, input.Mode, &input.Routes[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	created := store.Create(input)
+	moved, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 3, FromRouteIndex: 2, ToRouteIndex: 0, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{})
+	if err != nil || !moved.IsOutOfBalance {
+		t.Fatalf("move should temporarily exceed capacity: %v, unbalanced=%v", err, moved.IsOutOfBalance)
+	}
+	calc.fail = true
+	if _, swapErr := store.SwapDrivers(ctx, created.ID, 0, 1); swapErr == nil {
+		t.Fatal("swap must report failed recalculation of the unswapped route")
+	}
+	retained, ok := store.Snapshot(created.ID)
+	if !ok || !retained.IsOutOfBalance || retained.Routes[0].Driver.ID != 1 || retained.Routes[2].RouteDurationSecs != 13000 {
+		t.Fatalf("failed swap did not restore the prior plan: %#v", retained)
+	}
+	calc.fail = false
+	swapped, err := store.SwapDrivers(ctx, created.ID, 0, 1)
+	if err != nil || swapped.IsOutOfBalance {
+		t.Fatalf("swap should restore capacity: %v, unbalanced=%v", err, swapped.IsOutOfBalance)
+	}
+	// The remaining route travels 0 -> 4 -> 5, with one second per meter.
+	if got := swapped.Routes[2]; got.RouteDurationSecs != 5000 || got.Stops[0].CumulativeDurationSecs != 4000 {
+		t.Fatalf("unswapped route metrics: duration=%v, rider ETA=%v; want 5000 and 4000", got.RouteDurationSecs, got.Stops[0].CumulativeDurationSecs)
+	}
+	if err := store.Commit(ctx, created.ID, func(_ context.Context, saved routesession.CommitSnapshot) error {
+		if got := saved.Final[2]; got.TotalDistanceMeters != 5000 || got.Stops[0].CumulativeDistanceMeters != 4000 {
+			t.Fatalf("committed stale route metrics: %#v", got)
+		}
+		if saved.Summary.TotalDistanceMeters != swapped.Summary.TotalDistanceMeters {
+			t.Fatalf("commit summary differs from displayed summary")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

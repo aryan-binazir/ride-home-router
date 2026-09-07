@@ -137,7 +137,7 @@
                     <span>Route</span>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for Parents</button>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="previewRoute(this)">Preview</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-session-action="preview" onclick="previewRoute(this)">Preview</button>
                 </div>
             </section>
             {{end}}

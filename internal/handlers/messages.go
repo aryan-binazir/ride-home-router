@@ -15,6 +15,7 @@ const (
 	messageDriverNotFound                                = "driver not found"
 	messageEventDateRequired                             = "Event date is required"
 	messageEventNotFound                                 = "Event not found"
+	messageHouseholdsDoNotFit                            = "Households do not fit the selected vehicles. Add a driver or assign larger vehicles."
 	messageGenericInternalError                          = "An error occurred. Please try again."
 	messageInvalidCapacity                               = "Invalid capacity"
 	messageInvalidDriverID                               = "invalid driver ID"

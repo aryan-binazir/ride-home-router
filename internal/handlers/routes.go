@@ -274,7 +274,11 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 			logutil.SafeString(r.URL.Path), shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, logutil.SafeString(shortage.RoutingError.Reason))
 		if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 			if policy.warnOnShortage {
-				h.setHTMXToast(w, messageNotEnoughCapacity(shortage.RoutingError.TotalParticipants-shortage.RoutingError.TotalCapacity), toastTypeWarning)
+				message := messageHouseholdsDoNotFit
+				if seatsNeeded := shortage.RoutingError.TotalParticipants - shortage.RoutingError.TotalCapacity; seatsNeeded > 0 {
+					message = messageNotEnoughCapacity(seatsNeeded)
+				}
+				h.setHTMXToast(w, message, toastTypeWarning)
 			}
 			h.renderTemplate(w, "capacity_shortage", buildCapacityShortageViewData(
 				shortage.RoutingError,

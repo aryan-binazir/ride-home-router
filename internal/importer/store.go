@@ -284,7 +284,8 @@ func (s *Store) SelectRows(id string, selected []bool) (Snapshot, error) {
 }
 
 // Commit consumes the token before writing, so retries cannot duplicate a batch.
-func (s *Store) Commit(ctx context.Context, id string) (CommitResult, error) {
+// A non-nil selection replaces the preview selection atomically with commit.
+func (s *Store) Commit(ctx context.Context, id string, selection []bool) (CommitResult, error) {
 	state, err := s.lockSession(id)
 	if err != nil {
 		return CommitResult{}, err
@@ -301,6 +302,13 @@ func (s *Store) Commit(ctx context.Context, id string) (CommitResult, error) {
 	if state.progress.Running {
 		state.mu.Unlock()
 		return CommitResult{}, ErrGeocodingInProgress
+	}
+	if selection != nil {
+		if len(selection) != len(state.rows) {
+			state.mu.Unlock()
+			return CommitResult{}, ErrInvalidSelection
+		}
+		state.selected = append([]bool(nil), selection...)
 	}
 	if len(state.selected) != len(state.rows) {
 		state.mu.Unlock()
