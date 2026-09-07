@@ -391,7 +391,7 @@ func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id s
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil)
 	}
-	result, err := h.ImportSession.Commit(r.Context(), id)
+	result, err := h.ImportSession.Commit(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err)
 	}

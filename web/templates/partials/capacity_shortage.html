@@ -9,12 +9,18 @@
     <div class="results-scroll scroll">
     <div class="results-body">
     <div class="notice capacity-notice">
+        {{if gt .Error.Shortage 0}}
         <h3>Not Enough Available Capacity</h3>
         <p>
             <strong>{{.Error.TotalParticipants}}</strong> {{pluralize .Error.TotalParticipants "participant"}} selected, but only
             <strong>{{.Error.TotalCapacity}}</strong> available seats.
             You need <strong>{{.Error.Shortage}}</strong> more {{pluralize .Error.Shortage "seat"}}.
         </p>
+        {{else}}
+        <h3>Households do not fit the selected vehicles</h3>
+        <p>{{.Error.Message}}. There are {{.Error.TotalCapacity}} available seats for {{.Error.TotalParticipants}} participants, but the households cannot fit into these vehicles without splitting up.</p>
+        <p>Add a driver or assign larger vehicles, then recalculate.</p>
+        {{end}}
     </div>
 
     {{if .OrgVehicles}}
@@ -87,7 +93,7 @@
                             <td><strong>Status:</strong></td>
                             <td>
                                 <span id="capacity-status" class="text-danger">
-                                    Need {{.Error.Shortage}} more seat{{if gt .Error.Shortage 1}}s{{end}}
+                                    {{if gt .Error.Shortage 0}}Need {{.Error.Shortage}} more seat{{if gt .Error.Shortage 1}}s{{end}}{{else}}Recalculate to check household fit{{end}}
                                 </span>
                             </td>
                         </tr>
@@ -153,8 +159,8 @@
             const statusEl = document.getElementById('capacity-status');
 
             if (total >= participants) {
-                statusEl.textContent = 'OK - ' + total + ' available seats';
-                statusEl.className = 'text-success';
+                statusEl.textContent = total + ' available seats. Recalculate to check household fit.';
+                statusEl.className = 'text-muted';
             } else {
                 const shortage = participants - total;
                 statusEl.textContent = 'Need ' + shortage + ' more seat' + (shortage > 1 ? 's' : '');

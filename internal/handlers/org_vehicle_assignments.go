@@ -160,7 +160,7 @@ func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []mod
 		}
 	}
 
-	shortage := rerr.TotalParticipants - rerr.TotalCapacity
+	shortage := max(0, rerr.TotalParticipants-rerr.TotalCapacity)
 	return CapacityShortageView{
 		Error: CapacityShortageErrorView{
 			Message:           rerr.Reason,

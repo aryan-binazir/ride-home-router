@@ -533,6 +533,7 @@
         schedule = callback => setTimeout(callback, 500),
         cancel = timeout => clearTimeout(timeout),
         batchLimit = 64,
+        onPendingChange = () => {},
     }) {
         const queue = [];
         let timeout = null;
@@ -547,6 +548,17 @@
         function enqueue(move) {
             queue.push(move);
             scheduleFlush();
+            onPendingChange();
+        }
+
+        // Manual edits form barriers between move batches, so every request
+        // follows the order in which the coordinator made the edits.
+        function enqueueAction(sessionId, action) {
+            return new Promise(resolve => {
+                queue.push({ session_id: sessionId, action, resolve });
+                onPendingChange();
+                void flush().catch(() => {});
+            });
         }
 
         function takeBatch() {
@@ -557,7 +569,7 @@
             }
 
             const moves = [];
-            while (queue.length > 0 && moves.length < batchLimit && queue[0]?.session_id === sessionId) {
+            while (queue.length > 0 && !queue[0].action && moves.length < batchLimit && queue[0]?.session_id === sessionId) {
                 moves.push(queue.shift());
             }
             return moves;
@@ -579,19 +591,21 @@
         async function run() {
             const sessionOutcomes = new Map();
             while (queue.length > 0) {
-                const moves = takeBatch();
+                const command = queue[0]?.action ? queue.shift() : null;
+                const moves = command ? [command] : takeBatch();
                 if (moves.length === 0) return { succeeded: false, sessionOutcomes };
 
                 const sessionId = moves[0].session_id;
                 activeSessionId = sessionId;
                 let succeeded;
                 try {
-                    succeeded = await sendBatch(toPayload(moves));
+                    succeeded = command ? await command.action() : await sendBatch(toPayload(moves));
                 } catch (error) {
-                    queue.unshift(...moves);
+                    if (!command) queue.unshift(...moves);
                     throw error;
                 } finally {
                     activeSessionId = null;
+                    command?.resolve(Boolean(succeeded));
                 }
                 sessionOutcomes.set(sessionId, (sessionOutcomes.get(sessionId) ?? true) && succeeded);
                 if (!succeeded) return { succeeded: false, sessionOutcomes };
@@ -612,6 +626,7 @@
             } finally {
                 flushPromise = null;
                 if (queue.length > 0 && timeout === null) scheduleFlush();
+                onPendingChange();
             }
         }
 
@@ -632,13 +647,15 @@
             let removed = 0;
             for (let index = queue.length - 1; index >= 0; index -= 1) {
                 if (queue[index]?.session_id !== sessionId) continue;
-                queue.splice(index, 1);
+                const [entry] = queue.splice(index, 1);
+                entry.resolve?.(false);
                 removed += 1;
             }
             if (queue.length === 0 && timeout !== null) {
                 cancel(timeout);
                 timeout = null;
             }
+            onPendingChange();
             return removed;
         }
 
@@ -651,7 +668,7 @@
             return succeeded;
         }
 
-        return { discardFor, enqueue, flush, flushFor, hasPending, hasPendingFor };
+        return { discardFor, enqueue, enqueueAction, flush, flushFor, hasPending, hasPendingFor };
     }
 
     function bootBrowser() {
@@ -783,6 +800,7 @@
         });
 
         participantMoveBatcher = createParticipantMoveBatcher({
+            onPendingChange: () => applyPlanStateAffordance(plannerState.getSnapshot().status),
             sendBatch: async function(payload) {
                 const state = plannerState.refresh();
                 if (!state.canSave || state.sessionId !== payload.session_id) {
@@ -857,45 +875,46 @@
             await routeSessionOrchestrator.submitSaveWithQueuedMoves(form);
         }, true);
 
+        function enqueueRouteEdit(sessionId, endpoint, payload) {
+            return participantMoveBatcher.enqueueAction(sessionId, async () => {
+                const state = plannerState.refresh();
+                if (!state.canSave || state.sessionId !== sessionId) return false;
+                try {
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
+                        ...(payload ? { body: JSON.stringify(payload) } : {}),
+                    });
+                    return routeSessionOrchestrator.applyEditResult({
+                        requestedSessionId: sessionId,
+                        ok: response.ok,
+                        html: await response.text(),
+                    });
+                } catch (error) {
+                    console.error('Failed to update routes:', error);
+                    showRouteError('Failed to update routes: ' + error.message);
+                    return false;
+                }
+            });
+        }
+
         async function swapDrivers(routeIndex1) {
             const selectElement = document.getElementById('swap-select-' + routeIndex1);
             const routeIndex2 = selectElement ? selectElement.value : null;
-
             if (!routeIndex2) {
                 showToast('Please select a driver to swap with', 'warning');
                 return;
             }
-
             const sessionId = getSessionId();
             if (!sessionId) {
                 showToast('Session not found', 'error');
                 return;
             }
-
-            try {
-                const response = await fetch('/api/v1/routes/edit/swap-drivers', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'HX-Request': 'true'
-                    },
-                    body: JSON.stringify({
-                        session_id: sessionId,
-                        route_index_1: parseInt(routeIndex1),
-                        route_index_2: parseInt(routeIndex2)
-                    })
-                });
-
-                const html = await response.text();
-                routeSessionOrchestrator.applyEditResult({
-                    requestedSessionId: sessionId,
-                    ok: response.ok,
-                    html,
-                });
-            } catch (err) {
-                console.error('Failed to swap drivers:', err);
-                showRouteError('Failed to swap drivers: ' + err.message);
-            }
+            return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/swap-drivers', {
+                session_id: sessionId,
+                route_index_1: parseInt(routeIndex1),
+                route_index_2: parseInt(routeIndex2),
+            });
         }
 
         async function resetRoutes() {
@@ -904,25 +923,7 @@
                 showToast('Session not found', 'error');
                 return;
             }
-
-            try {
-                const response = await fetch('/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId), {
-                    method: 'POST',
-                    headers: {
-                        'HX-Request': 'true'
-                    }
-                });
-
-                const html = await response.text();
-                routeSessionOrchestrator.applyEditResult({
-                    requestedSessionId: sessionId,
-                    ok: response.ok,
-                    html,
-                });
-            } catch (err) {
-                console.error('Failed to reset routes:', err);
-                showRouteError('Failed to reset routes: ' + err.message);
-            }
+            return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
         }
 
         async function addUnusedDriver(driverId) {
@@ -931,30 +932,7 @@
                 showToast('Session not found', 'error');
                 return;
             }
-
-            try {
-                const response = await fetch('/api/v1/routes/edit/add-driver', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'HX-Request': 'true'
-                    },
-                    body: JSON.stringify({
-                        session_id: sessionId,
-                        driver_id: parseInt(driverId)
-                    })
-                });
-
-                const html = await response.text();
-                routeSessionOrchestrator.applyEditResult({
-                    requestedSessionId: sessionId,
-                    ok: response.ok,
-                    html,
-                });
-            } catch (err) {
-                console.error('Failed to add driver:', err);
-                showRouteError('Failed to add driver: ' + err.message);
-            }
+            return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/add-driver', { session_id: sessionId, driver_id: parseInt(driverId) });
         }
 
         function showCopied(button, baseClass) {
@@ -976,18 +954,21 @@
         }
 
         async function copyRoute(button, audience) {
+            if (participantMoveBatcher.hasPendingFor(getSessionId())) return false;
             const copied = await routeHandoff.copyRoute(button?.closest('.route-card'), audience);
             if (copied) showCopied(button, 'btn-outline');
             return copied;
         }
 
         async function copyAllRoutes() {
+            if (participantMoveBatcher.hasPendingFor(getSessionId())) return false;
             const copied = await routeHandoff.copyAllRoutes(document.querySelector('.routes-container'));
             if (copied) showCopied(document.getElementById('copy-all-btn'), 'btn-secondary');
             return copied;
         }
 
         function previewRoute(button) {
+            if (participantMoveBatcher.hasPendingFor(getSessionId())) return false;
             return routeHandoff.previewRoute(button?.closest('.route-card'));
         }
 
@@ -1112,9 +1093,11 @@
             const container = resultsSection ? resultsSection.querySelector('.routes-container') : null;
             if (!container) return;
 
-            const message = PLAN_STATE_MESSAGES[status] || '';
+            const pendingEdits = status === 'current' && participantMoveBatcher.hasPendingFor(container.dataset.sessionId);
+            const message = pendingEdits ? 'Updating routes. Copy and save will be available when edits finish.' : PLAN_STATE_MESSAGES[status] || '';
+            const lockedActions = pendingEdits ? '[data-session-action="copy"], [data-session-action="save"]' : PLAN_STATE_LOCKS[status] || null;
             setPlanStateBanner(container, message);
-            setSessionActionsLocked(container, PLAN_STATE_LOCKS[status] || null, message);
+            setSessionActionsLocked(container, lockedActions, message);
         }
 
         // The draft and the fingerprint read the same inputs once, so they cannot

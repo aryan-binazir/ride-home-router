@@ -1909,3 +1909,98 @@ test('a legacy active session is restored and migrated to the fingerprinted key'
         active: 'legacy-session',
     });
 });
+
+test('manual route edits reach the server in order and keep handoffs locked until settled', async () => {
+    const app = bootPlanner();
+    app.calculate();
+    app.routesContainer.appendChild(domNode('select', { id: 'swap-select-0', value: '1' }));
+    const requests = [];
+    app.context.fetch = (url, options) => new Promise(resolve => requests.push({ url, options, resolve }));
+
+    const swapping = app.context.swapDrivers(0);
+    const resetting = app.context.resetRoutes();
+    await app.settleRestore();
+    assert.deepEqual(requests.map(request => request.url), ['/api/v1/routes/edit/swap-drivers']);
+    assert.equal(app.copyButton.disabled, true);
+    assert.equal(app.saveButton.disabled, true);
+    assert.equal(await app.context.copyAllRoutes(), false);
+
+    requests[0].resolve({ ok: true, text: async () => '<div>swapped routes</div>' });
+    await swapping;
+    await app.settleRestore();
+    assert.equal(requests[1].url, '/api/v1/routes/edit/reset?session_id=session-1');
+    assert.equal(app.copyButton.disabled, true);
+    requests[1].resolve({ ok: true, text: async () => '<div>reset routes</div>' });
+    await resetting;
+    await app.settleRestore();
+    assert.equal(app.copyButton.disabled, false);
+    assert.equal(app.saveButton.disabled, false);
+});
+
+test('moves on either side of a reset stay ordered and Save waits for every edit', async () => {
+    const app = bootPlanner();
+    app.calculate();
+    const requests = [];
+    const saves = [];
+    app.context.fetch = (url, options) => new Promise(resolve => requests.push({ url, options, resolve }));
+    const requestSubmit = app.saveForm.requestSubmit.bind(app.saveForm);
+    app.saveForm.requestSubmit = () => {
+        const event = requestSubmit();
+        if (!event.defaultPrevented) saves.push(requests.map(request => request.url));
+        return event;
+    };
+    await app.context.moveParticipant(1, 0, 1);
+    const resetting = app.context.resetRoutes();
+    await app.context.moveParticipant(2, 1, 0);
+    assert.equal(app.submitSave().defaultPrevented, true);
+    await app.settleRestore();
+    assert.equal(requests.length, 1);
+    assert.equal(JSON.parse(requests[0].options.body).participant_id, 1);
+    assert.equal(saves.length, 0);
+
+    requests[0].resolve({ ok: true, text: async () => '<div>first move</div>' });
+    await app.settleRestore();
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].url, /\/reset\?/);
+    requests[1].resolve({ ok: true, text: async () => '<div>reset</div>' });
+    await resetting;
+    await app.settleRestore();
+    assert.equal(requests.length, 3);
+    assert.equal(JSON.parse(requests[2].options.body).participant_id, 2);
+    assert.equal(saves.length, 0);
+    requests[2].resolve({ ok: true, text: async () => '<div>last move</div>' });
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+    assert.equal(saves.length, 1);
+    assert.equal(saves[0].length, 3);
+    assert.equal(app.copyButton.disabled, false);
+});
+
+test('a rejected edit unlocks handoffs and a later edit can succeed', async () => {
+    const app = bootPlanner();
+    app.calculate();
+    app.context.fetch = async () => ({ ok: false, text: async () => '{"error":{"message":"Cannot swap these drivers"}}' });
+    assert.equal(await app.context.addUnusedDriver(99), false);
+    await app.settleRestore();
+    assert.equal(app.copyButton.disabled, false);
+    assert.equal(app.saveButton.disabled, false);
+    app.context.fetch = async () => ({ ok: true, text: async () => '<div>reset</div>' });
+    assert.equal(await app.context.resetRoutes(), true);
+    await app.settleRestore();
+    assert.equal(app.saveButton.disabled, false);
+});
+
+test('changing the plan cancels queued manual edits without leaving their callers waiting', async () => {
+    const app = bootPlanner();
+    app.calculate();
+    let finishRequest;
+    app.context.fetch = () => new Promise(resolve => { finishRequest = resolve; });
+    const adding = app.context.addUnusedDriver(20);
+    let resetCancelled = false;
+    app.context.resetRoutes().then(result => { resetCancelled = result === false; });
+    app.driver.checked = false;
+    app.change(app.driver);
+    await app.settleRestore();
+    assert.equal(resetCancelled, true);
+    finishRequest({ ok: true, text: async () => '<div>old plan</div>' });
+    await adding;
+});

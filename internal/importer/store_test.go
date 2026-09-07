@@ -104,7 +104,7 @@ func TestStoreCapacityEvictionSkipsCommittingSession(t *testing.T) {
 	}
 	commitErr := make(chan error, 1)
 	go func() {
-		_, err := store.Commit(context.Background(), committing.ID)
+		_, err := store.Commit(context.Background(), committing.ID, nil)
 		commitErr <- err
 	}()
 	select {
@@ -331,14 +331,14 @@ func TestCommitReportsCountsAndConsumesTokenOnce(t *testing.T) {
 	if selectedSnapshot.Selected[2] {
 		t.Fatal("SelectRows() did not retain the deselected row")
 	}
-	result, err := store.Commit(context.Background(), created.ID)
+	result, err := store.Commit(context.Background(), created.ID, nil)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	if result != (CommitResult{Created: 1, Updated: 1, NotSelected: 1}) {
 		t.Fatalf("Commit() result = %#v", result)
 	}
-	if _, err := store.Commit(context.Background(), created.ID); !errors.Is(err, ErrCommitConsumed) {
+	if _, err := store.Commit(context.Background(), created.ID, nil); !errors.Is(err, ErrCommitConsumed) {
 		t.Fatalf("second Commit() error = %v, want ErrCommitConsumed", err)
 	}
 	if calls := db.participants.batchCalls(); calls != 1 {
@@ -368,7 +368,7 @@ func TestCancelRacingCommitDoesNotPersist(t *testing.T) {
 
 	commitErr := make(chan error, 1)
 	go func() {
-		_, err := store.Commit(context.Background(), created.ID)
+		_, err := store.Commit(context.Background(), created.ID, nil)
 		commitErr <- err
 	}()
 	select {
@@ -415,7 +415,7 @@ func TestStoreCloseCancelsAndWaitsForCommit(t *testing.T) {
 	}
 	commitErr := make(chan error, 1)
 	go func() {
-		_, err := store.Commit(context.Background(), created.ID)
+		_, err := store.Commit(context.Background(), created.ID, nil)
 		commitErr <- err
 	}()
 	select {
@@ -471,7 +471,7 @@ func TestCommitUsesLatestStoredSelection(t *testing.T) {
 		t.Fatalf("latest SelectRows() error = %v", err)
 	}
 
-	result, err := store.Commit(context.Background(), created.ID)
+	result, err := store.Commit(context.Background(), created.ID, nil)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -513,7 +513,7 @@ func TestSelectRowsDuringCommitIsRejectedWithoutLosingSelection(t *testing.T) {
 	commitResult := make(chan CommitResult, 1)
 	commitErr := make(chan error, 1)
 	go func() {
-		result, err := store.Commit(context.Background(), created.ID)
+		result, err := store.Commit(context.Background(), created.ID, nil)
 		commitResult <- result
 		commitErr <- err
 	}()
@@ -562,7 +562,7 @@ func TestDeleteExpiredSkipsCommittingSession(t *testing.T) {
 
 	commitErr := make(chan error, 1)
 	go func() {
-		_, err := store.Commit(context.Background(), created.ID)
+		_, err := store.Commit(context.Background(), created.ID, nil)
 		commitErr <- err
 	}()
 	select {
@@ -599,7 +599,7 @@ func TestCommitUpdatesPreviewKnownDuplicates(t *testing.T) {
 		t.Fatalf("duplicate preview row = %#v selected=%v, want flagged and selected", preview.Rows[0], preview.Selected[0])
 	}
 	waitForGeocoding(t, store, created.ID)
-	result, err := store.Commit(context.Background(), created.ID)
+	result, err := store.Commit(context.Background(), created.ID, nil)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -624,7 +624,7 @@ func TestCommitCreatesDriverBatch(t *testing.T) {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	waitForGeocoding(t, store, created.ID)
-	result, err := store.Commit(context.Background(), created.ID)
+	result, err := store.Commit(context.Background(), created.ID, nil)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
@@ -651,7 +651,7 @@ func TestCommitSendsZeroCapacityWhenColumnUnmapped(t *testing.T) {
 		t.Fatalf("ApplyMapping() error = %v", err)
 	}
 	waitForGeocoding(t, store, created.ID)
-	if _, err := store.Commit(context.Background(), created.ID); err != nil {
+	if _, err := store.Commit(context.Background(), created.ID, nil); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	db.drivers.mu.Lock()
@@ -714,7 +714,7 @@ func TestCommitSkipsRowsWithoutGeocodedCoordinates(t *testing.T) {
 	}
 	store.sessions[state.id] = state
 
-	result, err := store.Commit(context.Background(), state.id)
+	result, err := store.Commit(context.Background(), state.id, nil)
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}

@@ -516,3 +516,35 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 		})
 	}
 }
+
+func TestImportPanelCommitUsesFinalCheckboxesWithoutSelectionRequest(t *testing.T) {
+	for _, selected := range []url.Values{{"selected": {"0"}}, {}} {
+		t.Run(selected.Encode(), func(t *testing.T) {
+			handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+			id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\nBlair,2 Main St\n", importer.KindParticipant)
+			mapped := httptest.NewRecorder()
+			handler.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
+			waitForImportHTTPGeocoding(t, handler, id)
+			// The earlier checkbox PUT never reached the server. Commit still
+			// includes the current form, including no keys when all are unchecked.
+			committed := httptest.NewRecorder()
+			handler.HandleImportSession(committed, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", selected))
+			assertPanelFragment(t, committed)
+			// A delayed selection request cannot change the committed batch.
+			lateSelection := httptest.NewRecorder()
+			handler.HandleImportSession(lateSelection, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection?view=panel", url.Values{"selected": {"0", "1"}}))
+			listed := httptest.NewRecorder()
+			handler.HandleListParticipants(listed, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/participants", nil))
+			var roster ParticipantListResponse
+			if err := json.Unmarshal(listed.Body.Bytes(), &roster); err != nil {
+				t.Fatal(err)
+			}
+			if roster.Total != len(selected["selected"]) {
+				t.Fatalf("final selection %v saved %d rows: %s", selected, roster.Total, listed.Body.String())
+			}
+			if roster.Total == 1 && roster.Participants[0].Name != "Alex" {
+				t.Fatalf("saved wrong participant: %s", listed.Body.String())
+			}
+		})
+	}
+}

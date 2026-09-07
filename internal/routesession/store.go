@@ -230,6 +230,8 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 		return Snapshot{}, ErrInvalidRouteIndex
 	}
 	backup := copyRoutes(state.currentRoutes)
+	backupDirty := copyDirty(state.dirtyRouteIndexes)
+	rollback := func() { state.currentRoutes = backup; state.dirtyRouteIndexes = backupDirty }
 	route1, route2 := &state.currentRoutes[first], &state.currentRoutes[second]
 	cap1, ok := routeCapacity(*route1)
 	if !ok {
@@ -247,12 +249,18 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 	route1.OrgVehicleID, route2.OrgVehicleID = route2.OrgVehicleID, route1.OrgVehicleID
 	route1.OrgVehicleName, route2.OrgVehicleName = route2.OrgVehicleName, route1.OrgVehicleName
 	if err := s.recalculateRoute(ctx, state, route1); err != nil {
-		state.currentRoutes = backup
+		rollback()
 		return Snapshot{}, err
 	}
 	if err := s.recalculateRoute(ctx, state, route2); err != nil {
-		state.currentRoutes = backup
+		rollback()
 		return Snapshot{}, err
+	}
+	if _, unbalanced := capacityState(state.currentRoutes); !unbalanced {
+		if err := s.recalculateDirty(ctx, state); err != nil {
+			rollback()
+			return Snapshot{}, err
+		}
 	}
 	return snapshotOf(state), nil
 }

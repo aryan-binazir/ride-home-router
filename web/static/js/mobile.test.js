@@ -189,3 +189,30 @@ test('deselecting a driver clears and omits its van assignment on Done', () => {
     assert.equal(select.value, '');
     assert.equal(select.disabled, true);
 });
+
+test('mobile event date uses the local day and preserves restored or edited values', () => {
+    for (const readyState of ['loading', 'complete']) {
+        const listeners = {};
+        const fresh = { value: '2026-09-08', defaultValue: '2026-09-08', dataset: {} };
+        const restored = { value: '2026-09-12', defaultValue: '2026-09-08', dataset: {} };
+        const context = {
+            document: {
+                readyState,
+                addEventListener(type, callback) { listeners[type] = callback; },
+                querySelectorAll: () => [fresh, restored],
+            },
+            Date: class extends Date {
+                constructor() { super(2026, 8, 7, 23, 30); }
+            },
+            navigator: {},
+            window: { setTimeout() {} },
+        };
+        vm.runInNewContext(mobileScript, context, { filename: 'mobile.js' });
+        listeners.DOMContentLoaded?.();
+        assert.equal(fresh.value, '2026-09-07', `wrong date when document is ${readyState}`);
+        assert.equal(restored.value, '2026-09-12');
+        fresh.value = '2026-09-15';
+        listeners.DOMContentLoaded?.();
+        assert.equal(fresh.value, '2026-09-15', 'initialization must preserve a later user edit');
+    }
+});

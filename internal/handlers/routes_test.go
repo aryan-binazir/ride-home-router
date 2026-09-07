@@ -1845,3 +1845,58 @@ func newTestRouteHandler(t *testing.T) (*Handler, *postgres.Store) {
 
 	return handler, store
 }
+
+func (routeEditDistanceCalculator) PrewarmPairs(context.Context, []distance.DistancePair) error {
+	return nil
+}
+
+func TestHouseholdPackingFailureExplainsCapacityWithoutNegativeShortage(t *testing.T) {
+	for _, count := range []int{9, 12} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			handler, db := newTestRouteHandler(t)
+			handler.Router = routing.NewBalancedRouter(routeEditDistanceCalculator{})
+			ctx := context.Background()
+			location, err := db.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Club", Address: "Club", Lat: 35, Lng: -79})
+			if err != nil {
+				t.Fatal(err)
+			}
+			form := url.Values{"activity_location_id": {strconv.FormatInt(location.ID, 10)}, "route_time": {"18:30"}, "mode": {"dropoff"}}
+			for i := range count {
+				person, createErr := db.Participants().Create(ctx, &models.Participant{Name: fmt.Sprintf("Rider %d", i), Address: fmt.Sprintf("Household %d", i/3), Lat: 35 + float64(i/3+1)/100, Lng: -79})
+				if createErr != nil {
+					t.Fatal(createErr)
+				}
+				form.Add("participant_ids", strconv.FormatInt(person.ID, 10))
+			}
+			for i := range 2 {
+				driver, createErr := db.Drivers().Create(ctx, &models.Driver{Name: fmt.Sprintf("Driver %d", i), Address: fmt.Sprintf("Driver home %d", i), Lat: 35.1 + float64(i)/100, Lng: -79, VehicleCapacity: 5})
+				if createErr != nil {
+					t.Fatal(createErr)
+				}
+				form.Add("driver_ids", strconv.FormatInt(driver.ID, 10))
+			}
+			if _, err := db.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Van", Capacity: 8}); err != nil {
+				t.Fatal(err)
+			}
+			r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.Header.Set("HX-Request", "true")
+			w := httptest.NewRecorder()
+			handler.HandleCalculateRoutes(w, r)
+			body := w.Body.String()
+			if w.Code != http.StatusOK {
+				t.Fatalf("status=%d: %s", w.Code, body)
+			}
+			if count == 9 {
+				if !strings.Contains(body, "Households do not fit the selected vehicles") || strings.Contains(body, "Not Enough Available Capacity") || strings.Contains(body, "Need -1") || strings.Contains(body, "OK - ") {
+					t.Fatalf("household failure must explain placement rather than a seat shortage: %s", body)
+				}
+				if strings.Contains(w.Header().Get("HX-Trigger"), "-1") {
+					t.Fatalf("negative toast: %s", w.Header().Get("HX-Trigger"))
+				}
+			} else if !strings.Contains(body, "Not Enough Available Capacity") || !strings.Contains(body, "Need 2 more seats") {
+				t.Fatalf("genuine shortage guidance missing: %s", body)
+			}
+		})
+	}
+}
