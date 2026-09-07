@@ -248,16 +248,18 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 	route1.EffectiveCapacity, route2.EffectiveCapacity = route2.EffectiveCapacity, route1.EffectiveCapacity
 	route1.OrgVehicleID, route2.OrgVehicleID = route2.OrgVehicleID, route1.OrgVehicleID
 	route1.OrgVehicleName, route2.OrgVehicleName = route2.OrgVehicleName, route1.OrgVehicleName
-	if err := s.recalculateRoute(ctx, state, route1); err != nil {
-		rollback()
-		return Snapshot{}, err
-	}
-	if err := s.recalculateRoute(ctx, state, route2); err != nil {
-		rollback()
-		return Snapshot{}, err
-	}
-	if _, unbalanced := capacityState(state.currentRoutes); !unbalanced {
+	_, unbalanced := capacityState(state.currentRoutes)
+	if !unbalanced {
 		if err := s.recalculateDirty(ctx, state); err != nil {
+			rollback()
+			return Snapshot{}, err
+		}
+	}
+	for _, index := range []int{first, second} {
+		if _, wasDirty := backupDirty[index]; wasDirty && !unbalanced {
+			continue // Optimization already refreshed this route's metrics.
+		}
+		if err := s.recalculateRoute(ctx, state, &state.currentRoutes[index]); err != nil {
 			rollback()
 			return Snapshot{}, err
 		}
