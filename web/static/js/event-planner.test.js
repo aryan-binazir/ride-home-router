@@ -1566,23 +1566,104 @@ test('a render without entered fields keeps the server defaults', () => {
     assert.equal(target.querySelector('input[name="event_date"]').value, localISODate(new Date()));
 });
 
+test('planner lifecycle restores legacy storage and persists only current unsaved sessions', () => {
+    const storage = fakeLocalStorage();
+    storage.setItem('ride-home-router:active-session:v2', '{broken json');
+    storage.setItem('ride-home-router:active-session-id', 'legacy-session');
+    let fingerprint = 'plan-a';
+    const state = createPlannerState({ readFingerprint: () => fingerprint, storage, onChange() {} });
+    assert.deepEqual(state.restoreCandidate(), { id: 'legacy-session', fingerprint: null });
+    const restore = state.beginRestore(state.restoreCandidate());
+    restore.commit('legacy-session');
+    restore.finish();
+    assert.deepEqual(state.restoreCandidate(), { id: 'legacy-session', fingerprint: 'plan-a' });
+    assert.equal(storage.getItem('ride-home-router:active-session-id'), null);
+    fingerprint = 'plan-b';
+    state.refresh();
+    assert.equal(state.restoreCandidate(), null);
+    fingerprint = 'plan-a';
+    state.refresh();
+    assert.equal(state.restoreCandidate().id, 'legacy-session');
+    state.markSaved();
+    fingerprint = 'plan-b';
+    state.refresh();
+    fingerprint = 'plan-a';
+    state.refresh();
+    assert.equal(state.getSnapshot().status, 'saved');
+    assert.equal(state.restoreCandidate(), null);
+});
+
+test('planner lifecycle distinguishes restore cancellation from calculation invalidation', () => {
+    let fingerprint = 'plan-a';
+    const state = createPlannerState({ readFingerprint: () => fingerprint, storage: fakeLocalStorage(), onChange() {} });
+    const xhr = {};
+    state.trackCalculation(xhr, fingerprint);
+    const first = state.beginRestore({ id: 'old-session', fingerprint });
+    const replacement = state.beginRestore({ id: 'new-session', fingerprint });
+    assert.equal(first.signal.aborted, true);
+    assert.equal(replacement.signal.aborted, false);
+    state.abortRestore();
+    assert.equal(replacement.signal.aborted, true);
+    assert.equal(state.shouldSwapCalculation(xhr), true);
+    state.commitCalculation(xhr, 'calculated-session');
+    assert.equal(state.getSnapshot().canSave, true);
+    replacement.finish();
+
+    const edited = state.beginRestore({ id: 'calculated-session', fingerprint });
+    state.inputsChanged(fingerprint);
+    assert.equal(edited.signal.aborted, false);
+    fingerprint = 'plan-b';
+    state.inputsChanged(fingerprint);
+    assert.equal(edited.signal.aborted, true);
+    assert.equal(state.getSnapshot().status, 'empty');
+    edited.finish();
+
+    const cleared = state.beginRestore({ id: 'another-session', fingerprint });
+    state.invalidateCalculations();
+    assert.equal(cleared.signal.aborted, true);
+    cleared.finish();
+});
+
+test('planner lifecycle invalidates old requests without invalidating overlapping new calculations', () => {
+    const state = createPlannerState({ readFingerprint: () => 'plan-a', storage: fakeLocalStorage(), onChange() {} });
+    const oldRequest = {};
+    state.trackCalculation(oldRequest, 'plan-a');
+    state.invalidateCalculations();
+    const currentRequest = {};
+    state.trackCalculation(currentRequest, 'plan-a');
+    state.commitCalculation(currentRequest, 'current-session');
+
+    assert.equal(state.shouldSwapCalculation(oldRequest), false);
+    assert.equal(state.getSnapshot().sessionId, 'current-session');
+    // Reusing a consumed request cannot recover its original attribution.
+    state.commitCalculation(currentRequest, 'unattributed-session');
+    assert.equal(state.getSnapshot().canSave, false);
+});
+
+function commitCalculation(state, id, fingerprint) {
+    const xhr = {};
+    state.trackCalculation(xhr, fingerprint);
+    return state.commitCalculation(xhr, id);
+}
+
 test('planner state stays stale until a recalculation and never leaves saved for current', () => {
     const changes = [];
     let fingerprint = 'plan-a';
     const state = createPlannerState({
+        storage: fakeLocalStorage(),
         readFingerprint: () => fingerprint,
         onChange: snapshot => changes.push(`${snapshot.status}:${snapshot.sessionId}`),
     });
 
     const beforeCalculation = state.refresh();
-    state.markCalculated('session-1');
+    commitCalculation(state, 'session-1', 'plan-a');
     fingerprint = 'plan-b';
     const afterEdit = state.refresh();
     // A calculation requested before the edit still lands stale.
-    state.markCalculated('session-2', 'plan-a');
+    commitCalculation(state, 'session-2', 'plan-a');
     const afterLateSwap = state.getSnapshot();
     fingerprint = 'plan-b';
-    state.markCalculated('session-3');
+    commitCalculation(state, 'session-3', 'plan-b');
     state.markSaved();
     fingerprint = 'plan-c';
     const afterSavedEdit = state.refresh();
@@ -1619,11 +1700,12 @@ test('clearing planner state drops the session and stops tracking the fingerprin
     const changes = [];
     let fingerprint = 'plan-a';
     const state = createPlannerState({
+        storage: fakeLocalStorage(),
         readFingerprint: () => fingerprint,
         onChange: snapshot => changes.push(snapshot.status),
     });
 
-    state.markCalculated('session-1');
+    commitCalculation(state, 'session-1', 'plan-a');
     state.clear();
     fingerprint = 'plan-b';
 
@@ -1636,12 +1718,13 @@ test('clearing planner state drops the session and stops tracking the fingerprin
 test('a results swap with no session clears the planner state', () => {
     const changes = [];
     const state = createPlannerState({
+        storage: fakeLocalStorage(),
         readFingerprint: () => 'plan-a',
         onChange: snapshot => changes.push(snapshot.status),
     });
 
-    state.markCalculated('session-1');
-    const cleared = state.markCalculated(null);
+    commitCalculation(state, 'session-1', 'plan-a');
+    const cleared = commitCalculation(state, null, 'plan-a');
 
     assert.deepEqual({ cleared, changes }, {
         cleared: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },

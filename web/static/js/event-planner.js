@@ -13,11 +13,116 @@
     // localStorage and the routes live in a server session; comparing a
     // fingerprint of the route-defining inputs against the fingerprint captured
     // when the routes were calculated is the only rule that ties them together.
-    function createPlannerState({ readFingerprint, onChange }) {
+    function createPlannerState({ readFingerprint, storage, onChange }) {
+        const LEGACY_ACTIVE_SESSION_KEY = 'ride-home-router:active-session-id';
+        const ACTIVE_SESSION_KEY = 'ride-home-router:active-session:v2';
+        let restoreController = null;
+        let restoreFingerprint = null;
+        // Keyed by the request's XHR because a plan calculation and a capacity
+        // recalculation can overlap; a swap we cannot attribute to a request is
+        // committed as unattributable, which lands it stale rather than saveable.
+        const UNATTRIBUTED_CALCULATION = '\u0000unattributed';
+        const calculationFingerprints = new WeakMap();
+        let calculationGeneration = 0;
+
+        function trackCalculation(xhr, fingerprint) {
+            if (xhr) calculationFingerprints.set(xhr, { fingerprint, generation: calculationGeneration });
+        }
+
+        function shouldSwapCalculation(xhr) {
+            if (!xhr || !calculationFingerprints.has(xhr)) return true;
+            if (calculationFingerprints.get(xhr).generation === calculationGeneration) return true;
+
+            calculationFingerprints.delete(xhr);
+            return false;
+        }
+
+        function takeCalculationFingerprint(xhr) {
+            if (!xhr || !calculationFingerprints.has(xhr)) return UNATTRIBUTED_CALCULATION;
+
+            const calculation = calculationFingerprints.get(xhr);
+            calculationFingerprints.delete(xhr);
+            return calculation.generation === calculationGeneration
+                ? calculation.fingerprint
+                : UNATTRIBUTED_CALCULATION;
+        }
+
+        function invalidateCalculations() {
+            abortRestore();
+            calculationGeneration += 1;
+        }
+
+        function commitCalculation(xhr, id) {
+            return markCalculated(id, takeCalculationFingerprint(xhr));
+        }
+
         let status = 'empty';
         let sessionId = null;
         let savedSessionId = null;
         let calculatedFingerprint = null;
+
+        // The fingerprint rides with the session id so a restored session is
+        // verified against the inputs that produced it rather than assumed current.
+        function saveActiveSession(id, fingerprint) {
+            try {
+                storage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({ id, fingerprint }));
+                storage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
+            } catch (e) {}
+        }
+
+        function restoreCandidate() {
+            let stored = null;
+            try {
+                stored = JSON.parse(storage.getItem(ACTIVE_SESSION_KEY) || 'null');
+            } catch (err) {}
+            if (stored && typeof stored.id === 'string' && stored.id) {
+                return { id: stored.id, fingerprint: typeof stored.fingerprint === 'string' ? stored.fingerprint : null };
+            }
+
+            try {
+                const legacyId = storage.getItem(LEGACY_ACTIVE_SESSION_KEY);
+                return legacyId ? { id: legacyId, fingerprint: null } : null;
+            } catch (err) {}
+            return null;
+        }
+
+        function clearActiveSession() {
+            try {
+                storage.removeItem(ACTIVE_SESSION_KEY);
+                storage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
+            } catch (e) {}
+        }
+
+        function abortRestore() {
+            if (restoreController) restoreController.abort();
+        }
+
+        function beginRestore(session) {
+            abortRestore();
+            restoreController = new AbortController();
+            restoreFingerprint = readFingerprint();
+            // Legacy sessions use the restored draft's inputs, as before.
+            const requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
+            return {
+                signal: restoreController.signal,
+                commit: id => markCalculated(id, requestedFingerprint),
+                finish() {
+                    // Preserve the original unconditional finalization, including
+                    // when an older aborted restore finishes after a newer start.
+                    restoreController = null;
+                    restoreFingerprint = null;
+                },
+            };
+        }
+
+        function notifyChange() {
+            if (status === 'current') {
+                saveActiveSession(sessionId, readFingerprint());
+            } else {
+                clearActiveSession();
+            }
+            onChange(getSnapshot());
+        }
 
         function getSnapshot() {
             return {
@@ -40,7 +145,7 @@
             if (next === status) return getSnapshot();
 
             status = next;
-            onChange(getSnapshot());
+            notifyChange();
             return getSnapshot();
         }
 
@@ -49,7 +154,7 @@
             sessionId = null;
             savedSessionId = null;
             calculatedFingerprint = null;
-            onChange(getSnapshot());
+            notifyChange();
             return getSnapshot();
         }
 
@@ -61,7 +166,7 @@
             sessionId = id;
             calculatedFingerprint = fingerprint === undefined ? readFingerprint() : fingerprint;
             status = statusForInputs();
-            onChange(getSnapshot());
+            notifyChange();
             return getSnapshot();
         }
 
@@ -74,6 +179,16 @@
 
         // Callers that have already read the inputs pass the fingerprint in
         // rather than paying for a second scan of the roster.
+        function inputsChanged(fingerprint) {
+            const current = fingerprint === undefined ? readFingerprint() : fingerprint;
+            if (restoreController && restoreFingerprint !== current) {
+                abortRestore();
+                // The stored session belonged to the inputs just replaced.
+                clear();
+            }
+            return refresh(current);
+        }
+
         function refresh(fingerprint) {
             // 'empty' has nothing to compare against.
             if (status === 'empty') return getSnapshot();
@@ -81,7 +196,11 @@
             return settle(statusForInputs(fingerprint));
         }
 
-        return { clear, getSnapshot, markCalculated, markSaved, refresh };
+        return {
+            clear, getSnapshot, markSaved, refresh, inputsChanged,
+            restoreCandidate, beginRestore, abortRestore,
+            trackCalculation, shouldSwapCalculation, commitCalculation, invalidateCalculations,
+        };
     }
 
     // Every results render replaces the save form, so carry the operator's own
@@ -981,70 +1100,9 @@
         });
 
         const EVENT_PLANNER_DRAFT_KEY = 'ride-home-router:event-planner-draft:v1';
-        const LEGACY_ACTIVE_SESSION_KEY = 'ride-home-router:active-session-id';
-        const ACTIVE_SESSION_KEY = 'ride-home-router:active-session:v2';
         const EVENT_PLANNER_MODES = new Set(['dropoff', 'pickup']);
         let isRestoringEventPlannerDraft = false;
-        let restoreController = null;
-        let restoreFingerprint = null;
-        // Keyed by the request's XHR because a plan calculation and a capacity
-        // recalculation can overlap; a swap we cannot attribute to a request is
-        // committed as unattributable, which lands it stale rather than saveable.
-        const UNATTRIBUTED_CALCULATION = '\u0000unattributed';
-        const calculationFingerprints = new WeakMap();
-        let calculationGeneration = 0;
         let swappedSaveFields = null;
-
-        function rememberCalculation(xhr, fingerprint) {
-            if (xhr) calculationFingerprints.set(xhr, { fingerprint, generation: calculationGeneration });
-        }
-
-        function isInvalidatedCalculation(xhr) {
-            if (!xhr || !calculationFingerprints.has(xhr)) return false;
-            return calculationFingerprints.get(xhr).generation !== calculationGeneration;
-        }
-
-        function takeCalculationFingerprint(xhr) {
-            if (!xhr || !calculationFingerprints.has(xhr)) return UNATTRIBUTED_CALCULATION;
-
-            const calculation = calculationFingerprints.get(xhr);
-            calculationFingerprints.delete(xhr);
-            return calculation.generation === calculationGeneration
-                ? calculation.fingerprint
-                : UNATTRIBUTED_CALCULATION;
-        }
-
-        // The fingerprint rides with the session id so a restored session is
-        // verified against the inputs that produced it rather than assumed current.
-        function saveActiveSession(id, fingerprint) {
-            try {
-                window.localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({ id, fingerprint }));
-                window.localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
-            } catch (e) {}
-        }
-
-        function getActiveSession() {
-            let stored = null;
-            try {
-                stored = JSON.parse(window.localStorage.getItem(ACTIVE_SESSION_KEY) || 'null');
-            } catch (err) {}
-            if (stored && typeof stored.id === 'string' && stored.id) {
-                return { id: stored.id, fingerprint: typeof stored.fingerprint === 'string' ? stored.fingerprint : null };
-            }
-
-            try {
-                const legacyId = window.localStorage.getItem(LEGACY_ACTIVE_SESSION_KEY);
-                return legacyId ? { id: legacyId, fingerprint: null } : null;
-            } catch (err) {}
-            return null;
-        }
-
-        function clearActiveSession() {
-            try {
-                window.localStorage.removeItem(ACTIVE_SESSION_KEY);
-                window.localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
-            } catch (e) {}
-        }
 
         const PLAN_STATE_MESSAGES = {
             stale: 'Plan changed — recalculate routes before copying or saving them.',
@@ -1141,13 +1199,15 @@
 
         const plannerState = createPlannerState({
             readFingerprint: readPlannerFingerprint,
+            // Keep localStorage access inside the lifecycle's best-effort try
+            // blocks, including browsers that deny access to the property itself.
+            storage: {
+                getItem: key => window.localStorage.getItem(key),
+                setItem: (key, value) => window.localStorage.setItem(key, value),
+                removeItem: key => window.localStorage.removeItem(key),
+            },
             onChange: function(state) {
-                if (state.status === 'current') {
-                    saveActiveSession(state.sessionId, readPlannerFingerprint());
-                } else {
-                    participantMoveBatcher.discardFor(state.sessionId);
-                    clearActiveSession();
-                }
+                if (state.status !== 'current') participantMoveBatcher.discardFor(state.sessionId);
                 applyPlanStateAffordance(state.status);
             },
         });
@@ -1200,25 +1260,13 @@
             }
         }
 
-        // A restore only makes sense while the inputs still match the ones the
-        // restored session was calculated from.
-        function abortSupersededRestore(fingerprint) {
-            if (!restoreController) return;
-            if (restoreFingerprint === fingerprint) return;
-
-            restoreController.abort();
-            // The stored session belonged to the inputs that were just replaced.
-            plannerState.clear();
-        }
-
         function saveEventPlannerDraft() {
             if (isRestoringEventPlannerDraft) return;
 
             const inputs = readPlannerInputs();
             const fingerprint = readPlannerFingerprint(inputs);
-            abortSupersededRestore(fingerprint);
             writeEventPlannerDraft(inputs);
-            plannerState.refresh(fingerprint);
+            plannerState.inputsChanged(fingerprint);
         }
 
         function clearEventPlannerDraft() {
@@ -1578,8 +1626,7 @@
 
         function clearSelections() {
             const form = getEventForm();
-            if (restoreController) restoreController.abort();
-            calculationGeneration += 1;
+            plannerState.invalidateCalculations();
             participantMoveBatcher.discardFor(getSessionId());
             // Suppress per-step draft writes so the reset lands as one change; the
             // draft and the planner state are settled once, at the end.
@@ -1720,17 +1767,12 @@
             var resultsSection = document.getElementById('results-section');
             if (!resultsSection) return;
 
-            if (restoreController) restoreController.abort();
-            restoreController = new AbortController();
-            restoreFingerprint = readPlannerFingerprint();
-            // Prefer the fingerprint the session was calculated with; a session
-            // stored before this key existed falls back to the restored draft.
-            const requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
+            const restore = plannerState.beginRestore(session);
 
             // This same-origin HTML uses the same trusted templates as HTMX swaps.
             fetch('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
-                signal: restoreController.signal
+                signal: restore.signal
             })
             .then(function(response) {
                 if (response.status === 204 || !response.ok) {
@@ -1742,7 +1784,7 @@
             .then(function(html) {
                 if (html) {
                     installRouteResults({ target: resultsSection, html, htmx, afterRender: refreshResultsView });
-                    plannerState.markCalculated(getSessionId(), requestedFingerprint);
+                    restore.commit(getSessionId());
                 }
             })
             .catch(function(err) {
@@ -1752,8 +1794,7 @@
                 }
             })
             .finally(function() {
-                restoreController = null;
-                restoreFingerprint = null;
+                restore.finish();
             });
         }
 
@@ -1767,7 +1808,7 @@
             updateRouteTimeCopy();
             ensureDefaultRouteTime();
 
-            var activeSession = getActiveSession();
+            var activeSession = plannerState.restoreCandidate();
             if (activeSession) {
                 restoreRouteSession(activeSession);
             }
@@ -1806,8 +1847,8 @@
                 if (!elt) return;
 
                 if (elt.id === 'calculate-btn') {
-                    if (restoreController) restoreController.abort();
-                    rememberCalculation(detail.xhr, readPlannerFingerprint());
+                    plannerState.abortRestore();
+                    plannerState.trackCalculation(detail.xhr, readPlannerFingerprint());
                     setCalculateButtonLoading(true);
                     return;
                 }
@@ -1816,8 +1857,8 @@
                     ? document.getElementById('recalc-form')
                     : null;
                 if (recalcForm) {
-                    if (restoreController) restoreController.abort();
-                    rememberCalculation(detail.xhr, readCapacityShortageFingerprint(recalcForm));
+                    plannerState.abortRestore();
+                    plannerState.trackCalculation(detail.xhr, readCapacityShortageFingerprint(recalcForm));
                 }
             });
 
@@ -1849,8 +1890,7 @@
                 const target = event.detail && event.detail.target;
                 if (!target || target.id !== 'results-section') return;
 
-                if (isInvalidatedCalculation(event.detail.xhr)) {
-                    calculationFingerprints.delete(event.detail.xhr);
+                if (!plannerState.shouldSwapCalculation(event.detail.xhr)) {
                     event.detail.shouldSwap = false;
                     return;
                 }
@@ -1876,7 +1916,7 @@
                         swappedSaveFields = null;
                     }
                     scrollResultsIntoView(target);
-                    plannerState.markCalculated(getSessionId(), takeCalculationFingerprint(event.detail.xhr));
+                    plannerState.commitCalculation(event.detail.xhr, getSessionId());
                     refreshEtas();
                     return;
                 }
