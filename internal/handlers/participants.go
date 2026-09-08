@@ -204,26 +204,19 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/participants: name=%s", logutil.SafeString(req.Name))
-	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
-	if err != nil {
+	participant, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createParticipant(r.Context(), participantEdit{
+		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
+	})
+	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		log.Print("[ERROR] Failed to geocode participant address")
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			h.renderError(w, r, geocodeErr.err)
 			return
 		}
-		h.handleGeocodingError(w, err)
+		h.handleGeocodingError(w, geocodeErr.err)
 		return
 	}
 
-	participant := &models.Participant{
-		Name:        req.Name,
-		Address:     req.Address,
-		AddressName: req.AddressName,
-		Lat:         geocodeResult.Coords.Lat,
-		Lng:         geocodeResult.Coords.Lng,
-	}
-
-	participant, err = h.DB.Participants().CreateWithLabels(r.Context(), participant, labelIDs)
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to create participant: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
@@ -369,35 +362,18 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	participant := &models.Participant{
-		ID:          id,
-		Name:        req.Name,
-		Address:     req.Address,
-		AddressName: req.AddressName,
-		Lat:         existing.Lat,
-		Lng:         existing.Lng,
-		CreatedAt:   existing.CreatedAt,
-	}
-
-	if req.Address != existing.Address {
-		geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
-		if err != nil {
-			if h.isHTMX(r) {
-				h.renderError(w, r, err)
-				return
-			}
-			h.handleGeocodingError(w, err)
+	participant, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).updateParticipant(r.Context(), existing, participantEdit{
+		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs, SetLabels: shouldSetLabels,
+	})
+	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
+		if h.isHTMX(r) {
+			h.renderError(w, r, geocodeErr.err)
 			return
 		}
-		participant.Lat = geocodeResult.Coords.Lat
-		participant.Lng = geocodeResult.Coords.Lng
+		h.handleGeocodingError(w, geocodeErr.err)
+		return
 	}
 
-	if shouldSetLabels {
-		participant, err = h.DB.Participants().UpdateWithLabels(r.Context(), participant, labelIDs)
-	} else {
-		participant, err = h.DB.Participants().Update(r.Context(), participant)
-	}
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found after update: id=%d", id)

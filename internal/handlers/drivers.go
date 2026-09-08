@@ -219,27 +219,20 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/drivers: name=%s capacity=%d", logutil.SafeString(req.Name), req.VehicleCapacity)
-	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
-	if err != nil {
+	driver, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createDriver(r.Context(), driverEdit{
+		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
+		VehicleCapacity: req.VehicleCapacity,
+	})
+	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		log.Print("[ERROR] Failed to geocode driver address")
 		if h.isHTMX(r) {
-			h.renderError(w, r, err)
+			h.renderError(w, r, geocodeErr.err)
 			return
 		}
-		h.handleGeocodingError(w, err)
+		h.handleGeocodingError(w, geocodeErr.err)
 		return
 	}
 
-	driver := &models.Driver{
-		Name:            req.Name,
-		Address:         req.Address,
-		AddressName:     req.AddressName,
-		Lat:             geocodeResult.Coords.Lat,
-		Lng:             geocodeResult.Coords.Lng,
-		VehicleCapacity: req.VehicleCapacity,
-	}
-
-	driver, err = h.DB.Drivers().CreateWithLabels(r.Context(), driver, labelIDs)
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to create driver: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
@@ -401,36 +394,19 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	driver := &models.Driver{
-		ID:              id,
-		Name:            req.Name,
-		Address:         req.Address,
-		AddressName:     req.AddressName,
-		Lat:             existing.Lat,
-		Lng:             existing.Lng,
+	driver, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).updateDriver(r.Context(), existing, driverEdit{
+		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs, SetLabels: shouldSetLabels,
 		VehicleCapacity: req.VehicleCapacity,
-		CreatedAt:       existing.CreatedAt,
-	}
-
-	if req.Address != existing.Address {
-		geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
-		if err != nil {
-			if h.isHTMX(r) {
-				h.renderError(w, r, err)
-				return
-			}
-			h.handleGeocodingError(w, err)
+	})
+	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
+		if h.isHTMX(r) {
+			h.renderError(w, r, geocodeErr.err)
 			return
 		}
-		driver.Lat = geocodeResult.Coords.Lat
-		driver.Lng = geocodeResult.Coords.Lng
+		h.handleGeocodingError(w, geocodeErr.err)
+		return
 	}
 
-	if shouldSetLabels {
-		driver, err = h.DB.Drivers().UpdateWithLabels(r.Context(), driver, labelIDs)
-	} else {
-		driver, err = h.DB.Drivers().Update(r.Context(), driver)
-	}
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Driver not found after update: id=%d", id)
