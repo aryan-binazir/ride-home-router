@@ -47,7 +47,9 @@ document.addEventListener('DOMContentLoaded',()=>{htmx.config.selfRequestsOnly=f
 </script></body></html>`;
                 const file = path.join(directory, 'fixture.html');
                 fs.writeFileSync(file, fixture);
-                const output = execFileSync(browser, ['--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', `--user-data-dir=${directory}/profile`, '--dump-dom', '--virtual-time-budget=2000', pathToFileURL(file).href], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 2 * 1024 * 1024 });
+                // Hosted runners can spend over 20 seconds on a cold browser launch/exit.
+                // The page still has only 2 seconds of virtual time to satisfy the assertions.
+                const output = execFileSync(browser, ['--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', `--user-data-dir=${directory}/profile`, '--dump-dom', '--virtual-time-budget=2000', pathToFileURL(file).href], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 2 * 1024 * 1024 });
                 const result = JSON.parse(output.match(/<pre id="evidence">(.*?)<\/pre>/s)?.[1] || 'null');
                 assert.deepEqual(result?.selected, ['1'], 'the latest selection must survive replacing filtered controls');
                 if (kind === 'driver') assert.equal(result.van, '9');
