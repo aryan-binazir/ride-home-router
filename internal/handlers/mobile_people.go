@@ -75,6 +75,10 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 	}
 	if r.Method == http.MethodPost {
 		if err := h.saveMobilePerson(r, kind, id); err != nil {
+			if _, ok := errors.AsType[rosterGeocodeError](err); ok {
+				log.Print("[ERROR] Mobile geocoding failed")
+				err = mobileFormError{messageMobileAddressLookupFailed}
+			}
 			if h.checkNotFound(err) {
 				h.renderMobileError(w, r, http.StatusNotFound, mobilePersonNotFoundMessage(kind), err)
 				return
@@ -176,51 +180,34 @@ func (h *Handler) saveMobilePerson(r *http.Request, kind string, id int64) error
 	}
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Mobile save person: kind=%s id=%d name=%s", logutil.SafeString(kind), id, logutil.SafeString(name))
+	editor := rosterEditor{db: h.DB, geocoder: h.Geocoder}
+	edit := participantEdit{Name: name, Address: address, AddressName: addressName, LabelIDs: labels, SetLabels: true}
 	if kind == "participant" {
-		participant := &models.Participant{ID: id, Name: name, Address: address, AddressName: addressName}
 		if id > 0 {
 			existing, err := h.DB.Participants().GetByID(r.Context(), id)
 			if err != nil {
 				return err
 			}
-			participant.Lat, participant.Lng = existing.Lat, existing.Lng
-			if existing.Address != address {
-				if err := h.geocodeMobile(r.Context(), address, &participant.Lat, &participant.Lng); err != nil {
-					return err
-				}
-			}
-			_, err = h.DB.Participants().UpdateWithLabels(r.Context(), participant, labels)
+			_, err = editor.updateParticipant(r.Context(), existing, edit)
 			return err
 		}
-		if err := h.geocodeMobile(r.Context(), address, &participant.Lat, &participant.Lng); err != nil {
-			return err
-		}
-		_, err := h.DB.Participants().CreateWithLabels(r.Context(), participant, labels)
+		_, err := editor.createParticipant(r.Context(), edit)
 		return err
 	}
 	capacity, err := strconv.Atoi(r.FormValue("vehicle_capacity"))
 	if err != nil || capacity < models.MinVehicleCapacity || capacity > models.MaxVehicleCapacity {
 		return mobileFormError{messageVehicleCapacityOutOfRange()}
 	}
-	driver := &models.Driver{ID: id, Name: name, Address: address, AddressName: addressName, VehicleCapacity: capacity}
+	driver := driverEdit{participantEdit: edit, VehicleCapacity: capacity}
 	if id > 0 {
 		existing, err := h.DB.Drivers().GetByID(r.Context(), id)
 		if err != nil {
 			return err
 		}
-		driver.Lat, driver.Lng = existing.Lat, existing.Lng
-		if existing.Address != address {
-			if err := h.geocodeMobile(r.Context(), address, &driver.Lat, &driver.Lng); err != nil {
-				return err
-			}
-		}
-		_, err = h.DB.Drivers().UpdateWithLabels(r.Context(), driver, labels)
+		_, err = editor.updateDriver(r.Context(), existing, driver)
 		return err
 	}
-	if err := h.geocodeMobile(r.Context(), address, &driver.Lat, &driver.Lng); err != nil {
-		return err
-	}
-	_, err = h.DB.Drivers().CreateWithLabels(r.Context(), driver, labels)
+	_, err = editor.createDriver(r.Context(), driver)
 	return err
 }
 
