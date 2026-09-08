@@ -97,7 +97,7 @@ func TestRosterEditGeocodeErrorPresentation(t *testing.T) {
 							t.Fatalf("json = %d %s", rr.Code, rr.Body.String())
 						}
 					case "htmx":
-						if rr.Code != http.StatusInternalServerError || rr.Body.String() != `<div class="alert alert-error">provider detail sentinel</div>` {
+						if rr.Code != http.StatusUnprocessableEntity || rr.Body.Len() != 0 || !strings.Contains(rr.Header().Get("HX-Trigger"), messageMobileAddressLookupFailed) {
 							t.Fatalf("htmx = %d %s", rr.Code, rr.Body.String())
 						}
 					case "mobile":

@@ -218,6 +218,7 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error) {
 	if h.isHTMX(r) {
+		h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))

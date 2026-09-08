@@ -39,6 +39,7 @@
           </div>
           {{if gt (len $.Routes) 1}}
           <form action="/m/routes/move" method="post">
+    <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
             <input type="hidden" name="participant_id" value="{{.ID}}">
             <input type="hidden" name="from_route_index" value="{{$current.Index}}">
             <select name="to_route_index" aria-label="Move {{.Name}}" required>
@@ -66,6 +67,7 @@
       <textarea class="mobile-copy-source" id="parent-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.ParentText}}</textarea>
       {{if gt (len $.Routes) 1}}
       <form class="mobile-inline-form" action="/m/routes/swap" method="post">
+    <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
         <input type="hidden" name="route_index_1" value="{{.Index}}">
         <label>
           Swap driver
@@ -85,6 +87,7 @@
   {{end}}
   {{if .Snapshot.UnusedDrivers}}
   <form class="mobile-form-card mobile-inline-form" action="/m/routes/add-driver" method="post">
+    <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
     <label>
       Add unused driver
       <select name="driver_id">
@@ -96,10 +99,12 @@
   {{end}}
   {{if .Snapshot.IsEditing}}
   <form action="/m/routes/reset" method="post">
+    <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
     <button class="mobile-text-button" type="submit">Reset route changes</button>
   </form>
   {{end}}
   <form class="mobile-save-card" action="/m/routes/save" method="post">
+    <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
     <label>
       Event date
       <input type="date" name="event_date" value="{{currentDate}}" required>

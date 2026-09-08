@@ -85,7 +85,7 @@ After proving the migration transaction fully rolled back, repair the row to mat
 4. Select riders, drivers, mode, time, and van assignments.
 5. Calculate, adjust, copy, and optionally save the routes.
 
-For the phone-focused workflow, open `/m`. Choose the location, riders, drivers, vans, time, and route mode from the Plan tab. Calculate routes, move riders or swap drivers if needed, copy handoffs, then save the event. People, Places, and History remain available from the bottom tabs.
+For the phone-focused workflow, open `/m`. Choose the location, riders, drivers, vans, time, and route mode from the Plan tab. Calculate routes, move riders or swap drivers if needed, copy handoffs, then save the event. People, Places, and History remain available from the bottom tabs. New saved events retain the exact driver and parent handoffs, including times and Maps links, even after roster edits. Longer routes use numbered Maps legs; follow them in order. Older events retain their existing history text.
 
 Pickup routes end at the activity. Dropoff routes start there. The solver respects capacity, keeps households together when possible, uses selected drivers, minimizes corridor spread, then compares completion time, detour, and drive time. It is deterministic, not globally optimal.
 
@@ -95,6 +95,8 @@ Pickup routes end at the activity. Dropoff routes start there. The solver respec
 make check       # all checks, requires the test database
 make check-unit  # skips database-backed tests
 ```
+
+Set `BROWSER_TEST_BINARY` to a Chrome/Chromium executable to include the actual-browser mobile filter tests, for example `BROWSER_TEST_BINARY=/usr/bin/chromium make check`. They use temporary files and synthetic responses, with no running app server or npm dependencies. Without that variable, these browser tests are skipped.
 
 ## Data
 

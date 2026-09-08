@@ -277,7 +277,7 @@ func (h *Handler) commitEventSession(r *http.Request, sessionID, date, notes str
 	var createdEvent *models.Event
 	var savedRouteCount int
 	err := h.RouteSession.Commit(r.Context(), sessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot) error {
-		created, routeCount, err := h.persistEvent(ctx, date, notes, snapshot.RoutingResult())
+		created, routeCount, err := h.persistEvent(ctx, date, notes, snapshot)
 		if err != nil {
 			return err
 		}
@@ -308,7 +308,7 @@ func (h *Handler) commitEventSession(r *http.Request, sessionID, date, notes str
 	return createdEvent, savedRouteCount, err
 }
 
-func (h *Handler) persistEvent(ctx context.Context, date, notes string, result models.RoutingResult) (*models.Event, int, error) {
+func (h *Handler) persistEvent(ctx context.Context, date, notes string, session routesession.CommitSnapshot) (*models.Event, int, error) {
 	if date == "" {
 		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
 		return nil, 0, eventValidationError{message: messageEventDateRequired}
@@ -320,7 +320,7 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, result m
 		return nil, 0, eventValidationError{message: messageInvalidEventDateFormat, cause: err}
 	}
 
-	snapshot, err := eventsnapshot.Build(result)
+	snapshot, err := eventsnapshot.Build(session.RoutingResult())
 	if err != nil {
 		log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
 		message := err.Error()
@@ -328,6 +328,17 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, result m
 			message = messageInvalidRouteMode
 		}
 		return nil, 0, eventValidationError{message: message, cause: err}
+	}
+
+	live := routesession.Snapshot{ActivityLocation: session.ActivityLocation, RouteTime: session.RouteTime, Mode: session.Mode}
+	savedIndex := 0
+	for _, route := range session.Final {
+		if len(route.Stops) == 0 {
+			continue
+		}
+		snapshot.Routes[savedIndex].DriverHandoff = formatMobileHandoff(live, route, false)
+		snapshot.Routes[savedIndex].ParentHandoff = formatMobileHandoff(live, route, true)
+		savedIndex++
 	}
 
 	event := &models.Event{EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}

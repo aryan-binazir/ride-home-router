@@ -18,6 +18,7 @@ import (
 )
 
 type mockDistanceCache struct {
+	mu      sync.Mutex
 	entries map[string]*models.DistanceCacheEntry
 }
 
@@ -36,6 +37,8 @@ func (c *mockDistanceCache) cacheKey(origin, dest models.Coordinates) string {
 }
 
 func (c *mockDistanceCache) Get(_ context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	key := c.cacheKey(origin, dest)
 	if entry, ok := c.entries[key]; ok {
 		return entry, nil
@@ -55,11 +58,15 @@ func (c *mockDistanceCache) GetBatch(ctx context.Context, pairs []struct{ Origin
 }
 
 func (c *mockDistanceCache) Set(_ context.Context, entry *models.DistanceCacheEntry) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.entries[c.cacheKey(entry.Origin, entry.Destination)] = entry
 	return nil
 }
 
 func (c *mockDistanceCache) SetBatch(_ context.Context, entries []models.DistanceCacheEntry) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, entry := range entries {
 		c.entries[c.cacheKey(entry.Origin, entry.Destination)] = &entry
 	}
@@ -67,6 +74,8 @@ func (c *mockDistanceCache) SetBatch(_ context.Context, entries []models.Distanc
 }
 
 func (c *mockDistanceCache) Clear(_ context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.entries = make(map[string]*models.DistanceCacheEntry)
 	return nil
 }
@@ -501,4 +510,89 @@ func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
 
 func intToString(v int) string {
 	return strconv.Itoa(v)
+}
+
+func TestGooglePrewarmCompletesColdDistancesWithinDeadline(t *testing.T) {
+	var mu sync.Mutex
+	active, maximum := 0, 0
+	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		active++
+		maximum = max(maximum, active)
+		mu.Unlock()
+		defer func() { mu.Lock(); active--; mu.Unlock() }()
+		timer := time.NewTimer(75 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}`))
+	})
+	pairs := make([]DistancePair, 12)
+	for i := range pairs {
+		pairs[i] = DistancePair{Origin: models.Coordinates{Lat: 35 + float64(i)/100, Lng: -79}, Destination: models.Coordinates{Lat: 37, Lng: -79}}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	if err := calc.PrewarmPairs(ctx, pairs); err != nil {
+		t.Fatalf("cold distance preparation exceeded request deadline: %v", err)
+	}
+	for _, pair := range pairs {
+		result, err := calc.GetDistance(ctx, pair.Origin, pair.Destination)
+		if err != nil || result == nil || result.DistanceMeters != 1200 || result.DurationSecs != 300 {
+			t.Fatalf("prepared distance=%+v err=%v", result, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if maximum > 4 || active != 0 {
+		t.Fatalf("provider concurrency max=%d active after return=%d", maximum, active)
+	}
+}
+
+func TestGooglePrewarmCancellationWaitsForActiveRequests(t *testing.T) {
+	started := make(chan struct{}, 4)
+	var mu sync.Mutex
+	active := 0
+	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test", nil }).(*googleCalculator)
+	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		active++
+		mu.Unlock()
+		defer func() { mu.Lock(); active--; mu.Unlock() }()
+		started <- struct{}{}
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}
+	pairs := make([]DistancePair, 12)
+	for i := range pairs {
+		pairs[i] = DistancePair{Origin: models.Coordinates{Lat: 35 + float64(i)/100, Lng: -79}, Destination: models.Coordinates{Lat: 37, Lng: -79}}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- calc.PrewarmPairs(ctx, pairs) }()
+	for range 4 {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("independent provider requests did not start")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel error=%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("prewarm did not honor cancellation")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if active != 0 {
+		t.Fatalf("prewarm returned with %d active requests", active)
+	}
 }

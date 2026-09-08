@@ -144,7 +144,7 @@ func TestMobileSaveFailureKeepsDraftSessionForRetry(t *testing.T) {
 		events:    failingEventRepository{EventRepository: store.Events(), err: errors.New("persistence failed")},
 	}
 
-	response := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"event_date": {"2026-09-07"}}, handler.HandleMobileSave)
+	response := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {session.ID}, "event_date": {"2026-09-07"}}, handler.HandleMobileSave)
 	assertMobileRedirect(t, response, "/m/routes?error="+url.QueryEscape(messageGenericInternalError))
 	current, ok := handler.PlanDraft.Get(id)
 	if !ok || current.RouteSessionID != session.ID {

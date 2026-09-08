@@ -43,6 +43,48 @@
         }
     }
 
+    // Filter responses carry request-time selections. Merge the current form
+    // immediately before swapping so edits made during the request survive.
+    document.addEventListener('htmx:beforeSwap', event => {
+        const detail = event.detail;
+        const form = detail.target?.closest?.('#mobile-rider-picker, #mobile-driver-picker');
+        if (!form || !detail.shouldSwap) return;
+        const response = new DOMParser().parseFromString(detail.serverResponse, 'text/html');
+        const results = response.getElementById(detail.target.id);
+        if (!results) return;
+        const name = form.id === 'mobile-rider-picker' ? 'participant_ids' : 'driver_ids';
+        const current = new FormData(form);
+        const selected = new Set(current.getAll(name));
+        results.querySelectorAll('input[type="hidden"]').forEach(input => input.remove());
+        const visible = new Set();
+        results.querySelectorAll(`input[name="${name}"]`).forEach(input => {
+            visible.add(input.value);
+            input.toggleAttribute('checked', selected.has(input.value));
+        });
+        results.querySelectorAll('select[name^="org_vehicle_"]').forEach(select => {
+            const id = select.name.slice('org_vehicle_'.length);
+            const value = selected.has(id) ? current.get(select.name) || '' : '';
+            Array.from(select.options).forEach(option => option.toggleAttribute('selected', option.value === value));
+        });
+        for (const id of selected) {
+            if (visible.has(id)) continue;
+            const input = response.createElement('input');
+            input.type = 'hidden';
+            input.name = name;
+            input.value = id;
+            results.append(input);
+            const vehicle = current.get(`org_vehicle_${id}`);
+            if (name === 'driver_ids' && vehicle) {
+                const assignment = response.createElement('input');
+                assignment.type = 'hidden';
+                assignment.name = `org_vehicle_${id}`;
+                assignment.value = vehicle;
+                results.append(assignment);
+            }
+        }
+        detail.serverResponse = results.outerHTML;
+    });
+
     document.addEventListener('change', event => {
         const checkbox = event.target;
         if (checkbox.matches?.('input[name="mode"]')) {

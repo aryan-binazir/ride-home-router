@@ -154,6 +154,7 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	}
 
 	moveResponse := postMobileForm(t, draftCookie, "/m/routes/move", url.Values{
+		"session_id":     {draft.RouteSessionID},
 		"participant_id": {fmt.Sprint(firstRider.ID)}, "from_route_index": {"0"}, "to_route_index": {"1"},
 	}, handler.HandleMobileMove)
 	assertMobileRedirect(t, moveResponse, "/m/routes")
@@ -162,16 +163,16 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		t.Fatalf("routes after move = %#v", snapshot.Routes)
 	}
 
-	swapResponse := postMobileForm(t, draftCookie, "/m/routes/swap", url.Values{"route_index_1": {"0"}, "route_index_2": {"1"}}, handler.HandleMobileSwap)
+	swapResponse := postMobileForm(t, draftCookie, "/m/routes/swap", url.Values{"session_id": {draft.RouteSessionID}, "route_index_1": {"0"}, "route_index_2": {"1"}}, handler.HandleMobileSwap)
 	assertMobileRedirect(t, swapResponse, "/m/routes")
-	resetResponse := postMobileForm(t, draftCookie, "/m/routes/reset", nil, handler.HandleMobileReset)
+	resetResponse := postMobileForm(t, draftCookie, "/m/routes/reset", url.Values{"session_id": {draft.RouteSessionID}}, handler.HandleMobileReset)
 	assertMobileRedirect(t, resetResponse, "/m/routes")
-	addDriverResponse := postMobileForm(t, draftCookie, "/m/routes/add-driver", url.Values{"driver_id": {fmt.Sprint(thirdDriver.ID)}}, handler.HandleMobileAddDriver)
+	addDriverResponse := postMobileForm(t, draftCookie, "/m/routes/add-driver", url.Values{"session_id": {draft.RouteSessionID}, "driver_id": {fmt.Sprint(thirdDriver.ID)}}, handler.HandleMobileAddDriver)
 	assertMobileRedirect(t, addDriverResponse, "/m/routes")
-	resetResponse = postMobileForm(t, draftCookie, "/m/routes/reset", nil, handler.HandleMobileReset)
+	resetResponse = postMobileForm(t, draftCookie, "/m/routes/reset", url.Values{"session_id": {draft.RouteSessionID}}, handler.HandleMobileReset)
 	assertMobileRedirect(t, resetResponse, "/m/routes")
 
-	saveResponse := postMobileForm(t, draftCookie, "/m/routes/save", url.Values{"event_date": {"2026-08-29"}, "notes": {"Mobile test event"}}, handler.HandleMobileSave)
+	saveResponse := postMobileForm(t, draftCookie, "/m/routes/save", url.Values{"session_id": {draft.RouteSessionID}, "event_date": {"2026-08-29"}, "notes": {"Mobile test event"}}, handler.HandleMobileSave)
 	if saveResponse.Code != http.StatusSeeOther || !strings.HasPrefix(saveResponse.Header().Get("Location"), "/m/history/") {
 		t.Fatalf("save redirect = %d %q body=%q", saveResponse.Code, saveResponse.Header().Get("Location"), saveResponse.Body.String())
 	}
@@ -388,7 +389,7 @@ func TestMobileSaveDoesNotEraseSessionAttachedDuringCommit(t *testing.T) {
 
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		done <- postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"event_date": {"2026-09-02"}}, handler.HandleMobileSave)
+		done <- postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {oldSession.ID}, "event_date": {"2026-09-02"}}, handler.HandleMobileSave)
 	}()
 	<-started
 	calculationDone := make(chan *httptest.ResponseRecorder, 1)
@@ -1079,7 +1080,8 @@ func TestMobileDraftAccessRefreshesCookieAndRouteMoveRejectsMalformedTargets(t *
 	handler.PlanDraft = plandraft.NewStore()
 	t.Cleanup(handler.PlanDraft.Close)
 	id := handler.PlanDraft.NewID()
-	handler.PlanDraft.Update(id, func(*plandraft.Draft) {})
+	session := handler.RouteSession.Create(routesession.CreateInput{})
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 	cookie := mobileTestCookie(id)
 
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m", nil)
@@ -1093,6 +1095,7 @@ func TestMobileDraftAccessRefreshesCookieAndRouteMoveRejectsMalformedTargets(t *
 
 	for _, target := range []string{"", "garbage", "0"} {
 		move := postMobileForm(t, cookie, "/m/routes/move", url.Values{
+			"session_id":     {session.ID},
 			"participant_id": {"1"}, "from_route_index": {"0"}, "to_route_index": {target},
 		}, handler.HandleMobileMove)
 		parsed, err := url.Parse(move.Header().Get("Location"))

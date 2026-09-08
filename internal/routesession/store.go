@@ -70,6 +70,7 @@ type Snapshot struct {
 
 // CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
 type CommitSnapshot struct {
+	RouteTime         string
 	SessionID         string
 	Original          []models.CalculatedRoute
 	Final             []models.CalculatedRoute
@@ -334,6 +335,7 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 		return ErrUnbalanced
 	}
 	payload := CommitSnapshot{
+		RouteTime:         state.routeTime,
 		SessionID:         state.id,
 		Original:          copyRoutes(state.originalRoutes),
 		Final:             copyRoutes(state.currentRoutes),

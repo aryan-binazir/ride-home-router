@@ -34,9 +34,8 @@ func (h *Handler) HandleMobileRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	_, draft, _ := h.mobileDraft(w, r)
-	if err := r.ParseForm(); err != nil {
-		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+	_, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
 		return
 	}
 	participantID, participantErr := strconv.ParseInt(r.FormValue("participant_id"), 10, 64)
@@ -50,7 +49,7 @@ func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", "Choose a different route.")
 		return
 	}
-	_, err := h.RouteSession.ApplyMoves(r.Context(), draft.RouteSessionID, []routesession.Move{{ParticipantID: participantID, FromRouteIndex: from, ToRouteIndex: to, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{RequireClaimedSource: true})
+	_, err := h.RouteSession.ApplyMoves(r.Context(), sessionID, []routesession.Move{{ParticipantID: participantID, FromRouteIndex: from, ToRouteIndex: to, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{RequireClaimedSource: true})
 	if err != nil {
 		log.Printf("[ERROR] Mobile move failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
@@ -61,9 +60,8 @@ func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileSwap(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	_, draft, _ := h.mobileDraft(w, r)
-	if err := r.ParseForm(); err != nil {
-		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+	_, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
 		return
 	}
 	first, firstErr := strconv.Atoi(r.FormValue("route_index_1"))
@@ -72,7 +70,7 @@ func (h *Handler) HandleMobileSwap(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", messageInvalidRouteIndex)
 		return
 	}
-	if _, err := h.RouteSession.SwapDrivers(r.Context(), draft.RouteSessionID, first, second); err != nil {
+	if _, err := h.RouteSession.SwapDrivers(r.Context(), sessionID, first, second); err != nil {
 		log.Printf("[ERROR] Mobile driver swap failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
@@ -82,8 +80,11 @@ func (h *Handler) HandleMobileSwap(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileReset(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	_, draft, _ := h.mobileDraft(w, r)
-	if _, err := h.RouteSession.Reset(draft.RouteSessionID); err != nil {
+	_, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
+		return
+	}
+	if _, err := h.RouteSession.Reset(sessionID); err != nil {
 		log.Printf("[ERROR] Mobile route reset failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
@@ -93,9 +94,8 @@ func (h *Handler) HandleMobileReset(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	_, draft, _ := h.mobileDraft(w, r)
-	if err := r.ParseForm(); err != nil {
-		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+	_, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
 		return
 	}
 	driverID, err := strconv.ParseInt(r.FormValue("driver_id"), 10, 64)
@@ -103,7 +103,7 @@ func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m/routes", messageInvalidDriverID)
 		return
 	}
-	if _, err := h.RouteSession.AddDriver(r.Context(), draft.RouteSessionID, driverID); err != nil {
+	if _, err := h.RouteSession.AddDriver(r.Context(), sessionID, driverID); err != nil {
 		log.Printf("[ERROR] Mobile add driver failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
@@ -113,16 +113,14 @@ func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, _ := h.mobileDraft(w, r)
-	if err := r.ParseForm(); err != nil {
-		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+	id, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
 		return
 	}
 	date := r.FormValue("event_date")
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	sessionID := draft.RouteSessionID
 	created, _, err := h.commitEventSession(r, sessionID, date, strings.TrimSpace(r.FormValue("notes")))
 	if err != nil {
 		log.Printf("[ERROR] Mobile event save failed: err=%v", err)
@@ -135,6 +133,21 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mobilePlan().ReleaseSavedSession(id, sessionID)
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", created.ID), http.StatusSeeOther)
+}
+
+// mobileRouteSession binds a submitted action to the routes its form displayed.
+func (h *Handler) mobileRouteSession(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	id, draft, _ := h.mobileDraft(w, r)
+	if err := r.ParseForm(); err != nil {
+		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+		return "", "", false
+	}
+	sessionID := strings.TrimSpace(r.FormValue("session_id"))
+	if sessionID == "" || sessionID != draft.RouteSessionID {
+		h.mobileRedirectError(w, r, "/m/routes", "This route plan changed. Review the current routes and try again.")
+		return "", "", false
+	}
+	return id, sessionID, true
 }
 
 func mobileETAs(snapshot routesession.Snapshot, route models.CalculatedRoute) []string {
@@ -190,14 +203,26 @@ func formatMobileHandoff(snapshot routesession.Snapshot, route models.Calculated
 		b.WriteByte('\n')
 	}
 	if !parents {
-		if mapsURL := mobileMapsURL(snapshot, route); mapsURL != "" {
-			fmt.Fprintf(&b, "\nMaps: %s\n", mapsURL)
+		links := mobileMapsURLs(snapshot, route)
+		for index, link := range links {
+			if len(links) == 1 {
+				fmt.Fprintf(&b, "\nMaps: %s\n", link)
+			} else {
+				fmt.Fprintf(&b, "\nMaps leg %d of %d: %s\n", index+1, len(links), link)
+			}
 		}
 	}
 	return b.String()
 }
 
 func formatSavedMobileHandoff(route models.EventRoute, parents bool) string {
+	if parents && route.ParentHandoff != "" {
+		return route.ParentHandoff
+	}
+	if !parents && route.DriverHandoff != "" {
+		return route.DriverHandoff
+	}
+	// Legacy events did not retain the original location and timing context.
 	var b strings.Builder
 	fmt.Fprintf(&b, "Driver: %s\n", route.DriverName)
 	if !parents {
@@ -223,9 +248,9 @@ func displayMobileAddress(name, address string) string {
 	return fmt.Sprintf("%s (%s)", name, address)
 }
 
-func mobileMapsURL(snapshot routesession.Snapshot, route models.CalculatedRoute) string {
+func mobileMapsURLs(snapshot routesession.Snapshot, route models.CalculatedRoute) []string {
 	if snapshot.ActivityLocation == nil || route.Driver == nil || len(route.Stops) == 0 {
-		return ""
+		return nil
 	}
 	location := func(lat, lng float64, address string) string {
 		if lat != 0 || lng != 0 {
@@ -236,21 +261,18 @@ func mobileMapsURL(snapshot routesession.Snapshot, route models.CalculatedRoute)
 	activity := location(snapshot.ActivityLocation.Lat, snapshot.ActivityLocation.Lng, snapshot.ActivityLocation.Address)
 	driver := location(route.Driver.Lat, route.Driver.Lng, route.Driver.Address)
 	if activity == "" || driver == "" {
-		return ""
+		return nil
 	}
 	stops := make([]string, 0, len(route.Stops))
-	seen := map[string]bool{}
 	for _, stop := range route.Stops {
 		if stop.Participant == nil {
-			return ""
+			return nil
 		}
 		value := location(stop.Participant.Lat, stop.Participant.Lng, stop.Participant.Address)
 		if value == "" {
-			return ""
+			return nil
 		}
-		key := strings.ToLower(value)
-		if !seen[key] {
-			seen[key] = true
+		if len(stops) == 0 || !strings.EqualFold(stops[len(stops)-1], value) {
 			stops = append(stops, value)
 		}
 	}
@@ -259,9 +281,20 @@ func mobileMapsURL(snapshot routesession.Snapshot, route models.CalculatedRoute)
 	if snapshot.Mode == models.RouteModePickup {
 		points[0], points[len(points)-1] = points[len(points)-1], points[0]
 	}
-	query := url.Values{"api": {"1"}, "travelmode": {"driving"}, "dir_action": {"navigate"}, "destination": {points[len(points)-1]}}
-	if len(points) > 2 {
-		query.Set("waypoints", strings.Join(points[1:len(points)-1], "|"))
+	// Mobile browsers support three intermediate waypoints per Maps URL.
+	// Each later leg starts at the preceding leg's destination.
+	var links []string
+	for start := 0; start < len(points)-1; {
+		end := min(start+4, len(points)-1)
+		query := url.Values{"api": {"1"}, "travelmode": {"driving"}, "dir_action": {"navigate"}, "destination": {points[end]}}
+		if start > 0 {
+			query.Set("origin", points[start])
+		}
+		if end > start+1 {
+			query.Set("waypoints", strings.Join(points[start+1:end], "|"))
+		}
+		links = append(links, "https://www.google.com/maps/dir/?"+query.Encode())
+		start = end
 	}
-	return "https://www.google.com/maps/dir/?" + query.Encode()
+	return links
 }

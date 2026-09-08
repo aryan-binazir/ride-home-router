@@ -135,7 +135,7 @@ func (r *eventRepository) routesForEvent(ctx context.Context, eventID int64) ([]
 		       effective_capacity, org_vehicle_id, org_vehicle_name,
 		       total_dropoff_distance_meters, distance_to_driver_home_meters,
 		       total_distance_meters, baseline_duration_secs, route_duration_secs,
-		       detour_secs, mode, snapshot_version, metrics_complete
+		       detour_secs, mode, snapshot_version, metrics_complete, driver_handoff, parent_handoff
 		FROM event_routes
 		WHERE event_id = $1
 		ORDER BY route_order, id`, eventID)
@@ -158,7 +158,7 @@ func (r *eventRepository) routesForEvent(ctx context.Context, eventID int64) ([]
 			&route.EffectiveCapacity, &orgVehicleID, &orgVehicleName,
 			&route.TotalDropoffDistanceMeters, &route.DistanceToDriverHomeMeters,
 			&route.TotalDistanceMeters, &route.BaselineDurationSecs, &route.RouteDurationSecs,
-			&route.DetourSecs, &mode, &route.SnapshotVersion, &route.MetricsComplete,
+			&route.DetourSecs, &mode, &route.SnapshotVersion, &route.MetricsComplete, &route.DriverHandoff, &route.ParentHandoff,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan event route: %w", err)
 		}
@@ -247,14 +247,14 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 				effective_capacity, org_vehicle_id, org_vehicle_name,
 				total_dropoff_distance_meters, distance_to_driver_home_meters,
 				total_distance_meters, baseline_duration_secs, route_duration_secs,
-				detour_secs, mode, snapshot_version, metrics_complete
-			) VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+				detour_secs, mode, snapshot_version, metrics_complete, driver_handoff, parent_handoff
+			) VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 			RETURNING id`,
 			event.ID, route.RouteOrder, route.DriverID, route.DriverName, route.DriverAddress, route.DriverAddressName,
 			route.EffectiveCapacity, orgVehicleID, orgVehicleName,
 			route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters,
 			route.TotalDistanceMeters, route.BaselineDurationSecs, route.RouteDurationSecs,
-			route.DetourSecs, string(route.Mode), snapshotVersion, metricsComplete,
+			route.DetourSecs, string(route.Mode), snapshotVersion, metricsComplete, route.DriverHandoff, route.ParentHandoff,
 		).Scan(&eventRouteID); err != nil {
 			return nil, fmt.Errorf("failed to create event route: %w", err)
 		}

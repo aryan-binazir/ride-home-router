@@ -42,6 +42,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Locate browser for mobile regression tests
+        run: |
+          browser_binary=$(command -v google-chrome || command -v chromium)
+          test -n "$browser_binary"
+          echo "BROWSER_TEST_BINARY=$browser_binary" >> "$GITHUB_ENV"
       - run: make verify vet test
       - name: Check coverage
         run: go tool cover -func=coverage.out
