@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -158,18 +159,22 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 					t.Fatalf("create = %d %s", rr.Code, rr.Body.String())
 				}
 				var id int64
+				var originalParticipant models.Participant
+				var originalDriver models.Driver
 				var name, address, addressName string
 				if kind == "participant" {
 					people, listErr := store.Participants().List(ctx, "")
 					if listErr != nil || len(people) != 1 {
 						t.Fatalf("people = %v, %v", people, listErr)
 					}
+					originalParticipant = people[0]
 					id, name, address, addressName = people[0].ID, people[0].Name, people[0].Address, people[0].AddressName
 				} else {
 					people, listErr := store.Drivers().List(ctx, "")
 					if listErr != nil || len(people) != 1 {
 						t.Fatalf("people = %v, %v", people, listErr)
 					}
+					originalDriver = people[0]
 					id, name, address, addressName = people[0].ID, people[0].Name, people[0].Address, people[0].AddressName
 				}
 				wantName, wantAddress := " Person ", " Address "
@@ -193,6 +198,17 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 					t.Fatalf("malformed = %d %s", rr.Code, rr.Body.String())
 				}
 				assertRosterEditLabels(t, h, kind, id, label.ID)
+				if kind == "participant" {
+					got, getErr := store.Participants().GetByID(ctx, id)
+					if getErr != nil || !reflect.DeepEqual(got, &originalParticipant) {
+						t.Fatalf("rejected edit changed participant = %#v, want %#v, err=%v", got, originalParticipant, getErr)
+					}
+				} else {
+					got, getErr := store.Drivers().GetByID(ctx, id)
+					if getErr != nil || !reflect.DeepEqual(got, &originalDriver) {
+						t.Fatalf("rejected edit changed driver = %#v, want %#v, err=%v", got, originalDriver, getErr)
+					}
+				}
 				// Omitted JSON labels retain membership; forms replace with an empty set.
 				form.Set("name", " Updated ")
 				form.Del("label_ids")
