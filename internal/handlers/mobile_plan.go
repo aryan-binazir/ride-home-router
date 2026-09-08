@@ -30,9 +30,8 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 		view.Location, err = h.DB.ActivityLocations().GetByID(r.Context(), draft.LocationID)
 		if h.checkNotFound(err) {
 			view.Location = nil
-			draft = h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+			draft = h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 				d.LocationID = 0
-				d.RouteSessionID = ""
 			})
 			view.Draft = draft
 			view.Notice = mergeMobileNotice(view.Notice, "An unavailable place was removed from this plan.")
@@ -98,9 +97,8 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 			h.renderMobileStoreError(w, r, err, "Location not found")
 			return
 		}
-		h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 			d.LocationID = locationID
-			d.RouteSessionID = ""
 		})
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
@@ -143,9 +141,8 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 			h.mobileRedirectError(w, r, "/m/plan/riders", mobileSelectionLimitMessage())
 			return
 		}
-		h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 			d.ParticipantIDs = participantIDs
-			d.RouteSessionID = ""
 		})
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
@@ -232,10 +229,9 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
-		h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 			d.DriverIDs = driverIDs
 			d.DriverVehicleIDs = assignments
-			d.RouteSessionID = ""
 		})
 		if err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
@@ -340,10 +336,9 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 			h.mobileRedirectError(w, r, "/m/plan/when", messageInvalidRouteMode)
 			return
 		}
-		h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 			d.RouteTime = routeTime
 			d.Mode = string(mode)
-			d.RouteSessionID = ""
 		})
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
@@ -387,7 +382,6 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", messageInvalidRouteMode)
 		return
 	}
-	expectedRevision := draft.Revision
 	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs: draft.ParticipantIDs, DriverIDs: draft.DriverIDs, ActivityLocationID: draft.LocationID,
 		RouteTime: draft.RouteTime, Mode: mode, OrgVehicleAssignments: draft.DriverVehicleIDs,
@@ -407,30 +401,12 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", message)
 		return
 	}
-	displacedSessionID, ok := h.PlanDraft.SetRouteSessionIDIfUnchanged(id, expectedRevision, outcome.Session.ID)
-	if !ok {
-		h.RouteSession.Delete(outcome.Session.ID)
-		if currentDraft, found := h.PlanDraft.Get(id); found && currentDraft.RouteSessionID != "" {
-			if _, live := h.RouteSession.Snapshot(currentDraft.RouteSessionID); live {
-				http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
-				return
-			}
-		}
+	switch h.mobilePlan().AdoptCalculation(id, draft, outcome.Session.ID) {
+	case mobilePlanAdopted, mobilePlanSupersededLive:
+		http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+	case mobilePlanExpired:
 		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)
-		return
 	}
-	h.RouteSession.Delete(displacedSessionID)
-	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
-}
-
-func (h *Handler) updateMobileDraftAndDeleteDisplacedSession(id string, update func(*plandraft.Draft)) plandraft.Draft {
-	displacedSessionID := ""
-	draft := h.PlanDraft.Update(id, func(d *plandraft.Draft) {
-		displacedSessionID = d.RouteSessionID
-		update(d)
-	})
-	h.RouteSession.Delete(displacedSessionID)
-	return draft
 }
 
 func (h *Handler) pruneMobileDraft(ctx context.Context, id string, draft plandraft.Draft, notice string) (plandraft.Draft, string, error) {
@@ -461,7 +437,7 @@ func (h *Handler) pruneMobileDraftWithDrivers(ctx context.Context, id string, dr
 	if !changed {
 		return draft, drivers, notice, nil
 	}
-	draft = h.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+	draft = h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 		d.ParticipantIDs = participantIDs
 		d.DriverIDs = driverIDs
 		for driverID := range d.DriverVehicleIDs {
@@ -469,7 +445,6 @@ func (h *Handler) pruneMobileDraftWithDrivers(ctx context.Context, id string, dr
 				delete(d.DriverVehicleIDs, driverID)
 			}
 		}
-		d.RouteSessionID = ""
 	})
 	return draft, drivers, mergeMobileNotice(notice, "Some unavailable people were removed from this plan."), nil
 }
