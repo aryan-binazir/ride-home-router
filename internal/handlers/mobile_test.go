@@ -256,9 +256,8 @@ func TestMobileCalculateDiscardsRoutesWhenDraftChangesDuringSolve(t *testing.T) 
 			Mode:   models.RouteModeDropoff,
 		},
 		afterSolve: func() {
-			handler.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
+			handler.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
 				d.RouteTime = "19:00"
-				d.RouteSessionID = ""
 			})
 		},
 	}
@@ -578,7 +577,7 @@ func TestMobileWhenInvalidationDeletesRouteSession(t *testing.T) {
 	}
 }
 
-func TestMobileDraftUpdateDeletesConcurrentDisplacedSessions(t *testing.T) {
+func TestMobilePlanLifecycleConcurrentEditsAndAdoptionsDeleteDisplacedSessions(t *testing.T) {
 	drafts := plandraft.NewStore()
 	t.Cleanup(drafts.Close)
 	sessions := routesession.NewStore(routeEditDistanceCalculator{})
@@ -590,16 +589,15 @@ func TestMobileDraftUpdateDeletesConcurrentDisplacedSessions(t *testing.T) {
 	}
 	id := drafts.NewID()
 	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = initial.ID })
-	handler := &Handler{PlanDraft: drafts, RouteSession: sessions}
+	lifecycle := mobilePlanLifecycle{drafts: drafts, sessions: sessions}
 
 	start := make(chan struct{})
 	var wait sync.WaitGroup
 	for _, replacement := range replacements {
 		wait.Go(func() {
 			<-start
-			handler.updateMobileDraftAndDeleteDisplacedSession(id, func(d *plandraft.Draft) {
-				d.RouteSessionID = replacement.ID
-			})
+			edited := lifecycle.EditInputs(id, func(d *mobilePlanInputs) { d.RouteTime = "19:00" })
+			lifecycle.AdoptCalculation(id, edited, replacement.ID)
 		})
 	}
 	close(start)

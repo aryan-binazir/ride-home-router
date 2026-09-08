@@ -133,7 +133,7 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.PlanDraft.ClearRouteSessionIDIfCurrent(id, sessionID)
+	h.mobilePlan().ReleaseSavedSession(id, sessionID)
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", created.ID), http.StatusSeeOther)
 }
 

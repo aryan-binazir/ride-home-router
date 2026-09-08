@@ -1,0 +1,11 @@
+# Own mobile draft and route-session transitions together
+
+Mobile pickers and pruning previously had to clear a draft's session pointer while a handler helper deleted the displaced session. Calculation separately captured a revision, attempted adoption, deleted losing or displaced results, and checked for a competing live winner. Saving conditionally detached the session it had captured before persistence. These callers depended on ordering rules spanning two stores.
+
+A handlers-side mobile plan lifecycle now owns input edits, calculation adoption, and release after successful save. Its input callback exposes only the six route-defining fields. The module copies them back and captures and clears the attached session inside the existing draft update, then deletes the displaced session after the draft lock is released. Adoption accepts the original draft snapshot and completed session ID. It owns revision checking and deletes only the losing result or the successfully displaced session. A live competing winner stays attached. Save release compares the captured ID so an older commit cannot detach a newer result.
+
+The module uses the existing concrete stores. Their low-level interfaces and expiry behavior remain unchanged, including the existing reads that refresh TTL. No draft lock spans routing, database access, event commit, or session deletion. Shared calculation and event commit remain authoritative; commit-once and best-effort feedback behavior stay intact. HTTP parsing, cookies, redirects, error presentation, and roster-availability pruning remain in handlers.
+
+A forwarding helper that still accepts a mutable draft would leave every picker responsible for clearing its session pointer. Changing the store's general Update contract would instead affect initialization and other callers unnecessarily. An opaque revision wrapper adds no ownership, and a callback-based save wrapper would pull request-dependent feedback into this module.
+
+Existing behavior is deliberate here: submitting unchanged inputs still invalidates, pruning unavailable people on page reads invalidates, and save commits its captured route snapshot without pruning people again. This refactor does not redesign expiry or roster validity at save time.
