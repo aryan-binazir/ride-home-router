@@ -423,13 +423,12 @@
     }
 
     function dedupeStopsByLocation(stops) {
-        const seen = new Set();
+        let previous = null;
         return stops.filter(stop => {
             const dedupKey = getLocationDedupKey(stop);
-            if (!dedupKey) return true;
-            if (seen.has(dedupKey)) return false;
-            seen.add(dedupKey);
-            return true;
+            const duplicate = dedupKey && dedupKey === previous;
+            previous = dedupKey;
+            return !duplicate;
         });
     }
 
@@ -439,35 +438,41 @@
         return addressName ? `${addressName} (${address})` : address;
     }
 
-    function generateMapsUrl(activityLocation, driverLocation, stops, mode = 'dropoff', options = {}) {
-        if (!stops || stops.length === 0) return '';
+    function generateMapsUrls(activityLocation, driverLocation, stops, mode = 'dropoff', options = {}) {
+        if (!stops || stops.length === 0) return [];
 
         const uniqueStops = dedupeStopsByLocation(stops);
         const locations = mode === 'pickup'
             ? [driverLocation, ...uniqueStops, activityLocation]
             : [activityLocation, ...uniqueStops, driverLocation];
         const resolvedLocations = locations.map(getLocationValue);
-        if (resolvedLocations.some(location => !location) || resolvedLocations.length < 2) return '';
+        if (resolvedLocations.some(location => !location) || resolvedLocations.length < 2) return [];
 
-        const [origin, ...rest] = resolvedLocations;
-        const destination = rest[rest.length - 1];
-        const waypoints = rest.slice(0, -1);
-        const params = new URLSearchParams({
-            api: '1',
-            travelmode: 'driving',
-            destination,
-        });
-
-        if (options.navigation === true) {
-            params.set('dir_action', 'navigate');
-        } else {
-            params.set('origin', origin);
+        // Copied navigation is commonly opened on a phone, which supports
+        // three intermediate waypoints. The desktop preview keeps its overview.
+        const legSize = options.navigation === true ? 4 : resolvedLocations.length - 1;
+        const urls = [];
+        for (let start = 0; start < resolvedLocations.length - 1;) {
+            const end = Math.min(start + legSize, resolvedLocations.length - 1);
+            const waypoints = resolvedLocations.slice(start + 1, end);
+            const params = new URLSearchParams({
+                api: '1',
+                travelmode: 'driving',
+                destination: resolvedLocations[end],
+            });
+            if (options.navigation === true) {
+                params.set('dir_action', 'navigate');
+            }
+            if (options.navigation !== true || start > 0) {
+                params.set('origin', resolvedLocations[start]);
+            }
+            if (waypoints.length > 0) {
+                params.set('waypoints', waypoints.join('|'));
+            }
+            urls.push(`https://www.google.com/maps/dir/?${params.toString()}`);
+            start = end;
         }
-        if (waypoints.length > 0) {
-            params.set('waypoints', waypoints.join('|'));
-        }
-
-        return `https://www.google.com/maps/dir/?${params.toString()}`;
+        return urls;
     }
 
     function createRouteHandoff({ platform, formatTime = formatClockTime }) {
@@ -544,14 +549,20 @@
             });
 
             if (!isParentCopy) {
-                const mapsUrl = generateMapsUrl(
+                const mapsUrls = generateMapsUrls(
                     context.activityLocation,
                     route.driverLocation,
                     route.stops,
                     context.mode,
                     { navigation: true },
                 );
-                text += `\nMaps: ${mapsUrl}\n`;
+                if (mapsUrls.length <= 1) {
+                    text += `\nMaps: ${mapsUrls[0] || ''}\n`;
+                } else {
+                    mapsUrls.forEach((url, index) => {
+                        text += `\nMaps leg ${index + 1} of ${mapsUrls.length}: ${url}\n`;
+                    });
+                }
             }
 
             return text;
@@ -605,7 +616,7 @@
 
             const context = readContainerContext(container);
             const route = readRouteCard(routeCard, context, false);
-            const mapsUrl = generateMapsUrl(
+            const [mapsUrl] = generateMapsUrls(
                 context.activityLocation,
                 route.driverLocation,
                 route.stops,

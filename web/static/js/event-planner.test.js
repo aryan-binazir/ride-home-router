@@ -2105,3 +2105,40 @@ test('an absent session has no pending route edits', () => {
     assert.equal(batcher.hasPendingFor(undefined), false);
     assert.equal(batcher.hasPendingFor(''), false);
 });
+
+for (const mode of ['pickup', 'dropoff']) {
+    for (const count of [1, 4, 10]) {
+        for (const action of ['copyRoute', 'copyAllRoutes']) {
+            test(`${action} keeps desktop ${mode} handoffs within phone Maps limits for ${count} stops`, async () => {
+                const { container, routeCard, stop } = createRouteFixture({ mode });
+                const stops = Array.from({ length: count }, (_, index) => ({
+                    ...stop,
+                    dataset: {
+                        ...stop.dataset,
+                        participantLat: String(index === 2 ? 40.01 : 40 + (index + 1) / 100),
+                        participantLng: '-74',
+                    },
+                }));
+                routeCard.querySelectorAll = selector => selector === '.stop-item' ? nodeList(stops) : nodeList([]);
+                let copied;
+                const handoff = createRouteHandoff({ platform: { copyText: async text => { copied = text; }, notify: () => {} } });
+                assert.equal(await handoff[action](action === 'copyRoute' ? routeCard : container), true);
+                const urls = Array.from(copied.matchAll(/https:\/\/www.google.com\/maps\/dir\/\?[^\s]+/g), match => new URL(match[0]));
+                const visited = [];
+                urls.forEach((url, index) => {
+                    const query = url.searchParams;
+                    const waypoints = query.get('waypoints')?.split('|') || [];
+                    assert.ok(waypoints.length <= 3, `unsupported ${waypoints.length} intermediate waypoints`);
+                    assert.equal(query.get('dir_action'), 'navigate');
+                    assert.equal(query.get('origin'), index === 0 ? null : urls[index - 1].searchParams.get('destination'));
+                    visited.push(...waypoints, query.get('destination'));
+                    if (urls.length > 1) assert.ok(copied.includes(`Maps leg ${index + 1} of ${urls.length}:`));
+                });
+                const expected = stops.map(item => `${item.dataset.participantLat},${item.dataset.participantLng}`);
+                expected.push(mode === 'pickup' ? '40.4,-74.4' : '40.1,-74.1');
+                assert.deepEqual(visited, expected, 'every ordered stop, including later visits, reaches the handoff');
+                if (count === 1) assert.equal(urls.length, 1);
+            });
+        }
+    }
+}
