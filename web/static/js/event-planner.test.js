@@ -1567,15 +1567,9 @@ test('a render without entered fields keeps the server defaults', () => {
 });
 
 test('planner lifecycle restores legacy storage and persists only current unsaved sessions', () => {
-    const values = new Map([
-        ['ride-home-router:active-session:v2', '{broken json'],
-        ['ride-home-router:active-session-id', 'legacy-session'],
-    ]);
-    const storage = {
-        getItem: key => values.get(key) ?? null,
-        setItem: (key, value) => values.set(key, value),
-        removeItem: key => values.delete(key),
-    };
+    const storage = fakeLocalStorage();
+    storage.setItem('ride-home-router:active-session:v2', '{broken json');
+    storage.setItem('ride-home-router:active-session-id', 'legacy-session');
     let fingerprint = 'plan-a';
     const state = createPlannerState({ readFingerprint: () => fingerprint, storage, onChange() {} });
     assert.deepEqual(state.restoreCandidate(), { id: 'legacy-session', fingerprint: null });
@@ -1601,7 +1595,7 @@ test('planner lifecycle restores legacy storage and persists only current unsave
 
 test('planner lifecycle distinguishes restore cancellation from calculation invalidation', () => {
     let fingerprint = 'plan-a';
-    const state = createPlannerState({ readFingerprint: () => fingerprint, onChange() {} });
+    const state = createPlannerState({ readFingerprint: () => fingerprint, storage: fakeLocalStorage(), onChange() {} });
     const xhr = {};
     state.trackCalculation(xhr, fingerprint);
     const first = state.beginRestore({ id: 'old-session', fingerprint });
@@ -1631,7 +1625,7 @@ test('planner lifecycle distinguishes restore cancellation from calculation inva
 });
 
 test('planner lifecycle invalidates old requests without invalidating overlapping new calculations', () => {
-    const state = createPlannerState({ readFingerprint: () => 'plan-a', onChange() {} });
+    const state = createPlannerState({ readFingerprint: () => 'plan-a', storage: fakeLocalStorage(), onChange() {} });
     const oldRequest = {};
     state.trackCalculation(oldRequest, 'plan-a');
     state.invalidateCalculations();
@@ -1656,6 +1650,7 @@ test('planner state stays stale until a recalculation and never leaves saved for
     const changes = [];
     let fingerprint = 'plan-a';
     const state = createPlannerState({
+        storage: fakeLocalStorage(),
         readFingerprint: () => fingerprint,
         onChange: snapshot => changes.push(`${snapshot.status}:${snapshot.sessionId}`),
     });
@@ -1705,6 +1700,7 @@ test('clearing planner state drops the session and stops tracking the fingerprin
     const changes = [];
     let fingerprint = 'plan-a';
     const state = createPlannerState({
+        storage: fakeLocalStorage(),
         readFingerprint: () => fingerprint,
         onChange: snapshot => changes.push(snapshot.status),
     });
@@ -1722,6 +1718,7 @@ test('clearing planner state drops the session and stops tracking the fingerprin
 test('a results swap with no session clears the planner state', () => {
     const changes = [];
     const state = createPlannerState({
+        storage: fakeLocalStorage(),
         readFingerprint: () => 'plan-a',
         onChange: snapshot => changes.push(snapshot.status),
     });
