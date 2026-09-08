@@ -29,6 +29,11 @@ func TestRosterEditLookupAndValidationPrecedence(t *testing.T) {
 					if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageNameAndAddressRequired) {
 						t.Fatalf("response = %d %s", rr.Code, rr.Body.String())
 					}
+					valid := url.Values{"name": {"Person"}, "address": {"Address"}, "vehicle_capacity": {"4"}}
+					rr = postMobileForm(t, nil, "/m/people/"+kind+"s/999999/edit", valid, invoke)
+					if rr.Code != http.StatusNotFound || !strings.Contains(rr.Body.String(), mobilePersonNotFoundMessage(kind)) || !strings.Contains(rr.Header().Get("Content-Type"), "text/html") {
+						t.Fatalf("valid missing edit = %d %s", rr.Code, rr.Body.String())
+					}
 				} else {
 					for _, body := range []string{"{", `{"name":"","address":""}`} {
 						req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/"+kind+"s/999999", strings.NewReader(body))
@@ -39,7 +44,11 @@ func TestRosterEditLookupAndValidationPrecedence(t *testing.T) {
 						} else {
 							h.HandleUpdateParticipant(rr, req)
 						}
-						want := `{"error":{"code":"NOT_FOUND","message":"` + mobilePersonNotFoundMessage(kind) + `"}}` + "\n"
+						message := messageParticipantNotFound
+						if kind == "driver" {
+							message = messageDriverNotFound
+						}
+						want := `{"error":{"code":"NOT_FOUND","message":"` + message + `"}}` + "\n"
 						if rr.Code != http.StatusNotFound || rr.Body.String() != want {
 							t.Fatalf("response = %d %q, want 404 %q", rr.Code, rr.Body.String(), want)
 						}
