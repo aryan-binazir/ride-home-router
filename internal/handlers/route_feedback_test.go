@@ -94,7 +94,7 @@ func TestHandleMobileSaveCapturesSMERouteFeedback(t *testing.T) {
 	draftID := handler.PlanDraft.NewID()
 	handler.PlanDraft.Update(draftID, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 
-	form := url.Values{"event_date": {"2026-08-29"}, "notes": {"Mobile feedback"}}
+	form := url.Values{"session_id": {session.ID}, "event_date": {"2026-08-29"}, "notes": {"Mobile feedback"}}
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/m/routes/save", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set(routefeedback.AuthenticatedUserEmailHeader, "SME@Example.com")

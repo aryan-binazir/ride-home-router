@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -256,20 +258,53 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
 	}
 
-	var firstErr error
-	for originKey, destinations := range byOrigin {
-		destinations = uniqueCoordinates(destinations)
-		if _, err := c.GetDistancesFromPoint(ctx, originCoords[originKey], destinations); err != nil {
-			if !isGoogleRetryableFailure(err) {
-				return err
+	keys := make([]string, 0, len(byOrigin))
+	for key := range byOrigin {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	workCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	failures := make([]error, len(keys))
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	for range min(4, len(keys)) {
+		workers.Go(func() {
+			for index := range jobs {
+				if workCtx.Err() != nil {
+					return
+				}
+				key := keys[index]
+				_, err := c.GetDistancesFromPoint(workCtx, originCoords[key], uniqueCoordinates(byOrigin[key]))
+				failures[index] = err
+				if err != nil && !isGoogleRetryableFailure(err) {
+					cancel(err)
+					return
+				}
 			}
-			if firstErr == nil {
-				firstErr = err
-			}
+		})
+	}
+dispatch:
+	for index := range keys {
+		select {
+		case jobs <- index:
+		case <-workCtx.Done():
+			break dispatch
 		}
 	}
-
-	return firstErr
+	close(jobs)
+	workers.Wait()
+	if cause := context.Cause(workCtx); cause != nil {
+		return cause
+	}
+	// Keep the first transient failure in stable origin order while allowing
+	// independent successful origins to populate the cache for a retry.
+	for _, err := range failures {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func uniqueCoordinates(points []models.Coordinates) []models.Coordinates {

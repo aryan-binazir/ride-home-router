@@ -210,7 +210,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		log.Print("[ERROR] Failed to geocode participant address")
 		if h.isHTMX(r) {
-			h.renderError(w, r, geocodeErr.err)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
 			return
 		}
 		h.handleGeocodingError(w, geocodeErr.err)
@@ -234,28 +234,25 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after create: err=%v", err)
-			h.renderError(w, r, err)
+			h.setHTMXToastWithEvent(w, "participantCreated", "Participant saved. Refresh the page to see the updated roster.", toastTypeWarning)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h.setHTMXToastWithEvent(w, "participantCreated", messageEntityAdded("Participant", participant.Name), toastTypeSuccess)
 		view, err := h.participantListView(r, participants)
 		if err != nil {
-			h.renderError(w, r, err)
+			h.setHTMXToastWithEvent(w, "participantCreated", "Participant saved. Refresh the page to see the updated roster.", toastTypeWarning)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h.renderTemplate(w, "participant_list", view)
 		return
 	}
 
-	response, err := h.participantResponse(r.Context(), participant)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to load participant labels after create: id=%d err=%s", participant.ID, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
-		return
-	}
-
-	h.writeJSON(w, http.StatusCreated, response)
+	// Creation committed the validated label IDs atomically with the person.
+	// A response must not depend on another read that can fail after that commit.
+	uniqueLabelIDs, _ := uniquePositiveIDs(labelIDs)
+	h.writeJSON(w, http.StatusCreated, ParticipantResponse{Participant: *participant, LabelIDs: uniqueLabelIDs})
 }
 
 // HandleUpdateParticipant handles PUT /api/v1/participants/{id}
@@ -367,7 +364,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	})
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		if h.isHTMX(r) {
-			h.renderError(w, r, geocodeErr.err)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
 			return
 		}
 		h.handleGeocodingError(w, geocodeErr.err)

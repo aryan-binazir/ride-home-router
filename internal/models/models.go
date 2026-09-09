@@ -240,6 +240,9 @@ type Event struct {
 
 // EventRoute stores a saved route snapshot for a historical event.
 type EventRoute struct {
+	// Handoffs preserve exactly the instructions available when the event was saved.
+	DriverHandoff              string           `json:"driver_handoff,omitempty"`
+	ParentHandoff              string           `json:"parent_handoff,omitempty"`
 	ID                         int64            `json:"id"`
 	EventID                    int64            `json:"event_id"`
 	RouteOrder                 int              `json:"route_order"`

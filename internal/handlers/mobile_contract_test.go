@@ -241,7 +241,7 @@ func TestMobileMoveRejectsSameAndMalformedDestinationWithoutMutation(t *testing.
 	cookie := mobileTestCookie(id)
 
 	for _, destination := range []string{"0", "bad"} {
-		response := postMobileForm(t, cookie, "/m/routes/move", url.Values{"participant_id": {"2"}, "from_route_index": {"0"}, "to_route_index": {destination}}, handler.HandleMobileMove)
+		response := postMobileForm(t, cookie, "/m/routes/move", url.Values{"session_id": {session.ID}, "participant_id": {"2"}, "from_route_index": {"0"}, "to_route_index": {destination}}, handler.HandleMobileMove)
 		if response.Code != http.StatusSeeOther || !strings.HasPrefix(response.Header().Get("Location"), "/m/routes?error=") {
 			t.Fatalf("destination %q response = %d %q", destination, response.Code, response.Header().Get("Location"))
 		}

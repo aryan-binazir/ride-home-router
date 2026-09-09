@@ -128,8 +128,8 @@ func TestMobileMapsURLRejectsUnresolvedLocations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := mobileMapsURL(tt.snapshot, tt.route); got != "" {
-				t.Fatalf("mobileMapsURL() = %q, want blank URL", got)
+			if got := mobileMapsURLs(tt.snapshot, tt.route); len(got) != 0 {
+				t.Fatalf("mobileMapsURLs() = %q, want blank URL", got)
 			}
 		})
 	}
@@ -149,8 +149,8 @@ func TestMobileMapsURLFormatsCoordinatesToSixDecimalPlaces(t *testing.T) {
 		}},
 	}
 
-	got := mobileMapsURL(snapshot, route)
-	parsed, err := url.Parse(got)
+	got := mobileMapsURLs(snapshot, route)
+	parsed, err := url.Parse(got[0])
 	if err != nil {
 		t.Fatalf("parse Maps URL: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestMobileMapsURLFormatsCoordinatesToSixDecimalPlaces(t *testing.T) {
 	if got, want := query.Get("waypoints"), "40.512346,-74.512346"; got != want {
 		t.Errorf("waypoints = %q, want %q", got, want)
 	}
-	if strings.Contains(got, "40.61234567") || strings.Contains(got, "40.51234567") {
+	if strings.Contains(got[0], "40.61234567") || strings.Contains(got[0], "40.51234567") {
 		t.Errorf("Maps URL retained coordinates beyond six decimal places: %s", got)
 	}
 }

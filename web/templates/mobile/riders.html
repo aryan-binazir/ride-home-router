@@ -1,5 +1,5 @@
 {{define "mobile_content"}}
-<form id="mobile-rider-picker" class="mobile-screen" action="/m/plan/riders" method="post">
+<form id="mobile-rider-picker" class="mobile-screen" action="/m/plan/riders" method="post" hx-sync="this:replace">
   {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Riders")}}
   <div class="mobile-search">
     <svg viewBox="0 0 24 24" aria-hidden="true">

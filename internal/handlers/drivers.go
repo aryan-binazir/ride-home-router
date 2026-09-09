@@ -226,7 +226,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		log.Print("[ERROR] Failed to geocode driver address")
 		if h.isHTMX(r) {
-			h.renderError(w, r, geocodeErr.err)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
 			return
 		}
 		h.handleGeocodingError(w, geocodeErr.err)
@@ -250,28 +250,25 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
 			log.Printf("[ERROR] Failed to list drivers after create: err=%v", err)
-			h.renderError(w, r, err)
+			h.setHTMXToastWithEvent(w, "driverCreated", "Driver saved. Refresh the page to see the updated roster.", toastTypeWarning)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h.setHTMXToastWithEvent(w, "driverCreated", messageEntityAdded("Driver", driver.Name), toastTypeSuccess)
 		view, err := h.driverListView(r, drivers)
 		if err != nil {
-			h.renderError(w, r, err)
+			h.setHTMXToastWithEvent(w, "driverCreated", "Driver saved. Refresh the page to see the updated roster.", toastTypeWarning)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h.renderTemplate(w, "driver_list", view)
 		return
 	}
 
-	response, err := h.driverResponse(r.Context(), driver)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to load driver labels after create: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
-		return
-	}
-
-	h.writeJSON(w, http.StatusCreated, response)
+	// Creation committed the validated label IDs atomically with the person.
+	// A response must not depend on another read that can fail after that commit.
+	uniqueLabelIDs, _ := uniquePositiveIDs(labelIDs)
+	h.writeJSON(w, http.StatusCreated, DriverResponse{Driver: *driver, LabelIDs: uniqueLabelIDs})
 }
 
 // HandleUpdateDriver handles PUT /api/v1/drivers/{id}
@@ -400,7 +397,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	})
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		if h.isHTMX(r) {
-			h.renderError(w, r, geocodeErr.err)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
 			return
 		}
 		h.handleGeocodingError(w, geocodeErr.err)
