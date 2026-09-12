@@ -110,6 +110,12 @@ function handleTableSwap(event) {
 
 if (typeof document !== 'undefined') {
   const failedImportSelections = new Set();
+  document.addEventListener('change', event => {
+    if (!event.target.matches?.('#import-selection-form input[name="selected"]')) return;
+    // A new checkbox edit explicitly authorizes a write, including one queued
+    // behind a poll that replaces this form. Synthetic form retries do not.
+    failedImportSelections.delete(event.target.form.getAttribute('hx-put'));
+  }, true);
   document.addEventListener('htmx:afterSettle', handleTableSwap, true);
   document.addEventListener('htmx:afterSettle', () => {
     const form = document.querySelector('#import-selection-form[data-persist-selection]');

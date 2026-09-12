@@ -87,6 +87,10 @@
                 delete button.dataset.submitLabel;
             });
             form.querySelectorAll('[data-submit-value]').forEach(input => input.remove());
+            form.querySelectorAll('select[data-submit-disabled]').forEach(select => {
+                select.disabled = select.dataset.submitDisabled === 'true';
+                delete select.dataset.submitDisabled;
+            });
         }
         submitting.clear();
     });
@@ -100,7 +104,10 @@
             const select = row.querySelector('select');
             const option = defaults ? Array.from(select?.options || []).find(option => option.defaultSelected) || select?.options[0] : select?.selectedOptions[0];
             const van = option?.value;
-            if (van && vans.has(van)) return;
+            if (van && vans.has(van)) {
+                total += Number(checkbox.dataset.capacity || 0);
+                return;
+            }
             if (van) vans.add(van);
             total += Number(option?.dataset.capacity || checkbox.dataset.capacity || 0);
         });
@@ -223,6 +230,7 @@
         );
         for (const select of form.querySelectorAll('select[name^="org_vehicle_"]')) {
             const driverID = select.name.slice('org_vehicle_'.length);
+            select.dataset.submitDisabled = String(select.disabled);
             select.disabled = !selected.has(driverID) || !select.value;
         }
     });

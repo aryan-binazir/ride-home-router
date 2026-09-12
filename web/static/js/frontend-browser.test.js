@@ -111,7 +111,7 @@ test('mobile counts a shared van once and accounts for restored checkbox state',
     const result = run(`<span id="mobile-selected-seats" data-seats="4">4 seats selected</span><form id="mobile-driver-picker">${[1,2].map(id=>`<div class="mobile-driver-choice"><input type="checkbox" name="driver_ids" data-capacity="4" ${id===1?'checked':''}><select><option value="" data-capacity="4">Personal</option><option value="9" data-capacity="8">Van</option></select></div>`).join('')}</form><script>document.querySelectorAll('input')[1].checked=true;</script>`, ['mobile.js'], `
 const restored=document.getElementById('mobile-selected-seats').textContent;for(const select of document.querySelectorAll('select')){select.value='9';select.dispatchEvent(new Event('change',{bubbles:true}));}document.getElementById('evidence').textContent=JSON.stringify({restored,total:document.getElementById('mobile-selected-seats').textContent,errors});`);
     assert.equal(result.restored,'8 seats selected');
-    assert.equal(result.total,'8 seats selected');
+    assert.equal(result.total,'12 seats selected');
 });
 
 test('failed auth renewal clears a pending mobile reset confirmation', {skip: !browser}, () => {
@@ -139,4 +139,34 @@ for(let i=0;i<2;i++){const detail={target,shouldSwap:true,serverResponse:'<form 
 document.getElementById('evidence').textContent=JSON.stringify({writes,checked:document.querySelector('input').checked,errors});`);
     assert.equal(result.writes,0);
     assert.equal(result.checked,false);
+});
+
+
+test('mobile driver picker restores van controls on pageshow', {skip: !browser}, () => {
+    const result = run('<main class="mobile-shell"><form id="mobile-driver-picker" method="post"><div class="mobile-driver-choice"><input type="checkbox" name="driver_ids" value="1"><select name="org_vehicle_1"><option value="">Personal</option><option value="9">Van</option></select></div><button type="submit">Done</button></form></main>', ['mobile.js'], `
+window.addEventListener('submit',event=>event.preventDefault());const form=document.querySelector('form');form.requestSubmit();const during=document.querySelector('select').disabled;
+window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));document.querySelector('input').click();document.getElementById('evidence').textContent=JSON.stringify({during,restored:!document.querySelector('select').disabled,errors});`);
+    assert.equal(result.during,true);
+    assert.equal(result.restored,true);
+});
+
+test('a new import checkbox edit permits persistence after an earlier failed write', {skip: !browser}, () => {
+    const result = run('<div id="import-steps"><form id="import-selection-form" hx-put="/selection"><input name="selected" type="checkbox" value="1"></form></div>', ['ui.js'], `
+let writes=0;window.htmx={trigger(){writes++;}};const target=document.getElementById('import-steps');
+document.dispatchEvent(new CustomEvent('htmx:afterRequest',{detail:{elt:document.querySelector('form'),successful:false}}));
+document.querySelector('input').click();
+const detail={target,shouldSwap:true,serverResponse:'<form id="import-selection-form" hx-put="/selection"><input name="selected" type="checkbox" value="1"></form>'};document.dispatchEvent(new CustomEvent('htmx:beforeSwap',{detail}));target.innerHTML=detail.serverResponse;document.dispatchEvent(new CustomEvent('htmx:afterSettle'));
+document.getElementById('evidence').textContent=JSON.stringify({writes,checked:document.querySelector('input').checked,errors});`);
+    assert.equal(result.writes,1);
+    assert.equal(result.checked,true);
+});
+
+test('mobile filter swap retains a driver selected while the response was in flight', {skip: !browser}, () => {
+    const row='<div class="mobile-driver-choice"><input name="driver_ids" type="checkbox" value="1" data-capacity="4"></div>';
+    const result = run('<span id="mobile-selected-seats" data-seats="0"></span><form id="mobile-driver-picker"><div id="mobile-driver-results">'+row+'</div></form>', ['mobile.js'], `
+document.querySelector('input').click();const target=document.getElementById('mobile-driver-results');const detail={target,shouldSwap:true,serverResponse:${JSON.stringify('<div id="mobile-driver-results">'+row+'</div>')}};
+document.dispatchEvent(new CustomEvent('htmx:beforeSwap',{detail}));target.outerHTML=detail.serverResponse;document.dispatchEvent(new CustomEvent('htmx:afterSwap'));
+document.getElementById('evidence').textContent=JSON.stringify({checked:document.querySelector('input').checked,seats:document.getElementById('mobile-selected-seats').textContent,errors});`);
+    assert.equal(result.checked,true);
+    assert.equal(result.seats,'4 seats selected');
 });

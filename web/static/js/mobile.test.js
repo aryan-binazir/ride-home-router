@@ -153,7 +153,7 @@ test('route mode updates the time copy in both directions', () => {
 
 test('deselecting a driver clears and omits its van assignment on Done', () => {
     const handlers = {};
-    const select = { name: 'org_vehicle_7', value: '99', disabled: false };
+    const select = { name: 'org_vehicle_7', value: '99', disabled: false, dataset: {} };
     const choice = { querySelector: () => select };
     const checkbox = {
         name: 'driver_ids',
