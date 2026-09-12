@@ -329,10 +329,14 @@ func routeCalculationValidationMessage(err error) string {
 		return messageStaleDrivers
 	case errors.Is(err, errSelectedVanNotFound):
 		return errSelectedVanNotFound.Error()
+	case errors.Is(err, distance.ErrTooManyDistancePairs):
+		return messageTooManyForOneCalculation
 	case errors.Is(err, distance.ErrProviderNotConfigured):
 		return messageRouteCalculationNotConfigured
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return messageCalculationTimedOut
+	case distance.IsTemporary(err):
+		return messageRouteCalculationUnavailable
 	default:
 		if _, ok := errors.AsType[*routing.ErrRoutingFailed](err); ok {
 			return messageHouseholdsDoNotFit
@@ -352,6 +356,9 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		message = messageCalculationTimedOut
 		code = "CALCULATION_TIMED_OUT"
+	} else if errors.Is(err, distance.ErrTooManyDistancePairs) {
+		status = http.StatusBadRequest
+		code = "TOO_MANY_DISTANCE_PAIRS"
 	} else if errors.Is(err, distance.ErrProviderNotConfigured) {
 		message = messageRouteCalculationNotConfigured
 		status = http.StatusServiceUnavailable

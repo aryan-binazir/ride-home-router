@@ -39,6 +39,7 @@ const (
 	messageRoutePlanExpired                              = "That route plan expired. Calculate it again."
 	messageRoutesMustBeBalancedBeforeSaving              = "Give every rider a seat before saving."
 	messageMovesRequired                                 = "Choose a rider to move."
+	messageTooManyForOneCalculation                      = "Too many riders and drivers selected for one calculation. Select fewer and try again."
 	messageTooManyMoves                                  = "Move fewer riders at a time."
 	messageSessionNotFound                               = "That route plan expired. Calculate it again."
 	messageSelectedActivityLocationNotFound              = "The selected location is no longer available. Choose another location."

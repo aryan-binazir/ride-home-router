@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,15 +52,24 @@ func TestMobileDraftCookieSecureUnlessPlaintextLoopback(t *testing.T) {
 		host           string
 		forwardedProto string
 		wantSecure     bool
+		tls            bool
 	}{
 		{name: "TLS terminating proxy", host: "routes.example.com", forwardedProto: "https", wantSecure: true},
 		{name: "public host defaults secure", host: "routes.example.com", wantSecure: true},
+		{name: "TLS loopback", host: "localhost:8080", tls: true, wantSecure: true},
+		{name: "proxy loopback", host: "localhost:8080", forwardedProto: " HTTPS , http", wantSecure: true},
+		{name: "plaintext localhost", host: "LOCALHOST:8080", wantSecure: false},
+		{name: "plaintext IPv6 loopback", host: "[::1]:8080", wantSecure: false},
+		{name: "first proxy protocol wins", host: "127.0.0.1:8080", forwardedProto: "http, https", wantSecure: false},
 		{name: "plaintext loopback", host: "127.0.0.1:8080", wantSecure: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+test.host+"/m", nil)
 			request.Host = test.host
+			if test.tls {
+				request.TLS = &tls.ConnectionState{}
+			}
 			request.Header.Set("X-Forwarded-Proto", test.forwardedProto)
 			response := httptest.NewRecorder()
 			(&Handler{}).setMobileDraftCookie(response, request, "0123456789abcdef0123456789abcdef")
