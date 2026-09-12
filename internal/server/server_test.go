@@ -104,7 +104,7 @@ func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	if _, err := server.handler.ImportSession.Create(importer.KindParticipant, "closed.csv", grid); !errors.Is(err, importer.ErrStoreClosed) {
+	if _, err := server.handler.ImportSession.CreateContext(context.Background(), importer.KindParticipant, "closed.csv", grid); !errors.Is(err, importer.ErrStoreClosed) {
 		t.Fatalf("Create() after Shutdown error = %v, want ErrStoreClosed", err)
 	}
 }

@@ -11,9 +11,9 @@ Self-hosted pickup and dropoff route planning for events.
 
 The browser is the client. A Go server provides the UI and API. Postgres stores rosters, settings, cached distances, and saved events. There is no Wails app or offline client.
 
-The server sends address searches to Nominatim and coordinates to Google Routes. Settings are shared per deployment. Active route edits, mobile plan drafts, and spreadsheet imports stay in memory and are lost on restart.
+The server sends address searches to Nominatim and coordinates to Google Routes. Settings are shared per deployment. Postgres also stores active route edits, mobile plan drafts, and spreadsheet imports. Any application instance can continue them after a restart; no sticky sessions or application volume are needed. The browser retains desktop selections and UI preferences.
 
-There are no user accounts. Run the server behind an authenticating proxy such as Cloudflare Access. Do not expose it directly to the internet.
+There are no user accounts yet. Keep the deployment private until application authentication is added. Host checks are not access control.
 
 ## Run locally
 
@@ -49,7 +49,21 @@ Set `DATABASE_URL` and `ALLOWED_HOSTS`. Add `GOOGLE_MAPS_API_KEY` for routing. T
 
 Configure the platform's pre-deploy command as exactly `migrate` before deploying a revision that depends on a new schema. A non-zero migration exit must stop the deployment before the new server revision starts. The direct `ride-home-router` binary does not apply migrations or gate startup on them; against an unprepared schema it can start successfully but remains unready and returns database errors from application requests.
 
-Keep the app and Postgres private. Use Cloudflare Tunnel with Access configured, or another authenticating proxy. Back up Postgres with your provider's tools.
+Keep the app and Postgres private. Back up Postgres with your provider's tools. Authentication and membership management are separate follow-up work.
+
+### Railway
+
+The checked-in `railway.toml` uses the Dockerfile, runs `migrate` before deployment, gates activation on `/api/v1/ready`, and allows 30 seconds for draining. Set `DATABASE_URL` to the shared Postgres service and `ALLOWED_HOSTS` to the application hostname plus `healthcheck.railway.app`. Railway supplies `PORT`. Keep the image's default start command and do not attach an application volume. See [Railway configuration](https://docs.railway.com/config-as-code/reference) and [healthchecks](https://docs.railway.com/deployments/healthchecks).
+
+Replicas must run compatible application/schema versions against the same database. Readiness deliberately requires the exact migration version: after a pre-deploy migration, older images report unready. Railway checks readiness before activating the replacement, not continuously. Other load balancers must account for this transition. This first transition cannot recover drafts still held by an older, in-memory server; save those as events before upgrading.
+
+### Concurrent planning
+
+Each mobile browser cookie and desktop route-session ID identifies a separate plan. Shared roster records, settings, and saved history remain shared. Route edits use optimistic concurrency: if another request saves the same route session during calculation, the stale request receives `409 SESSION_CONFLICT` and must reload. Event saves and import commits consume their session in the same transaction as the data write, so retries cannot insert a second result. This does not add account ownership or collaborative editing of shared roster forms.
+
+Idle mobile drafts expire after eight hours, route sessions after two hours, and imports after thirty minutes. Restarts preserve work within those limits. A bounded cleanup sweep removes expired records. The deployment permits 256 live mobile drafts, 256 live route sessions, and four live import sessions; a full store rejects new work instead of evicting another person's unfinished plan. Completed session markers survive until expiry to reject duplicate saves.
+
+Import rows and address jobs are separate database records. Workers claim one address for up to one minute and geocode outside transactions. Shutdown releases a claim; after an abrupt failure, another instance retries it when the lease expires. Imports continue without an open browser tab while at least one instance is running. All instances share Nominatim's one-request-per-second budget, including autocomplete and retries; concurrent address work may wait. Google Routes distance caching remains in Postgres.
 
 ## Database migrations
 

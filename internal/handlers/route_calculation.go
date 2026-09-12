@@ -138,12 +138,15 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 
 	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicles)
 	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
-	session := c.sessions.Create(routesession.CreateInput{
+	session, err := c.sessions.CreateContext(ctx, routesession.CreateInput{
 		Routes: result.Routes, SelectedDrivers: modifiedDrivers, ActivityLocation: activityLocation,
 		UseMiles: settings.UseMiles, RouteTime: input.RouteTime, Mode: input.Mode, DriverOrgVehicles: driverOrgVehicles,
 	})
+	if err != nil {
+		return routeCalculationOutcome{Kind: routeCalculationInternalFailure, Err: err}
+	}
 	if err := ctx.Err(); err != nil {
-		c.sessions.Delete(session.ID)
+		_ = c.sessions.DeleteContext(ctx, session.ID)
 		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
 	}
 

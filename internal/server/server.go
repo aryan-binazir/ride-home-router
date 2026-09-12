@@ -29,14 +29,16 @@ import (
 
 // Server owns the HTTP server and its dependencies.
 type Server struct {
-	httpServer   *http.Server
-	handler      *handlers.Handler
-	db           database.DataStore
-	listener     net.Listener
-	serveErrors  chan error
-	serveDone    chan struct{}
-	addr         string
-	allowedHosts []string
+	cleanupCancel context.CancelFunc
+	cleanupDone   chan struct{}
+	httpServer    *http.Server
+	handler       *handlers.Handler
+	db            database.DataStore
+	listener      net.Listener
+	serveErrors   chan error
+	serveDone     chan struct{}
+	addr          string
+	allowedHosts  []string
 }
 
 // Config defines server startup settings.
@@ -80,14 +82,14 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
-	geocoder := geocoding.NewNominatimGeocoder()
+	geocoder := geocoding.NewNominatimGeocoderWithGate(db.NominatimGate())
 	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), func() (string, error) {
 		return cfg.GoogleMapsAPIKey, nil
 	})
 	router := routing.NewBalancedRouter(distanceCalc)
-	routeSession := routesession.NewStore(distanceCalc)
-	importSession := importer.NewStore(geocoder, db)
-	planDraft := plandraft.NewStore()
+	routeSession := routesession.NewPersistentStore(distanceCalc, db.Workflows())
+	importSession := importer.NewPersistentStore(ctx, geocoder, db, db.Workflows(), db.ImportJobs())
+	planDraft := plandraft.NewPersistentStore(db.Workflows())
 
 	handler := &handlers.Handler{
 		DB:            db,
@@ -109,7 +111,28 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		IdleTimeout:  serverIdleTimeout,
 	}
 
+	cleanupCtx, cleanupCancel := context.WithCancel(context.WithoutCancel(ctx))
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				return
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(cleanupCtx, 5*time.Second)
+				err := db.CleanupWorkflows(ctx)
+				cancel()
+				if err != nil && cleanupCtx.Err() == nil {
+					log.Printf("[WORKFLOW] Cleanup failed: %v", err)
+				}
+			}
+		}
+	}()
 	return &Server{
+		cleanupCancel: cleanupCancel, cleanupDone: cleanupDone,
 		httpServer:   httpServer,
 		handler:      handler,
 		db:           db,
@@ -158,6 +181,10 @@ func (s *Server) Errors() <-chan error {
 
 // Shutdown stops sessions, HTTP serving, and database access.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cleanupCancel != nil {
+		s.cleanupCancel()
+		<-s.cleanupDone
+	}
 	if s.handler != nil && s.handler.RouteSession != nil {
 		s.handler.RouteSession.Close()
 	}

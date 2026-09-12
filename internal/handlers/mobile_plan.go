@@ -12,7 +12,11 @@ import (
 
 func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, notice := h.mobileDraft(w, r)
+	id, draft, notice, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	draft, selectedDrivers, notice, err := h.pruneMobileDraftWithDrivers(r.Context(), id, draft, notice)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Plan not found")
@@ -30,9 +34,13 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 		view.Location, err = h.DB.ActivityLocations().GetByID(r.Context(), draft.LocationID)
 		if h.checkNotFound(err) {
 			view.Location = nil
-			draft = h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
+			draft, err = h.mobilePlan().EditInputsContext(r.Context(), id, func(d *mobilePlanInputs) {
 				d.LocationID = 0
 			})
+			if err != nil {
+				h.renderMobileStoreError(w, r, err, "Plan not found")
+				return
+			}
 			view.Draft = draft
 			view.Notice = mergeMobileNotice(view.Notice, "An unavailable place was removed from this plan.")
 		} else if err != nil {
@@ -74,7 +82,11 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, notice := h.mobileDraft(w, r)
+	id, draft, notice, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	if r.Method == http.MethodPost && notice != "" {
 		h.mobileRedirectError(w, r, "/m", notice)
 		return
@@ -97,9 +109,13 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 			h.renderMobileStoreError(w, r, err, "Location not found")
 			return
 		}
-		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
+		_, editErr := h.mobilePlan().EditInputsContext(r.Context(), id, func(d *mobilePlanInputs) {
 			d.LocationID = locationID
 		})
+		if editErr != nil {
+			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			return
+		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
@@ -113,7 +129,11 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, notice := h.mobileDraft(w, r)
+	id, draft, notice, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	if r.Method == http.MethodPost && notice != "" {
 		h.mobileRedirectError(w, r, "/m", notice)
 		return
@@ -141,9 +161,13 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 			h.mobileRedirectError(w, r, "/m/plan/riders", mobileSelectionLimitMessage())
 			return
 		}
-		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
+		_, editErr := h.mobilePlan().EditInputsContext(r.Context(), id, func(d *mobilePlanInputs) {
 			d.ParticipantIDs = participantIDs
 		})
+		if editErr != nil {
+			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			return
+		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
@@ -201,7 +225,11 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, notice := h.mobileDraft(w, r)
+	id, draft, notice, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	if r.Method == http.MethodPost && notice != "" {
 		h.mobileRedirectError(w, r, "/m", notice)
 		return
@@ -229,10 +257,14 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, driverIDs)
-		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
+		_, editErr := h.mobilePlan().EditInputsContext(r.Context(), id, func(d *mobilePlanInputs) {
 			d.DriverIDs = driverIDs
 			d.DriverVehicleIDs = assignments
 		})
+		if editErr != nil {
+			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			return
+		}
 		if err != nil {
 			h.mobileRedirectError(w, r, "/m/plan/drivers", mobileVanAssignmentMessage(err))
 			return
@@ -316,7 +348,11 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, notice := h.mobileDraft(w, r)
+	id, draft, notice, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	if r.Method == http.MethodPost && notice != "" {
 		h.mobileRedirectError(w, r, "/m", notice)
 		return
@@ -336,10 +372,14 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 			h.mobileRedirectError(w, r, "/m/plan/when", messageInvalidRouteMode)
 			return
 		}
-		h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
+		_, editErr := h.mobilePlan().EditInputsContext(r.Context(), id, func(d *mobilePlanInputs) {
 			d.RouteTime = routeTime
 			d.Mode = string(mode)
 		})
+		if editErr != nil {
+			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			return
+		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
@@ -348,7 +388,11 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, draft, notice := h.mobileDraft(w, r)
+	id, draft, notice, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	if len(draft.ParticipantIDs) > plandraft.MaxSelectionSize || len(draft.DriverIDs) > plandraft.MaxSelectionSize {
 		h.mobileRedirectError(w, r, "/m", mobileSelectionLimitMessage())
 		return
@@ -401,7 +445,12 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", message)
 		return
 	}
-	switch h.mobilePlan().AdoptCalculation(id, draft, outcome.Session.ID) {
+	adoption, err := h.mobilePlan().AdoptCalculationContext(r.Context(), id, draft, outcome.Session.ID)
+	if err != nil {
+		h.renderMobileStoreError(w, r, err, "Plan not found")
+		return
+	}
+	switch adoption {
 	case mobilePlanAdopted, mobilePlanSupersededLive:
 		http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 	case mobilePlanExpired:
@@ -437,7 +486,7 @@ func (h *Handler) pruneMobileDraftWithDrivers(ctx context.Context, id string, dr
 	if !changed {
 		return draft, drivers, notice, nil
 	}
-	draft = h.mobilePlan().EditInputs(id, func(d *mobilePlanInputs) {
+	draft, err = h.mobilePlan().EditInputsContext(ctx, id, func(d *mobilePlanInputs) {
 		d.ParticipantIDs = participantIDs
 		d.DriverIDs = driverIDs
 		for driverID := range d.DriverVehicleIDs {
@@ -446,6 +495,9 @@ func (h *Handler) pruneMobileDraftWithDrivers(ctx context.Context, id string, dr
 			}
 		}
 	})
+	if err != nil {
+		return draft, nil, notice, err
+	}
 	return draft, drivers, mergeMobileNotice(notice, "Some unavailable people were removed from this plan."), nil
 }
 

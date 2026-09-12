@@ -1,0 +1,9 @@
+[build]
+dockerfilePath = "Dockerfile"
+
+[deploy]
+preDeployCommand = ["migrate"]
+healthcheckPath = "/api/v1/ready"
+healthcheckTimeout = 120
+drainingSeconds = 30
+restartPolicyType = "ON_FAILURE"

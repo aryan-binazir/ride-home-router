@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
@@ -107,6 +108,7 @@ type session struct {
 }
 
 type Store struct {
+	records         database.WorkflowRepository
 	distanceCalc    distance.Lookup
 	sessions        map[string]*session
 	committed       map[string]time.Time
@@ -187,6 +189,9 @@ func (s *Store) Snapshot(id string) (Snapshot, bool) {
 }
 
 func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options ApplyMovesOptions) (Snapshot, error) {
+	if s.records != nil {
+		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.ApplyMoves(ctx, id, moves, options) })
+	}
 	state, err := s.lockSession(id)
 	if err != nil {
 		return Snapshot{}, err
@@ -222,6 +227,9 @@ func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options
 }
 
 func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (Snapshot, error) {
+	if s.records != nil {
+		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.SwapDrivers(ctx, id, first, second) })
+	}
 	state, err := s.lockSession(id)
 	if err != nil {
 		return Snapshot{}, err
@@ -280,6 +288,9 @@ func (s *Store) Reset(id string) (Snapshot, error) {
 }
 
 func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snapshot, error) {
+	if s.records != nil {
+		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.AddDriver(ctx, id, driverID) })
+	}
 	state, err := s.lockSession(id)
 	if err != nil {
 		return Snapshot{}, err
@@ -394,7 +405,11 @@ func (s *Store) Delete(id string) {
 	}
 }
 
-func (s *Store) Close() { s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone }) }
+func (s *Store) Close() {
+	if s.records == nil {
+		s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone })
+	}
+}
 
 func (s *Store) lockSession(id string) (*session, error) {
 	s.mu.Lock()

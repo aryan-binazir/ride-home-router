@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
 	"strings"
@@ -181,7 +182,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rowCount = grid.Len()
-	snapshot, err := h.ImportSession.Create(kind, header.Filename, grid)
+	snapshot, err := h.ImportSession.CreateContext(r.Context(), kind, header.Filename, grid)
 	if err != nil {
 		status = h.writeImportStoreError(w, r, "", err)
 		return
@@ -231,11 +232,11 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 		case r.Method == http.MethodGet && panel:
 			status, rowCount = h.renderImportPanelSnapshot(w, r, id)
 		case r.Method == http.MethodGet:
-			status, rowCount = h.getImportSession(w, id)
+			status, rowCount = h.getImportSession(w, r, id)
 		case r.Method == http.MethodDelete && panel:
-			status = h.cancelImportPanel(w, id)
+			status = h.cancelImportPanel(w, r, id)
 		case r.Method == http.MethodDelete:
-			status = h.cancelImportSession(w, id)
+			status = h.cancelImportSession(w, r, id)
 		default:
 			status = writeImportMethodNotAllowed(h, w)
 		}
@@ -275,8 +276,11 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) getImportSession(w http.ResponseWriter, id string) (int, int) {
-	snapshot, ok := h.ImportSession.Snapshot(id)
+func (h *Handler) getImportSession(w http.ResponseWriter, r *http.Request, id string) (int, int) {
+	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	if loadErr != nil {
+		return h.writeImportStoreError(w, r, id, loadErr), -1
+	}
 	if !ok {
 		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 		return http.StatusNotFound, -1
@@ -286,7 +290,10 @@ func (h *Handler) getImportSession(w http.ResponseWriter, id string) (int, int) 
 }
 
 func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id string) (int, int) {
-	snapshot, ok := h.ImportSession.Snapshot(id)
+	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	if loadErr != nil {
+		return h.writeImportStoreError(w, r, id, loadErr), -1
+	}
 	if !ok {
 		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 		return http.StatusNotFound, -1
@@ -309,7 +316,7 @@ func (h *Handler) updateImportSelection(w http.ResponseWriter, r *http.Request, 
 	if err := decodeImportJSON(r, &selected); err != nil {
 		return h.writeImportJSONBodyError(w, r, id, err), -1
 	}
-	snapshot, err := h.ImportSession.SelectRows(id, selected)
+	snapshot, err := h.ImportSession.SelectRowsContext(r.Context(), id, selected)
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), -1
 	}
@@ -337,8 +344,12 @@ func (h *Handler) writeImportJSONBodyError(w http.ResponseWriter, r *http.Reques
 	return http.StatusBadRequest
 }
 
-func (h *Handler) cancelImportSession(w http.ResponseWriter, id string) int {
-	if !h.ImportSession.Cancel(id) {
+func (h *Handler) cancelImportSession(w http.ResponseWriter, r *http.Request, id string) int {
+	canceled, err := h.ImportSession.CancelContext(r.Context(), id)
+	if err != nil {
+		return h.writeImportStoreError(w, r, id, err)
+	}
+	if !canceled {
 		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 		return http.StatusNotFound
 	}
@@ -348,11 +359,11 @@ func (h *Handler) cancelImportSession(w http.ResponseWriter, id string) int {
 
 func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, sessionID string, err error) int {
 	switch {
-	case errors.Is(err, importer.ErrSessionNotFound):
+	case errors.Is(err, database.ErrNotFound), errors.Is(err, importer.ErrSessionNotFound):
 		return h.writeImportError(w, r, sessionID, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 	case errors.Is(err, importer.ErrCommitConsumed):
 		return h.writeImportError(w, r, sessionID, http.StatusConflict, "COMMIT_CONSUMED", err.Error(), nil)
-	case errors.Is(err, importer.ErrInvalidSessionState):
+	case errors.Is(err, database.ErrWorkflowConflict), errors.Is(err, importer.ErrInvalidSessionState):
 		return h.writeImportError(w, r, sessionID, http.StatusConflict, "INVALID_SESSION_STATE", err.Error(), nil)
 	case errors.Is(err, importer.ErrGeocodingInProgress):
 		return h.writeImportError(w, r, sessionID, http.StatusConflict, "GEOCODING_IN_PROGRESS", err.Error(), nil)
@@ -360,7 +371,7 @@ func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, 
 		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "INVALID_SELECTION", err.Error(), nil)
 	case errors.Is(err, importer.ErrTooManyGeocodeAddresses):
 		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "GEOCODE_LIMIT_EXCEEDED", fmt.Sprintf("Import needs more than the limit of %d unique addresses requiring geocoding", importer.MaxGeocodeAddresses), nil)
-	case errors.Is(err, importer.ErrStoreFull):
+	case errors.Is(err, database.ErrWorkflowCapacity), errors.Is(err, importer.ErrStoreFull):
 		return h.writeImportError(w, r, sessionID, http.StatusTooManyRequests, "IMPORT_STORE_FULL", fmt.Sprintf("At most %d import sessions can be active", importer.MaxConcurrentSessions), nil)
 	case errors.Is(err, importer.ErrStoreClosed):
 		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Import sessions are unavailable", nil)

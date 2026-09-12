@@ -338,7 +338,10 @@ func (h *Handler) renderImportMessage(w http.ResponseWriter, sessionID, message 
 }
 
 func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Request, id string) (int, int) {
-	snapshot, ok := h.ImportSession.Snapshot(id)
+	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	if loadErr != nil {
+		return h.writeImportStoreError(w, r, id, loadErr), -1
+	}
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil), -1
 	}
@@ -347,7 +350,10 @@ func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request, id string) (int, int) {
-	snapshot, ok := h.ImportSession.Snapshot(id)
+	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	if loadErr != nil {
+		return h.writeImportStoreError(w, r, id, loadErr), -1
+	}
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil), -1
 	}
@@ -368,14 +374,17 @@ func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Request, id string) (int, int) {
-	snapshot, ok := h.ImportSession.Snapshot(id)
+	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	if loadErr != nil {
+		return h.writeImportStoreError(w, r, id, loadErr), -1
+	}
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil), -1
 	}
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil), -1
 	}
-	updated, err := h.ImportSession.SelectRows(id, importSelectionFromForm(r, len(snapshot.Rows)))
+	updated, err := h.ImportSession.SelectRowsContext(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), -1
 	}
@@ -384,7 +393,10 @@ func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id string) int {
-	snapshot, ok := h.ImportSession.Snapshot(id)
+	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	if loadErr != nil {
+		return h.writeImportStoreError(w, r, id, loadErr)
+	}
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 	}
@@ -399,8 +411,10 @@ func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id s
 	return http.StatusOK
 }
 
-func (h *Handler) cancelImportPanel(w http.ResponseWriter, id string) int {
-	h.ImportSession.Cancel(id)
+func (h *Handler) cancelImportPanel(w http.ResponseWriter, r *http.Request, id string) int {
+	if _, err := h.ImportSession.CancelContext(r.Context(), id); err != nil {
+		return h.writeImportStoreError(w, r, id, err)
+	}
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 	w.WriteHeader(http.StatusOK)
 	return http.StatusOK

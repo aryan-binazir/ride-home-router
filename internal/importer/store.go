@@ -104,6 +104,10 @@ func (s *session) afterCancel(f func()) func() bool {
 
 // Store owns short-lived import staging sessions and their background jobs.
 type Store struct {
+	records         database.WorkflowRepository
+	durableJobs     database.ImportJobRepository
+	workerCancel    context.CancelFunc
+	workerDone      chan struct{}
 	geocoder        geocoding.Geocoder
 	db              database.DataStore
 	sessions        map[string]*session
@@ -193,6 +197,9 @@ func (s *Store) Snapshot(id string) (Snapshot, bool) {
 
 // ApplyMapping validates the staged grid and starts its serial geocoding job.
 func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (Snapshot, error) {
+	if s.records != nil {
+		return s.applyMappingPersistent(ctx, id, mapping)
+	}
 	state, err := s.lockSession(id)
 	if err != nil {
 		return Snapshot{}, err
@@ -286,6 +293,9 @@ func (s *Store) SelectRows(id string, selected []bool) (Snapshot, error) {
 // Commit consumes the token before writing, so retries cannot duplicate a batch.
 // A non-nil selection replaces the preview selection atomically with commit.
 func (s *Store) Commit(ctx context.Context, id string, selection []bool) (CommitResult, error) {
+	if s.records != nil {
+		return s.commitPersistent(ctx, id, selection)
+	}
 	state, err := s.lockSession(id)
 	if err != nil {
 		return CommitResult{}, err
@@ -389,6 +399,10 @@ func (s *Store) Cancel(id string) bool {
 
 // Close cancels jobs, releases sessions, and waits for workers to stop.
 func (s *Store) Close() {
+	if s.records != nil {
+		s.closeOnce.Do(func() { s.workerCancel(); <-s.workerDone })
+		return
+	}
 	s.closeOnce.Do(func() {
 		s.lifecycleMu.Lock()
 		s.mu.Lock()
@@ -441,6 +455,10 @@ func (s *Store) listExisting(ctx context.Context, kind Kind) ([]Existing, error)
 }
 
 func (s *Store) createBatch(ctx context.Context, kind Kind, rows []Row, selected []bool) (CommitResult, error) {
+	return s.createBatchWithWriter(ctx, kind, rows, selected, nil)
+}
+
+func (s *Store) createBatchWithWriter(ctx context.Context, kind Kind, rows []Row, selected []bool, w database.WorkflowWrites) (CommitResult, error) {
 	result := CommitResult{NotSelected: len(rows)}
 	indices := make([]int, 0, len(rows))
 	for i := range rows {
@@ -458,7 +476,13 @@ func (s *Store) createBatch(ctx context.Context, kind Kind, rows []Row, selected
 			row := rows[rowIndex]
 			batch[i] = &models.Participant{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng}
 		}
-		batchResult, err := s.db.Participants().UpsertBatch(ctx, batch)
+		var batchResult database.BatchUpsertResult
+		var err error
+		if w != nil {
+			batchResult, err = w.UpsertParticipants(ctx, batch)
+		} else {
+			batchResult, err = s.db.Participants().UpsertBatch(ctx, batch)
+		}
 		if err != nil {
 			return CommitResult{}, fmt.Errorf("upsert participant import batch: %w", err)
 		}
@@ -474,7 +498,13 @@ func (s *Store) createBatch(ctx context.Context, kind Kind, rows []Row, selected
 			}
 			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, VehicleCapacity: capacity}
 		}
-		batchResult, err := s.db.Drivers().UpsertBatch(ctx, batch)
+		var batchResult database.BatchUpsertResult
+		var err error
+		if w != nil {
+			batchResult, err = w.UpsertDrivers(ctx, batch)
+		} else {
+			batchResult, err = s.db.Drivers().UpsertBatch(ctx, batch)
+		}
 		if err != nil {
 			return CommitResult{}, fmt.Errorf("upsert driver import batch: %w", err)
 		}
