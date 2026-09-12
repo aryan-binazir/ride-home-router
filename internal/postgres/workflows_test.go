@@ -88,3 +88,25 @@ func TestExpiredWorkflowDoesNotCountAgainstCapacity(t *testing.T) {
 		t.Fatalf("expired: %v", err)
 	}
 }
+
+func TestImportClaimsPauseDuringProviderCooldown(t *testing.T) {
+	db := postgrestest.Open(t)
+	if err := db.Workflows().Create(t.Context(), "import", "cooldown", []byte(`{}`), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Workflows().Transact(t.Context(), "import", "cooldown", time.Hour, func(_ *database.WorkflowRecord, w database.WorkflowWrites) error {
+		return w.StageImport(t.Context(), "cooldown", []database.ImportRow{{Index: 0, Data: []byte(`{}`)}}, []database.ImportJob{{Index: 0, Address: "Example", Rows: []int{0}}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.NominatimGate().Defer(t.Context(), 200*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := db.ImportJobs().Claim(t.Context(), "early", time.Minute); err != nil || ok {
+		t.Fatalf("claim during cooldown: %v %v", ok, err)
+	}
+	time.Sleep(220 * time.Millisecond)
+	if _, ok, err := db.ImportJobs().Claim(t.Context(), "ready", time.Minute); err != nil || !ok {
+		t.Fatalf("claim after cooldown: %v %v", ok, err)
+	}
+}

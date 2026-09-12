@@ -342,10 +342,11 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	// A provider deadline is terminal for this address; process shutdown is not.
-	// Persist using a fresh bounded context because the work budget may be spent.
 	if workCtx.Err() != nil {
-		err = workCtx.Err()
+		return workCtx.Err()
+	}
+	if failure, ok := errors.AsType[*geocoding.ErrGeocodingFailed](err); ok && failure.Retryable() {
+		return err
 	}
 	persistCtx, persistCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer persistCancel()

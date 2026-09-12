@@ -50,7 +50,7 @@ func TestPersistentImportResumesAfterWorkerShutdownAndCommitsOnce(t *testing.T) 
 	}}
 	second := NewPersistentStore(t.Context(), fast, b, b.Workflows(), b.ImportJobs())
 	defer second.Close()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(35 * time.Second)
 	for {
 		snapshot, ok, err := second.Load(t.Context(), created.ID)
 		if err != nil || !ok {
@@ -122,7 +122,7 @@ func TestPersistentImportPreservesDiagnosticsAndSkipsInvalidRows(t *testing.T) {
 	}
 }
 
-func TestPersistentImportProviderDeadlineFinishesJob(t *testing.T) {
+func TestPersistentImportProviderDeadlineRemainsRetryable(t *testing.T) {
 	t.Parallel()
 	db := postgrestest.Open(t)
 	g := &fakeGeocoder{result: func(ctx context.Context, _ string, _ int) (*geocoding.GeocodingResult, error) {
@@ -139,20 +139,17 @@ func TestPersistentImportProviderDeadlineFinishesJob(t *testing.T) {
 	if _, err = s.ApplyMapping(t.Context(), created.ID, AutoMap(grid.Headers)); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(35 * time.Second)
+	deadline := time.Now().Add(32 * time.Second)
 	for {
 		snap, ok, err := s.Load(t.Context(), created.ID)
 		if err != nil || !ok {
 			t.Fatalf("load: %v %v", ok, err)
 		}
-		if !snap.GeocodeProgress.Running {
-			if len(snap.Rows) != 1 || snap.Rows[0].NeedsGeocoding || len(snap.Rows[0].Errors) == 0 {
-				t.Fatalf("deadline not terminal: %+v", snap)
-			}
-			return
+		if !snap.GeocodeProgress.Running || len(snap.Rows[0].Errors) > 0 {
+			t.Fatalf("temporary deadline failed address: %+v", snap)
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("deadline job kept retrying")
+			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

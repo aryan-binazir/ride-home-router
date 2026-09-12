@@ -587,19 +587,21 @@ func (e *nominatimTransportError) Unwrap() error {
 	return e.Cause
 }
 
+// Retryable distinguishes temporary provider or pacing failures from invalid addresses.
+func (e *ErrGeocodingFailed) Retryable() bool {
+	if _, ok := errors.AsType[*nominatimTransportError](e.Cause); ok {
+		return true
+	}
+	return isNominatimRetryableStatus(e.HTTPStatus)
+}
+
 func nominatimRetryDelay(err error, attempt int) (time.Duration, bool) {
 	var geocodingErr *ErrGeocodingFailed
 	if !errors.As(err, &geocodingErr) {
 		return 0, false
 	}
 
-	retryable := false
-	if _, ok := errors.AsType[*nominatimTransportError](geocodingErr.Cause); ok {
-		retryable = true
-	} else {
-		retryable = isNominatimRetryableStatus(geocodingErr.HTTPStatus)
-	}
-	if !retryable {
+	if !geocodingErr.Retryable() {
 		return 0, false
 	}
 

@@ -96,7 +96,7 @@ func (r *importJobRepository) Claim(ctx context.Context, token string, ttl time.
 	var indices []byte
 	err := r.db.QueryRowContext(ctx, `UPDATE import_jobs SET claim_token=$1,claimed_until=clock_timestamp()+$2*interval '1 second' WHERE (session_id,job_index) = (
  SELECT j.session_id,j.job_index FROM import_jobs j JOIN workflow_sessions s ON s.kind='import' AND s.id=j.session_id
- WHERE NOT j.done AND (j.claimed_until IS NULL OR j.claimed_until<clock_timestamp()) AND NOT s.consumed AND s.expires_at>clock_timestamp()
+ WHERE (SELECT next_at FROM provider_throttles WHERE name='nominatim')<=clock_timestamp() AND NOT j.done AND (j.claimed_until IS NULL OR j.claimed_until<clock_timestamp()) AND NOT s.consumed AND s.expires_at>clock_timestamp()
  ORDER BY j.claimed_until NULLS FIRST,j.session_id,j.job_index FOR UPDATE OF j SKIP LOCKED LIMIT 1)
  RETURNING session_id,job_index,address,array_to_json(row_indices),claim_token`, token, ttl.Seconds()).Scan(&job.SessionID, &job.Index, &job.Address, &indices, &job.Token)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -109,7 +109,7 @@ func (r *importJobRepository) Claim(ctx context.Context, token string, ttl time.
 }
 
 func (r *importJobRepository) Release(ctx context.Context, job database.ImportJob) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET claim_token=NULL,claimed_until=clock_timestamp()+interval '1 second' WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done`, job.SessionID, job.Index, job.Token)
+	_, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET claim_token=NULL,claimed_until=GREATEST(clock_timestamp()+interval '30 seconds',COALESCE((SELECT next_at FROM provider_throttles WHERE name='nominatim'),clock_timestamp())) WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done`, job.SessionID, job.Index, job.Token)
 	return err
 }
 
@@ -130,7 +130,7 @@ func (r *importJobRepository) Finish(ctx context.Context, job database.ImportJob
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE import_jobs SET done=true,claim_token=NULL,claimed_until=clock_timestamp()+interval '1 second' WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done AND claimed_until>clock_timestamp()`, job.SessionID, job.Index, job.Token)
+	result, err := tx.ExecContext(ctx, `UPDATE import_jobs SET done=true,claim_token=NULL,claimed_until=GREATEST(clock_timestamp()+interval '30 seconds',COALESCE((SELECT next_at FROM provider_throttles WHERE name='nominatim'),clock_timestamp())) WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done AND claimed_until>clock_timestamp()`, job.SessionID, job.Index, job.Token)
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -359,6 +360,9 @@ func (h *Handler) cancelImportSession(w http.ResponseWriter, r *http.Request, id
 
 func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, sessionID string, err error) int {
 	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		w.Header().Set("Retry-After", "2")
+		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Import is busy; try again shortly", nil)
 	case errors.Is(err, database.ErrWorkflowPayloadTooLarge):
 		return h.writeImportError(w, r, sessionID, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", err.Error(), nil)
 	case errors.Is(err, database.ErrNotFound), errors.Is(err, importer.ErrSessionNotFound):

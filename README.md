@@ -15,6 +15,11 @@ The server sends address searches to Nominatim and coordinates to Google Routes.
 
 There are no user accounts yet. Keep the deployment private until application authentication is added. Host checks are not access control.
 
+Import workflow payloads are limited to 24 MiB after parsing; oversized uploads return HTTP 413. Headers and file warnings remain available in previews, and invalid rows do not block saving valid rows. Provider calls have a 30-second work budget; temporary failures remain pending and retry after at least 30 seconds and any shared provider cooldown. Jobs stop when the import expires. Process shutdown leaves the job recoverable. Shared `Retry-After` deadlines are honored across instances and expire automatically; restarting the app does not bypass an upstream cooldown.
+
+Do not expose this version directly to the public internet. Clerk and admin access are a separate, required follow-up before public deployment. Anonymous mobile page visits create drafts and count toward the shared capacity limit; keep health monitors on the health endpoints.
+
+
 ## Run locally
 
 Requires Go 1.27. Podman runs the local Postgres 18 container. Node 24 is only needed for tests.
@@ -125,7 +130,3 @@ This software is provided "as is" without warranty. Verify every driver, address
 ## License
 
 MIT
-
-Import workflow payloads are limited to 24 MiB after parsing; oversized uploads return HTTP 413. Headers and file warnings remain available in previews, and invalid rows do not block saving valid rows. Provider calls have a 30-second work budget; an exhausted budget marks that address as failed rather than retrying forever. Process shutdown leaves the job recoverable. Shared `Retry-After` deadlines are honored across instances and expire automatically; restarting the app does not bypass an upstream cooldown.
-
-Do not expose this version directly to the public internet. Clerk and admin access are a separate, required follow-up before public deployment. Anonymous mobile page visits create drafts and count toward the shared capacity limit; keep health monitors on the health endpoints.
