@@ -85,7 +85,7 @@ func TestGroupParticipantsByAddress_SameNormalizedAddressWithDifferentCoordinate
 	}
 }
 
-func TestGroupParticipantsByAddress_DifferentAddressesWithIdenticalCoordinates(t *testing.T) {
+func TestGroupParticipantsByAddress_StreetAbbreviationsWithIdenticalCoordinates(t *testing.T) {
 	participants := []*models.Participant{
 		{ID: 1, Address: "1 Main St", Lat: 40.12345, Lng: -74.12345},
 		{ID: 2, Address: "1 Main Street", Lat: 40.12345, Lng: -74.12345},
@@ -96,7 +96,52 @@ func TestGroupParticipantsByAddress_DifferentAddressesWithIdenticalCoordinates(t
 		t.Fatalf("group count = %d, want 1", len(groups))
 	}
 	if householdKey(participants[0]) != householdKey(participants[1]) {
-		t.Fatal("same coordinates produced different household keys")
+		t.Fatal("equivalent addresses produced different household keys")
+	}
+}
+
+func TestGroupParticipantsByAddress_DifferentAddressesWithIdenticalCoordinates(t *testing.T) {
+	for _, addresses := range [][2]string{
+		{"Apartment 1", "Apartment 2"},
+		{"12 Oak St Apt 1", "12 Oak St Apt 2"},
+	} {
+		t.Run(addresses[0], func(t *testing.T) {
+			participants := []*models.Participant{
+				{ID: 1, Address: addresses[0], Lat: 40.12345, Lng: -74.12345},
+				{ID: 2, Address: addresses[1], Lat: 40.12345, Lng: -74.12345},
+			}
+			if groups := groupParticipantsByAddress(participants); len(groups) != 2 {
+				t.Fatalf("group count = %d, want 2 separate households", len(groups))
+			}
+		})
+	}
+}
+
+func TestGroupParticipantsByAddress_NormalizesStreetAndUnitMarkers(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"St", "Street"},
+		{"Ave", "Avenue"},
+		{"Rd", "Road"},
+		{"Dr", "Drive"},
+		{"Blvd", "Boulevard"},
+		{"Ln", "Lane"},
+		{"Ct", "Court"},
+		{"Pl", "Place"},
+		{"N", "North"},
+		{"S", "South"},
+		{"E", "East"},
+		{"W", "West"},
+	} {
+		t.Run(pair[0], func(t *testing.T) {
+			participants := []*models.Participant{
+				{ID: 1, Address: " 12  Oak " + pair[0] + "., Apt. 1", Lat: 40.123450, Lng: -74.123450},
+				{ID: 2, Address: "12 OAK " + pair[1] + " #1", Lat: 40.123454, Lng: -74.123454},
+				{ID: 3, Address: "12 Oak " + pair[1] + " Unit 1", Lat: 40.123450, Lng: -74.123450},
+			}
+			if groups := groupParticipantsByAddress(participants); len(groups) != 1 {
+				t.Fatalf("group count = %d, want 1", len(groups))
+			}
+		})
 	}
 }
 
@@ -110,8 +155,8 @@ func TestGroupParticipantsByAddress_NormalizesAddressCaseAndWhitespace(t *testin
 	if len(groups) != 1 {
 		t.Fatalf("group count = %d, want 1", len(groups))
 	}
-	if got := householdKey(participants[0]); got != "addr:123 main st" {
-		t.Fatalf("household key = %q, want %q", got, "addr:123 main st")
+	if got := householdKey(participants[0]); got != "addr:123 main street" {
+		t.Fatalf("household key = %q, want %q", got, "addr:123 main street")
 	}
 }
 
@@ -397,7 +442,7 @@ func TestBearingSweepInsertion_DeterministicTieBreaks(t *testing.T) {
 	}
 	groups := bearingSweepGroups(models.Coordinates{}, participants)
 	for i, group := range groups {
-		if got, want := group.members[0].ID, []int64{4, 1, 2, 3}[i]; got != want {
+		if got, want := group.members[0].ID, []int64{1, 2, 3, 4}[i]; got != want {
 			t.Fatalf("equal-gap sweep group %d ID = %d, want household-key order ID %d", i, got, want)
 		}
 	}
