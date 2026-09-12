@@ -20,18 +20,20 @@ func (closedStore) RemoveApprovedEmail(context.Context, string) error { return n
 func TestFixtureUsesRealClerkVerification(t *testing.T) {
 	f := accesstest.New(t)
 	valid := f.Admin()
-	gate, err := access.New(f.Config(), closedStore{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !access.IsAdmin(r.Context()) {
-			t.Error("admin identity missing")
-		}
-		w.WriteHeader(204)
-	}))
 	check := func(token string, want int) {
 		t.Helper()
+		// Each case verifies Clerk directly, independent of a previously cached identity.
+		gate, err := access.New(f.Config(), closedStore{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !access.IsAdmin(r.Context()) {
+				t.Error("admin identity missing")
+			}
+			w.WriteHeader(204)
+		}))
+
 		r := httptest.NewRequestWithContext(t.Context(), "GET", "http://127.0.0.1/private", nil)
 		r.Header.Set("Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()

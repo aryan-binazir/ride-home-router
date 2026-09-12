@@ -131,10 +131,12 @@ func TestHandleCreateEvent_CapturesUnchangedSMERouteFeedback(t *testing.T) {
 
 func TestHandleCreateEvent_DoesNotCaptureWithoutMatchingSME(t *testing.T) {
 	tests := []struct {
-		name    string
-		setting string
-		header  string
+		name      string
+		setting   string
+		header    string
+		untrusted bool
 	}{
+		{name: "untrusted matching header", setting: "sme@example.com", header: "sme@example.com", untrusted: true},
 		{name: "mismatched header", setting: "sme@example.com", header: "other@example.com"},
 		{name: "missing header", setting: "sme@example.com"},
 		{name: "empty setting", header: "sme@example.com"},
@@ -142,6 +144,9 @@ func TestHandleCreateEvent_DoesNotCaptureWithoutMatchingSME(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, store, conn := newRouteFeedbackHandler(t)
+			if tt.untrusted {
+				routefeedback.SetTrustCFAccessHeader(false)
+			}
 			setSMEEmail(t, store, tt.setting)
 			session := createFeedbackSession(handler)
 			rr := saveLiveFeedbackSession(handler, session.ID, tt.header)
@@ -227,6 +232,9 @@ func TestHandleCreateEvent_FeedbackFailureStillCommitsEventAndSession(t *testing
 
 func newRouteFeedbackHandler(t *testing.T) (*Handler, *postgres.Store, *pgx.Conn) {
 	t.Helper()
+	// Model a deployment configured with TRUST_CF_ACCESS_HEADER=true.
+	routefeedback.SetTrustCFAccessHeader(true)
+	t.Cleanup(func() { routefeedback.SetTrustCFAccessHeader(false) })
 	databaseURL := postgrestest.DatabaseURL(t)
 	store, err := postgres.New(context.Background(), databaseURL)
 	if err != nil {
