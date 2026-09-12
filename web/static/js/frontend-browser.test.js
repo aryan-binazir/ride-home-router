@@ -120,3 +120,13 @@ let blockReplay=false;document.addEventListener('submit',event=>{if(blockReplay)
 const form=document.querySelector('form');form.requestSubmit();blockReplay=true;document.querySelector('[data-confirm-action="confirm"]').click();await Promise.resolve();form.requestSubmit();document.getElementById('evidence').textContent=JSON.stringify({open:document.querySelector('.confirm-overlay').classList.contains('is-open'),errors});`);
     assert.equal(result.open,true);
 });
+
+test('import polls preserve choices without retrying a failed selection write', {skip: !browser}, () => {
+    const result = run('<div id="import-steps"><form id="import-selection-form" hx-put="/selection"><input name="selected" type="checkbox" value="1"></form></div>', ['ui.js'], `
+let writes=0;window.htmx={trigger(){writes++;}};const target=document.getElementById('import-steps');
+document.dispatchEvent(new CustomEvent('htmx:afterRequest',{detail:{elt:document.querySelector('form'),successful:false,xhr:{status:503}}}));
+for(let i=0;i<2;i++){const detail={target,shouldSwap:true,serverResponse:'<form id="import-selection-form" hx-put="/selection"><input name="selected" type="checkbox" value="1" checked></form>'};document.dispatchEvent(new CustomEvent('htmx:beforeSwap',{detail}));target.innerHTML=detail.serverResponse;document.dispatchEvent(new CustomEvent('htmx:afterSettle'));}
+document.getElementById('evidence').textContent=JSON.stringify({writes,checked:document.querySelector('input').checked,errors});`);
+    assert.equal(result.writes,0);
+    assert.equal(result.checked,false);
+});

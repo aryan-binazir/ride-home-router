@@ -109,6 +109,7 @@ function handleTableSwap(event) {
 }
 
 if (typeof document !== 'undefined') {
+  const failedImportSelections = new Set();
   document.addEventListener('htmx:afterSettle', handleTableSwap, true);
   document.addEventListener('htmx:afterSettle', () => {
     const form = document.querySelector('#import-selection-form[data-persist-selection]');
@@ -117,6 +118,12 @@ if (typeof document !== 'undefined') {
     htmx.trigger(form, 'change');
   });
   document.addEventListener('htmx:afterRequest', event => {
+    const form = event.detail?.elt;
+    if (form?.id === 'import-selection-form') {
+      const key = form.getAttribute('hx-put');
+      if (event.detail.successful) failedImportSelections.delete(key);
+      else failedImportSelections.add(key);
+    }
     if (event.detail?.successful || event.detail?.requestConfig?.verb !== 'get' || event.detail?.target?.id !== 'access-management') return;
     const panel = document.getElementById('access-management');
     if (panel && !panel.querySelector('[role="alert"]')) {
@@ -142,7 +149,12 @@ if (typeof document !== 'undefined') {
       input.toggleAttribute('checked', choices.get(input.value));
     });
     if (!changed) return;
-    selection.dataset.persistSelection = 'true';
+    // A poll may repair a selection request displaced by its swap, but must
+    // never retry a failed write. The next user change or Import includes the
+    // preserved choices and provides an explicit retry.
+    if (!failedImportSelections.has(selection.getAttribute('hx-put'))) {
+      selection.dataset.persistSelection = 'true';
+    }
     detail.serverResponse = response.body.innerHTML;
   });
 }
