@@ -45,5 +45,5 @@
         </div>
     </form>
 </div>
-{{if .IsAdmin}}<div hx-get="/api/v1/access" hx-trigger="load" hx-swap="outerHTML"><p>Loading approved emails...</p></div>{{end}}
+{{if .IsAdmin}}<div hx-get="/api/v1/settings/google-maps-key" hx-trigger="load" hx-swap="outerHTML"></div><div hx-get="/api/v1/access" hx-trigger="load" hx-swap="outerHTML"><p>Loading approved emails...</p></div>{{end}}
 {{end}}

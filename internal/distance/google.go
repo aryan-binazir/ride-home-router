@@ -34,7 +34,7 @@ const (
 
 var ErrProviderNotConfigured = errors.New("distance provider is not configured")
 
-type APIKeyProvider func() (string, error)
+type APIKeyProvider func(context.Context) (string, error)
 
 type googleCalculator struct {
 	httpClient *http.Client
@@ -56,7 +56,7 @@ func (c *googleCalculator) GetDistance(ctx context.Context, origin, dest models.
 	if SamePoint(origin, dest) {
 		return &DistanceResult{DistanceMeters: 0, DurationSecs: 0}, nil
 	}
-	if _, err := c.currentAPIKey(); err != nil {
+	if _, err := c.currentAPIKey(ctx); err != nil {
 		return nil, err
 	}
 
@@ -87,7 +87,7 @@ func (c *googleCalculator) GetDistanceMatrix(ctx context.Context, points []model
 		return [][]DistanceResult{}, nil
 	}
 	if matrixNeedsProvider(points) {
-		if _, err := c.currentAPIKey(); err != nil {
+		if _, err := c.currentAPIKey(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -159,7 +159,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 		return []DistanceResult{}, nil
 	}
 	if destinationsNeedProvider(origin, destinations) {
-		if _, err := c.currentAPIKey(); err != nil {
+		if _, err := c.currentAPIKey(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -197,7 +197,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	}
 
 	if len(missingDestinations) > 0 {
-		if _, err := c.currentAPIKey(); err != nil {
+		if _, err := c.currentAPIKey(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -425,11 +425,21 @@ func (c *googleCalculator) fetchMatrix(ctx context.Context, origins, destination
 	panic("unreachable")
 }
 
-func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destinations []models.Coordinates) (map[matrixIndex]DistanceResult, error) {
-	apiKey, err := c.currentAPIKey()
+func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destinations []models.Coordinates) (_ map[matrixIndex]DistanceResult, resultErr error) {
+	apiKey, err := c.currentAPIKey(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// Provider error details can echo credentials. Never pass the key into
+	// application error responses, logs or persisted workflow failures.
+	defer func() {
+		if failure, ok := errors.AsType[*ErrDistanceCalculationFailed](resultErr); ok {
+			failure.Reason = strings.ReplaceAll(failure.Reason, apiKey, "[redacted]")
+		}
+		if failure, ok := errors.AsType[*googleHTTPError](resultErr); ok {
+			failure.Body = strings.ReplaceAll(failure.Body, apiKey, "[redacted]")
+		}
+	}()
 
 	body, err := json.Marshal(googleMatrixRequest{
 		Origins:           makeGoogleOrigins(origins),
@@ -637,17 +647,17 @@ func googleMatrixPublicError(err error) *googleMatrixError {
 	}
 }
 
-func (c *googleCalculator) currentAPIKey() (string, error) {
+func (c *googleCalculator) currentAPIKey(ctx context.Context) (string, error) {
 	if c.apiKey == nil {
 		return "", fmt.Errorf("%w: Google Maps API key is missing", ErrProviderNotConfigured)
 	}
-	apiKey, err := c.apiKey()
+	apiKey, err := c.apiKey(ctx)
 	if err != nil {
 		return "", err
 	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return "", fmt.Errorf("%w: Google Maps API key is missing; set GOOGLE_MAPS_API_KEY on the server", ErrProviderNotConfigured)
+		return "", fmt.Errorf("%w: Google Maps API key is missing; ask an administrator to configure it in Settings", ErrProviderNotConfigured)
 	}
 	return apiKey, nil
 }

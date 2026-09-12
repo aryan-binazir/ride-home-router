@@ -115,7 +115,7 @@ func newTestGoogleCalculator(t *testing.T, handler http.HandlerFunc) (*googleCal
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	calc := NewGoogleCalculator(cache, func() (string, error) {
+	calc := NewGoogleCalculator(cache, func(context.Context) (string, error) {
 		return "test-api-key", nil
 	}).(*googleCalculator)
 	calc.endpoint = server.URL
@@ -291,7 +291,7 @@ func TestGoogleCalculator_RetriesNetworkError(t *testing.T) {
 
 	requests := 0
 	transport := server.Client().Transport
-	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+	calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) { return "test-api-key", nil }).(*googleCalculator)
 	calc.endpoint = server.URL
 	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		requests++
@@ -312,7 +312,7 @@ func TestGoogleCalculator_RetriesNetworkError(t *testing.T) {
 
 func TestGoogleCalculator_RetriesTransientStatusWhenErrorBodyReadFails(t *testing.T) {
 	requests := 0
-	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+	calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) { return "test-api-key", nil }).(*googleCalculator)
 	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		requests++
 		if requests == 1 {
@@ -355,7 +355,7 @@ func TestGoogleCalculator_RetriesResponseBodyNetworkError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			requests := 0
-			calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test-api-key", nil }).(*googleCalculator)
+			calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) { return "test-api-key", nil }).(*googleCalculator)
 			calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 				requests++
 				body := io.ReadCloser(&googleReadErrorBody{data: []byte(tt.body), errorWithData: tt.errorWithData})
@@ -470,7 +470,7 @@ func TestGoogleCalculator_PrewarmContinuesAfterTransientBlockFailure(t *testing.
 }
 
 func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
-	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) {
+	calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) {
 		return "", nil
 	})
 	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
@@ -493,7 +493,7 @@ func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
 		t.Fatalf("seed distance cache: %v", err)
 	}
 
-	calc := NewGoogleCalculator(cache, func() (string, error) {
+	calc := NewGoogleCalculator(cache, func(context.Context) (string, error) {
 		return "", nil
 	})
 
@@ -556,7 +556,7 @@ func TestGooglePrewarmCancellationWaitsForActiveRequests(t *testing.T) {
 	started := make(chan struct{}, 4)
 	var mu sync.Mutex
 	active := 0
-	calc := NewGoogleCalculator(newMockDistanceCache(), func() (string, error) { return "test", nil }).(*googleCalculator)
+	calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) { return "test", nil }).(*googleCalculator)
 	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		mu.Lock()
 		active++

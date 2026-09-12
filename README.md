@@ -27,7 +27,8 @@ Requires Go 1.27. Podman runs the local Postgres 18 container. Node 24 is only n
 ```bash
 make postgres-up
 # Export the Clerk settings below first, using a development Clerk instance.
-GOOGLE_MAPS_API_KEY=... make serve
+make serve
+# Sign in as an admin and add the Google Maps key in Settings.
 ```
 
 Open <http://127.0.0.1:8080>.
@@ -44,7 +45,6 @@ Open <http://127.0.0.1:8080>.
 | `CLERK_AUTHORIZED_PARTIES` | Required comma-separated exact browser origins, e.g. `https://router.example.com`. No trailing slash. HTTP allowed only for loopback development. |
 | `ADMIN_EMAILS` | Required comma-separated admin emails. Whitespace trimmed, case normalized. At least one valid email required. |
 | `DATABASE_URL` | Postgres connection string. The Makefile supplies a local default. |
-| `GOOGLE_MAPS_API_KEY` | Key from a project with the Routes API enabled. Required to calculate routes. |
 | `PORT` | Loopback port when `--addr` is absent. Default: `8080`. |
 | `--addr` | Listen address. |
 | `--allowed-hosts` | Proxy hostnames or IPs accepted in `Host` and `Origin`. Required for non-loopback listeners. |
@@ -56,7 +56,7 @@ Allowed hosts omit schemes, ports, and paths. Unlisted hosts get `403`; add the 
 
 The Docker image contains the server and `migrate` binaries, supports `amd64` and `arm64`, runs the server as a non-root user, and checks `/api/v1/ready`. The readiness endpoint requires the applied database migration version to exactly match the image's latest embedded migration. `/api/v1/health` remains a database connectivity check for liveness.
 
-Set `DATABASE_URL`, `ALLOWED_HOSTS`, and all five Clerk/access variables above. Add `GOOGLE_MAPS_API_KEY` for routing. The platform normally supplies `PORT`.
+Set `DATABASE_URL`, `ALLOWED_HOSTS`, and all five Clerk/access variables above. After signing in as an admin, configure the Google Maps API key in Settings for routing. The platform normally supplies `PORT`.
 
 Configure the platform's pre-deploy command as exactly `migrate` before deploying a revision that depends on a new schema. A non-zero migration exit must stop the deployment before the new server revision starts. The direct `ride-home-router` binary does not apply migrations or gate startup on them; against an unprepared schema it can start successfully but remains unready and returns database errors from application requests.
 
@@ -158,3 +158,11 @@ This software is provided "as is" without warranty. Verify every driver, address
 MIT
 
 Authentication troubleshooting: empty entries (including trailing commas) in `ADMIN_EMAILS` or `CLERK_AUTHORIZED_PARTIES` are rejected at startup. Authentication logs report fixed failure categories without tokens or raw Clerk responses; access changes log the verified Clerk actor ID and target email. Clerk lookup outages return 503 without a sign-in redirect. Mobile POST forms refresh their session before submitting; planner mutations retry at most once after a 401 and preserve the current page when sign-in is required. Network failures and 5xx responses are never automatically retried.
+
+### Google Maps credential
+
+Administrators can save, replace, or delete the Google Maps API key in Settings. The Google Cloud project must have the Routes API enabled. The credential lives only in Postgres, separately from public preferences. `GOOGLE_MAPS_API_KEY` is no longer read; existing installations must enter their key in Settings after this migration. There is no environment fallback or automatic import.
+
+Only admins can access credential status or management endpoints. After saving, the UI shows a fixed mask and Configured; it never returns the key or a prefix, including to admins. The replacement field is empty after each save. Deleting the key disables new route calculations that require the provider, including cached nonzero distances, until an admin saves a replacement. Requests already in flight may complete. Every server instance reads the current database value without a process-local key cache or restart.
+
+The application must be able to read the credential to call Google, so this is write-only access through the application, not a one-way hash. Database operators and backups remain trusted and must be protected as secrets. The key is not part of public settings, app exports or workflow data. Credential queries and writes report generic errors; no keys are written to application logs. The migration CLI checks for a configured key before beginning a rollback, so refusal leaves the current migration version clean. Explicitly delete the key first if rolling back is intended. The SQL migration also refuses to drop a populated table; stop application writes during rollback, since a concurrent key save or an out-of-band migration runner can still trigger that SQL guard and require migration-state repair.

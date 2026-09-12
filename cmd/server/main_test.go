@@ -130,7 +130,6 @@ func TestParseArgs(t *testing.T) {
 			t.Setenv("GOOGLE_MAPS_API_KEY", "maps-key")
 			if tt.wantErr == "" {
 				tt.want.DatabaseURL = dbURL
-				tt.want.GoogleMapsAPIKey = "maps-key"
 			}
 			got, err := parseArgs(tt.args)
 			if tt.wantErr != "" {

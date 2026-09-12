@@ -88,6 +88,11 @@ type LabelRepository interface {
 
 // SettingsRepository stores shared settings.
 type SettingsRepository interface {
+	// GoogleMapsKey is server-only; never include it in the public Settings model.
+	GoogleMapsKey(ctx context.Context) (string, error)
+	GoogleMapsKeyConfigured(ctx context.Context) (bool, error)
+	SetGoogleMapsKey(ctx context.Context, key string) error
+	DeleteGoogleMapsKey(ctx context.Context) error
 	Get(ctx context.Context) (*models.Settings, error)
 	Update(ctx context.Context, s *models.Settings) error
 }

@@ -65,6 +65,12 @@ type (
 // IsAdmin only consumes identity installed by this package after verification.
 func IsAdmin(ctx context.Context) bool { p, _ := ctx.Value(principalKey{}).(principal); return p.Admin }
 
+// UserID returns only the identity installed after server-side verification.
+func UserID(ctx context.Context) string {
+	p, _ := ctx.Value(principalKey{}).(principal)
+	return p.UserID
+}
+
 func NormalizeEmail(raw string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(raw))
 	parsed, err := mail.ParseAddress(email)
