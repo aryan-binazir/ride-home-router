@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
@@ -249,7 +250,7 @@ func mobileErrorTitle(status int) string {
 func mobileReturnPath(r *http.Request, fallback string) string {
 	value := r.FormValue("return")
 	target, err := url.Parse(value)
-	if err != nil || target.IsAbs() || target.Host != "" || !strings.HasPrefix(target.Path, "/m/") || strings.ContainsAny(target.Path, "\\\r\n") {
+	if err != nil || target.IsAbs() || target.Host != "" || !strings.HasPrefix(path.Clean(target.Path), "/m/") || strings.ContainsAny(target.Path, "\\\r\n") {
 		return fallback
 	}
 	return target.String()

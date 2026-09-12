@@ -105,7 +105,7 @@ func (h *Handler) HandleCreateLabel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if message := fieldLengthMessage("Label name", req.Name, models.MaxLabelNameLength); message != "" {
-		h.handleValidationErrorHTMX(w, r, message)
+		h.handleLabelValidationError(w, r, message)
 		return
 	}
 	if req.Name == "" {
@@ -162,7 +162,7 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if message := fieldLengthMessage("Label name", req.Name, models.MaxLabelNameLength); message != "" {
-		h.handleValidationErrorHTMX(w, r, message)
+		h.handleLabelValidationError(w, r, message)
 		return
 	}
 	if req.Name == "" {

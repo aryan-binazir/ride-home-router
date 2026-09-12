@@ -99,22 +99,22 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Reload this page and try the import again.", nil)
+		h.writeError(w, r, status, "FORBIDDEN", "Reload this page and try the import again.", nil)
 		return
 	}
 	if r.Method != http.MethodPost {
 		status = http.StatusMethodNotAllowed
-		h.writeError(w, status, "METHOD_NOT_ALLOWED", "That action is unavailable. Reload the page and try again.", nil)
+		h.writeError(w, r, status, "METHOD_NOT_ALLOWED", "That action is unavailable. Reload the page and try again.", nil)
 		return
 	}
 	if r.Header.Get("HX-Request") != "true" {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Open the import form and choose your file again.", nil)
+		h.writeError(w, r, status, "FORBIDDEN", "Open the import form and choose your file again.", nil)
 		return
 	}
 	if h.ImportSession == nil {
 		status = http.StatusServiceUnavailable
-		h.writeError(w, status, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
+		h.writeError(w, r, status, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
 		return
 	}
 
@@ -181,7 +181,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			status = http.StatusUnprocessableEntity
-			h.writeError(w, status, "WORKSHEET_REQUIRED", "Choose a worksheet to import.", map[string]any{"sheets": sheets})
+			h.writeError(w, r, status, "WORKSHEET_REQUIRED", "Choose a worksheet to import.", map[string]any{"sheets": sheets})
 			return
 		}
 	}
@@ -218,17 +218,17 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Reload this page and try the import again.", nil)
+		h.writeError(w, r, status, "FORBIDDEN", "Reload this page and try the import again.", nil)
 		return
 	}
 	if h.ImportSession == nil {
 		status = http.StatusServiceUnavailable
-		h.writeError(w, status, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
+		h.writeError(w, r, status, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
 		return
 	}
 	if !pathOK {
 		status = http.StatusNotFound
-		h.writeError(w, status, "NOT_FOUND", "That import expired. Choose your file again.", nil)
+		h.writeError(w, r, status, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return
 	}
 
@@ -248,11 +248,11 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 		case r.Method == http.MethodDelete:
 			status = h.cancelImportSession(w, r, id)
 		default:
-			status = writeImportMethodNotAllowed(h, w)
+			status = writeImportMethodNotAllowed(h, w, r)
 		}
 	case "mapping":
 		if r.Method != http.MethodPut {
-			status = writeImportMethodNotAllowed(h, w)
+			status = writeImportMethodNotAllowed(h, w, r)
 			return
 		}
 		if panel {
@@ -262,7 +262,7 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 		status, rowCount = h.updateImportMapping(w, r, id)
 	case "selection":
 		if r.Method != http.MethodPut {
-			status = writeImportMethodNotAllowed(h, w)
+			status = writeImportMethodNotAllowed(h, w, r)
 			return
 		}
 		if panel {
@@ -272,7 +272,7 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 		status, rowCount = h.updateImportSelection(w, r, id)
 	case "commit":
 		if r.Method != http.MethodPost {
-			status = writeImportMethodNotAllowed(h, w)
+			status = writeImportMethodNotAllowed(h, w, r)
 			return
 		}
 		if panel {
@@ -282,7 +282,7 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 		status = h.commitImportSession(w, r, id)
 	default:
 		status = http.StatusNotFound
-		h.writeError(w, status, "NOT_FOUND", "Import session route not found", nil)
+		h.writeError(w, r, status, "NOT_FOUND", "That import page is unavailable. Open the import again.", nil)
 	}
 }
 
@@ -292,7 +292,7 @@ func (h *Handler) getImportSession(w http.ResponseWriter, r *http.Request, id st
 		return h.writeImportStoreError(w, r, id, loadErr), -1
 	}
 	if !ok {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
+		h.writeError(w, r, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return http.StatusNotFound, -1
 	}
 	h.writeJSON(w, http.StatusOK, newImportSnapshotJSON(snapshot))
@@ -305,7 +305,7 @@ func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id
 		return h.writeImportStoreError(w, r, id, loadErr), -1
 	}
 	if !ok {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
+		h.writeError(w, r, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return http.StatusNotFound, -1
 	}
 	var request importMappingRequest
@@ -350,7 +350,7 @@ func (h *Handler) writeImportJSONBodyError(w http.ResponseWriter, r *http.Reques
 	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		return h.writeImportError(w, r, id, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import JSON bodies are limited to %d bytes", MaxImportJSONBytes), nil)
 	}
-	h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body", nil)
+	h.writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil)
 	return http.StatusBadRequest
 }
 
@@ -360,7 +360,7 @@ func (h *Handler) cancelImportSession(w http.ResponseWriter, r *http.Request, id
 		return h.writeImportStoreError(w, r, id, err)
 	}
 	if !canceled {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
+		h.writeError(w, r, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return http.StatusNotFound
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -492,8 +492,8 @@ func parseImportSessionPath(path string) (id, action string, ok bool) {
 	return "", "", false
 }
 
-func writeImportMethodNotAllowed(h *Handler, w http.ResponseWriter) int {
-	h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "That action is unavailable. Reload the page and try again.", nil)
+func writeImportMethodNotAllowed(h *Handler, w http.ResponseWriter, r *http.Request) int {
+	h.writeError(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "That action is unavailable. Reload the page and try again.", nil)
 	return http.StatusMethodNotAllowed
 }
 

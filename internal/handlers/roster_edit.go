@@ -64,7 +64,7 @@ func (e rosterEditor) createParticipant(ctx context.Context, edit participantEdi
 	}
 	key := models.RosterKey(edit.Name, edit.Address)
 	for _, row := range existing {
-		if models.RosterKey(row.Name, row.Address) == key {
+		if key != "" && models.RosterKey(row.Name, row.Address) == key {
 			return nil, rosterDuplicateError{edit.Name}
 		}
 	}
@@ -111,7 +111,7 @@ func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*model
 	}
 	key := models.RosterKey(edit.Name, edit.Address)
 	for _, row := range existing {
-		if models.RosterKey(row.Name, row.Address) == key {
+		if key != "" && models.RosterKey(row.Name, row.Address) == key {
 			return nil, rosterDuplicateError{edit.Name}
 		}
 	}

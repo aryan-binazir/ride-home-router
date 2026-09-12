@@ -407,10 +407,6 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs, SetLabels: shouldSetLabels,
 		VehicleCapacity: req.VehicleCapacity,
 	})
-	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "DUPLICATE_ROSTER_ENTRY", duplicate.Error())
-		return
-	}
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		if h.isHTMX(r) {
 			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))

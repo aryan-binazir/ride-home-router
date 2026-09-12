@@ -12,6 +12,7 @@ import (
 	"ride-home-router/internal/routesession"
 	"strings"
 	"testing"
+	"time"
 )
 
 const internalSentinel = `ERROR: relation "x" does not exist (SQLSTATE 42P01)`
@@ -95,7 +96,7 @@ func TestMobileSaveFailurePreservesDateAndNotes(t *testing.T) {
 }
 
 func TestMobileReturnPathPreservedAndRestricted(t *testing.T) {
-	for _, target := range []string{"/m/plan/drivers", "https://evil.test/m/plan/drivers", "//evil.test/m/plan/drivers", "/m/\\evil.test"} {
+	for _, target := range []string{"/m/plan/drivers", "https://evil.test/m/plan/drivers", "//evil.test/m/plan/drivers", "/m/\\evil.test", "/m/../outside"} {
 		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m/people/drivers/new?return="+url.QueryEscape(target), nil)
 		want := "/m/people"
 		if target == "/m/plan/drivers" {
@@ -120,7 +121,7 @@ func TestImportAdmissionRejectsBeforeReadingBody(t *testing.T) {
 			<-importAdmission
 		}
 	}()
-	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/imports", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/imports", unreadImportBody{t})
 	r.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 	h.HandleCreateImport(w, r)
@@ -172,5 +173,91 @@ func TestMobileHandoffIncludesModeAndTime(t *testing.T) {
 				t.Fatalf("handoff: %q", text)
 			}
 		}
+	}
+}
+
+type saveOutageWorkflows struct {
+	database.WorkflowRepository
+	failed  bool
+	failure error
+}
+
+func (s *saveOutageWorkflows) Transact(context.Context, string, string, time.Duration, func(*database.WorkflowRecord, database.WorkflowWrites) error) error {
+	s.failed = true
+	if s.failure != nil {
+		return s.failure
+	}
+	return errors.New(internalSentinel)
+}
+
+func (s *saveOutageWorkflows) Load(ctx context.Context, kind, id string, ttl time.Duration) (database.WorkflowRecord, error) {
+	if s.failed {
+		return database.WorkflowRecord{}, errors.New(internalSentinel)
+	}
+	return s.WorkflowRepository.Load(ctx, kind, id, ttl)
+}
+
+func TestMobileSaveOutagePreservesInputWithoutReloading(t *testing.T) {
+	h, store := newTestManagementHandler(t)
+	records := &saveOutageWorkflows{WorkflowRepository: store.Workflows()}
+	h.RouteSession = routesession.NewPersistentStore(nil, records)
+	h.PlanDraft = plandraft.NewStore()
+	t.Cleanup(h.PlanDraft.Close)
+	session, err := h.RouteSession.CreateContext(t.Context(), routesession.CreateInput{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 4}, EffectiveCapacity: 4, Mode: models.RouteModeDropoff, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := h.PlanDraft.NewID()
+	h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
+	w := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {session.ID}, "event_date": {"2026-10-11"}, "notes": {"Keep outage notes"}}, h.HandleMobileSave)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), `value="Keep outage notes"`) || !strings.Contains(w.Body.String(), `value="2026-10-11"`) {
+		t.Fatalf("outage lost input: %d %s", w.Code, w.Body.String())
+	}
+	assertSafeFailure(t, w)
+}
+
+func TestMobileExpiredSaveShowsRecovery(t *testing.T) {
+	h, _ := newTestManagementHandler(t)
+	h.PlanDraft = plandraft.NewStore()
+	t.Cleanup(h.PlanDraft.Close)
+	id := h.PlanDraft.NewID()
+	h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = "expired" })
+	w := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {"expired"}, "event_date": {"2026-10-11"}}, h.HandleMobileSave)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), messageRoutePlanExpired) {
+		t.Fatalf("expired save: %d %s", w.Code, w.Body.String())
+	}
+}
+
+type unreadImportBody struct{ t *testing.T }
+
+func (b unreadImportBody) Read([]byte) (int, error) {
+	b.t.Fatal("rejected import body was read")
+	return 0, errors.New("unexpected read")
+}
+
+func TestMobileSaveKnownFailuresKeepActionableStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		status  int
+		message string
+	}{{"unbalanced", routesession.ErrUnbalanced, 400, messageRoutesMustBeBalancedBeforeSaving}, {"conflict", database.ErrWorkflowConflict, 409, "This route plan changed. Review the current routes and try again."}} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, store := newTestManagementHandler(t)
+			records := &saveOutageWorkflows{WorkflowRepository: store.Workflows(), failure: tc.err}
+			h.RouteSession = routesession.NewPersistentStore(nil, records)
+			h.PlanDraft = plandraft.NewStore()
+			t.Cleanup(h.PlanDraft.Close)
+			session, err := h.RouteSession.CreateContext(t.Context(), routesession.CreateInput{Mode: models.RouteModeDropoff})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := h.PlanDraft.NewID()
+			h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
+			w := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {session.ID}, "event_date": {"2026-10-11"}, "notes": {"Keep notes"}}, h.HandleMobileSave)
+			if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.message) || !strings.Contains(w.Body.String(), `value="Keep notes"`) {
+				t.Fatalf("save: %d %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

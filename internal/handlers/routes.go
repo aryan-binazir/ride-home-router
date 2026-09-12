@@ -366,5 +366,5 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	h.writeError(w, status, code, message, nil)
+	h.writeError(w, r, status, code, message, nil)
 }

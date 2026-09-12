@@ -311,7 +311,7 @@ func (h *Handler) writeImportError(w http.ResponseWriter, r *http.Request, sessi
 		h.renderImportMessage(w, sessionID, message)
 		return http.StatusOK
 	}
-	h.writeError(w, status, code, message, details)
+	h.writeError(w, r, status, code, message, details)
 	return status
 }
 

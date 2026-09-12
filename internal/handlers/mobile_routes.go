@@ -153,20 +153,33 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
+	snapshot, found, loadErr := h.RouteSession.Load(r.Context(), sessionID)
+	if loadErr != nil {
+		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, loadErr)
+		return
+	}
+	if !found {
+		if h.redirectSavedMobileEvent(w, r, sessionID) {
+			return
+		}
+		h.renderMobileError(w, r, http.StatusConflict, messageRoutePlanExpired, nil)
+		return
+	}
 	created, _, err := h.commitEventSession(r, sessionID, date, strings.TrimSpace(r.FormValue("notes")))
 	if err != nil {
 		log.Printf("[ERROR] Mobile event save failed: err=%v", err)
-		if errors.Is(err, routesession.ErrAlreadyCommitted) && h.redirectSavedMobileEvent(w, r, sessionID) {
+		if (errors.Is(err, routesession.ErrAlreadyCommitted) || errors.Is(err, routesession.ErrNotFound)) && h.redirectSavedMobileEvent(w, r, sessionID) {
 			return
 		}
-		status, message := http.StatusInternalServerError, messageGenericInternalError
+		status, message := http.StatusInternalServerError, mobileRouteErrorMessage(err)
+		switch {
+		case errors.Is(err, routesession.ErrNotFound), errors.Is(err, routesession.ErrAlreadyCommitted), errors.Is(err, database.ErrWorkflowConflict):
+			status = http.StatusConflict
+		case errors.Is(err, routesession.ErrUnbalanced):
+			status = http.StatusBadRequest
+		}
 		if validationErr, ok := errors.AsType[eventValidationError](err); ok {
 			status, message = http.StatusBadRequest, validationErr.message
-		}
-		snapshot, found, loadErr := h.RouteSession.Load(r.Context(), sessionID)
-		if loadErr != nil || !found {
-			h.renderMobileError(w, r, status, message, nil)
-			return
 		}
 		h.renderMobileRoutes(w, r, snapshot, status, message, date, r.FormValue("notes"))
 		return
