@@ -317,6 +317,12 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 	f.Session("unapproved_session", "unapproved", "active")
 	f.User("unverified", []string{"unapproved@example.test"}, []string{"admin@example.test"})
 	f.Session("unverified_session", "unverified", "active")
+	f.User("banned_user", []string{"admin@example.test"}, nil, map[string]any{"banned": true})
+	f.User("locked_user", []string{"admin@example.test"}, nil, map[string]any{"locked": true})
+	f.User("mismatched_user", []string{"admin@example.test"}, nil, map[string]any{"id": "other_user"})
+	for _, id := range []string{"banned_user", "locked_user", "mismatched_user", "deleted_user"} {
+		f.Session(id+"_session", id, "active")
+	}
 	f.Session("mismatch", "other_user", "active")
 	f.Session("revoked", "user_admin", "revoked")
 	f.Session("user_failure", "missing_user", "active")
@@ -358,6 +364,10 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 		{"unknown_session", f.Token("user_admin", "unknown"), 401},
 		{"mismatched_session", f.Token("user_admin", "mismatch"), 401},
 		{"revoked_session", f.Token("user_admin", "revoked"), 401},
+		{"banned_user", f.Token("banned_user", "banned_user_session"), 401},
+		{"locked_user", f.Token("locked_user", "locked_user_session"), 401},
+		{"deleted_user", f.Token("deleted_user", "deleted_user_session"), 401},
+		{"mismatched_user", f.Token("mismatched_user", "mismatched_user_session"), 401},
 		{"session_service_failure", f.Token("user_admin", "service_failure"), 503},
 		{"user_service_failure", f.Token("missing_user", "user_failure"), 503},
 		{"unapproved", f.Token("unapproved", "unapproved_session", map[string]any{"role": "admin"}), 403},

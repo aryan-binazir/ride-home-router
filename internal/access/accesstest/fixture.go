@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"ride-home-router/internal/access"
 	"strings"
@@ -74,7 +75,7 @@ func (f *Fixture) Config(adminEmails ...string) access.Config {
 }
 
 // User replaces an identity; verified and unverified addresses remain distinct.
-func (f *Fixture) User(id string, verified, unverified []string) {
+func (f *Fixture) User(id string, verified, unverified []string, overrides ...map[string]any) {
 	emails := []any{}
 	for _, group := range []struct {
 		addresses []string
@@ -86,7 +87,11 @@ func (f *Fixture) User(id string, verified, unverified []string) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.users[id] = map[string]any{"id": id, "object": "user", "email_addresses": emails}
+	value := map[string]any{"id": id, "object": "user", "email_addresses": emails}
+	for _, fields := range overrides {
+		maps.Copy(value, fields)
+	}
+	f.users[id] = value
 }
 
 // Session replaces a session, allowing revoked, expired, or mismatched identities.
