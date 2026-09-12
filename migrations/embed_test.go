@@ -31,8 +31,8 @@ func TestLatestVersionMatchesNewestEmbeddedMigration(t *testing.T) {
 	}
 	// Keep this literal independent of LatestVersion so every new migration
 	// requires an explicit readiness expectation update.
-	if version != 20260912000000 {
-		t.Fatalf("LatestVersion() = %d, want 20260912000000", version)
+	if version != 20260912180000 {
+		t.Fatalf("LatestVersion() = %d, want 20260912180000", version)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestVersionReportsLatestCleanMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() error = %v", err)
 	}
-	if version != 20260912000000 || dirty {
-		t.Fatalf("Version() = (%d, %t), want (20260912000000, false)", version, dirty)
+	if version != 20260912180000 || dirty {
+		t.Fatalf("Version() = (%d, %t), want (20260912180000, false)", version, dirty)
 	}
 }
 
@@ -189,8 +189,8 @@ func TestVersionSupportsQuotedSchemaNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() in quoted schema error = %v", err)
 	}
-	if version != 20260912000000 || dirty {
-		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260912000000, false)", version, dirty)
+	if version != 20260912180000 || dirty {
+		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260912180000, false)", version, dirty)
 	}
 }
 
@@ -204,8 +204,8 @@ func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() after Down error = %v", err)
 	}
-	if version != 20260908000000 || dirty {
-		t.Fatalf("Version() after Down = (%d, %t), want (20260908000000, false)", version, dirty)
+	if version != 20260912000000 || dirty {
+		t.Fatalf("Version() after Down = (%d, %t), want (20260912000000, false)", version, dirty)
 	}
 
 	if err := migrations.Run(t.Context(), databaseURL); err != nil {
@@ -215,14 +215,14 @@ func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() after Run error = %v", err)
 	}
-	if version != 20260912000000 || dirty {
-		t.Fatalf("Version() after Run = (%d, %t), want (20260912000000, false)", version, dirty)
+	if version != 20260912180000 || dirty {
+		t.Fatalf("Version() after Run = (%d, %t), want (20260912180000, false)", version, dirty)
 	}
 }
 
 func TestDownRefusesDisabledMigrationWithoutChangingVersion(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
-	for range 4 {
+	for range 5 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatalf("Down() to baseline error = %v", err)
 		}
@@ -343,7 +343,7 @@ func TestRunRefusesDirtyStateWithRecoveryGuidance(t *testing.T) {
 	}
 
 	err = migrations.Run(t.Context(), databaseURL)
-	for _, want := range []string{"dirty at version 20260912000000", "repair or restore"} {
+	for _, want := range []string{"dirty at version 20260912180000", "repair or restore"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("Run() dirty-state error = %v, want containing %q", err, want)
 		}

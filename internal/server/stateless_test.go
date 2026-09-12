@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
@@ -12,9 +13,11 @@ import (
 
 func TestMobileDraftSurvivesAnotherInstanceAndRestart(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
+	fixture := accesstest.New(t)
+	token := fixture.Admin()
 	start := func() (*Server, string) {
 		t.Helper()
-		s, err := New(t.Context(), Config{Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
+		s, err := New(t.Context(), Config{Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -27,7 +30,7 @@ func TestMobileDraftSurvivesAnotherInstanceAndRestart(t *testing.T) {
 	}
 	first, a := start()
 	_, b := start()
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: accesstest.BearerTransport{Token: token}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, a+"/m/plan/when", strings.NewReader(url.Values{"route_time": {"06:45"}, "mode": {"pickup"}}.Encode()))
 	if err != nil {
 		t.Fatal(err)

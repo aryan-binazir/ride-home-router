@@ -89,7 +89,19 @@ jobs:
             exit 1
           fi
 
+          # Synthetic configuration for public health/readiness and default-deny smoke tests.
+          # No production Clerk credentials or network verification is needed here.
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/clerk-smoke.pem" 2>/dev/null
+          clerk_jwt_key=$(openssl pkey -in "$RUNNER_TEMP/clerk-smoke.pem" -pubout)
+          rm "$RUNNER_TEMP/clerk-smoke.pem"
+          clerk_publishable_key="pk_test_$(printf 'fixture.clerk.accounts.dev$' | base64 -w0)"
+
           docker run -d --name "$app_container" --network "$network" \
+            -e CLERK_SECRET_KEY=sk_test_synthetic \
+            -e CLERK_PUBLISHABLE_KEY="$clerk_publishable_key" \
+            -e CLERK_JWT_KEY="$clerk_jwt_key" \
+            -e CLERK_AUTHORIZED_PARTIES=https://router.internal.example \
+            -e ADMIN_EMAILS=admin@example.com,second-admin@example.com \
             -e DATABASE_URL="$database_url" \
             -e ALLOWED_HOSTS=router.internal.example \
             --health-start-period=1s \
@@ -129,6 +141,17 @@ jobs:
               exit 1
               ;;
           esac
+
+          for path in / /m /api/v1/settings /api/v1/participants /api/v1/access; do
+            if denied_output=$(docker exec "$app_container" wget -O- "http://127.0.0.1:8080$path" 2>&1); then
+              echo "protected endpoint allowed anonymous access: $path" >&2
+              exit 1
+            fi
+            case "$denied_output" in
+              *"401 Unauthorized"*) ;;
+              *) echo "$denied_output" >&2; exit 1 ;;
+            esac
+          done
 
           negative_observed=false
           for _ in $(seq 1 30); do
