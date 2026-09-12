@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
+	"strings"
 )
 
 // HandleAddressSearch handles GET /api/v1/address-search
@@ -17,7 +18,7 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := r.URL.Query().Get("address")
+	query := strings.TrimSpace(r.URL.Query().Get("address"))
 	//nolint:gosec // G706: the query is logged only as a numeric length.
 	log.Printf("[HTTP] GET /api/v1/address-search: outcome=started query_len=%d", len(query))
 

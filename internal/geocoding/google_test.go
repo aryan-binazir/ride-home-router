@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -110,9 +111,6 @@ func TestGoogleGeocodeClassifiesProviderStatuses(t *testing.T) {
 			}
 			if gate.waits != 1 {
 				t.Fatalf("gate waits = %d, want 1", gate.waits)
-			}
-			if strings.Contains(err.Error(), "invalid") && tc.wantSentinel == ErrNotConfigured {
-				t.Fatalf("error exposes provider error_message: %v", err)
 			}
 		})
 	}
@@ -226,13 +224,15 @@ func TestGoogleGeocoderNeverExposesAddressKeyOrURL(t *testing.T) {
 		return nil, &url.Error{Op: request.Method, URL: request.URL.String(), Err: errors.New("connection refused")}
 	})}
 	denied := googleStatusServer(t, http.StatusOK, `{"status":"REQUEST_DENIED","error_message":"key `+key+` is invalid for `+address+`"}`)
+	placesDenied := googleStatusServer(t, http.StatusForbidden, `{"error":{"code":403,"status":"PERMISSION_DENIED","message":"key `+key+` denied for `+address+`"}}`)
 	ok := googleStatusServer(t, http.StatusOK, `{"status":"OK","results":[{"formatted_address":"`+address+`, USA","geometry":{"location":{"lat":42.1,"lng":-71.1}}}]}`)
+	placesOK := googleStatusServer(t, http.StatusOK, `{"suggestions":[{"placePrediction":{"placeId":"a","text":{"text":"`+address+`, USA"}}}]}`)
 
 	var errs []error
 	for _, geocoder := range []*googleGeocoder{
 		newGoogleGeocoder(staticKey(key), &recordingGate{}, refusing, "https://maps.example/geocode", "https://places.example/autocomplete"),
-		newGoogleGeocoder(staticKey(key), &recordingGate{}, denied.Client(), denied.URL, denied.URL),
-		newGoogleGeocoder(staticKey(key), &recordingGate{}, ok.Client(), ok.URL, ok.URL),
+		newGoogleGeocoder(staticKey(key), &recordingGate{}, denied.Client(), denied.URL, placesDenied.URL),
+		newGoogleGeocoder(staticKey(key), &recordingGate{}, ok.Client(), ok.URL, placesOK.URL),
 	} {
 		_, err := geocoder.Geocode(context.Background(), address)
 		errs = append(errs, err)
@@ -333,5 +333,100 @@ func TestRetryAfterClampsToFifteenMinutes(t *testing.T) {
 	}
 	if got := parseRetryAfter("garbage"); got != 0 {
 		t.Fatalf("parseRetryAfter(garbage) = %s, want 0", got)
+	}
+}
+
+func TestMain(m *testing.M) {
+	retryBaseDelay = 5 * time.Millisecond
+	os.Exit(m.Run())
+}
+
+func TestGoogleKeyProblemsFailFastWithoutRequestRetries(t *testing.T) {
+	calls := 0
+	denied := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"API key not valid","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID"}]}}`))
+	}))
+	t.Cleanup(denied.Close)
+	geocoder := newGoogleGeocoder(staticKey("typo"), &recordingGate{}, denied.Client(), denied.URL, denied.URL)
+	_, err := geocoder.Search(context.Background(), "1 Test", 5)
+	if !errors.Is(err, ErrNotConfigured) || calls != 1 {
+		t.Fatalf("Places 400 API_KEY_INVALID: err=%v calls=%d, want ErrNotConfigured after one call", err, calls)
+	}
+	if strings.Contains(err.Error(), "API key not valid") {
+		t.Fatalf("error exposes provider message: %v", err)
+	}
+
+	calls = 0
+	geocodeDenied := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"status":"REQUEST_DENIED"}`))
+	}))
+	t.Cleanup(geocodeDenied.Close)
+	geocoder = newGoogleGeocoder(staticKey("typo"), &recordingGate{}, geocodeDenied.Client(), geocodeDenied.URL, geocodeDenied.URL)
+	_, err = geocoder.GeocodeWithRetry(context.Background(), "1 Test Way", 3)
+	failure, ok := errors.AsType[*ErrGeocodingFailed](err)
+	if !ok || !errors.Is(err, ErrNotConfigured) || calls != 1 || !failure.Retryable() {
+		t.Fatalf("denied key: err=%v calls=%d, want one call, ErrNotConfigured, still Retryable for imports", err, calls)
+	}
+
+	calls = 0
+	geocoder = newGoogleGeocoder(staticKey(""), &recordingGate{}, denied.Client(), denied.URL, denied.URL)
+	if _, err := geocoder.Search(context.Background(), "1 Test", 5); !errors.Is(err, ErrNotConfigured) || calls != 0 {
+		t.Fatalf("missing key search: err=%v calls=%d, want ErrNotConfigured and no request", err, calls)
+	}
+}
+
+func TestGoogleGeocodeRejectsIncompleteResponses(t *testing.T) {
+	for name, body := range map[string]string{
+		"missing coordinates": `{"status":"OK","results":[{"formatted_address":"x","geometry":{"location":{}}}]}`,
+		"ok without results":  `{"status":"OK","results":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := googleStatusServer(t, http.StatusOK, body)
+			geocoder := newGoogleGeocoder(staticKey("k"), nil, server.Client(), server.URL, server.URL)
+			result, err := geocoder.Geocode(context.Background(), "1 Test Way")
+			if err == nil || result != nil {
+				t.Fatalf("Geocode() = (%+v, %v), want failure", result, err)
+			}
+		})
+	}
+	empty := googleStatusServer(t, http.StatusOK, `{"suggestions":[]}`)
+	geocoder := newGoogleGeocoder(staticKey("k"), nil, empty.Client(), empty.URL, empty.URL)
+	if results, err := geocoder.Search(context.Background(), "1 Test", 5); err != nil || len(results) != 0 {
+		t.Fatalf("Search() with no suggestions = (%v, %v), want (empty, nil)", results, err)
+	}
+}
+
+func TestRetryAfterAcceptsHTTPDatesAndIgnoresNegatives(t *testing.T) {
+	if got := parseRetryAfter("-5"); got != 0 {
+		t.Fatalf("parseRetryAfter(-5) = %s, want 0", got)
+	}
+	future := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
+	if got := parseRetryAfter(future); got < 80*time.Second || got > 90*time.Second {
+		t.Fatalf("parseRetryAfter(http date) = %s, want about 90s", got)
+	}
+	past := time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)
+	if got := parseRetryAfter(past); got != 0 {
+		t.Fatalf("parseRetryAfter(past date) = %s, want 0", got)
+	}
+}
+
+func TestGoogleGeocodeWithRetryStopsWhenContextCancelsDuringBackoff(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	geocoder := newGoogleGeocoder(staticKey("k"), nil, server.Client(), server.URL, server.URL)
+	_, err := geocoder.GeocodeWithRetry(ctx, "1 Test Way", 3)
+	if !errors.Is(err, context.DeadlineExceeded) || calls != 1 {
+		t.Fatalf("cancelled backoff: err=%v calls=%d, want DeadlineExceeded after one call", err, calls)
 	}
 }

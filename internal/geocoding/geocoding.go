@@ -40,13 +40,15 @@ var ErrNoGeocodingResults = errors.New("geocoding: no results found")
 
 // ErrGeocodingFailed is returned when an address cannot be geocoded
 type ErrGeocodingFailed struct {
-	address    string
 	Reason     string
 	Cause      error
 	HTTPStatus int
 	RetryAfter time.Duration
-	// Temporary marks provider or credential conditions worth retrying later.
+	// Temporary marks provider conditions worth retrying within the request.
 	Temporary bool
+	// Configuration marks missing, rejected or unreadable credentials: imports
+	// retry later once an administrator fixes Settings, but no request retries.
+	Configuration bool
 }
 
 func (e *ErrGeocodingFailed) Error() string {
@@ -59,7 +61,7 @@ func (e *ErrGeocodingFailed) Unwrap() error {
 
 // Retryable distinguishes temporary provider or pacing failures from invalid addresses.
 func (e *ErrGeocodingFailed) Retryable() bool {
-	if e.Temporary {
+	if e.Temporary || e.Configuration {
 		return true
 	}
 	if _, ok := errors.AsType[*providerTransportError](e.Cause); ok {
@@ -87,21 +89,39 @@ const (
 	maxRetryAfter         = 15 * time.Minute
 )
 
+// retryBaseDelay is the first backoff step; tests shorten it.
+var retryBaseDelay = time.Second
+
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
+	var result *GeocodingResult
+	err := withRetry(ctx, maxRetries, func(ctx context.Context) error {
+		var err error
+		result, err = geocode(ctx, address)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// withRetry runs attempt up to maxRetries times (bounded by maxAttempts),
+// backing off only for failures that are worth repeating within the request.
+func withRetry(ctx context.Context, maxRetries int, attempt func(context.Context) error) error {
 	var lastErr error
 	started := time.Now()
 	attempts := max(1, min(maxRetries, maxAttempts))
 
 	for i := range attempts {
-		result, err := geocode(ctx, address)
+		err := attempt(ctx)
 		if err == nil {
 			log.Printf("[GEOCODING] Retry operation outcome=success attempts=%d duration=%s", i+1, time.Since(started).Round(time.Millisecond))
-			return result, nil
+			return nil
 		}
 
 		lastErr = err
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 
 		backoff, retryable := retryDelay(err, i)
@@ -111,13 +131,13 @@ func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geoco
 		if i < attempts-1 {
 			log.Printf("[GEOCODING] Retry %d/%d: backoff=%v", i+1, attempts, backoff)
 			if err := waitForRetry(ctx, backoff); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
 
 	log.Printf("[ERROR] Retry operation outcome=failed retries=%d duration=%s", attempts, time.Since(started).Round(time.Millisecond))
-	return nil, lastErr
+	return lastErr
 }
 
 // providerTransportError hides request URLs (which carry addresses and keys) from error text.
@@ -167,14 +187,14 @@ func retryDelay(err error, attempt int) (time.Duration, bool) {
 		return 0, false
 	}
 
-	if !geocodingErr.Retryable() {
+	if geocodingErr.Configuration || !geocodingErr.Retryable() {
 		return 0, false
 	}
 
-	base := time.Second << attempt
+	base := retryBaseDelay << attempt
 	//nolint:gosec // G404: retry jitter does not need cryptographic randomness.
 	delay := max(base+time.Duration(rand.Int64N(int64(base/2)+1)), geocodingErr.RetryAfter)
-	return max(delay, time.Second), true
+	return max(delay, retryBaseDelay), true
 }
 
 func isRetryableStatus(status int) bool {

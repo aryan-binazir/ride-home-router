@@ -18,9 +18,6 @@ const geocodingThrottle = "google_geocoding"
 // It never holds a database connection while waiting.
 type ProviderGate struct{ db *sql.DB }
 
-// ProviderCooldownError reports an invalid persisted cooldown without waiting indefinitely.
-type ProviderCooldownError = geocoding.CooldownError
-
 func (s *Store) GeocodingGate() *ProviderGate { return &ProviderGate{db: s.db} }
 
 func (g *ProviderGate) Wait(ctx context.Context) error {
@@ -40,7 +37,7 @@ func (g *ProviderGate) Wait(ctx context.Context) error {
 			if _, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=LEAST(next_at,clock_timestamp()+interval '15 minutes') WHERE name=$1`, geocodingThrottle); err != nil {
 				return err
 			}
-			return &ProviderCooldownError{}
+			return &geocoding.CooldownError{}
 		}
 		timer := time.NewTimer(time.Duration(min(max(seconds, 0.01), 1) * float64(time.Second)))
 		select {
