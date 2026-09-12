@@ -31,8 +31,9 @@
         window.Clerk.mountSignIn(document.getElementById('clerk-sign-in'), {
             routing: 'hash',
             forceRedirectUrl: '/',
-            withSignUp: false,
-            transferable: false,
+            signUpForceRedirectUrl: '/',
+            withSignUp: true,
+            transferable: true,
         });
     } catch (_) {
         if (message) message.textContent = 'Sign in is unavailable. Please try again later.';

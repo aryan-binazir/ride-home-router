@@ -113,7 +113,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      gate.Protect(mux),
+		Handler:      gate.Protect(requestBodyMiddleware(mux)),
 		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: serverWriteTimeout,
 		IdleTimeout:  serverIdleTimeout,
@@ -533,6 +533,15 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 				return
 			}
 
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Body buffering is inside authentication, so denied uploads are never read.
+func requestBodyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStateChangingMethod(r.Method) {
 			bodyLimit := maxRequestBodyBytes
 			if r.Method == http.MethodPost && r.URL.Path == "/api/v1/imports" {
 				bodyLimit = handlers.MaxImportUploadBytes

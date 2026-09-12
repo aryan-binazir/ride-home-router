@@ -58,3 +58,51 @@ func TestFixtureUsesRealClerkVerification(t *testing.T) {
 	f.Session("sess_admin", "user_admin", "revoked")
 	check(valid, 401)
 }
+
+func TestFixtureInstanceIsolation(t *testing.T) {
+	first := accesstest.NewInstance(t, "first.clerk.accounts.dev")
+	second := accesstest.NewInstance(t, "second.clerk.accounts.dev")
+	if first.Config().SecretKey == second.Config().SecretKey || first.Config().JWTKey == second.Config().JWTKey || first.Config().PublishableKey == second.Config().PublishableKey {
+		t.Fatal("instances share credentials")
+	}
+	token := first.Admin()
+	for _, tc := range []struct {
+		name   string
+		config access.Config
+		token  string
+		want   int
+	}{
+		{"own", first.Config(), token, 204},
+		{"foreign", second.Config(), token, 401},
+		{"wrong_secret", func() access.Config { c := first.Config(); c.SecretKey = second.Config().SecretKey; return c }(), token, 401},
+		{"wrong_issuer", first.Config(), first.Token("user_admin", "sess_admin", map[string]any{"iss": "https://second.clerk.accounts.dev"}), 401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gate, err := access.New(tc.config, closedStore{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+			r := httptest.NewRequestWithContext(t.Context(), "GET", accesstest.Origin+"/private", nil)
+			r.Header.Set("Authorization", "Bearer "+tc.token)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("status %d want %d: %s", w.Code, tc.want, w.Body.String())
+			}
+		})
+	}
+	for _, secret := range []string{"", second.Config().SecretKey} {
+		r := httptest.NewRequestWithContext(t.Context(), "GET", "https://api.clerk.com/v1/users/user_admin", nil)
+		r.Header.Set("Authorization", "Bearer "+secret)
+		response, err := first.RoundTrip(r)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		if err == nil {
+			t.Fatal("foreign or missing API secret accepted")
+		}
+	}
+}
+
+func (closedStore) RecordAdminEmails(context.Context, []string) error { return nil }

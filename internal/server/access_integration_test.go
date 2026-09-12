@@ -315,7 +315,7 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 	admin := f.Admin()
 	f.User("unapproved", []string{"unapproved@example.test"}, nil)
 	f.Session("unapproved_session", "unapproved", "active")
-	f.User("unverified", nil, []string{"admin@example.test"})
+	f.User("unverified", []string{"unapproved@example.test"}, []string{"admin@example.test"})
 	f.Session("unverified_session", "unverified", "active")
 	f.Session("mismatch", "other_user", "active")
 	f.Session("revoked", "user_admin", "revoked")
@@ -343,6 +343,7 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 		status      int
 	}{
 		{"malformed", "not.a.valid.token", 401},
+		{"missing_azp", f.Token("user_admin", "sess_admin", map[string]any{"azp": nil}), 401},
 		{"missing_exp", f.Token("user_admin", "sess_admin", map[string]any{"exp": nil}), 401},
 		{"missing_nbf", f.Token("user_admin", "sess_admin", map[string]any{"nbf": nil}), 401},
 		{"missing_iat", f.Token("user_admin", "sess_admin", map[string]any{"iat": nil}), 401},

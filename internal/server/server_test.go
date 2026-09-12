@@ -661,13 +661,9 @@ func TestRequestSecurityMiddlewareTunnelledWrite(t *testing.T) {
 	}
 }
 
-func TestRequestSecurityMiddlewareRejectsOversizedBody(t *testing.T) {
-	allowlist, err := newRequestAllowlist("127.0.0.1:8080", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRequestBodyMiddlewareRejectsOversizedBody(t *testing.T) {
 	called := false
-	handler := requestSecurityMiddleware(allowlist, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := requestBodyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		called = true
 	}))
 	req := httptest.NewRequestWithContext(

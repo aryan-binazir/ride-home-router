@@ -32,11 +32,12 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
     return state;
 }
 
-test('sign-in disables account creation and loads the configured Clerk instance', async () => {
+test('sign-in allows Google account creation and returns new accounts to the protected entry point', async () => {
     const state = await run();
-    assert.equal(state.options.withSignUp, false);
-    assert.equal(state.options.transferable, false);
+    assert.equal(state.options.withSignUp, true);
+    assert.equal(state.options.transferable, true);
     assert.equal(state.options.routing, 'hash');
+    assert.equal(state.options.signUpForceRedirectUrl, '/');
     assert.equal(state.script.dataset.clerkPublishableKey, 'pk_test_fixture');
 });
 test('only successful backend admission redirects a signed-in user to protected data', async () => {

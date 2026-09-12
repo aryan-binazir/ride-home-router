@@ -15,7 +15,7 @@ func (a *Access) Register(mux *http.ServeMux) {
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in - Ride Home Router</title><link rel="stylesheet" href="/static/css/style.css"><script src="/static/js/auth.js" defer></script></head>
 <body>
-<main class="main"><h1>Ride Home Router</h1><p id="auth-message">Sign in with your approved account.</p><div id="clerk-sign-in"></div><button type="button" data-sign-out hidden>Sign out</button></main>
+<main class="main"><h1>Ride Home Router</h1><p id="auth-message">Sign in with Google. An administrator must approve your email before you can access the app.</p><div id="clerk-sign-in"></div><button type="button" data-sign-out hidden>Sign out</button></main>
 </body>
 </html>`))
 	})

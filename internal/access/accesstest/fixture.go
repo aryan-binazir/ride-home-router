@@ -34,11 +34,26 @@ type Fixture struct {
 	sessions map[string]any
 	failures map[string]int
 	public   string
+	hostname string
+	secret   string
 }
 
 // New creates an isolated RSA key. Config accepts any number of admin emails.
 func New(t testing.TB) *Fixture {
 	t.Helper()
+	f := NewInstance(t, "fixture.clerk.accounts.dev")
+	f.secret = "sk_test_synthetic"
+	return f
+}
+
+// NewInstance creates a Clerk instance with its own issuer, RSA key and API secret.
+// hostname is the bare Clerk frontend hostname, without a scheme or path.
+func NewInstance(t testing.TB, hostname string) *Fixture {
+	t.Helper()
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatal(err)
+	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +62,7 @@ func New(t testing.TB) *Fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Fixture{t: t, key: key, public: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), users: map[string]any{}, sessions: map[string]any{}, failures: map[string]int{}}
+	return &Fixture{t: t, key: key, hostname: hostname, secret: "sk_test_" + base64.RawURLEncoding.EncodeToString(secret), public: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), users: map[string]any{}, sessions: map[string]any{}, failures: map[string]int{}}
 }
 
 func (f *Fixture) Config(adminEmails ...string) access.Config {
@@ -55,7 +70,7 @@ func (f *Fixture) Config(adminEmails ...string) access.Config {
 		adminEmails = []string{"admin@example.test"}
 	}
 	//nolint:gosec // Synthetic credential accepted only by this in-memory transport.
-	return access.Config{SecretKey: "sk_test_synthetic", PublishableKey: "pk_test_" + base64.RawStdEncoding.EncodeToString([]byte("fixture.clerk.accounts.dev$")), JWTKey: f.public, AuthorizedParties: Origin + ",http://localhost:8080", AdminEmails: strings.Join(adminEmails, ","), HTTPClient: &http.Client{Transport: f, Timeout: time.Second}}
+	return access.Config{SecretKey: f.secret, PublishableKey: "pk_test_" + base64.RawStdEncoding.EncodeToString([]byte(f.hostname+"$")), JWTKey: f.public, AuthorizedParties: Origin + ",http://localhost:8080", AdminEmails: strings.Join(adminEmails, ","), HTTPClient: &http.Client{Transport: f, Timeout: time.Second}}
 }
 
 // User replaces an identity; verified and unverified addresses remain distinct.
@@ -93,7 +108,7 @@ func (f *Fixture) Fail(path string, status int) {
 func (f *Fixture) Token(userID, sessionID string, overrides ...map[string]any) string {
 	f.t.Helper()
 	now := time.Now().Unix()
-	claims := map[string]any{"iss": Issuer, "sub": userID, "sid": sessionID, "azp": Origin, "iat": now - 10, "nbf": now - 10, "exp": now + 3600}
+	claims := map[string]any{"iss": "https://" + f.hostname, "sub": userID, "sid": sessionID, "azp": Origin, "iat": now - 10, "nbf": now - 10, "exp": now + 3600}
 	for _, values := range overrides {
 		for k, v := range values {
 			if v == nil {
@@ -134,7 +149,7 @@ func (f *Fixture) RoundTrip(r *http.Request) (*http.Response, error) {
 	if err := r.Context().Err(); err != nil {
 		return nil, err
 	}
-	if r.Method != http.MethodGet || r.URL.Scheme != "https" || r.URL.Host != "api.clerk.com" || r.URL.RawQuery != "" || r.Header.Get("Authorization") != "Bearer sk_test_synthetic" {
+	if r.Method != http.MethodGet || r.URL.Scheme != "https" || r.URL.Host != "api.clerk.com" || r.URL.RawQuery != "" || r.Header.Get("Authorization") != "Bearer "+f.secret {
 		return nil, fmt.Errorf("unexpected synthetic Clerk request: %s %s", r.Method, r.URL.Redacted())
 	}
 	f.mu.Lock()

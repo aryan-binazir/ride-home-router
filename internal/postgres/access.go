@@ -34,3 +34,9 @@ func (s *Store) RemoveApprovedEmail(ctx context.Context, email string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM approved_emails WHERE email=$1`, email)
 	return err
 }
+
+// RecordAdminEmails retains first verification only, never an access grant.
+func (s *Store) RecordAdminEmails(ctx context.Context, emails []string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO verified_admin_emails(email) SELECT DISTINCT unnest($1::text[]) ON CONFLICT DO NOTHING`, emails)
+	return err
+}

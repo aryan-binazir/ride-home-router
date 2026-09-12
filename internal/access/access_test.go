@@ -133,3 +133,5 @@ func TestNavigationAndHTMXDenials(t *testing.T) {
 		}
 	}
 }
+
+func (s *approvals) RecordAdminEmails(context.Context, []string) error { return s.err }

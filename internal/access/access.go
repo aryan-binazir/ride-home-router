@@ -39,6 +39,7 @@ type Store interface {
 	ApprovedEmails(context.Context) ([]string, error)
 	AddApprovedEmail(context.Context, string) error
 	RemoveApprovedEmail(context.Context, string) error
+	RecordAdminEmails(context.Context, []string) error
 }
 
 type Access struct {
@@ -186,6 +187,7 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		}
 		emails := []string{}
 		admin := false
+		adminEmails := []string{}
 		for _, e := range u.EmailAddresses {
 			if e == nil || e.Verification == nil || e.Verification.Status != "verified" {
 				continue
@@ -195,7 +197,10 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 				continue
 			}
 			emails = append(emails, email)
-			admin = admin || a.admins[email]
+			if a.admins[email] {
+				admin = true
+				adminEmails = append(adminEmails, email)
+			}
 		}
 		if !admin {
 			allowed, err := a.store.Approved(ctx, emails)
@@ -215,6 +220,14 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 			u, err := url.Parse(origin)
 			if err != nil || !a.parties[origin] || u.Host != r.Host {
 				deny(w, r, http.StatusForbidden)
+				return
+			}
+		}
+		// These records preserve verified addresses across Clerk instance moves.
+		// They never confer authority and are written only after all auth checks.
+		if admin {
+			if err := a.store.RecordAdminEmails(ctx, adminEmails); err != nil {
+				deny(w, r, http.StatusServiceUnavailable)
 				return
 			}
 		}
