@@ -67,7 +67,7 @@ func (h *Handler) HandleGoogleMapsKey(w http.ResponseWriter, r *http.Request) {
 		}
 		key := strings.TrimSpace(input.APIKey)
 		if key == "" || key == "********" || len(key) > 4096 || strings.IndexFunc(key, func(c rune) bool {
-			return !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-')
+			return (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-'
 		}) >= 0 {
 			reject("Enter a valid API key", http.StatusBadRequest)
 			return
