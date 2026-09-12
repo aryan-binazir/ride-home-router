@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/access"
+	"ride-home-router/internal/logutil"
 	"strings"
 )
 
@@ -77,14 +78,14 @@ func (h *Handler) HandleGoogleMapsKey(w http.ResponseWriter, r *http.Request) {
 			reject("Unable to save key", http.StatusServiceUnavailable)
 			return
 		}
-		log.Print("[ADMIN] Google Maps credential replaced")
+		log.Printf("[ADMIN] Google Maps credential replaced: actor=%q", logutil.SafeString(access.UserID(r.Context())))
 	case http.MethodDelete:
 		if err := h.DB.Settings().DeleteGoogleMapsKey(r.Context()); err != nil {
 			log.Print("[ERROR] Google Maps credential deletion failed")
 			reject("Unable to delete key", http.StatusServiceUnavailable)
 			return
 		}
-		log.Print("[ADMIN] Google Maps credential deleted")
+		log.Printf("[ADMIN] Google Maps credential deleted: actor=%q", logutil.SafeString(access.UserID(r.Context())))
 	default:
 		w.Header().Set("Allow", "GET, PUT, DELETE")
 		reject("Method Not Allowed", http.StatusMethodNotAllowed)
