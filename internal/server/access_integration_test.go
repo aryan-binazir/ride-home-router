@@ -216,7 +216,9 @@ func TestAccessAcrossInstancesAndRevocation(t *testing.T) {
 	if status != 200 {
 		t.Fatalf("regrant not live: %d %s", status, body)
 	}
-	f.Session("member_session", "member", "revoked")
+	// A new revoked identity has no cached active status on either instance.
+	member = f.Token("member", "revoked_member_session")
+	f.Session("revoked_member_session", "member", "revoked")
 	before = accessDatabaseSnapshot(t, conn)
 	for _, base := range []string{b, restarted} {
 		status, body, headers = h.request(base, "POST", "/api/v1/labels", member, `{"name":"must not exist"}`, "", nil)

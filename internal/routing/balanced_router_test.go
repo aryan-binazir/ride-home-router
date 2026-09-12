@@ -79,77 +79,85 @@ func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
 }
 
 func TestGroupParticipantsByAddress_SameNormalizedAddressWithDifferentCoordinates(t *testing.T) {
+	participants := []*models.Participant{{ID: 1, Address: "123 Main St", Lat: 40.12345, Lng: -74.12345}, {ID: 2, Address: "123 Main St", Lat: 40.22345, Lng: -74.22345}}
+	if groups := groupParticipantsByAddress(participants); len(groups) != 2 {
+		t.Fatalf("different coordinates grouped together: %d", len(groups))
+	}
+}
+
+func TestGroupParticipantsByAddress_StreetAbbreviationsWithIdenticalCoordinates(t *testing.T) {
 	participants := []*models.Participant{
-		{ID: 1, Name: "Alice", Address: "123 Main St", Lat: 40.12345, Lng: -74.12345},
-		{ID: 2, Name: "Bob", Address: "123 Main St", Lat: 40.22345, Lng: -74.22345},
+		{ID: 1, Address: "1 Main St", Lat: 40.12345, Lng: -74.12345},
+		{ID: 2, Address: "1 Main Street", Lat: 40.12345, Lng: -74.12345},
 	}
 
 	groups := groupParticipantsByAddress(participants)
 	if len(groups) != 1 {
 		t.Fatalf("group count = %d, want 1", len(groups))
 	}
-	if len(groups[0].members) != 2 {
-		t.Fatalf("group member count = %d, want 2", len(groups[0].members))
-	}
-	if groups[0].lat != models.RoundCoordinate(participants[0].Lat) || groups[0].lng != models.RoundCoordinate(participants[0].Lng) {
-		t.Fatalf("group coordinates = (%f, %f), want first member coordinates", groups[0].lat, groups[0].lng)
-	}
-
-	router := NewBalancedRouter(newMockDistanceAdapter())
-	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
-		InstituteCoords: models.Coordinates{},
-		Participants: []models.Participant{
-			*participants[0],
-			*participants[1],
-		},
-		Drivers: []models.Driver{
-			{ID: 1, Name: "Driver1", VehicleCapacity: 2},
-			{ID: 2, Name: "Driver2", VehicleCapacity: 2},
-		},
-		Mode: RouteModeDropoff,
-	})
-	if err != nil {
-		t.Fatalf("CalculateRoutes() error = %v", err)
-	}
-
-	assignedDriver := make(map[int64]int64)
-	for _, route := range result.Routes {
-		for _, stop := range route.Stops {
-			assignedDriver[stop.Participant.ID] = route.Driver.ID
-		}
-	}
-	if assignedDriver[1] == 0 || assignedDriver[1] != assignedDriver[2] {
-		t.Fatalf("same-address participants assigned to drivers %d and %d, want one driver", assignedDriver[1], assignedDriver[2])
+	if householdKey(participants[0]) != householdKey(participants[1]) {
+		t.Fatal("equivalent addresses produced different household keys")
 	}
 }
 
 func TestGroupParticipantsByAddress_DifferentAddressesWithIdenticalCoordinates(t *testing.T) {
-	participants := []*models.Participant{
-		{ID: 1, Address: "Apartment 1", Lat: 40.12345, Lng: -74.12345},
-		{ID: 2, Address: "Apartment 2", Lat: 40.12345, Lng: -74.12345},
+	for _, addresses := range [][2]string{
+		{"Apartment 1", "Apartment 2"},
+		{"12 Oak St Apt 1", "12 Oak St Apt 2"},
+	} {
+		t.Run(addresses[0], func(t *testing.T) {
+			participants := []*models.Participant{
+				{ID: 1, Address: addresses[0], Lat: 40.12345, Lng: -74.12345},
+				{ID: 2, Address: addresses[1], Lat: 40.12345, Lng: -74.12345},
+			}
+			if groups := groupParticipantsByAddress(participants); len(groups) != 2 {
+				t.Fatalf("group count = %d, want 2 separate households", len(groups))
+			}
+		})
 	}
+}
 
-	groups := groupParticipantsByAddress(participants)
-	if len(groups) != 2 {
-		t.Fatalf("group count = %d, want 2", len(groups))
-	}
-	if householdKey(participants[0]) == householdKey(participants[1]) {
-		t.Fatal("different non-blank addresses produced the same household key")
+func TestGroupParticipantsByAddress_NormalizesStreetAndUnitMarkers(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"St", "Street"},
+		{"Ave", "Avenue"},
+		{"Rd", "Road"},
+		{"Dr", "Drive"},
+		{"Blvd", "Boulevard"},
+		{"Ln", "Lane"},
+		{"Ct", "Court"},
+		{"Pl", "Place"},
+		{"N", "North"},
+		{"S", "South"},
+		{"E", "East"},
+		{"W", "West"},
+	} {
+		t.Run(pair[0], func(t *testing.T) {
+			participants := []*models.Participant{
+				{ID: 1, Address: " 12  Oak " + pair[0] + "., Apt. 1", Lat: 40.123450, Lng: -74.123450},
+				{ID: 2, Address: "12 OAK " + pair[1] + " #1", Lat: 40.123454, Lng: -74.123454},
+				{ID: 3, Address: "12 Oak " + pair[1] + " Unit 1", Lat: 40.123450, Lng: -74.123450},
+				{ID: 4, Address: "12 Oak " + pair[1] + " Apt #1", Lat: 40.123450, Lng: -74.123450},
+			}
+			if groups := groupParticipantsByAddress(participants); len(groups) != 1 {
+				t.Fatalf("group count = %d, want 1", len(groups))
+			}
+		})
 	}
 }
 
 func TestGroupParticipantsByAddress_NormalizesAddressCaseAndWhitespace(t *testing.T) {
 	participants := []*models.Participant{
-		{ID: 1, Address: "  123  MAIN\tSt\n", Lat: 1, Lng: 1},
-		{ID: 2, Address: "123 main st", Lat: 2, Lng: 2},
+		{ID: 1, Address: "  123  MAIN\tSt\n"},
+		{ID: 2, Address: "123 main st"},
 	}
 
 	groups := groupParticipantsByAddress(participants)
 	if len(groups) != 1 {
 		t.Fatalf("group count = %d, want 1", len(groups))
 	}
-	if got := householdKey(participants[0]); got != "addr:123 main st" {
-		t.Fatalf("household key = %q, want %q", got, "addr:123 main st")
+	if got := householdKey(participants[0]); got != "addr:123 main street" {
+		t.Fatalf("household key = %q, want %q", got, "addr:123 main street")
 	}
 }
 

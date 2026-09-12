@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
 	"ride-home-router/web"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -49,7 +51,8 @@ type Config struct {
 	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
 	AllowedHosts []string
 	// DatabaseURL points to the migrated Postgres database to serve.
-	DatabaseURL string
+	DatabaseURL      string
+	NominatimBaseURL string
 }
 
 const (
@@ -59,11 +62,9 @@ const (
 
 	maxRequestBodyBytes int64 = 1 << 20
 
-	serverMessageInvalidRequestBody  = "Invalid request body"
-	serverMessageForbidden           = "Forbidden"
-	serverMessageMethodNotAllowed    = "Method not allowed"
-	serverMessageNotFound            = "Not found"
-	serverMessageRequestBodyTooLarge = "Request body too large"
+	serverMessageForbidden        = "Forbidden"
+	serverMessageMethodNotAllowed = "Method not allowed"
+	serverMessageNotFound         = "Not found"
 )
 
 // New prepares a stopped server against an already-migrated database.
@@ -87,7 +88,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
-	geocoder := geocoding.NewNominatimGeocoderWithGate(db.NominatimGate())
+	geocoder := geocoding.NewNominatimGeocoderWithGate(db.NominatimGate(), cfg.NominatimBaseURL)
 	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), db.Settings().GoogleMapsKey)
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewPersistentStore(distanceCalc, db.Workflows())
@@ -108,11 +109,13 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	gate.Register(mux)
 
 	httpServer := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      gate.Protect(requestBodyMiddleware(mux)),
-		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout,
-		IdleTimeout:  serverIdleTimeout,
+		Addr:              cfg.Addr,
+		Handler:           gate.Protect(requestBodyMiddleware(mux)),
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
+		IdleTimeout:       serverIdleTimeout,
+		ReadHeaderTimeout: 10 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
 
 	cleanupCtx, cleanupCancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -162,7 +165,7 @@ func (s *Server) Start() (string, error) {
 		_ = listener.Close()
 		return "", err
 	}
-	s.httpServer.Handler = loggingMiddleware(requestSecurityMiddleware(allowlist, s.httpServer.Handler))
+	s.httpServer.Handler = recoverMiddleware(securityHeadersMiddleware(requestSecurityMiddleware(allowlist, s.httpServer.Handler)))
 	log.Printf("Starting server on %s", actualAddr)
 	s.serveDone = make(chan struct{})
 
@@ -394,7 +397,7 @@ func handleSetDesktopPreference(w http.ResponseWriter, r *http.Request) {
 		Name:     "prefer_desktop",
 		Value:    "1",
 		Path:     "/",
-		Secure:   r.TLS != nil,
+		Secure:   httpx.RequestIsSecure(r),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   365 * 24 * 60 * 60,
@@ -411,7 +414,7 @@ func handleClearDesktopPreference(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "prefer_desktop",
 		Path:     "/",
-		Secure:   r.TLS != nil,
+		Secure:   httpx.RequestIsSecure(r),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
@@ -420,33 +423,20 @@ func handleClearDesktopPreference(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/m", http.StatusSeeOther)
 }
 
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(lrw, r)
-
-		duration := time.Since(start)
-		//nolint:gosec // G706: method/path sanitized; local access log only.
-		log.Printf(
-			"%s %s %d %v",
-			logutil.SafeString(r.Method),
-			logutil.SafeString(r.URL.Path),
-			lrw.statusCode,
-			duration,
-		)
-	})
-}
-
 type loggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
+	written    bool
 }
 
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
-	lrw.statusCode = code
+	if lrw.written {
+		return
+	}
+	if code >= 200 {
+		lrw.written = true
+		lrw.statusCode = code
+	}
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
@@ -548,10 +538,14 @@ func requestBodyMiddleware(next http.Handler) http.Handler {
 			_ = limitedBody.Close()
 			if err != nil {
 				if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-					http.Error(w, serverMessageRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
+					message := "That request is too large. Select fewer items and try again."
+					if r.URL.Path == "/api/v1/imports" {
+						message = "That upload is too large. Spreadsheets are limited to 10 MB."
+					}
+					requestError(w, r, message, http.StatusRequestEntityTooLarge)
 					return
 				}
-				http.Error(w, serverMessageInvalidRequestBody, http.StatusBadRequest)
+				requestError(w, r, "That request could not be read. Reload the page and try again.", http.StatusBadRequest)
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
@@ -569,4 +563,66 @@ func isStateChangingMethod(method string) bool {
 	default:
 		return false
 	}
+}
+
+func (lrw *loggingResponseWriter) Write(body []byte) (int, error) {
+	if !lrw.written {
+		lrw.WriteHeader(http.StatusOK)
+	}
+	return lrw.ResponseWriter.Write(body)
+}
+func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter { return lrw.ResponseWriter }
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Recovery owns access logging so unwritten panic responses are recorded as 500.
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		defer func() {
+			value := recover()
+			if value != nil {
+				// Partial responses cannot be repaired; let net/http abort them.
+				if value != http.ErrAbortHandler {
+					log.Printf("[PANIC] %v\n%s", value, debug.Stack())
+				}
+				if !lrw.written && value != http.ErrAbortHandler {
+					for key := range lrw.Header() {
+						if strings.HasPrefix(key, "Content-") || strings.HasPrefix(key, "Hx-") || key == "Location" || key == "Set-Cookie" {
+							lrw.Header().Del(key)
+						}
+					}
+					lrw.Header().Set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+					lrw.Header().Set("Cache-Control", "no-store")
+					requestError(lrw, r, "An error occurred. Please try again.", http.StatusInternalServerError)
+					value = nil
+				}
+				lrw.statusCode = http.StatusInternalServerError
+			}
+			log.Printf("%s %s %d %v", logutil.SafeString(r.Method), logutil.SafeString(r.URL.Path), lrw.statusCode, time.Since(start))
+			if value != nil {
+				panic(http.ErrAbortHandler)
+			}
+		}()
+		next.ServeHTTP(lrw, r)
+	})
+}
+
+func requestError(w http.ResponseWriter, r *http.Request, message string, status int) {
+	if httpx.IsHTMX(r) {
+		trigger, _ := json.Marshal(map[string]any{"showToast": map[string]string{"message": message, "type": "error"}})
+		w.Header().Set("HX-Trigger", string(trigger))
+		w.Header().Set("HX-Reswap", "none")
+	}
+	http.Error(w, message, status)
 }

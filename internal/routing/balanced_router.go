@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // BalancedRouter prioritizes driver use, corridor spread, then time tiers.
@@ -1226,7 +1227,54 @@ func coordinateKey(lat, lng float64) string {
 }
 
 func normalizeAddress(address string) string {
-	return strings.ToLower(strings.Join(strings.Fields(address), " "))
+	address = strings.Map(func(r rune) rune {
+		if unicode.IsPunct(r) {
+			if r == '#' {
+				return r
+			}
+			return -1
+		}
+		return unicode.ToLower(r)
+	}, address)
+	words := strings.Fields(strings.ReplaceAll(address, "#", " unit "))
+	for i, word := range words {
+		switch word {
+		case "st":
+			words[i] = "street"
+		case "ave":
+			words[i] = "avenue"
+		case "rd":
+			words[i] = "road"
+		case "dr":
+			words[i] = "drive"
+		case "blvd":
+			words[i] = "boulevard"
+		case "ln":
+			words[i] = "lane"
+		case "ct":
+			words[i] = "court"
+		case "pl":
+			words[i] = "place"
+		case "n":
+			words[i] = "north"
+		case "s":
+			words[i] = "south"
+		case "e":
+			words[i] = "east"
+		case "w":
+			words[i] = "west"
+		case "apt", "apartment":
+			words[i] = "unit"
+		}
+	}
+	normalized := words[:0]
+	for _, word := range words {
+		if word == "unit" && len(normalized) > 0 && normalized[len(normalized)-1] == "unit" {
+			continue
+		}
+		normalized = append(normalized, word)
+	}
+	return strings.Join(normalized, " ")
 }
 
 func householdKey(participant *models.Participant) string {
@@ -1234,7 +1282,11 @@ func householdKey(participant *models.Participant) string {
 		return ""
 	}
 	if address := normalizeAddress(participant.Address); address != "" {
-		return "addr:" + address
+		key := "addr:" + address
+		if participant.Lat != 0 || participant.Lng != 0 {
+			key += "|coords:" + coordinateKey(models.RoundCoordinate(participant.Lat), models.RoundCoordinate(participant.Lng))
+		}
+		return key
 	}
 	return coordinateKey(models.RoundCoordinate(participant.Lat), models.RoundCoordinate(participant.Lng))
 }

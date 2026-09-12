@@ -58,6 +58,13 @@ func (e *ErrGeocodingFailed) Unwrap() error {
 	return e.Cause
 }
 
+// CooldownError reports an excessive persisted deadline that was capped for recovery.
+type CooldownError struct{}
+
+func (*CooldownError) Error() string {
+	return "Address lookup is temporarily unavailable. Try again later."
+}
+
 type RateGate interface {
 	Wait(context.Context) error
 	Defer(context.Context, time.Duration) error
@@ -113,7 +120,7 @@ const (
 	nominatimRateInterval  = 1 * time.Second
 	nominatimMaxAttempts   = 3
 	providerBodyLimit      = 4 << 10
-	maxNominatimRetryAfter = time.Duration(1<<63 - 1)
+	maxNominatimRetryAfter = 15 * time.Minute
 )
 
 // NewNominatimGeocoder creates a geocoder using Nominatim
@@ -126,11 +133,15 @@ func NewNominatimGeocoder() Geocoder {
 }
 
 // NewNominatimGeocoderWithGate uses a deployment-wide request budget.
-func NewNominatimGeocoderWithGate(gate RateGate) Geocoder {
+func NewNominatimGeocoderWithGate(gate RateGate, configuredURL string) Geocoder {
 	if gate == nil {
 		panic("geocoding: rate gate is required")
 	}
-	return &nominatimGeocoder{baseURL: "https://nominatim.openstreetmap.org", httpClient: &http.Client{Timeout: geocoderClientTimeout}, gate: gate}
+	baseURL := "https://nominatim.openstreetmap.org"
+	if strings.TrimSpace(configuredURL) != "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(configuredURL), "/")
+	}
+	return &nominatimGeocoder{baseURL: baseURL, httpClient: &http.Client{Timeout: geocoderClientTimeout}, gate: gate}
 }
 
 func (g *nominatimGeocoder) wait(ctx context.Context) error {
@@ -596,6 +607,9 @@ func (e *ErrGeocodingFailed) Retryable() bool {
 }
 
 func nominatimRetryDelay(err error, attempt int) (time.Duration, bool) {
+	if _, ok := errors.AsType[*CooldownError](err); ok {
+		return 0, false
+	}
 	var geocodingErr *ErrGeocodingFailed
 	if !errors.As(err, &geocodingErr) {
 		return 0, false
@@ -651,5 +665,5 @@ func parseNominatimRetryAfter(value string) time.Duration {
 	if err != nil {
 		return 0
 	}
-	return max(time.Until(when), 0)
+	return min(max(time.Until(when), 0), maxNominatimRetryAfter)
 }

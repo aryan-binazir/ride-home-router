@@ -72,6 +72,8 @@ func TestBuildOmitsRoutesWithoutParticipantsLikeEventSnapshot(t *testing.T) {
 }
 
 func TestShouldCaptureMatchesConfiguredSMEEmail(t *testing.T) {
+	SetTrustCFAccessHeader(true)
+	t.Cleanup(func() { SetTrustCFAccessHeader(false) })
 	tests := []struct {
 		name     string
 		setting  string
@@ -124,5 +126,14 @@ func feedbackSnapshot() routesession.CommitSnapshot {
 		DriverOrgVehicles: map[int64]*models.OrganizationVehicle{1: {ID: 50, Name: "Van", Capacity: 8, CreatedAt: createdAt, UpdatedAt: createdAt}},
 		ActivityLocation:  &models.ActivityLocation{ID: 100, Name: "HQ", Address: "100 Center Road", Lat: 35, Lng: -78},
 		Mode:              models.RouteModeDropoff,
+	}
+}
+
+func TestShouldCaptureIgnoresUntrustedHeader(t *testing.T) {
+	SetTrustCFAccessHeader(false)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/", nil)
+	req.Header.Set(AuthenticatedUserEmailHeader, "sme@example.com")
+	if _, ok := ShouldCapture(req, &models.Settings{SMEEmail: "sme@example.com"}); ok {
+		t.Fatal("trusted spoofable header by default")
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/access/accesstest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -135,3 +137,89 @@ func TestNavigationAndHTMXDenials(t *testing.T) {
 }
 
 func (s *approvals) RecordAdminEmails(context.Context, []string) error { return s.err }
+
+func TestCachedIdentityStillChecksApproval(t *testing.T) {
+	f := accesstest.New(t)
+	f.User("member", []string{"member@example.test"}, nil)
+	f.Session("member_session", "member", "active")
+	store := &approvals{allowed: true}
+	gate, err := access.New(f.Config(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	token := f.Token("member", "member_session")
+	request := func() int {
+		r := httptest.NewRequestWithContext(t.Context(), "GET", "/participants", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w.Code
+	}
+	if got := request(); got != 204 {
+		t.Fatalf("first=%d", got)
+	}
+	f.Session("member_session", "member", "revoked")
+	if got := request(); got != 204 {
+		t.Fatalf("cached=%d", got)
+	}
+	store.allowed = false
+	if got := request(); got != 403 {
+		t.Fatalf("removed approval=%d", got)
+	}
+}
+
+func TestAdminHistoryFailureDoesNotDenyAccess(t *testing.T) {
+	f := accesstest.New(t)
+	token := f.Admin()
+	gate, err := access.New(f.Config(), &approvals{err: errors.New("history unavailable")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequestWithContext(t.Context(), "GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })).ServeHTTP(w, r)
+	if w.Code != 204 {
+		t.Fatalf("status=%d", w.Code)
+	}
+}
+
+type countingTransport struct {
+	base  http.RoundTripper
+	calls atomic.Int32
+}
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.calls.Add(1)
+	return c.base.RoundTrip(r)
+}
+
+func TestConcurrentIdentityRequestsShareClerkLookups(t *testing.T) {
+	f := accesstest.New(t)
+	token := f.Admin()
+	cfg := f.Config()
+	transport := &countingTransport{base: cfg.HTTPClient.Transport}
+	cfg.HTTPClient.Transport = transport
+	gate, err := access.New(cfg, &approvals{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	var workers sync.WaitGroup
+	for range 12 {
+		workers.Go(func() {
+			r := httptest.NewRequestWithContext(t.Context(), "GET", "/", nil)
+			r.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != 204 {
+				t.Errorf("status=%d", w.Code)
+			}
+		})
+	}
+	workers.Wait()
+	if got := transport.calls.Load(); got != 2 {
+		t.Fatalf("Clerk calls=%d want2", got)
+	}
+}

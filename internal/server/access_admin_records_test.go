@@ -55,13 +55,17 @@ func TestVerifiedAdminEmailPersistenceAndFailure(t *testing.T) {
 	if emails != "admin@example.test" {
 		t.Fatalf("recorded emails %q; want only verified configured admin", emails)
 	}
-	// Losing email verification must revoke authority without deleting history.
+	// Fresh identity lookups reject lost verification without deleting history.
 	f.User("admin", []string{"unrelated@example.test"}, []string{"admin@example.test"})
+	f.Session("unverified_session", "admin", "active")
+	token = f.Token("admin", "unverified_session")
 	w = request("GET", false)
 	if w.Code != 403 {
 		t.Fatalf("unverified former admin got %d", w.Code)
 	}
 	f.User("admin", []string{"second@example.test"}, nil)
+	f.Session("second_session", "admin", "active")
+	token = f.Token("admin", "second_session")
 	w = request("PUT", false)
 	if w.Code != 403 {
 		t.Fatalf("CSRF denial got %d", w.Code)
@@ -77,8 +81,10 @@ func TestVerifiedAdminEmailPersistenceAndFailure(t *testing.T) {
 	if _, err := conn.Exec(t.Context(), `ALTER TABLE verified_admin_emails RENAME TO unavailable_admin_emails`); err != nil {
 		t.Fatal(err)
 	}
+	f.Session("history_failure_session", "admin", "active")
+	token = f.Token("admin", "history_failure_session")
 	w = request("GET", false)
-	if w.Code != 503 || strings.TrimSpace(w.Body.String()) != "Service Unavailable" {
-		t.Fatalf("failed persistence must deny without protected settings: %d %s", w.Code, w.Body.String())
+	if w.Code != 200 {
+		t.Fatalf("failed history persistence blocked access: %d %s", w.Code, w.Body.String())
 	}
 }

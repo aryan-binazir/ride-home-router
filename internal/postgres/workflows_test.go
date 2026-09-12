@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestWorkflowCapacityPreservesExistingDrafts(t *testing.T) {
+func TestWorkflowCapacityEvictsLeastRecentlyUsedDraft(t *testing.T) {
 	db := postgrestest.Open(t)
 	repo := db.Workflows()
 	for i := range 256 {
@@ -19,11 +19,17 @@ func TestWorkflowCapacityPreservesExistingDrafts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := repo.Create(t.Context(), "draft", fmt.Sprintf("%032x", 256), []byte(`{}`), time.Hour); !errors.Is(err, database.ErrWorkflowCapacity) {
+	if _, err := repo.Load(t.Context(), "draft", fmt.Sprintf("%032x", 0), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(t.Context(), "draft", fmt.Sprintf("%032x", 256), []byte(`{}`), time.Hour); err != nil {
 		t.Fatalf("capacity error: %v", err)
 	}
 	if _, err := repo.Load(t.Context(), "draft", fmt.Sprintf("%032x", 0), time.Hour); err != nil {
 		t.Fatalf("old draft was evicted: %v", err)
+	}
+	if _, err := repo.Load(t.Context(), "draft", fmt.Sprintf("%032x", 1), time.Hour); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("idle draft survived: %v", err)
 	}
 }
 

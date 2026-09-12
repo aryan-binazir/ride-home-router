@@ -377,3 +377,9 @@ func TestNominatimSearch_DoesNotRetryPermanentHTTPError(t *testing.T) {
 		t.Fatalf("requests = %d, want 1", requests.Load())
 	}
 }
+
+func TestRetryAfterClampsToFifteenMinutes(t *testing.T) {
+	if got := parseNominatimRetryAfter("999999999"); got != 15*time.Minute {
+		t.Fatalf("retry after=%v", got)
+	}
+}

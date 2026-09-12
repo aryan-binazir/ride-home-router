@@ -699,7 +699,7 @@ func TestRequestSecurityMiddlewareUsesImportUploadBudgetOnRealRoutes(t *testing.
 	if err != nil {
 		t.Fatalf("newRequestAllowlist() error = %v", err)
 	}
-	handler := loggingMiddleware(requestSecurityMiddleware(allowlist, server.httpServer.Handler))
+	handler := recoverMiddleware(securityHeadersMiddleware(requestSecurityMiddleware(allowlist, server.httpServer.Handler)))
 
 	t.Run("import over default limit succeeds from IPv6 loopback", func(t *testing.T) {
 		req := newMiddlewareImportRequest(t, int(maxRequestBodyBytes)+1)

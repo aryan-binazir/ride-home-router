@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -68,4 +69,18 @@ func HasSameOrigin(r *http.Request) bool {
 		return false
 	}
 	return strings.EqualFold(u.Host, r.Host)
+}
+
+// RequestIsSecure supports TLS termination by the deployment proxy.
+func RequestIsSecure(r *http.Request) bool {
+	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https") {
+		return true
+	}
+	host := r.Host
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
+	}
+	host = strings.Trim(strings.ToLower(host), "[]")
+	ip := net.ParseIP(host)
+	return host != "localhost" && (ip == nil || !ip.IsLoopback())
 }

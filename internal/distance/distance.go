@@ -2,7 +2,6 @@ package distance
 
 import (
 	"context"
-	"fmt"
 	"ride-home-router/internal/models"
 )
 
@@ -11,11 +10,14 @@ type ErrDistanceCalculationFailed struct {
 	Origin models.Coordinates
 	Dest   models.Coordinates
 	Reason string
+	Cause  error
 }
 
 func (e *ErrDistanceCalculationFailed) Error() string {
-	return fmt.Sprintf("distance calculation failed: %s", e.Reason)
+	return e.Reason
 }
+
+func (e *ErrDistanceCalculationFailed) Unwrap() error { return e.Cause }
 
 // DistanceResult holds a distance and travel time.
 type DistanceResult struct {
