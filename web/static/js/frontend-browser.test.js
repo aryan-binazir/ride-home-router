@@ -170,3 +170,16 @@ document.getElementById('evidence').textContent=JSON.stringify({checked:document
     assert.equal(result.checked,true);
     assert.equal(result.seats,'4 seats selected');
 });
+
+
+test('filtered duplicate van assignment becomes an accurate valid total after deselection', {skip: !browser}, () => {
+    const row=(id,capacity)=>`<div class="mobile-driver-choice"><input name="driver_ids" type="checkbox" value="${id}" data-capacity="${capacity}" checked><select name="org_vehicle_${id}"><option value="" data-capacity="${capacity}">Personal</option><option value="9" data-capacity="8">Van</option></select></div>`;
+    const result = run('<span id="mobile-selected-seats" data-seats="6"></span><form id="mobile-driver-picker"><div id="mobile-driver-results">'+row(1,4)+row(2,2)+'</div></form>', ['mobile.js'], `
+for(const select of document.querySelectorAll('select')){select.value='9';select.dispatchEvent(new Event('change',{bubbles:true}));}
+const totals=[document.getElementById('mobile-selected-seats').textContent];
+const target=document.getElementById('mobile-driver-results');const detail={target,shouldSwap:true,serverResponse:${JSON.stringify('<div id="mobile-driver-results">'+row(1,4)+'</div>')}};
+document.dispatchEvent(new CustomEvent('htmx:beforeSwap',{detail}));target.outerHTML=detail.serverResponse;document.dispatchEvent(new CustomEvent('htmx:afterSwap'));
+totals.push(document.getElementById('mobile-selected-seats').textContent);document.querySelector('input[type="checkbox"]').click();totals.push(document.getElementById('mobile-selected-seats').textContent);
+document.getElementById('evidence').textContent=JSON.stringify({totals,errors});`);
+    assert.deepEqual(result.totals,['10 seats selected','10 seats selected','8 seats selected']);
+});

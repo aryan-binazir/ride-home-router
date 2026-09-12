@@ -1,6 +1,6 @@
 (() => {
     let selectedSeats;
-    let visibleSeats = 0;
+    let knownSeats = 0;
     function initializePage() {
         captureSeatCount();
         const today = new Date();
@@ -95,29 +95,43 @@
         submitting.clear();
     });
 
-    function countVisibleSeats(defaults = false) {
+    function countKnownSeats(defaults = false) {
         let total = 0;
-        const vans = new Set(Array.from(document.querySelectorAll?.('#mobile-driver-picker input[type="hidden"][name^="org_vehicle_"]') || [], input => input.value));
-        document.querySelectorAll?.('#mobile-driver-picker .mobile-driver-choice').forEach(row => {
+        const picker = document.getElementById?.('mobile-driver-picker');
+        if (!picker) return total;
+        const drivers = [];
+        const vans = new Set();
+        picker.querySelectorAll('input[type="hidden"][name="driver_ids"]').forEach(input => {
+            const assignment = picker.querySelector(`input[name="org_vehicle_${input.value}"]`);
+            if (input.dataset.capacity === undefined) {
+                if (assignment?.value) vans.add(assignment.value);
+                return;
+            }
+            drivers.push({id: input.value, capacity: Number(input.dataset.capacity),
+                van: assignment?.value, vanCapacity: Number(assignment?.dataset.capacity)});
+        });
+        picker.querySelectorAll('.mobile-driver-choice').forEach(row => {
             const checkbox = row.querySelector('input[name="driver_ids"]');
             if (!(defaults ? checkbox?.defaultChecked : checkbox?.checked)) return;
             const select = row.querySelector('select');
             const option = defaults ? Array.from(select?.options || []).find(option => option.defaultSelected) || select?.options[0] : select?.selectedOptions[0];
-            const van = option?.value;
-            if (van && vans.has(van)) {
-                total += Number(checkbox.dataset.capacity || 0);
-                return;
-            }
-            if (van) vans.add(van);
-            total += Number(option?.dataset.capacity || checkbox.dataset.capacity || 0);
+            drivers.push({id: checkbox.value, capacity: Number(checkbox.dataset.capacity || 0),
+                van: option?.value, vanCapacity: Number(option?.dataset.capacity)});
         });
+        // Keep van ownership stable when a filter moves a selected driver into
+        // hidden inputs. Unknown initial hidden capacities stay in the server total.
+        drivers.sort((a, b) => Number(a.id) - Number(b.id));
+        for (const driver of drivers) {
+            total += driver.van && !vans.has(driver.van) ? driver.vanCapacity : driver.capacity;
+            if (driver.van) vans.add(driver.van);
+        }
         return total;
     }
     function captureSeatCount() {
         const count = document.getElementById?.('mobile-selected-seats');
         if (!count) return;
-        visibleSeats = countVisibleSeats();
-        selectedSeats ??= Number(count.dataset.seats) + visibleSeats - countVisibleSeats(true);
+        knownSeats = countKnownSeats();
+        selectedSeats ??= Number(count.dataset.seats) + knownSeats - countKnownSeats(true);
         count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
     }
     document.addEventListener('htmx:afterSwap', captureSeatCount);
@@ -125,9 +139,9 @@
         if (!event.target.closest?.('#mobile-driver-picker')) return;
         const count = document.getElementById?.('mobile-selected-seats');
         if (!count) return;
-        const next = countVisibleSeats();
-        selectedSeats = (selectedSeats ?? Number(count.dataset.seats)) + next - visibleSeats;
-        visibleSeats = next;
+        const next = countKnownSeats();
+        selectedSeats = (selectedSeats ?? Number(count.dataset.seats)) + next - knownSeats;
+        knownSeats = next;
         count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
     });
 
@@ -190,6 +204,8 @@
             input.type = 'hidden';
             input.name = name;
             input.value = id;
+            const original = form.querySelector(`input[name="${name}"][value="${id}"]`);
+            if (original?.dataset.capacity !== undefined) input.dataset.capacity = original.dataset.capacity;
             results.append(input);
             const vehicle = current.get(`org_vehicle_${id}`);
             if (name === 'driver_ids' && vehicle) {
@@ -197,6 +213,9 @@
                 assignment.type = 'hidden';
                 assignment.name = `org_vehicle_${id}`;
                 assignment.value = vehicle;
+                const source = form.querySelector(`[name="org_vehicle_${id}"]`);
+                const capacity = source?.selectedOptions?.[0]?.dataset.capacity ?? source?.dataset.capacity;
+                if (capacity !== undefined) assignment.dataset.capacity = capacity;
                 results.append(assignment);
             }
         }
