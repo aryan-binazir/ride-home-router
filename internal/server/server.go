@@ -62,11 +62,9 @@ const (
 
 	maxRequestBodyBytes int64 = 1 << 20
 
-	serverMessageInvalidRequestBody  = "Invalid request body"
-	serverMessageForbidden           = "Forbidden"
-	serverMessageMethodNotAllowed    = "Method not allowed"
-	serverMessageNotFound            = "Not found"
-	serverMessageRequestBodyTooLarge = "Request body too large"
+	serverMessageForbidden        = "Forbidden"
+	serverMessageMethodNotAllowed = "Method not allowed"
+	serverMessageNotFound         = "Not found"
 )
 
 // New prepares a stopped server against an already-migrated database.
@@ -423,26 +421,6 @@ func handleClearDesktopPreference(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(1, 0),
 	})
 	http.Redirect(w, r, "/m", http.StatusSeeOther)
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(lrw, r)
-
-		duration := time.Since(start)
-		//nolint:gosec // G706: method/path sanitized; local access log only.
-		log.Printf(
-			"%s %s %d %v",
-			logutil.SafeString(r.Method),
-			logutil.SafeString(r.URL.Path),
-			lrw.statusCode,
-			duration,
-		)
-	})
 }
 
 type loggingResponseWriter struct {

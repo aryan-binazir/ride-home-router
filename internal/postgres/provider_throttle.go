@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"ride-home-router/internal/geocoding"
 	"time"
 )
 
@@ -13,11 +14,7 @@ import (
 type ProviderGate struct{ db *sql.DB }
 
 // ProviderCooldownError reports an invalid persisted cooldown without waiting indefinitely.
-type ProviderCooldownError struct{}
-
-func (*ProviderCooldownError) Error() string {
-	return "Address lookup is temporarily unavailable. Try again later."
-}
+type ProviderCooldownError = geocoding.CooldownError
 
 func (s *Store) NominatimGate() *ProviderGate { return &ProviderGate{db: s.db} }
 func (g *ProviderGate) Wait(ctx context.Context) error {
@@ -35,6 +32,9 @@ func (g *ProviderGate) Wait(ctx context.Context) error {
 			return err
 		}
 		if seconds > (15 * time.Minute).Seconds() {
+			if _, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=LEAST(next_at,clock_timestamp()+interval '15 minutes') WHERE name='nominatim'`); err != nil {
+				return err
+			}
 			return &ProviderCooldownError{}
 		}
 		delay := time.Duration(min(max(seconds, 0.01), 1) * float64(time.Second))
@@ -49,6 +49,6 @@ func (g *ProviderGate) Wait(ctx context.Context) error {
 }
 
 func (g *ProviderGate) Defer(ctx context.Context, delay time.Duration) error {
-	_, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=GREATEST(next_at,clock_timestamp()+$1*interval '1 second') WHERE name='nominatim'`, min(max(delay, 0), 15*time.Minute).Seconds())
+	_, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=GREATEST(LEAST(next_at,clock_timestamp()+interval '15 minutes'),clock_timestamp()+$1*interval '1 second') WHERE name='nominatim'`, min(max(delay, 0), 15*time.Minute).Seconds())
 	return err
 }

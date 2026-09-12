@@ -81,4 +81,11 @@ func TestProviderGateFailsFastForInvalidStoredCooldown(t *testing.T) {
 	if err = store.NominatimGate().Wait(ctx); !errors.As(err, &cooldown) {
 		t.Fatalf("cooldown=%v", err)
 	}
+	var seconds float64
+	if err = conn.QueryRow(t.Context(), "SELECT EXTRACT(EPOCH FROM next_at-clock_timestamp())::float8 FROM provider_throttles WHERE name='nominatim'").Scan(&seconds); err != nil {
+		t.Fatal(err)
+	}
+	if seconds > 900 || seconds < 890 {
+		t.Fatalf("persisted cooldown was not repaired: %f", seconds)
+	}
 }

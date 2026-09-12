@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"strings"
 	"sync/atomic"
@@ -49,7 +50,7 @@ func TestPrewarmCapsUncachedPairsBeforeBilling(t *testing.T) {
 
 func TestPrewarmPacksColdRiderDriverPairs(t *testing.T) {
 	var calls atomic.Int32
-	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+	calc, cache := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		var request googleMatrixRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -98,6 +99,11 @@ func TestPrewarmPacksColdRiderDriverPairs(t *testing.T) {
 	if got := calls.Load(); got > 25 {
 		t.Fatalf("lookup missed prewarm: %d", got)
 	}
+	for _, point := range points {
+		if _, err := cache.Get(t.Context(), point, point); !errors.Is(err, database.ErrCacheMiss) {
+			t.Fatalf("self result was cached: %v", err)
+		}
+	}
 }
 
 func TestPrewarmAllowsLargeWarmCache(t *testing.T) {
@@ -119,5 +125,45 @@ func TestPrewarmAllowsLargeWarmCache(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("warm cache billed %d calls", calls)
+	}
+}
+
+func TestPrewarmAcceptsExactlyTheBillingLimit(t *testing.T) {
+	var billed atomic.Int64
+	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+		var request googleMatrixRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		billed.Add(int64(len(request.Origins)) * int64(len(request.Destinations)))
+		elements := []googleMatrixElement{}
+		for i := range request.Origins {
+			for j := range request.Destinations {
+				elements = append(elements, googleMatrixElement{OriginIndex: i, DestinationIndex: j, Condition: "ROUTE_EXISTS", DistanceMeters: 1, Duration: "1s"})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(elements)
+	})
+	points := make([]models.Coordinates, 246)
+	for i := range points {
+		points[i] = models.Coordinates{Lat: 10 + float64(i)/100, Lng: 20}
+	}
+	pairs := []DistancePair{}
+	for i := range 245 {
+		for j := range 245 {
+			if i != j {
+				pairs = append(pairs, DistancePair{Origin: points[i], Destination: points[j]})
+			}
+		}
+	}
+	for j := range 220 {
+		pairs = append(pairs, DistancePair{Origin: points[245], Destination: points[j]})
+	}
+	if err := calc.PrewarmPairs(t.Context(), pairs); err != nil {
+		t.Fatal(err)
+	}
+	if got := billed.Load(); got != 60000 {
+		t.Fatalf("billed elements=%d want60000", got)
 	}
 }

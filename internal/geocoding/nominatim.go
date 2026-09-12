@@ -58,6 +58,13 @@ func (e *ErrGeocodingFailed) Unwrap() error {
 	return e.Cause
 }
 
+// CooldownError reports an excessive persisted deadline that was capped for recovery.
+type CooldownError struct{}
+
+func (*CooldownError) Error() string {
+	return "Address lookup is temporarily unavailable. Try again later."
+}
+
 type RateGate interface {
 	Wait(context.Context) error
 	Defer(context.Context, time.Duration) error
@@ -600,6 +607,9 @@ func (e *ErrGeocodingFailed) Retryable() bool {
 }
 
 func nominatimRetryDelay(err error, attempt int) (time.Duration, bool) {
+	if _, ok := errors.AsType[*CooldownError](err); ok {
+		return 0, false
+	}
 	var geocodingErr *ErrGeocodingFailed
 	if !errors.As(err, &geocodingErr) {
 		return 0, false

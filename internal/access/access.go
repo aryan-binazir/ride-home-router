@@ -289,6 +289,15 @@ func deny(w http.ResponseWriter, r *http.Request, status int) {
 
 // identity caches only verified Backend API results, never JWT email claims.
 func (a *Access) identity(ctx context.Context, sessionID, userID string) (cachedIdentity, bool, int) {
+	a.cacheMu.Lock()
+	cached, hit := a.identities[sessionID]
+	a.cacheMu.Unlock()
+	if hit && time.Now().Before(cached.expires) {
+		if cached.userID != userID || cached.banned || cached.locked {
+			return cachedIdentity{}, false, http.StatusUnauthorized
+		}
+		return cached, false, 0
+	}
 	// A fixed set of gates coalesces same-identity misses without an unbounded waiter map.
 	hash := fnv.New64a()
 	_, _ = hash.Write([]byte(sessionID))

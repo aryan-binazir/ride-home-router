@@ -263,25 +263,34 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		seen[key] = true
 		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{pair.Origin, pair.Destination})
 	}
-	cached, err := c.cache.GetBatch(ctx, cachePairs)
-	if err != nil {
-		return err
-	}
-	missing := make(map[string]bool)
-	byOrigin := make(map[string][]models.Coordinates)
-	origins := make(map[string]models.Coordinates)
-	for _, pair := range cachePairs {
-		key := PairCacheKey(pair.Origin, pair.Dest)
-		if cached[key] != nil {
-			continue
+	var missing map[string]bool
+	var byOrigin map[string][]models.Coordinates
+	var origins map[string]models.Coordinates
+	hydrate := func() error {
+		cached, err := c.cache.GetBatch(ctx, cachePairs)
+		if err != nil {
+			return err
 		}
-		missing[key] = true
-		originKey := coordinatePointKey(pair.Origin)
-		byOrigin[originKey] = append(byOrigin[originKey], pair.Dest)
-		origins[originKey] = pair.Origin
+		missing = make(map[string]bool)
+		byOrigin = make(map[string][]models.Coordinates)
+		origins = make(map[string]models.Coordinates)
+		for _, pair := range cachePairs {
+			key := PairCacheKey(pair.Origin, pair.Dest)
+			if cached[key] != nil {
+				continue
+			}
+			missing[key] = true
+			originKey := coordinatePointKey(pair.Origin)
+			byOrigin[originKey] = append(byOrigin[originKey], pair.Dest)
+			origins[originKey] = pair.Origin
+		}
+		if len(missing) > MaxUncachedDistancePairs {
+			return ErrTooManyDistancePairs
+		}
+		return nil
 	}
-	if len(missing) > MaxUncachedDistancePairs {
-		return ErrTooManyDistancePairs
+	if err := hydrate(); err != nil {
+		return err
 	}
 	if len(missing) == 0 {
 		return nil
@@ -291,6 +300,13 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		defer func() { <-providerCalculations }()
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	// Calculations ahead of us may have filled these entries while we waited.
+	if err := hydrate(); err != nil {
+		return err
+	}
+	if len(missing) == 0 {
+		return nil
 	}
 	keys := make([]string, 0, len(byOrigin))
 	for key := range byOrigin {
