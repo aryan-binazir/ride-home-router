@@ -13,9 +13,6 @@ import (
 // not reserve a queue of future slots (an acquired slot is spent).
 type ProviderGate struct{ db *sql.DB }
 
-// ProviderCooldownError reports an invalid persisted cooldown without waiting indefinitely.
-type ProviderCooldownError = geocoding.CooldownError
-
 func (s *Store) NominatimGate() *ProviderGate { return &ProviderGate{db: s.db} }
 func (g *ProviderGate) Wait(ctx context.Context) error {
 	for {
@@ -35,7 +32,7 @@ func (g *ProviderGate) Wait(ctx context.Context) error {
 			if _, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=LEAST(next_at,clock_timestamp()+interval '15 minutes') WHERE name='nominatim'`); err != nil {
 				return err
 			}
-			return &ProviderCooldownError{}
+			return &geocoding.CooldownError{}
 		}
 		delay := time.Duration(min(max(seconds, 0.01), 1) * float64(time.Second))
 		timer := time.NewTimer(delay)

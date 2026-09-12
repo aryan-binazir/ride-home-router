@@ -167,3 +167,40 @@ func TestPrewarmAcceptsExactlyTheBillingLimit(t *testing.T) {
 		t.Fatalf("billed elements=%d want60000", got)
 	}
 }
+
+func TestPrewarmDoesNotRebillPairsFromEarlierChunks(t *testing.T) {
+	var billed atomic.Int64
+	calc, cache := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+		var request googleMatrixRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		billed.Add(int64(len(request.Origins) * len(request.Destinations)))
+		var elements []googleMatrixElement
+		for i := range request.Origins {
+			for j := range request.Destinations {
+				elements = append(elements, googleMatrixElement{OriginIndex: i, DestinationIndex: j, Condition: "ROUTE_EXISTS", DistanceMeters: 1, Duration: "1s"})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(elements)
+	})
+	origin := models.Coordinates{Lat: 10, Lng: 20}
+	var pairs []DistancePair
+	for i := range 626 {
+		pairs = append(pairs, DistancePair{Origin: origin, Destination: models.Coordinates{Lat: 30 + float64(i)/1000, Lng: 40}})
+	}
+	other := models.Coordinates{Lat: 11, Lng: 20}
+	pairs = append(pairs, DistancePair{Origin: other, Destination: pairs[0].Destination}, DistancePair{Origin: other, Destination: pairs[625].Destination})
+	if err := calc.PrewarmPairs(t.Context(), pairs); err != nil {
+		t.Fatal(err)
+	}
+	if got := billed.Load(); got != int64(len(pairs)) {
+		t.Fatalf("billed elements = %d, want %d unique pairs", got, len(pairs))
+	}
+	for _, pair := range pairs {
+		if _, err := cache.Get(t.Context(), pair.Origin, pair.Destination); err != nil {
+			t.Fatalf("requested pair missing from cache: %v", err)
+		}
+	}
+}

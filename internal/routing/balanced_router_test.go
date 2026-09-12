@@ -137,6 +137,7 @@ func TestGroupParticipantsByAddress_NormalizesStreetAndUnitMarkers(t *testing.T)
 				{ID: 1, Address: " 12  Oak " + pair[0] + "., Apt. 1", Lat: 40.123450, Lng: -74.123450},
 				{ID: 2, Address: "12 OAK " + pair[1] + " #1", Lat: 40.123454, Lng: -74.123454},
 				{ID: 3, Address: "12 Oak " + pair[1] + " Unit 1", Lat: 40.123450, Lng: -74.123450},
+				{ID: 4, Address: "12 Oak " + pair[1] + " Apt #1", Lat: 40.123450, Lng: -74.123450},
 			}
 			if groups := groupParticipantsByAddress(participants); len(groups) != 1 {
 				t.Fatalf("group count = %d, want 1", len(groups))
@@ -442,7 +443,7 @@ func TestBearingSweepInsertion_DeterministicTieBreaks(t *testing.T) {
 	}
 	groups := bearingSweepGroups(models.Coordinates{}, participants)
 	for i, group := range groups {
-		if got, want := group.members[0].ID, []int64{1, 2, 3, 4}[i]; got != want {
+		if got, want := group.members[0].ID, int64(i+1); got != want {
 			t.Fatalf("equal-gap sweep group %d ID = %d, want household-key order ID %d", i, got, want)
 		}
 	}

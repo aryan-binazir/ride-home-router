@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
@@ -77,7 +78,7 @@ func TestProviderGateFailsFastForInvalidStoredCooldown(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	var cooldown *postgres.ProviderCooldownError
+	var cooldown *geocoding.CooldownError
 	if err = store.NominatimGate().Wait(ctx); !errors.As(err, &cooldown) {
 		t.Fatalf("cooldown=%v", err)
 	}

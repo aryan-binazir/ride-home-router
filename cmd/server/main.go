@@ -169,8 +169,8 @@ func parseArgs(args []string) (options, error) {
 	for _, fallback := range config.Fallbacks {
 		insecure = insecure || fallback.TLSConfig == nil
 	}
-	if !loopback && (insecure || !strings.Contains(opts.DatabaseURL, "sslmode")) {
-		log.Print("[WARN] Database encryption is disabled or sslmode is not explicit on a public listener")
+	if !loopback && insecure {
+		log.Print("[WARN] Database connection permits unencrypted transport on a public listener")
 	}
 	return opts, nil
 }

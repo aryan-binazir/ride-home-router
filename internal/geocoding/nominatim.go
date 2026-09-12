@@ -133,13 +133,13 @@ func NewNominatimGeocoder() Geocoder {
 }
 
 // NewNominatimGeocoderWithGate uses a deployment-wide request budget.
-func NewNominatimGeocoderWithGate(gate RateGate, configuredURL ...string) Geocoder {
+func NewNominatimGeocoderWithGate(gate RateGate, configuredURL string) Geocoder {
 	if gate == nil {
 		panic("geocoding: rate gate is required")
 	}
 	baseURL := "https://nominatim.openstreetmap.org"
-	if len(configuredURL) > 0 && strings.TrimSpace(configuredURL[0]) != "" {
-		baseURL = strings.TrimRight(strings.TrimSpace(configuredURL[0]), "/")
+	if strings.TrimSpace(configuredURL) != "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(configuredURL), "/")
 	}
 	return &nominatimGeocoder{baseURL: baseURL, httpClient: &http.Client{Timeout: geocoderClientTimeout}, gate: gate}
 }

@@ -343,6 +343,16 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 				}
 			}
 			if !merged {
+				// Earlier blocks are final. Do not schedule their pairs again
+				// when a later origin expands the next block's destinations.
+				if len(blocks) > 0 {
+					previous := blocks[len(blocks)-1]
+					for _, origin := range previous.origins {
+						for _, dest := range previous.destinations {
+							delete(missing, PairCacheKey(origin, dest))
+						}
+					}
+				}
 				blocks = append(blocks, prewarmBlock{origins: []models.Coordinates{origins[key]}, destinations: chunk})
 			}
 		}

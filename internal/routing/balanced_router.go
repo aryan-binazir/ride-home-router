@@ -1267,7 +1267,14 @@ func normalizeAddress(address string) string {
 			words[i] = "unit"
 		}
 	}
-	return strings.Join(words, " ")
+	normalized := words[:0]
+	for _, word := range words {
+		if word == "unit" && len(normalized) > 0 && normalized[len(normalized)-1] == "unit" {
+			continue
+		}
+		normalized = append(normalized, word)
+	}
+	return strings.Join(normalized, " ")
 }
 
 func householdKey(participant *models.Participant) string {
