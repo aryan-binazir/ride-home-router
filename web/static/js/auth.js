@@ -1,6 +1,7 @@
 /* Clerk owns session refresh; every backend request independently checks access. */
 (async function () {
-    const message = document.getElementById('auth-message');
+    const retry = document.getElementById('auth-retry');
+    if (retry) retry.addEventListener('click', () => location.reload());
     let recovery;
     function showRecovery(text) {
         if (!recovery) {
@@ -88,12 +89,34 @@
         if (window.Clerk.user) {
             const check = await fetch('/api/v1/settings', {cache: 'no-store'});
             if (check.ok) { location.replace('/'); return; }
-            message.textContent = check.status === 403
-                ? 'Your account is not approved. Contact an administrator or sign out to use another account.'
-                : 'Unable to verify your access. Try again or sign out.';
+            if (retry && check.status !== 403) retry.hidden = false;
             return;
         }
         window.Clerk.mountSignIn(document.getElementById('clerk-sign-in'), {
+            appearance: {
+                variables: {
+                    colorPrimary: 'var(--accent)',
+                    colorText: 'var(--ink)',
+                    colorTextSecondary: 'var(--ink-2)',
+                    colorBackground: 'var(--pane)',
+                    colorInputBackground: 'var(--field)',
+                    colorInputText: 'var(--ink)',
+                    colorNeutral: 'var(--ink)',
+                    colorDanger: 'var(--danger)',
+                    fontFamily: 'inherit',
+                    fontSize: '0.9375rem',
+                    borderRadius: '0.5rem',
+                },
+                elements: {
+                    rootBox: 'login-clerk-root',
+                    cardBox: 'login-clerk-box',
+                    card: 'login-clerk-card',
+                    headerTitle: 'login-clerk-title',
+                    headerSubtitle: 'login-clerk-subtitle',
+                    socialButtonsBlockButton: 'login-google-button',
+                    footer: 'login-clerk-footer',
+                },
+            },
             routing: 'hash',
             forceRedirectUrl: '/',
             signUpForceRedirectUrl: '/',
@@ -101,6 +124,6 @@
             transferable: true,
         });
     } catch (_) {
-        if (message) message.textContent = 'Sign in is unavailable. Please try again later.';
+        if (retry) retry.hidden = false;
     }
 })();

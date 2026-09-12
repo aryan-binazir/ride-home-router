@@ -15,9 +15,30 @@ func (a *Access) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in - Ride Home Router</title><link rel="stylesheet" href="/static/css/style.css"><script src="/static/js/auth.js" defer></script></head>
-<body>
-<main class="main"><h1>Ride Home Router</h1><p id="auth-message">Sign in with Google. An administrator must approve your email before you can access the app.</p><div id="clerk-sign-in"></div><button type="button" data-sign-out hidden>Sign out</button></main>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Sign in - Ride Home Router</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/login.css">
+<script src="/static/js/auth.js" defer></script>
+</head>
+<body class="login-page">
+<main class="login-shell">
+<header class="login-brand">
+<span class="login-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 23V12a5 5 0 0 1 10 0v8a5 5 0 0 0 10 0v-9"/><circle cx="6" cy="25" r="3" fill="currentColor" stroke="none"/><path d="m22 11 4-4 4 4"/></svg></span>
+<h1>Ride Home Router</h1>
+
+</header>
+<section class="login-panel" aria-label="Sign in">
+<div id="clerk-sign-in"></div>
+<button id="auth-retry" class="btn login-sign-out" type="button" hidden>Try again</button>
+<button class="btn login-sign-out" type="button" data-sign-out hidden>Use another account</button>
+<noscript><p class="login-message">Enable JavaScript to sign in.</p></noscript>
+</section>
+
+</main>
 </body>
 </html>`))
 	})
