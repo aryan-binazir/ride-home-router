@@ -86,6 +86,7 @@
                 if (event.submitter) form.requestSubmit(event.submitter);
                 else form.requestSubmit();
             } catch (_) {
+                form.dispatchEvent?.(new Event('auth:submitFailed', {bubbles: true}));
                 showRecovery('Could not renew your sign-in. Your form has not been submitted.');
             } finally {
                 readyForms.delete(form);
@@ -102,7 +103,7 @@
             const check = await fetch('/api/v1/settings', {cache: 'no-store'});
             if (check.ok) { location.replace('/'); return; }
             if (check.status === 403) showDenied();
-            else if (!status || status.hidden !== false) showStatus('Sign-in is temporarily unavailable. Try again.');
+            else if (status?.hidden !== false) showStatus('Sign-in is temporarily unavailable. Try again.');
             if (retry && check.status !== 403) retry.hidden = false;
             return;
         }

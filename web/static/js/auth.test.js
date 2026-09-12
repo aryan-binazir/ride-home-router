@@ -17,7 +17,7 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
     state.button.addEventListener = (_, callback) => { state.click = callback; };
     await vm.runInNewContext(source, {
         window: state.window = {Clerk: clerk},
-        URL, Headers,
+        URL, Headers, Event,
         location: {pathname, search, href: 'https://app.example'+pathname+search, origin: 'https://app.example', replace: value => { state.redirect = value; }},
         document: {
             getElementById: id => id === 'auth-retry' ? state.retry : id === 'auth-status' ? state.message : {},
@@ -148,4 +148,11 @@ test('Clerk script and load failures explain sign-in unavailability', async () =
   const app=await run({...options,pathname:'/m'});
   assert.match(app.recovery.textContent,/Your changes may not save/);
  }
+});
+
+test('failed renewal tells a form to discard its pending confirmation', async()=>{
+ const state=await run({signedIn:true,pathname:'/m',refreshToken:null});let failed;
+ const form={matches:()=>true,dispatchEvent:event=>{failed=event.type;}};
+ await state.listeners.submit({target:form,preventDefault(){},stopImmediatePropagation(){}});
+ assert.equal(failed,'auth:submitFailed');
 });

@@ -141,7 +141,8 @@ if (typeof document !== 'undefined') {
       changed ||= input.checked !== choices.get(input.value);
       input.toggleAttribute('checked', choices.get(input.value));
     });
-    if (changed) selection.dataset.persistSelection = 'true';
+    if (!changed) return;
+    selection.dataset.persistSelection = 'true';
     detail.serverResponse = response.body.innerHTML;
   });
 }

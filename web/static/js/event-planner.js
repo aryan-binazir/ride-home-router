@@ -801,27 +801,33 @@
         return { discardFor, enqueue, enqueueAction, flush, flushFor, hasPending, hasPendingFor };
     }
 
-    function extractErrorMessage(response) {
-        const fallback = 'An error occurred. Please try again.';
-        if (typeof response !== 'string') return fallback;
-        let message = response;
-        const alert = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
-        if (alert) message = alert[1];
-        else {
-            try {
-                const json = JSON.parse(response);
-                message = json.error?.message || json.message || '';
-            } catch (_) {
-                // Proxy pages are not useful error messages.
-                if (/<[^>]+>/.test(response)) return fallback;
-            }
-        }
-        if (typeof message !== 'string') return fallback;
-        message = message.trim();
-        return message.length <= 240 && /[a-z]{2}/i.test(message) ? message : fallback;
-    }
-
     function bootBrowser() {
+        function extractErrorMessage(response, errorHeader) {
+            if (errorHeader) {
+                try {
+                    const message = JSON.parse(errorHeader).showToast?.message;
+                    if (typeof message === 'string') response = message;
+                } catch (_) { /* Fall back to the response body. */ }
+            }
+            const fallback = 'An error occurred. Please try again.';
+            if (typeof response !== 'string') return fallback;
+            let message = response;
+            const alert = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
+            if (alert) message = alert[1];
+            else {
+                try {
+                    const json = JSON.parse(response);
+                    message = json.error?.message || json.message || '';
+                } catch (_) {
+                    // Proxy pages are not useful error messages.
+                    if (/<[^>]+>/.test(response)) return fallback;
+                }
+            }
+            if (typeof message !== 'string') return fallback;
+            message = message.trim();
+            return message.length <= 240 && /[a-z]{2}/i.test(message) ? message : fallback;
+        }
+
         function getToastContainer() {
             let container = document.getElementById('toast-container');
             if (!container) {
@@ -853,14 +859,14 @@
             messageSpan.textContent = message;
             toast.appendChild(messageSpan);
 
-            const closeSpan = document.createElement('button');
-            closeSpan.type = 'button';
-            closeSpan.setAttribute('aria-label', 'Dismiss');
-            closeSpan.className = 'toast-close';
-            closeSpan.innerHTML = '&times;';
-            toast.appendChild(closeSpan);
+            const closeButton = document.createElement('button');
+            closeButton.type = 'button';
+            closeButton.setAttribute('aria-label', 'Dismiss');
+            closeButton.className = 'toast-close';
+            closeButton.innerHTML = '&times;';
+            toast.appendChild(closeButton);
 
-            closeSpan.addEventListener('click', () => dismissToast(toast));
+            closeButton.addEventListener('click', () => dismissToast(toast));
 
             container.appendChild(toast);
 
@@ -879,15 +885,15 @@
 
         getToastContainer();
         document.addEventListener('keydown', event => {
-            if (event.key === 'Escape') {
+            if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('.confirm-overlay.is-open, .ui-select.is-open')) {
                 document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
             }
         });
         for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
             document.body.addEventListener(name, event => {
-                setCalculateButtonLoading(false);
+                if (event.detail?.elt?.id === 'calculate-btn') setCalculateButtonLoading(false);
                 const xhr = event.detail?.xhr;
-                if (name === 'htmx:responseError' && xhr?.getResponseHeader?.('HX-Trigger')) return;
+                if (name === 'htmx:responseError' && (xhr?.getResponseHeader?.('HX-Trigger') || xhr?.getResponseHeader?.('X-RHR-Access-Panel'))) return;
                 const message = name !== 'htmx:responseError'
                     ? 'Could not reach the server. Check your connection and try again.'
                     : ({413: 'That file is too large. Choose a smaller file and try again.',
@@ -907,13 +913,7 @@
         });
 
         function showRouteError(response, errorHeader) {
-            if (errorHeader) {
-                try {
-                    const toast = JSON.parse(errorHeader).showToast;
-                    if (toast?.message) response = JSON.stringify({message: toast.message});
-                } catch (_) { /* Fall back to the response body. */ }
-            }
-            const message = extractErrorMessage(response);
+            const message = extractErrorMessage(response, errorHeader);
             showToast(message, 'error');
         }
 
@@ -1088,12 +1088,12 @@
         }
 
         async function resetRoutes() {
-            if (!await root.showConfirmDialog('Reset route changes? Your edits will be lost.')) return;
             const sessionId = getSessionId();
             if (!sessionId) {
                 showToast('That route plan is no longer available. Calculate it again.', 'error');
                 return;
             }
+            if (!await root.showConfirmDialog('Reset changes? Your edits will be lost.')) return false;
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
         }
 
@@ -1917,6 +1917,7 @@
             });
 
             document.body.addEventListener('htmx:afterRequest', function(event) {
+                applyPlanStateAffordance(plannerState.getSnapshot().status);
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
                     setCalculateButtonLoading(false);
@@ -2027,6 +2028,5 @@
         installRouteResults,
         localISODate,
         sanitizeVanAssignments,
-        extractErrorMessage,
     };
 });

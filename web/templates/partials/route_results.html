@@ -74,7 +74,7 @@
                     <div class="stat"><dt>Capacity</dt><dd>{{.EffectiveCapacity}}</dd></div>
                     <div class="stat"><dt>{{pluralize (len .Stops) "Passenger"}}</dt><dd>{{len .Stops}}</dd></div>
                     {{if $.IsOutOfBalance}}
-                    <div class="stat stat-paused text-danger"><dt>Route totals</dt><dd>Paused until within capacity</dd></div>
+                    <div class="stat stat-paused text-danger"><dt>Route totals</dt><dd>Unavailable until within capacity</dd></div>
                     {{else}}
                     <div class="stat"><dt>{{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</dt><dd>{{formatDistance .TotalDropoffDistanceMeters $useMiles}}</dd></div>
                     <div class="stat"><dt>{{if eq .Mode "pickup"}}To Activity{{else}}To Home{{end}}</dt><dd>{{formatDistance .DistanceToDriverHomeMeters $useMiles}}</dd></div>

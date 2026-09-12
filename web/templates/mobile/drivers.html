@@ -28,7 +28,7 @@
     {{end}}
   </div>
   {{end}}
-  <p class="mobile-count"><span id="mobile-selected-seats">{{.SelectedSeats}} {{pluralize .SelectedSeats "seat"}} selected</span> <a href="/m/people/drivers/new?return=/m/plan/drivers">Add driver</a></p>
+  <p class="mobile-count"><span id="mobile-selected-seats" data-seats="{{.SelectedSeats}}">{{.SelectedSeats}} {{pluralize .SelectedSeats "seat"}} selected</span> <a href="/m/people/drivers/new?return=/m/plan/drivers">Add driver</a></p>
   <div id="mobile-driver-results">
     {{range .HiddenSelectedIDs}}{{$driverID := .}}
     <input type="hidden" name="driver_ids" value="{{$driverID}}">

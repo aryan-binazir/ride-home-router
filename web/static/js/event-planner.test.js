@@ -91,7 +91,6 @@ test('planner exports its browser-independent test seams', () => {
         'createPlannerState',
         'createRouteHandoff',
         'createRouteSessionOrchestrator',
-        'extractErrorMessage',
         'installRouteResults',
         'localISODate',
         'sanitizeVanAssignments',
@@ -2166,12 +2165,13 @@ test('all htmx request failures show feedback and server toasts are not duplicat
     assert.equal(container.children[0].children[1].tagName, 'button');
 });
 
-test('route error extraction rejects empty, oversized and non-word responses', () => {
-    const {extractErrorMessage} = require('./event-planner.js');
+test('route error extraction rejects empty, oversized and non-word responses', async () => {
     for (const response of ['', 'x'.repeat(241), '1234 !!!', '<html><body>'+ 'proxy '.repeat(100)+'</body></html>']) {
-        assert.equal(extractErrorMessage(response), 'An error occurred. Please try again.');
+        const app = bootPlanner(); app.calculate();
+        app.context.fetch = async () => ({ok:false,text:async()=>response});
+        await app.context.addUnusedDriver(99);
+        assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent, 'An error occurred. Please try again.');
     }
-    assert.equal(extractErrorMessage('{"error":{"message":"Choose a driver."}}'), 'Choose a driver.');
 });
 
 test('expired restore responses clear the saved plan and explain recovery', async () => {
@@ -2193,4 +2193,13 @@ test('cancelling reset leaves routes and pending edits untouched', async () => {
  await app.context.resetRoutes();
  assert.equal(app.fetches.length,0);
  assert.equal(app.saveButton.disabled,false);
+});
+
+test('a failed save restores the current planner lock after htmx enables its button', () => {
+ const app=bootPlanner();app.calculate();app.saveButton.disabled=true;
+ app.routeTime.value='12:00';app.change(app.routeTime);
+ app.saveButton.disabled=false;
+ app.document.body.dispatchEvent(fakeEvent('htmx:afterRequest',{elt:app.saveForm,successful:false}));
+ assert.equal(app.saveButton.disabled,true);
+ assert.equal(app.submitSave().defaultPrevented,true);
 });

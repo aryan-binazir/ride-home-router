@@ -1,7 +1,7 @@
 (() => {
     let selectedSeats;
     let visibleSeats = 0;
-    function initializeEventDate() {
+    function initializePage() {
         captureSeatCount();
         const today = new Date();
         const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -11,24 +11,28 @@
     }
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        initializeEventDate();
+        initializePage();
     } else {
-        document.addEventListener('DOMContentLoaded', initializeEventDate, { once: true });
+        document.addEventListener('DOMContentLoaded', initializePage, { once: true });
     }
 
-    function showRequestError(message) {
+    let failedElement;
+    function showRequestError(message, type = 'error') {
         const alert = document.getElementById('mobile-request-error');
         if (!alert) return;
+        alert.setAttribute('role', type === 'success' ? 'status' : 'alert');
+        alert.className = type === 'success' ? 'mobile-notice' : 'mobile-alert';
         alert.textContent = message;
         alert.hidden = false;
     }
     document.addEventListener('showToast', event => {
-        if (event.detail?.message) showRequestError(event.detail.message);
+        if (event.detail?.message) showRequestError(event.detail.message, event.detail.type);
     });
     for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
         document.addEventListener(name, event => {
             const xhr = event.detail?.xhr;
             if (name === 'htmx:responseError' && xhr?.getResponseHeader?.('HX-Trigger')) return;
+            failedElement = event.detail?.elt;
             showRequestError(name !== 'htmx:responseError'
                 ? 'Could not reach the server. Check your connection and try again.'
                 : ({413: 'That file is too large. Choose a smaller file and try again.',
@@ -37,8 +41,15 @@
                     || 'An error occurred. Please try again.'));
         });
     }
+    document.addEventListener('htmx:afterRequest', event => {
+        if (!event.detail?.successful || !failedElement || event.detail.elt !== failedElement) return;
+        const alert = document.getElementById('mobile-request-error');
+        if (alert) alert.hidden = true;
+        failedElement = null;
+    });
     const submitting = new Set();
     const confirmed = new WeakSet();
+    document.addEventListener('auth:submitFailed', event => confirmed.delete(event.target));
     document.addEventListener('submit', async event => {
         const form = event.target;
         if (event.defaultPrevented || !form.matches?.('.mobile-shell form[method="post"]')) return;
@@ -80,21 +91,27 @@
         submitting.clear();
     });
 
-    function countVisibleSeats() {
+    function countVisibleSeats(defaults = false) {
         let total = 0;
+        const vans = new Set(Array.from(document.querySelectorAll?.('#mobile-driver-picker input[type="hidden"][name^="org_vehicle_"]') || [], input => input.value));
         document.querySelectorAll?.('#mobile-driver-picker .mobile-driver-choice').forEach(row => {
             const checkbox = row.querySelector('input[name="driver_ids"]');
-            if (!checkbox?.checked) return;
+            if (!(defaults ? checkbox?.defaultChecked : checkbox?.checked)) return;
             const select = row.querySelector('select');
-            total += Number(select?.selectedOptions[0]?.dataset.capacity || checkbox.dataset.capacity || 0);
+            const option = defaults ? Array.from(select?.options || []).find(option => option.defaultSelected) || select?.options[0] : select?.selectedOptions[0];
+            const van = option?.value;
+            if (van && vans.has(van)) return;
+            if (van) vans.add(van);
+            total += Number(option?.dataset.capacity || checkbox.dataset.capacity || 0);
         });
         return total;
     }
     function captureSeatCount() {
         const count = document.getElementById?.('mobile-selected-seats');
         if (!count) return;
-        selectedSeats ??= parseInt(count.textContent, 10) || 0;
         visibleSeats = countVisibleSeats();
+        selectedSeats ??= Number(count.dataset.seats) + visibleSeats - countVisibleSeats(true);
+        count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
     }
     document.addEventListener('htmx:afterSwap', captureSeatCount);
     document.addEventListener('change', event => {
@@ -102,7 +119,7 @@
         const count = document.getElementById?.('mobile-selected-seats');
         if (!count) return;
         const next = countVisibleSeats();
-        selectedSeats = (selectedSeats ?? parseInt(count.textContent, 10) ?? 0) + next - visibleSeats;
+        selectedSeats = (selectedSeats ?? Number(count.dataset.seats)) + next - visibleSeats;
         visibleSeats = next;
         count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
     });

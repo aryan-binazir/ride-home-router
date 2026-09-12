@@ -160,3 +160,6 @@ button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height
 .confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; padding: 12px 18px; }
 .confirm-dialog-actions button { padding: 12px; }
 button.htmx-request { opacity: .6; cursor: progress; }
+
+.confirm-dialog-actions .btn { border: 1px solid var(--m-line); border-radius: 8px; background: var(--m-card); color: var(--m-ink); }
+.confirm-dialog-actions .btn-danger { background: var(--m-danger); color: var(--m-card); }

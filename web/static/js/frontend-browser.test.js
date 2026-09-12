@@ -26,7 +26,7 @@ ${assets.map(name => `<script>${fs.readFileSync(path.join(__dirname, name), 'utf
 }
 
 test('mobile seat count follows riders, vans and filtered hidden selections', {skip: !browser}, () => {
-    const result = run(`<span id="mobile-selected-seats">7 seats selected</span><form id="mobile-driver-picker"><div id="mobile-driver-results"><div class="mobile-driver-choice"><input id="driver" type="checkbox" name="driver_ids" data-capacity="4" checked><select><option data-capacity="4">Personal</option><option data-capacity="8">Van</option></select></div></div></form>`, ['mobile.js'], `
+    const result = run(`<span id="mobile-selected-seats" data-seats="7">7 seats selected</span><form id="mobile-driver-picker"><div id="mobile-driver-results"><div class="mobile-driver-choice"><input id="driver" type="checkbox" name="driver_ids" data-capacity="4" checked><select><option value="" data-capacity="4">Personal</option><option value="9" data-capacity="8">Van</option></select></div></div></form>`, ['mobile.js'], `
 const values=[];const select=document.querySelector('select');select.selectedIndex=1;select.dispatchEvent(new Event('change',{bubbles:true}));values.push(document.getElementById('mobile-selected-seats').textContent);
 document.getElementById('driver').click();values.push(document.getElementById('mobile-selected-seats').textContent);
 document.getElementById('mobile-driver-results').innerHTML='<div class="mobile-driver-choice"><input id="next" type="checkbox" name="driver_ids" data-capacity="3" checked></div>';
@@ -96,4 +96,27 @@ test('Calculate validation blocks the actual htmx trigger and duplicate requests
 let requests=0;window.validateBeforeCalculate=()=>false;window.XMLHttpRequest=class {constructor(){this.upload={addEventListener(){}};}open(){}setRequestHeader(){}overrideMimeType(){}addEventListener(){}send(){requests++;}};
 htmx.config.selfRequestsOnly=false;const button=document.getElementById('calculate-btn');button.click();const rejected=requests;window.validateBeforeCalculate=()=>true;button.click();button.click();document.getElementById('evidence').textContent=JSON.stringify({rejected,requests,disabled:button.disabled,errors});`);
     assert.deepEqual(result, {rejected:0, requests:1, disabled:true, errors:[]});
+});
+
+test('repeated upload submissions are dropped instead of queued', {skip: !browser}, () => {
+    const template = fs.readFileSync(path.join(__dirname, '../../templates/partials/import_panel.html'), 'utf8');
+    const form = template.match(/<form[\s\S]*?>/)[0];
+    const result = run(`${form}<button type="submit">Upload</button></form><div id="import-steps"></div>`, ['htmx.min.js'], `
+let requests=0;window.XMLHttpRequest=class {constructor(){this.upload={addEventListener(){}};this.status=200;this.readyState=4;this.responseURL='file:///api/v1/imports';}open(){}setRequestHeader(){}overrideMimeType(){}addEventListener(){}getAllResponseHeaders(){return 'Content-Type: text/html';}getResponseHeader(){return null;}send(){requests++;setTimeout(()=>{this.response=this.responseText='<p>Uploaded</p>';this.onload();},20);}};
+htmx.config.selfRequestsOnly=false;const form=document.querySelector('form');form.requestSubmit();form.requestSubmit();await new Promise(resolve=>setTimeout(resolve,100));document.getElementById('evidence').textContent=JSON.stringify({requests,errors});`);
+    assert.equal(result.requests,1);
+});
+
+test('mobile counts a shared van once and accounts for restored checkbox state', {skip: !browser}, () => {
+    const result = run(`<span id="mobile-selected-seats" data-seats="4">4 seats selected</span><form id="mobile-driver-picker">${[1,2].map(id=>`<div class="mobile-driver-choice"><input type="checkbox" name="driver_ids" data-capacity="4" ${id===1?'checked':''}><select><option value="" data-capacity="4">Personal</option><option value="9" data-capacity="8">Van</option></select></div>`).join('')}</form><script>document.querySelectorAll('input')[1].checked=true;</script>`, ['mobile.js'], `
+const restored=document.getElementById('mobile-selected-seats').textContent;for(const select of document.querySelectorAll('select')){select.value='9';select.dispatchEvent(new Event('change',{bubbles:true}));}document.getElementById('evidence').textContent=JSON.stringify({restored,total:document.getElementById('mobile-selected-seats').textContent,errors});`);
+    assert.equal(result.restored,'8 seats selected');
+    assert.equal(result.total,'8 seats selected');
+});
+
+test('failed auth renewal clears a pending mobile reset confirmation', {skip: !browser}, () => {
+    const result = run('<main class="mobile-shell"><form method="post" action="/m/routes/reset" data-confirm="Reset changes?"><button type="submit">Reset</button></form></main>', ['ui.js','mobile.js'], `
+let blockReplay=false;document.addEventListener('submit',event=>{if(blockReplay){blockReplay=false;event.preventDefault();event.stopImmediatePropagation();event.target.dispatchEvent(new Event('auth:submitFailed',{bubbles:true}));}},true);
+const form=document.querySelector('form');form.requestSubmit();blockReplay=true;document.querySelector('[data-confirm-action="confirm"]').click();await Promise.resolve();form.requestSubmit();document.getElementById('evidence').textContent=JSON.stringify({open:document.querySelector('.confirm-overlay').classList.contains('is-open'),errors});`);
+    assert.equal(result.open,true);
 });

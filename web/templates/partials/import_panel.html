@@ -2,7 +2,7 @@
 <details class="import-panel" id="import-panel">
     <summary class="import-panel-toggle">Import from spreadsheet</summary>
     <div class="import-panel-body">
-        <form id="import-upload-form"
+        <form id="import-upload-form" hx-sync="this:drop"
               class="import-upload-form"
               hx-post="/api/v1/imports?view=panel"
               hx-encoding="multipart/form-data"
