@@ -60,11 +60,11 @@ var ErrNotConfigured = errors.New("geocoding: Google Maps API key is not configu
 
 func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*GeocodingResult, error) {
 	started := time.Now()
-	key, err := g.currentKey(ctx, address)
+	key, err := g.currentKey(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := g.wait(ctx, address); err != nil {
+	if err := g.wait(ctx); err != nil {
 		return nil, err
 	}
 	query := url.Values{"address": {address}, "region": {googleRegion}, "key": {key}}
@@ -79,36 +79,39 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		if err := g.deferProvider(ctx, address, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
-			return nil, err
-		}
-		log.Printf("[ERROR] Google geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
-	}
-
 	var decoded googleGeocodeResponse
-	if err := decodeGoogle(resp.Body, &decoded); err != nil {
+	decodeErr := decodeGoogle(resp.Body, &decoded)
+	if decoded.Status == "" {
+		// No recognisable Google status: fall back to the HTTP status.
+		if resp.StatusCode != http.StatusOK {
+			if err := g.deferProvider(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
+				return nil, err
+			}
+			log.Printf("[ERROR] Google geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+			return nil, &ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+		}
 		log.Printf("[ERROR] Google geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: err}
+		if decodeErr == nil {
+			decodeErr = errors.New("missing status")
+		}
+		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
 	}
-	outcome := strings.ToLower(decoded.Status)
 	switch decoded.Status {
 	case "OK":
 	case "ZERO_RESULTS":
-		log.Printf("[GEOCODING] Google geocode outcome=%s duration=%s", outcome, time.Since(started).Round(time.Millisecond))
+		log.Printf("[GEOCODING] Google geocode outcome=zero_results duration=%s", time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Reason: "no results found", Cause: ErrNoGeocodingResults}
 	case "REQUEST_DENIED", "OVER_DAILY_LIMIT":
-		log.Printf("[ERROR] Google geocode outcome=%s duration=%s", outcome, time.Since(started).Round(time.Millisecond))
+		log.Printf("[ERROR] Google geocode outcome=denied duration=%s", time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Reason: "provider not configured", Cause: ErrNotConfigured, Configuration: true}
 	case "OVER_QUERY_LIMIT":
-		log.Printf("[ERROR] Google geocode outcome=%s duration=%s", outcome, time.Since(started).Round(time.Millisecond))
-		if err := g.deferProvider(ctx, address, http.StatusTooManyRequests, ""); err != nil {
+		log.Printf("[ERROR] Google geocode outcome=quota duration=%s", time.Since(started).Round(time.Millisecond))
+		if err := g.deferProvider(ctx, http.StatusTooManyRequests, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
 		return nil, &ErrGeocodingFailed{Reason: "provider quota exceeded", HTTPStatus: http.StatusTooManyRequests, RetryAfter: googleQuotaCooldown, Temporary: true}
 	case "UNKNOWN_ERROR":
-		log.Printf("[ERROR] Google geocode outcome=%s duration=%s", outcome, time.Since(started).Round(time.Millisecond))
+		log.Printf("[ERROR] Google geocode outcome=unknown_error duration=%s", time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Reason: "provider temporarily unavailable", Temporary: true}
 	default:
 		log.Printf("[ERROR] Google geocode outcome=unexpected_status duration=%s", time.Since(started).Round(time.Millisecond))
@@ -133,7 +136,7 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 
 const googleQuotaCooldown = 5 * time.Second
 
-func (g *googleGeocoder) currentKey(ctx context.Context, address string) (string, error) {
+func (g *googleGeocoder) currentKey(ctx context.Context) (string, error) {
 	key, err := g.apiKey(ctx)
 	if err != nil {
 		return "", &ErrGeocodingFailed{Reason: "provider credentials unavailable", Cause: err, Configuration: true}
@@ -145,7 +148,7 @@ func (g *googleGeocoder) currentKey(ctx context.Context, address string) (string
 	return key, nil
 }
 
-func (g *googleGeocoder) wait(ctx context.Context, address string) error {
+func (g *googleGeocoder) wait(ctx context.Context) error {
 	if g.gate == nil {
 		return nil
 	}
@@ -156,7 +159,7 @@ func (g *googleGeocoder) wait(ctx context.Context, address string) error {
 }
 
 // deferProvider records a shared cooldown when Google asks every instance to back off.
-func (g *googleGeocoder) deferProvider(ctx context.Context, address string, status int, retryAfter string) error {
+func (g *googleGeocoder) deferProvider(ctx context.Context, status int, retryAfter string) error {
 	if g.gate == nil || (status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable) {
 		return nil
 	}
@@ -209,11 +212,11 @@ func (g *googleGeocoder) Search(ctx context.Context, query string, limit int) ([
 
 func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int) ([]GeocodingResult, error) {
 	started := time.Now()
-	key, err := g.currentKey(ctx, query)
+	key, err := g.currentKey(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := g.wait(ctx, query); err != nil {
+	if err := g.wait(ctx); err != nil {
 		return nil, err
 	}
 	body, _ := json.Marshal(map[string]string{"input": query, "regionCode": googleRegion, "languageCode": "en"})
@@ -236,7 +239,7 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 		log.Printf("[ERROR] Google search outcome=denied status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Reason: "provider not configured", Cause: ErrNotConfigured, Configuration: true}
 	default:
-		if err := g.deferProvider(ctx, query, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
+		if err := g.deferProvider(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
 		log.Printf("[ERROR] Google search outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))

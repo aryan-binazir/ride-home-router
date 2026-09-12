@@ -86,6 +86,10 @@ func TestGoogleGeocodeClassifiesProviderStatuses(t *testing.T) {
 		{"server error is transient", http.StatusInternalServerError, `{"status":"UNKNOWN_ERROR"}`, nil, true, false},
 		{"http 429 pauses the shared gate", http.StatusTooManyRequests, `{}`, nil, true, true},
 		{"invalid request is permanent", http.StatusOK, `{"status":"INVALID_REQUEST"}`, nil, false, false},
+		{"denial delivered with HTTP 403 still means not configured", http.StatusForbidden, `{"status":"REQUEST_DENIED","error_message":"denied"}`, ErrNotConfigured, true, false},
+		{"quota delivered with HTTP 429 is transient and pauses the gate", http.StatusTooManyRequests, `{"status":"OVER_QUERY_LIMIT"}`, nil, true, true},
+		{"zero results delivered with HTTP 404 is still a bad address", http.StatusNotFound, `{"status":"ZERO_RESULTS","results":[]}`, ErrNoGeocodingResults, false, false},
+		{"unreadable body falls back to the HTTP status", http.StatusBadGateway, `<html>bad gateway</html>`, nil, true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
