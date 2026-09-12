@@ -12,6 +12,13 @@ import (
 // not reserve a queue of future slots (an acquired slot is spent).
 type ProviderGate struct{ db *sql.DB }
 
+// ProviderCooldownError reports an invalid persisted cooldown without waiting indefinitely.
+type ProviderCooldownError struct{}
+
+func (*ProviderCooldownError) Error() string {
+	return "Address lookup is temporarily unavailable. Try again later."
+}
+
 func (s *Store) NominatimGate() *ProviderGate { return &ProviderGate{db: s.db} }
 func (g *ProviderGate) Wait(ctx context.Context) error {
 	for {
@@ -27,6 +34,9 @@ func (g *ProviderGate) Wait(ctx context.Context) error {
 		if err = g.db.QueryRowContext(ctx, `SELECT EXTRACT(EPOCH FROM next_at-clock_timestamp())::float8 FROM provider_throttles WHERE name='nominatim'`).Scan(&seconds); err != nil {
 			return err
 		}
+		if seconds > (15 * time.Minute).Seconds() {
+			return &ProviderCooldownError{}
+		}
 		delay := time.Duration(min(max(seconds, 0.01), 1) * float64(time.Second))
 		timer := time.NewTimer(delay)
 		select {
@@ -39,6 +49,6 @@ func (g *ProviderGate) Wait(ctx context.Context) error {
 }
 
 func (g *ProviderGate) Defer(ctx context.Context, delay time.Duration) error {
-	_, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=GREATEST(next_at,clock_timestamp()+$1*interval '1 second') WHERE name='nominatim'`, delay.Seconds())
+	_, err := g.db.ExecContext(ctx, `UPDATE provider_throttles SET next_at=GREATEST(next_at,clock_timestamp()+$1*interval '1 second') WHERE name='nominatim'`, min(max(delay, 0), 15*time.Minute).Seconds())
 	return err
 }

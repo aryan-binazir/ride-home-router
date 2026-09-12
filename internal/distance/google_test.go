@@ -232,8 +232,8 @@ func TestGoogleCalculator_ReturnsElementFailure(t *testing.T) {
 	})
 
 	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
-	if err == nil || !strings.Contains(err.Error(), "route not found") {
-		t.Fatalf("error = %v, want route not found", err)
+	if err == nil || !strings.Contains(err.Error(), "Could not calculate this route.") {
+		t.Fatalf("error = %v, want safe route failure", err)
 	}
 }
 
@@ -528,7 +528,18 @@ func TestGooglePrewarmCompletesColdDistancesWithinDeadline(t *testing.T) {
 		case <-r.Context().Done():
 			return
 		}
-		_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":0,"condition":"ROUTE_EXISTS","distanceMeters":1200,"duration":"300s"}`))
+		var request googleMatrixRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		elements := []googleMatrixElement{}
+		for i := range request.Origins {
+			for j := range request.Destinations {
+				elements = append(elements, googleMatrixElement{OriginIndex: i, DestinationIndex: j, Condition: "ROUTE_EXISTS", DistanceMeters: 1200, Duration: "300s"})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(elements)
 	})
 	pairs := make([]DistancePair, 12)
 	for i := range pairs {
@@ -568,7 +579,7 @@ func TestGooglePrewarmCancellationWaitsForActiveRequests(t *testing.T) {
 	})}
 	pairs := make([]DistancePair, 12)
 	for i := range pairs {
-		pairs[i] = DistancePair{Origin: models.Coordinates{Lat: 35 + float64(i)/100, Lng: -79}, Destination: models.Coordinates{Lat: 37, Lng: -79}}
+		pairs[i] = DistancePair{Origin: models.Coordinates{Lat: 35 + float64(i)/100, Lng: -79}, Destination: models.Coordinates{Lat: 37 + float64(i)/100, Lng: -79}}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

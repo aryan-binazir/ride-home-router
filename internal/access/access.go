@@ -9,11 +9,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"net/mail"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/clerk/clerk-sdk-go/v2"
@@ -43,15 +45,25 @@ type Store interface {
 	RecordAdminEmails(context.Context, []string) error
 }
 
+type cachedIdentity struct {
+	userID         string
+	emails         []string
+	banned, locked bool
+	expires        time.Time
+}
+
 type Access struct {
-	cfg      Config
-	issuer   string
-	key      *clerk.JSONWebKey
-	parties  map[string]bool
-	admins   map[string]bool
-	users    *user.Client
-	sessions *session.Client
-	store    Store
+	identityGates [64]chan struct{}
+	cacheMu       sync.Mutex
+	identities    map[string]cachedIdentity
+	cfg           Config
+	issuer        string
+	key           *clerk.JSONWebKey
+	parties       map[string]bool
+	admins        map[string]bool
+	users         *user.Client
+	sessions      *session.Client
+	store         Store
 }
 
 type (
@@ -110,6 +122,9 @@ func New(cfg Config, store Store) (*Access, error) {
 		return nil, errors.New("CLERK_JWT_KEY must be an RSA public key of at least 2048 bits")
 	}
 	a := &Access{cfg: cfg, issuer: "https://" + host, key: &clerk.JSONWebKey{Key: rsaKey, Algorithm: "RS256"}, parties: map[string]bool{}, admins: map[string]bool{}, store: store}
+	for i := range a.identityGates {
+		a.identityGates[i] = make(chan struct{}, 1)
+	}
 	for raw := range strings.SplitSeq(cfg.AuthorizedParties, ",") {
 		origin := strings.TrimSpace(raw)
 		u, err := url.Parse(origin)
@@ -191,39 +206,15 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
-		// Live lookups also reject revoked sessions and removed/unverified addresses.
-		s, err := a.sessions.Get(ctx, claims.SessionID)
-		if err != nil {
-			deny(w, r, clerkFailureStatus(err))
+		identity, cacheMiss, status := a.identity(ctx, claims.SessionID, claims.Subject)
+		if status != 0 {
+			deny(w, r, status)
 			return
 		}
-		if s.ID != claims.SessionID || s.UserID != claims.Subject || s.Status != "active" {
-			log.Print("[AUTH] denied: inactive or mismatched session")
-			deny(w, r, http.StatusUnauthorized)
-			return
-		}
-		u, err := a.users.Get(ctx, claims.Subject)
-		if err != nil {
-			deny(w, r, clerkFailureStatus(err))
-			return
-		}
-		if u.ID != claims.Subject || u.Banned || u.Locked {
-			log.Print("[AUTH] denied: unavailable or mismatched user")
-			deny(w, r, http.StatusUnauthorized)
-			return
-		}
-		emails := []string{}
+		emails := identity.emails
 		admin := false
 		adminEmails := []string{}
-		for _, e := range u.EmailAddresses {
-			if e == nil || e.Verification == nil || e.Verification.Status != "verified" {
-				continue
-			}
-			email, err := NormalizeEmail(e.EmailAddress)
-			if err != nil {
-				continue
-			}
-			emails = append(emails, email)
+		for _, email := range emails {
 			if a.admins[email] {
 				admin = true
 				adminEmails = append(adminEmails, email)
@@ -255,14 +246,12 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		}
 		// These records preserve verified addresses across Clerk instance moves.
 		// They never confer authority and are written only after all auth checks.
-		if admin {
+		if admin && cacheMiss {
 			if err := a.store.RecordAdminEmails(ctx, adminEmails); err != nil {
 				log.Print("[ERROR] auth verified admin email persistence failed")
-				deny(w, r, http.StatusServiceUnavailable)
-				return
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, principal{Admin: admin, UserID: u.ID})))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, principal{Admin: admin, UserID: identity.userID})))
 	})
 }
 
@@ -296,4 +285,71 @@ func deny(w http.ResponseWriter, r *http.Request, status int) {
 		return
 	}
 	http.Error(w, http.StatusText(status), status)
+}
+
+// identity caches only verified Backend API results, never JWT email claims.
+func (a *Access) identity(ctx context.Context, sessionID, userID string) (cachedIdentity, bool, int) {
+	// A fixed set of gates coalesces same-identity misses without an unbounded waiter map.
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(sessionID))
+	gate := a.identityGates[hash.Sum64()%uint64(len(a.identityGates))]
+	select {
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
+	case <-ctx.Done():
+		return cachedIdentity{}, false, http.StatusServiceUnavailable
+	}
+	a.cacheMu.Lock()
+	identity, ok := a.identities[sessionID]
+	a.cacheMu.Unlock()
+	if ok && time.Now().Before(identity.expires) {
+		if identity.userID != userID || identity.banned || identity.locked {
+			return cachedIdentity{}, false, http.StatusUnauthorized
+		}
+		return identity, false, 0
+	}
+	session, err := a.sessions.Get(ctx, sessionID)
+	if err != nil {
+		return cachedIdentity{}, true, clerkFailureStatus(err)
+	}
+	if session.ID != sessionID || session.UserID != userID || session.Status != "active" {
+		return cachedIdentity{}, true, http.StatusUnauthorized
+	}
+	user, err := a.users.Get(ctx, userID)
+	if err != nil {
+		return cachedIdentity{}, true, clerkFailureStatus(err)
+	}
+	if user.ID != userID {
+		return cachedIdentity{}, true, http.StatusUnauthorized
+	}
+	identity = cachedIdentity{userID: user.ID, banned: user.Banned, locked: user.Locked, expires: time.Now().Add(30 * time.Second)}
+	for _, email := range user.EmailAddresses {
+		if email == nil || email.Verification == nil || email.Verification.Status != "verified" {
+			continue
+		}
+		if normalized, err := NormalizeEmail(email.EmailAddress); err == nil {
+			identity.emails = append(identity.emails, normalized)
+		}
+	}
+	a.cacheMu.Lock()
+	if a.identities == nil {
+		a.identities = make(map[string]cachedIdentity)
+	}
+	if len(a.identities) >= 1024 {
+		var oldestKey string
+		var oldest time.Time
+		for key, value := range a.identities {
+			if oldest.IsZero() || value.expires.Before(oldest) {
+				oldestKey = key
+				oldest = value.expires
+			}
+		}
+		delete(a.identities, oldestKey)
+	}
+	a.identities[sessionID] = identity
+	a.cacheMu.Unlock()
+	if identity.banned || identity.locked {
+		return cachedIdentity{}, true, http.StatusUnauthorized
+	}
+	return identity, true, 0
 }

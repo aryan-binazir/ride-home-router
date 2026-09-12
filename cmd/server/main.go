@@ -11,15 +11,18 @@ import (
 	"os/signal"
 	"regexp"
 	"ride-home-router/internal/access"
+	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/server"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const (
 	defaultPort           = "8080"
-	serverShutdownTimeout = 30 * time.Second
+	serverShutdownTimeout = 20 * time.Second
 )
 
 type options struct {
@@ -46,6 +49,7 @@ func run(args []string) error {
 		return err
 	}
 
+	routefeedback.SetTrustCFAccessHeader(os.Getenv("TRUST_CF_ACCESS_HEADER") == "true")
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(shutdown)
@@ -58,9 +62,10 @@ func run(args []string) error {
 			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
 			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
 		},
-		Addr:         opts.Addr,
-		AllowedHosts: opts.AllowedHosts,
-		DatabaseURL:  opts.DatabaseURL,
+		Addr:             opts.Addr,
+		AllowedHosts:     opts.AllowedHosts,
+		DatabaseURL:      opts.DatabaseURL,
+		NominatimBaseURL: os.Getenv("NOMINATIM_BASE_URL"),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -155,6 +160,17 @@ func parseArgs(args []string) (options, error) {
 			"refusing to bind server to non-loopback address %q without --allowed-hosts naming the public hostname(s) it is reached by",
 			opts.Addr,
 		)
+	}
+	config, err := pgx.ParseConfig(opts.DatabaseURL)
+	if err != nil {
+		return options{}, errors.New("DATABASE_URL is not a valid Postgres connection string")
+	}
+	insecure := config.TLSConfig == nil
+	for _, fallback := range config.Fallbacks {
+		insecure = insecure || fallback.TLSConfig == nil
+	}
+	if !loopback && (insecure || !strings.Contains(opts.DatabaseURL, "sslmode")) {
+		log.Print("[WARN] Database encryption is disabled or sslmode is not explicit on a public listener")
 	}
 	return opts, nil
 }

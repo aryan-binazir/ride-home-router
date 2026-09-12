@@ -6,6 +6,7 @@ import (
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"strings"
+	"sync/atomic"
 )
 
 const (
@@ -51,9 +52,14 @@ func Build(snapshot routesession.CommitSnapshot) Record {
 	}
 }
 
+var trustCFAccessHeader atomic.Bool
+
+// SetTrustCFAccessHeader enables attribution only behind a trusted Cloudflare Access proxy.
+func SetTrustCFAccessHeader(trust bool) { trustCFAccessHeader.Store(trust) }
+
 // ShouldCapture reports whether the request belongs to the configured SME.
 func ShouldCapture(r *http.Request, settings *models.Settings) (string, bool) {
-	if r == nil || settings == nil {
+	if !trustCFAccessHeader.Load() || r == nil || settings == nil {
 		return "", false
 	}
 	configured := strings.TrimSpace(settings.SMEEmail)

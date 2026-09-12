@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/migrations"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgerrcode"
@@ -32,10 +33,15 @@ type Store struct {
 func New(ctx context.Context, databaseURL string) (*Store, error) {
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse database URL: %w", err)
+		return nil, errors.New("DATABASE_URL is not a valid Postgres connection string")
 	}
 	if config.ConnectTimeout == 0 || config.ConnectTimeout > connectTimeout {
 		config.ConnectTimeout = connectTimeout
+	}
+	for key, value := range map[string]string{"statement_timeout": "30s", "idle_in_transaction_session_timeout": "60s"} {
+		if _, set := config.RuntimeParams[key]; !set && !strings.Contains(config.RuntimeParams["options"], key) {
+			config.RuntimeParams[key] = value
+		}
 	}
 	db := stdlib.OpenDB(*config)
 	// Bound the pool for managed Postgres connection limits.

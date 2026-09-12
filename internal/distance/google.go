@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
@@ -234,48 +235,152 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	return results, nil
 }
 
+// MaxUncachedDistancePairs bounds the elements one calculation can request.
+const MaxUncachedDistancePairs = 60000
+
+var (
+	//nolint:staticcheck // This sentinel is safe consumer-facing fallback copy.
+	ErrTooManyDistancePairs = errors.New("Too many riders and drivers selected for one calculation. Select fewer and try again.")
+	providerCalculations    = make(chan struct{}, 4)
+)
+
+type prewarmBlock struct{ origins, destinations []models.Coordinates }
+
 func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {
 	if len(pairs) == 0 {
 		return nil
 	}
-
-	byOrigin := make(map[string][]models.Coordinates)
-	originCoords := make(map[string]models.Coordinates)
-	seen := make(map[string]struct{}, len(pairs))
-
+	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
+	seen := make(map[string]bool, len(pairs))
 	for _, pair := range pairs {
-		if SamePoint(pair.Origin, pair.Destination) {
-			continue
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		key := PairCacheKey(pair.Origin, pair.Destination)
-		if _, ok := seen[key]; ok {
+		if SamePoint(pair.Origin, pair.Destination) || seen[key] {
 			continue
 		}
-		seen[key] = struct{}{}
-
-		originKey := coordinatePointKey(pair.Origin)
-		originCoords[originKey] = pair.Origin
-		byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
+		seen[key] = true
+		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{pair.Origin, pair.Destination})
 	}
-
+	cached, err := c.cache.GetBatch(ctx, cachePairs)
+	if err != nil {
+		return err
+	}
+	missing := make(map[string]bool)
+	byOrigin := make(map[string][]models.Coordinates)
+	origins := make(map[string]models.Coordinates)
+	for _, pair := range cachePairs {
+		key := PairCacheKey(pair.Origin, pair.Dest)
+		if cached[key] != nil {
+			continue
+		}
+		missing[key] = true
+		originKey := coordinatePointKey(pair.Origin)
+		byOrigin[originKey] = append(byOrigin[originKey], pair.Dest)
+		origins[originKey] = pair.Origin
+	}
+	if len(missing) > MaxUncachedDistancePairs {
+		return ErrTooManyDistancePairs
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	select {
+	case providerCalculations <- struct{}{}:
+		defer func() { <-providerCalculations }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	keys := make([]string, 0, len(byOrigin))
 	for key := range byOrigin {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	blocks := []prewarmBlock{}
+	for _, key := range keys {
+		destinations := byOrigin[key]
+		sort.Slice(destinations, func(i, j int) bool { return coordinatePointKey(destinations[i]) < coordinatePointKey(destinations[j]) })
+		for start := 0; start < len(destinations); start += googleRouteMatrixMaxElements {
+			chunk := destinations[start:min(start+googleRouteMatrixMaxElements, len(destinations))]
+			merged := false
+			if len(blocks) > 0 {
+				block := &blocks[len(blocks)-1]
+				union := uniqueCoordinates(append(append([]models.Coordinates{}, block.destinations...), chunk...))
+				candidates := append(append([]models.Coordinates{}, block.origins...), origins[key])
+				compatible := len(candidates)*len(union) <= googleRouteMatrixMaxElements
+				for _, origin := range candidates {
+					for _, dest := range union {
+						if !SamePoint(origin, dest) && !missing[PairCacheKey(origin, dest)] {
+							compatible = false
+							break
+						}
+					}
+					if !compatible {
+						break
+					}
+				}
+				if compatible {
+					block.origins = candidates
+					block.destinations = union
+					merged = true
+				}
+			}
+			if !merged {
+				blocks = append(blocks, prewarmBlock{origins: []models.Coordinates{origins[key]}, destinations: chunk})
+			}
+		}
+	}
+	// Matrix self-elements can be unavoidable when packing almost identical rows.
+	// Count them too, so billed elements remain bounded by the same ceiling.
+	billed := 0
+	for _, block := range blocks {
+		billed += len(block.origins) * len(block.destinations)
+	}
+	if billed > MaxUncachedDistancePairs {
+		blocks = nil
+		for _, key := range keys {
+			destinations := byOrigin[key]
+			for start := 0; start < len(destinations); start += googleRouteMatrixMaxElements {
+				blocks = append(blocks, prewarmBlock{origins: []models.Coordinates{origins[key]}, destinations: destinations[start:min(start+googleRouteMatrixMaxElements, len(destinations))]})
+			}
+		}
+	}
 	workCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	failures := make([]error, len(keys))
+	failures := make([]error, len(blocks))
 	jobs := make(chan int)
 	var workers sync.WaitGroup
-	for range min(4, len(keys)) {
+	for range min(4, len(blocks)) {
 		workers.Go(func() {
 			for index := range jobs {
 				if workCtx.Err() != nil {
 					return
 				}
-				key := keys[index]
-				_, err := c.GetDistancesFromPoint(workCtx, originCoords[key], uniqueCoordinates(byOrigin[key]))
+				block := blocks[index]
+				results, err := c.fetchMatrix(workCtx, block.origins, block.destinations)
+				if err == nil {
+					entries := make([]models.DistanceCacheEntry, 0, len(results))
+					for i, origin := range block.origins {
+						for j, dest := range block.destinations {
+							if SamePoint(origin, dest) {
+								continue
+							}
+							result, ok := results[matrixIndex{origin: i, destination: j}]
+							if !ok {
+								err = &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again."}
+								break
+							}
+							entries = append(entries, models.DistanceCacheEntry{Origin: origin, Destination: dest, DistanceMeters: result.DistanceMeters, DurationSecs: result.DurationSecs})
+						}
+						if err != nil {
+							break
+						}
+					}
+					if err == nil {
+						err = c.cache.SetBatch(workCtx, entries)
+					}
+				}
 				failures[index] = err
 				if err != nil && !isGoogleRetryableFailure(err) {
 					cancel(err)
@@ -285,7 +390,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		})
 	}
 dispatch:
-	for index := range keys {
+	for index := range blocks {
 		select {
 		case jobs <- index:
 		case <-workCtx.Done():
@@ -297,8 +402,6 @@ dispatch:
 	if cause := context.Cause(workCtx); cause != nil {
 		return cause
 	}
-	// Keep the first transient failure in stable origin order while allowing
-	// independent successful origins to populate the cache for a retry.
 	for _, err := range failures {
 		if err != nil {
 			return err
@@ -448,12 +551,12 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 		RoutingPreference: "TRAFFIC_UNAWARE",
 	})
 	if err != nil {
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+		return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+		return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -492,14 +595,10 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 			return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix response contained out-of-range index"}
 		}
 		if element.Status.Code != 0 {
-			reason := element.Status.Message
-			if reason == "" {
-				reason = fmt.Sprintf("Google route matrix element status code %d", element.Status.Code)
-			}
-			return nil, &ErrDistanceCalculationFailed{Reason: reason}
+			return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate this route. Try another selection.", Cause: fmt.Errorf("google matrix status %d: %s", element.Status.Code, element.Status.Message)}
 		}
 		if element.Condition != "" && element.Condition != "ROUTE_EXISTS" {
-			return nil, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("Google route matrix element condition: %s", element.Condition)}
+			return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate this route. Try another selection."}
 		}
 
 		durationSecs, err := parseGoogleDurationSeconds(element.Duration)
@@ -533,7 +632,7 @@ func (r *googleResponseReader) Read(p []byte) (int, error) {
 }
 
 func (e *googleTransportError) Error() string {
-	return e.Cause.Error()
+	return "Could not reach the route service. Please try again."
 }
 
 func (e *googleTransportError) Unwrap() error {
@@ -642,7 +741,7 @@ func googleMatrixPublicError(err error) *googleMatrixError {
 		return &googleMatrixError{ErrDistanceCalculationFailed: distanceErr}
 	}
 	return &googleMatrixError{
-		ErrDistanceCalculationFailed: &ErrDistanceCalculationFailed{Reason: err.Error()},
+		ErrDistanceCalculationFailed: &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err},
 		Cause:                        err,
 	}
 }
@@ -758,14 +857,14 @@ func parseGoogleMatrixElements(body io.Reader) ([]googleMatrixElement, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, &ErrDistanceCalculationFailed{Reason: "Google route matrix response was empty"}
 		}
-		return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+		return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err}
 	}
 
 	decoder := json.NewDecoder(reader)
 	if first == '[' {
 		var elements []googleMatrixElement
 		if err := decoder.Decode(&elements); err != nil {
-			return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+			return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err}
 		}
 		return elements, nil
 	}
@@ -777,7 +876,7 @@ func parseGoogleMatrixElements(body io.Reader) ([]googleMatrixElement, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, &ErrDistanceCalculationFailed{Reason: err.Error()}
+			return nil, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err}
 		}
 		elements = append(elements, element)
 	}
@@ -806,11 +905,26 @@ func parseGoogleDurationSeconds(value string) (float64, error) {
 		return 0, &ErrDistanceCalculationFailed{Reason: "Google route matrix response missing duration"}
 	}
 	if !strings.HasSuffix(value, "s") {
-		return 0, &ErrDistanceCalculationFailed{Reason: fmt.Sprintf("invalid Google duration %q", value)}
+		return 0, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again."}
 	}
 	seconds, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, &ErrDistanceCalculationFailed{Reason: err.Error()}
+		return 0, &ErrDistanceCalculationFailed{Reason: "Could not calculate routes. Please try again.", Cause: err}
 	}
 	return math.Round(seconds.Seconds()*1000) / 1000, nil
+}
+
+// IsTemporary identifies failures that may recover without changing a selection.
+func IsTemporary(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if httpErr, ok := errors.AsType[*googleHTTPError](err); ok {
+		return httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode >= 500 && httpErr.StatusCode <= 599 || httpErr.StatusCode == http.StatusRequestTimeout
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return isGoogleRetryableFailure(err)
 }

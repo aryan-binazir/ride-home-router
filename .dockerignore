@@ -5,3 +5,8 @@ bin
 coverage.out
 Dockerfile
 README.md
+.env*
+.agents
+.codex
+.claude
+.cursor

@@ -1233,6 +1233,9 @@ func householdKey(participant *models.Participant) string {
 	if participant == nil {
 		return ""
 	}
+	if participant.Lat != 0 || participant.Lng != 0 {
+		return coordinateKey(models.RoundCoordinate(participant.Lat), models.RoundCoordinate(participant.Lng))
+	}
 	if address := normalizeAddress(participant.Address); address != "" {
 		return "addr:" + address
 	}

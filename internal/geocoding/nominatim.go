@@ -113,7 +113,7 @@ const (
 	nominatimRateInterval  = 1 * time.Second
 	nominatimMaxAttempts   = 3
 	providerBodyLimit      = 4 << 10
-	maxNominatimRetryAfter = time.Duration(1<<63 - 1)
+	maxNominatimRetryAfter = 15 * time.Minute
 )
 
 // NewNominatimGeocoder creates a geocoder using Nominatim
@@ -126,11 +126,15 @@ func NewNominatimGeocoder() Geocoder {
 }
 
 // NewNominatimGeocoderWithGate uses a deployment-wide request budget.
-func NewNominatimGeocoderWithGate(gate RateGate) Geocoder {
+func NewNominatimGeocoderWithGate(gate RateGate, configuredURL ...string) Geocoder {
 	if gate == nil {
 		panic("geocoding: rate gate is required")
 	}
-	return &nominatimGeocoder{baseURL: "https://nominatim.openstreetmap.org", httpClient: &http.Client{Timeout: geocoderClientTimeout}, gate: gate}
+	baseURL := "https://nominatim.openstreetmap.org"
+	if len(configuredURL) > 0 && strings.TrimSpace(configuredURL[0]) != "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(configuredURL[0]), "/")
+	}
+	return &nominatimGeocoder{baseURL: baseURL, httpClient: &http.Client{Timeout: geocoderClientTimeout}, gate: gate}
 }
 
 func (g *nominatimGeocoder) wait(ctx context.Context) error {
@@ -651,5 +655,5 @@ func parseNominatimRetryAfter(value string) time.Duration {
 	if err != nil {
 		return 0
 	}
-	return max(time.Until(when), 0)
+	return min(max(time.Until(when), 0), maxNominatimRetryAfter)
 }

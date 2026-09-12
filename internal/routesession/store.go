@@ -17,7 +17,7 @@ import (
 const (
 	MaxConcurrentSessions  = 256
 	MaxCommittedSessions   = 256
-	defaultTTL             = 2 * time.Hour
+	defaultTTL             = 8 * time.Hour
 	defaultCleanupInterval = 15 * time.Minute
 )
 

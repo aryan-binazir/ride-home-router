@@ -266,7 +266,7 @@ func withMigrator(ctx context.Context, databaseURL string, operation func(*migra
 func openDatabase(ctx context.Context, databaseURL string) (*sql.DB, error) {
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse database URL for migrations: %w", err)
+		return nil, errors.New("DATABASE_URL is not a valid Postgres connection string")
 	}
 	if config.ConnectTimeout == 0 || config.ConnectTimeout > connectTimeout {
 		config.ConnectTimeout = connectTimeout
