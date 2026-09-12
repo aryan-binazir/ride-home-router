@@ -9,10 +9,10 @@
 <div class="card">
     <h3>Saved Vans</h3>
 
-    <form hx-post="/api/v1/org-vehicles"
+    <form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-post="/api/v1/org-vehicles"
           hx-target="#org-vehicle-list"
           hx-swap="beforeend"
-          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') { this.reset(); const empty = document.getElementById('no-vans-message'); if (empty) empty.remove(); }"
+          hx-on::after-request="if(event.detail.successful && event.detail.elt === this && event.detail.requestConfig.verb === 'post') { this.reset(); const empty = document.getElementById('no-vans-message'); if (empty) empty.remove(); }"
           class="mb-4">
         <div class="form-row">
             <div class="form-group">
@@ -28,12 +28,12 @@
                 <input type="number"
                        name="capacity"
                        class="form-input"
-                       placeholder="Available Seats"
+                       placeholder="e.g. 12"
                        min="1"
                        required>
             </div>
             <div class="form-group form-group-actions">
-                <button type="submit" class="btn btn-primary">Add Van</button>
+                <button type="submit" class="btn btn-primary">Add van</button>
             </div>
         </div>
     </form>

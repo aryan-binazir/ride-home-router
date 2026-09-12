@@ -1,5 +1,8 @@
 (() => {
+    let selectedSeats;
+    let visibleSeats = 0;
     function initializeEventDate() {
+        captureSeatCount();
         const today = new Date();
         const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         document.querySelectorAll('input[type="date"][name="event_date"]').forEach(input => {
@@ -12,6 +15,97 @@
     } else {
         document.addEventListener('DOMContentLoaded', initializeEventDate, { once: true });
     }
+
+    function showRequestError(message) {
+        const alert = document.getElementById('mobile-request-error');
+        if (!alert) return;
+        alert.textContent = message;
+        alert.hidden = false;
+    }
+    document.addEventListener('showToast', event => {
+        if (event.detail?.message) showRequestError(event.detail.message);
+    });
+    for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
+        document.addEventListener(name, event => {
+            const xhr = event.detail?.xhr;
+            if (name === 'htmx:responseError' && xhr?.getResponseHeader?.('HX-Trigger')) return;
+            showRequestError(name !== 'htmx:responseError'
+                ? 'Could not reach the server. Check your connection and try again.'
+                : ({413: 'That file is too large. Choose a smaller file and try again.',
+                    403: 'You no longer have access. Sign in again.',
+                    503: 'The service is temporarily unavailable. Try again in a minute.'}[xhr?.status]
+                    || 'An error occurred. Please try again.'));
+        });
+    }
+    const submitting = new Set();
+    const confirmed = new WeakSet();
+    document.addEventListener('submit', async event => {
+        const form = event.target;
+        if (event.defaultPrevented || !form.matches?.('.mobile-shell form[method="post"]')) return;
+        if (submitting.has(form)) { event.preventDefault(); return; }
+        const confirmation = form.getAttribute('data-confirm');
+        if (confirmation && !confirmed.delete(form)) {
+            event.preventDefault();
+            if (await window.showConfirmDialog(confirmation)) {
+                confirmed.add(form);
+                if (event.submitter) form.requestSubmit(event.submitter);
+                else form.requestSubmit();
+            }
+            return;
+        }
+        submitting.add(form);
+        const action = form.getAttribute('action');
+        form.querySelectorAll('button[type="submit"]').forEach(button => {
+            if (button.disabled) return;
+            button.dataset.submitLabel = button.textContent;
+            // Retain successful-control data when a submitter has a name.
+            if (button === event.submitter && button.name) {
+                const input = document.createElement('input');
+                input.type = 'hidden'; input.name = button.name; input.value = button.value;
+                input.dataset.submitValue = 'true'; form.appendChild(input);
+            }
+            button.disabled = true;
+            button.textContent = action === '/m/calculate' ? 'Calculating…'
+                : action === '/m/routes/save' ? 'Saving…' : action?.startsWith('/m/routes/') ? 'Updating…' : 'Saving…';
+        });
+    });
+    window.addEventListener?.('pageshow', () => {
+        for (const form of submitting) {
+            form.querySelectorAll('[data-submit-label]').forEach(button => {
+                button.disabled = false; button.textContent = button.dataset.submitLabel;
+                delete button.dataset.submitLabel;
+            });
+            form.querySelectorAll('[data-submit-value]').forEach(input => input.remove());
+        }
+        submitting.clear();
+    });
+
+    function countVisibleSeats() {
+        let total = 0;
+        document.querySelectorAll?.('#mobile-driver-picker .mobile-driver-choice').forEach(row => {
+            const checkbox = row.querySelector('input[name="driver_ids"]');
+            if (!checkbox?.checked) return;
+            const select = row.querySelector('select');
+            total += Number(select?.selectedOptions[0]?.dataset.capacity || checkbox.dataset.capacity || 0);
+        });
+        return total;
+    }
+    function captureSeatCount() {
+        const count = document.getElementById?.('mobile-selected-seats');
+        if (!count) return;
+        selectedSeats ??= parseInt(count.textContent, 10) || 0;
+        visibleSeats = countVisibleSeats();
+    }
+    document.addEventListener('htmx:afterSwap', captureSeatCount);
+    document.addEventListener('change', event => {
+        if (!event.target.closest?.('#mobile-driver-picker')) return;
+        const count = document.getElementById?.('mobile-selected-seats');
+        if (!count) return;
+        const next = countVisibleSeats();
+        selectedSeats = (selectedSeats ?? parseInt(count.textContent, 10) ?? 0) + next - visibleSeats;
+        visibleSeats = next;
+        count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
+    });
 
     async function copyText(source) {
         if (navigator.clipboard?.writeText) {
@@ -104,7 +198,7 @@
 
     document.addEventListener('submit', event => {
         const form = event.target;
-        if (!form.matches?.('#mobile-driver-picker')) return;
+        if (event.defaultPrevented || !form.matches?.('#mobile-driver-picker')) return;
         const selected = new Set(
             Array.from(form.querySelectorAll('input[name="driver_ids"]'))
                 .filter(input => input.checked)
@@ -114,7 +208,7 @@
             const driverID = select.name.slice('org_vehicle_'.length);
             select.disabled = !selected.has(driverID) || !select.value;
         }
-    }, true);
+    });
 
     document.addEventListener('click', async event => {
         const copyButton = event.target.closest('[data-copy-target]');

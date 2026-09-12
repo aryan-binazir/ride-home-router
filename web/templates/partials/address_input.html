@@ -4,15 +4,16 @@
            name="address"
            class="form-input"
            value="{{.}}"
-           placeholder="Start typing an address..."
+           placeholder="Start typing an address…"
            hx-get="/api/v1/address-search"
            hx-trigger="input delay:500ms"
            hx-target="next .address-suggestions"
            hx-swap="innerHTML"
            hx-sync="this:replace"
-           hx-include="this"
+           hx-include="this" hx-indicator="closest .address-autocomplete-wrapper"
            autocomplete="off"
            required>
+    <span class="htmx-indicator">Looking up address…</span>
     <div class="address-suggestions"></div>
 </div>
 {{end}}

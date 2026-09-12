@@ -7,7 +7,7 @@
             </div>
             <p class="text-muted mb-0">{{.Address}}</p>
             <p class="text-muted mb-0" style="font-size: 0.75rem;">
-                Coordinates: {{printf "%.6f" .Lat}}, {{printf "%.6f" .Lng}}
+                Coordinates: {{printf "%.4f" .Lat}}, {{printf "%.4f" .Lng}}
             </p>
         </div>
         <div class="table-actions">
@@ -18,7 +18,7 @@
                 Edit
             </button>
             <button hx-delete="/api/v1/activity-locations/{{.ID}}"
-                    hx-confirm="Remove this location from the roster? It can be restored from Deleted."
+                    hx-confirm="Remove this location? You can restore it from the Deleted tab."
                     hx-target="#activity-location-{{.ID}}"
                     hx-swap="outerHTML swap:1s"
                     class="btn btn-danger btn-sm">

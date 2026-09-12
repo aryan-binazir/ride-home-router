@@ -216,3 +216,20 @@ test('mobile event date uses the local day and preserves restored or edited valu
         assert.equal(fresh.value, '2026-09-15', 'initialization must preserve a later user edit');
     }
 });
+
+test('mobile route submissions disable buttons and reject a second submit', () => {
+    const listeners = {};
+    const context = {document: {addEventListener: (name, fn) => { (listeners[name] ||= []).push(fn); }, getElementById: () => null}, window: {addEventListener() {}}};
+    vm.runInNewContext(mobileScript, context);
+    for (const action of ['/m/calculate', '/m/routes/save', '/m/routes/move']) {
+        const button = {disabled: false, textContent: 'Go', dataset: {}};
+        const form = {dataset: {}, matches: selector => selector === '.mobile-shell form[method="post"]', getAttribute: name => name === 'action' ? action : null, querySelectorAll: () => [button]};
+        let prevented = 0;
+        const event = {target: form, submitter: button, preventDefault: () => {prevented++;}};
+        for (const handler of listeners.submit) handler(event);
+        assert.equal(button.disabled, true);
+        assert.equal(button.textContent, action === '/m/calculate' ? 'Calculating…' : action === '/m/routes/save' ? 'Saving…' : 'Updating…');
+        for (const handler of listeners.submit) handler(event);
+        assert.equal(prevented, 1);
+    }
+});

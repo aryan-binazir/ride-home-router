@@ -2,6 +2,17 @@
 (async function () {
     const retry = document.getElementById('auth-retry');
     if (retry) retry.addEventListener('click', () => location.reload());
+    const status = document.getElementById('auth-status');
+    function showStatus(text) {
+        if (!status) return;
+        status.textContent = text;
+        status.hidden = false;
+    }
+    function showDenied() {
+        const email = window.Clerk?.user?.primaryEmailAddress?.emailAddress;
+        showStatus(email ? `This account isn't approved yet. Ask your organizer to add ${email}.`
+            : "This account isn't approved yet. Ask your organizer for access.");
+    }
     let recovery;
     function showRecovery(text) {
         if (!recovery) {
@@ -36,7 +47,7 @@
             }
         }
         if (response.status === 401 || response.status === 403) {
-            const text = response.status === 401 ? 'Your session needs refreshing.' : 'Your account does not have access.';
+            const text = response.status === 401 ? 'Your sign-in expired.' : 'Your account does not have access.';
             showRecovery(text);
             throw new Error(text + ' Your change was not saved.');
         }
@@ -75,7 +86,7 @@
                 if (event.submitter) form.requestSubmit(event.submitter);
                 else form.requestSubmit();
             } catch (_) {
-                showRecovery('Unable to refresh your session. Your form has not been submitted.');
+                showRecovery('Could not renew your sign-in. Your form has not been submitted.');
             } finally {
                 readyForms.delete(form);
                 pendingForms.delete(form);
@@ -86,9 +97,12 @@
             button.addEventListener('click', () => window.Clerk.signOut({redirectUrl: '/sign-in'}));
         });
         if (location.pathname !== '/sign-in') return;
+        if (new URL(location.href).searchParams.get('denied') === '1') showDenied();
         if (window.Clerk.user) {
             const check = await fetch('/api/v1/settings', {cache: 'no-store'});
             if (check.ok) { location.replace('/'); return; }
+            if (check.status === 403) showDenied();
+            else if (!status || status.hidden !== false) showStatus('Sign-in is temporarily unavailable. Try again.');
             if (retry && check.status !== 403) retry.hidden = false;
             return;
         }
@@ -124,6 +138,8 @@
             transferable: true,
         });
     } catch (_) {
+        if (location.pathname === '/sign-in') showStatus('Sign-in is temporarily unavailable. Try again.');
+        else showRecovery('Could not reach the sign-in service. Your changes may not save.');
         if (retry) retry.hidden = false;
     }
 })();

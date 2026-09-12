@@ -7,7 +7,7 @@
               hx-post="/api/v1/imports?view=panel"
               hx-encoding="multipart/form-data"
               hx-target="#import-steps"
-              hx-swap="innerHTML">
+              hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="find button[type=submit]">
             <input type="hidden" name="kind" value="{{.Kind}}">
             <div class="form-group">
                 <label class="form-label" for="import-file">Spreadsheet file</label>
@@ -18,7 +18,7 @@
                        accept=".csv,.xlsx"
                        hx-on:change="var steps = document.getElementById('import-steps'); var cancel = steps.querySelector('.import-cancel'); if (cancel) { cancel.removeAttribute('onclick'); cancel.click(); } steps.innerHTML = ''"
                        required>
-                <div class="form-help">CSV or Excel (.xlsx) with a header row and one {{.Noun}} per row. Columns: Name and Address (required), Location name{{if eq .Kind "driver"}}, Passenger capacity (excluding driver){{end}}. Addresses are geocoded automatically. Unmapped columns are ignored.</div>
+                <div class="form-help">CSV or Excel (.xlsx) with a header row and one {{.Noun}} per row. Columns: Name and Address (required), Location name{{if eq .Kind "driver"}}, Passenger capacity (excluding driver){{end}}. We look up addresses automatically. Columns you don't match are ignored.</div>
             </div>
             <button type="submit" class="btn btn-primary">Upload</button>
         </form>

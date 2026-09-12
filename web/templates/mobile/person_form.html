@@ -12,7 +12,8 @@
     </label>
     <label>
       Street address
-      <input name="address" value="{{.Address}}" required autocomplete="street-address" hx-get="/api/v1/address-search" hx-headers='{"X-RHR-Mobile":"1"}' hx-trigger="input changed delay:300ms" hx-target="next .mobile-address-results">
+      <input name="address" value="{{.Address}}" required autocomplete="street-address" hx-get="/api/v1/address-search" hx-sync="this:replace" hx-indicator="closest label" hx-headers='{"X-RHR-Mobile":"1"}' hx-trigger="input changed delay:300ms" hx-target="next .mobile-address-results">
+      <span class="htmx-indicator">Looking up address…</span>
     </label>
     <div class="mobile-address-results"></div>
     {{if eq .Kind "driver"}}

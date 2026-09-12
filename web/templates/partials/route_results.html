@@ -16,10 +16,10 @@
         </div>
         <div class="routes-actions">
             {{if .IsEditing}}
-            <button type="button" class="btn btn-sm btn-warning" data-session-action="edit" onclick="resetRoutes()">Reset to Original</button>
+            <button type="button" class="btn btn-sm btn-warning" data-session-action="edit" onclick="resetRoutes()">Reset changes</button>
             {{end}}
-            <button type="button" class="btn btn-sm btn-secondary" data-session-action="copy" onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy All Routes</button>
-            <button type="button" class="btn btn-sm btn-primary" data-session-action="save" onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth'})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save This Event</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-session-action="copy" onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy all routes</button>
+            <button type="button" class="btn btn-sm btn-primary" data-session-action="save" onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth'})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
         </div>
     </div>
 
@@ -74,7 +74,7 @@
                     <div class="stat"><dt>Capacity</dt><dd>{{.EffectiveCapacity}}</dd></div>
                     <div class="stat"><dt>{{pluralize (len .Stops) "Passenger"}}</dt><dd>{{len .Stops}}</dd></div>
                     {{if $.IsOutOfBalance}}
-                    <div class="stat stat-paused text-danger"><dt>Route Metrics</dt><dd>Paused until within capacity</dd></div>
+                    <div class="stat stat-paused text-danger"><dt>Route totals</dt><dd>Paused until within capacity</dd></div>
                     {{else}}
                     <div class="stat"><dt>{{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</dt><dd>{{formatDistance .TotalDropoffDistanceMeters $useMiles}}</dd></div>
                     <div class="stat"><dt>{{if eq .Mode "pickup"}}To Activity{{else}}To Home{{end}}</dt><dd>{{formatDistance .DistanceToDriverHomeMeters $useMiles}}</dd></div>
@@ -85,7 +85,7 @@
 
                 <div class="route-stops">
                     {{if .Stops}}
-                    {{range .Stops}}
+                    {{range $stopIndex, $stop := .Stops}}
                     <div class="stop-item"
                          data-participant-name="{{.Participant.Name}}"
                          data-participant-address="{{.Participant.Address}}"
@@ -94,14 +94,14 @@
                          data-participant-lng="{{printf "%.6f" .Participant.Lng}}"
                          data-stop-cumulative-duration-secs="{{printf "%.0f" .CumulativeDurationSecs}}"
                          data-participant-id="{{.Participant.ID}}">
-                        <div class="stop-number">{{add .Order 1}}</div>
+                        <div class="stop-number">{{add $stopIndex 1}}</div>
                         <div class="stop-details">
                             <h4>{{.Participant.Name}}</h4>
                             <p>{{displayAddress .Participant.AddressName .Participant.Address}}</p>
                         </div>
-                        <div class="stop-distance">
+                        {{if not $.IsOutOfBalance}}<div class="stop-distance">
                             <strong class="stop-eta"></strong>
-                            {{if eq .Order 0}}
+                            {{if eq $stopIndex 0}}
                                 {{if eq $route.Mode "pickup"}}
                                     {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$route.Driver.Name}}'s home
                                 {{else}}
@@ -111,6 +111,7 @@
                                 {{formatDistance .DistanceFromPrevMeters $useMiles}}
                             {{end}}
                         </div>
+                        {{end}}
                         {{if gt $routeCount 1}}
                         <div class="stop-actions">
                             <select class="form-select form-input-sm form-input-inline"
@@ -136,7 +137,7 @@
                 <div class="route-footer">
                     <span>Route</span>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
-                    <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for Parents</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for parents</button>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="preview" onclick="previewRoute(this)">Preview</button>
                 </div>
             </section>
@@ -144,16 +145,16 @@
 
             {{if .UnusedDrivers}}
             <details class="unused-drivers-section">
-                <summary class="unused-drivers-header">{{pluralize (len .UnusedDrivers) "Unused Driver"}} ({{len .UnusedDrivers}}) <em>click to expand</em></summary>
+                <summary class="unused-drivers-header">{{pluralize (len .UnusedDrivers) "Unused driver"}} ({{len .UnusedDrivers}})</summary>
                 <div class="unused-drivers-list">
                     {{range .UnusedDrivers}}
                     <div class="unused-driver-item">
                         <div class="driver-avatar" aria-hidden="true">{{initials .Name}}</div>
                         <div class="driver-info-compact">
                             <span class="driver-name">{{.Name}}</span>
-                            <span class="driver-capacity text-muted">{{.VehicleCapacity}} personal seats</span>
+                            <span class="driver-capacity text-muted">{{.VehicleCapacity}} personal {{pluralize .VehicleCapacity "seat"}}</span>
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" onclick="addUnusedDriver({{.ID}})">+ Add to Routes</button>
+                        <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" onclick="addUnusedDriver({{.ID}})">Add to routes</button>
                     </div>
                     {{end}}
                 </div>
@@ -167,7 +168,7 @@
                     <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
                     <div class="summary-item">
                         <div class="label">Total Distance</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Paused</span>{{else}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{end}}</div>
+                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{end}}</div>
                     </div>
                     {{if gt .Summary.OrgVehiclesUsed 0}}
                     <div class="summary-item"><div class="label">Vans</div><div class="value">{{.Summary.OrgVehiclesUsed}} used</div></div>
@@ -175,21 +176,21 @@
                     {{if gt .Summary.MaxDetourSecs 0.0}}
                     <div class="summary-item">
                         <div class="label">Max Detour</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Paused</span>{{else}}{{formatDuration .Summary.MaxDetourSecs}}{{end}}</div>
+                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDuration .Summary.MaxDetourSecs}}{{end}}</div>
                     </div>
                     <div class="summary-item">
                         <div class="label">Average Detour</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Paused</span>{{else}}{{formatDuration .Summary.AverageDetourSecs}}{{end}}</div>
+                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDuration .Summary.AverageDetourSecs}}{{end}}</div>
                     </div>
                     {{end}}
                 </div>
             </div>
 
             <div class="card save-event-card" id="save-event-panel">
-                <div class="card-header"><h3 class="card-title">Save This Event</h3></div>
+                <div class="card-header"><h3 class="card-title">Save event</h3></div>
                 <form {{if not .IsOutOfBalance}}hx-post="/api/v1/events"{{end}}
                       hx-target="#save-result"
-                      hx-indicator="#save-loading">
+                      hx-indicator="#save-loading" hx-disabled-elt="find button[type=submit]" hx-sync="this:drop">
                     <input type="hidden" name="session_id" value="{{.SessionID}}">
                     <div class="save-event-fields">
                         <div class="form-group mb-0">
@@ -200,7 +201,7 @@
                             <label class="form-label">Notes (Optional)</label>
                             <textarea name="notes" class="form-textarea" placeholder="Add a note about this event"></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary" data-session-action="save" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save Event to History</button>
+                        <button type="submit" class="btn btn-primary" data-session-action="save" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
                         <span class="loading htmx-indicator" id="save-loading"></span>
                     </div>
                     {{if .IsOutOfBalance}}<p class="text-danger mt-2 mb-0">Saving is disabled while vehicles are over capacity.</p>{{end}}
@@ -212,7 +213,7 @@
 </div>
 {{else}}
 <div class="results-header">
-    <div><h2>Calculated Routes</h2><p>No routes were produced for this selection.</p></div>
+    <div><h2>Calculated Routes</h2><p>No routes for this selection. Change it and calculate again.</p></div>
 </div>
 <div class="results-scroll scroll">
     <div class="results-body planner-empty-state">

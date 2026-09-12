@@ -5,12 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
-async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token'} = {}) {
+async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false} = {}) {
     const state = {listeners: {}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
     const clerk = {
         session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
-        user: signedIn ? {id: 'user_test'} : null,
-        load: async () => { state.loaded = true; },
+        user: signedIn ? {id: 'user_test', primaryEmailAddress: {emailAddress: 'ar@example.com'}} : null,
+        load: async () => { if (clerkFails) throw new Error('offline'); state.loaded = true; },
         mountSignIn: (_, options) => { state.options = options; },
         signOut: options => { state.signOut = options; },
     };
@@ -18,13 +18,13 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
     await vm.runInNewContext(source, {
         window: state.window = {Clerk: clerk},
         URL, Headers,
-        location: {pathname, href: 'https://app.example'+pathname, origin: 'https://app.example', replace: value => { state.redirect = value; }},
+        location: {pathname, search, href: 'https://app.example'+pathname+search, origin: 'https://app.example', replace: value => { state.redirect = value; }},
         document: {
-            getElementById: id => id === 'auth-retry' ? state.retry : {},
+            getElementById: id => id === 'auth-retry' ? state.retry : id === 'auth-status' ? state.message : {},
             addEventListener: (name, listener) => { state.listeners[name] = listener; },
             body: {prepend: node => { state.recovery = node; }},
             createElement: () => ({dataset: {}, setAttribute: () => {}, appendChild: node => { state.recoveryLink = node; }}),
-            head: {appendChild: script => { state.script = script; script.onload(); }},
+            head: {appendChild: script => { state.script = script; if (scriptFails) script.onerror(); else script.onload(); }},
             querySelectorAll: () => [state.button],
         },
         fetch: async (url, options) => {
@@ -64,10 +64,10 @@ test('protected pages load Clerk for refresh and expose sign-out', async () => {
     state.click();
     assert.equal(state.signOut.redirectUrl, '/sign-in');
 });
-test('Clerk configuration failure offers retry without error copy or mounting sign-in', async () => {
+test('Clerk configuration failure explains configuration failure and offers retry', async () => {
     const state = await run({configFails: true});
     assert.equal(state.retry.hidden, false);
-    assert.equal(state.message.textContent, '');
+    assert.equal(state.message.textContent, 'Sign-in is temporarily unavailable. Try again.');
     assert.equal(state.loaded, undefined);
     assert.equal(state.options, undefined);
 });
@@ -121,4 +121,31 @@ test('mobile Enter submission preserves the absence of a submitter', async () =>
     const form = {matches: () => true, requestSubmit: (...args) => { assert.equal(args.length, 0); submitted = true; }};
     await state.listeners.submit({target: form, submitter: null, preventDefault: () => {}, stopImmediatePropagation: () => {}});
     assert.equal(submitted, true);
+});
+
+test('denied accounts see their email and an explanation', async () => {
+    for (const options of [{status: 403}, {status: 503, search: '?denied=1'}]) {
+        const state = await run({signedIn: true, ...options});
+        assert.equal(state.message.textContent, "This account isn't approved yet. Ask your organizer to add ar@example.com.");
+        assert.equal(state.message.hidden, false);
+        assert.equal(state.button.hidden, false);
+    }
+});
+test('app configuration failure explains that changes may not save', async () => {
+    const state = await run({pathname: '/m', configFails: true});
+    assert.match(state.recovery.textContent, /Could not reach the sign-in service. Your changes may not save./);
+});
+
+test('denied query explains missing approval even before choosing a signed-in account', async () => {
+ const state=await run({search:'?denied=1'});
+ assert.equal(state.message.textContent, "This account isn't approved yet. Ask your organizer for access.");
+});
+
+test('Clerk script and load failures explain sign-in unavailability', async () => {
+ for (const options of [{clerkFails:true},{scriptFails:true}]) {
+  const signIn=await run(options);
+  assert.equal(signIn.message.textContent,'Sign-in is temporarily unavailable. Try again.');
+  const app=await run({...options,pathname:'/m'});
+  assert.match(app.recovery.textContent,/Your changes may not save/);
+ }
 });

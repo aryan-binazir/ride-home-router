@@ -6,6 +6,7 @@
     <title>{{if .Title}}{{.Title}} - {{end}}Ride Home Router</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/htmx.min.js"></script>
+    <script>htmx.config.timeout = 45000;</script>
     <script src="/static/js/event-planner.js" defer></script>
     <script src="/static/js/ui.js" defer></script>
     <script src="/static/js/auth.js?v=20260912-theme" defer></script>
@@ -27,6 +28,7 @@
         </header>
 
         <main class="app-main">
+            <noscript><p class="alert alert-warning">Enable JavaScript to plan and save routes.</p></noscript>
             <div class="main">
                 {{template "content" .}}
             </div>

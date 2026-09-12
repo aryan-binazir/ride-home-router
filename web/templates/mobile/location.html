@@ -8,12 +8,12 @@
       <span><b>{{.Name}}</b><small>{{.Address}}</small></span>
     </label>
     {{else}}
-    <p class="mobile-empty">No saved locations yet.</p>
+    <p class="mobile-empty">No locations yet. Add one below.</p>
     {{end}}
   </div>
   <h2 class="mobile-section-title">Manage</h2>
   <div class="mobile-group">
-    <a class="mobile-row mobile-accent" href="/m/places/locations/new">Add a location<i></i></a>
+    <a class="mobile-row mobile-accent" href="/m/places/locations/new?return=/m/plan/location">Add a location<i></i></a>
     <a class="mobile-row mobile-accent" href="/m/places">Edit saved locations<i></i></a>
   </div>
   <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>

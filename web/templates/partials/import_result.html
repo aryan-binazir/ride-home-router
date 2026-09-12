@@ -10,7 +10,7 @@
     </div>
 </div>
 {{if .HasList}}
-<div id="{{.ListElementID}}" class="table-container mb-0" hx-swap-oob="true">
+<div id="{{.ListElementID}}" class="table-container mb-0" hx-swap-oob="innerHTML">
     {{if .IsDriver}}{{template "driver_list" .DriverList}}{{else}}{{template "participant_list" .ParticipantList}}{{end}}
 </div>
 {{end}}

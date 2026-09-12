@@ -1,14 +1,14 @@
 {{define "driver_form"}}
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">{{if .Driver.ID}}Edit{{else}}Add New{{end}} Driver</h3>
+        <h3 class="card-title">{{if .Driver.ID}}Edit{{else}}Add{{end}} driver</h3>
         <button class="btn btn-sm btn-outline"
                 onclick="document.getElementById('driver-form-container').innerHTML = ''">
             Cancel
         </button>
     </div>
 
-    <form {{if .Driver.ID}}
+    <form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" {{if .Driver.ID}}
             hx-put="/api/v1/drivers/{{.Driver.ID}}"
           {{else}}
             hx-post="/api/v1/drivers"
@@ -31,7 +31,7 @@
         <div class="form-group">
             <label class="form-label">Address</label>
             {{template "address_input" .Driver.Address}}
-            <div class="form-help">Address will be geocoded automatically</div>
+            <div class="form-help">We'll look up this address automatically</div>
         </div>
 
         <div class="form-group">
@@ -76,7 +76,7 @@
 
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
-                {{if .Driver.ID}}Update{{else}}Add{{end}} Driver
+                {{if .Driver.ID}}Update{{else}}Add{{end}} driver
             </button>
             <span class="loading htmx-indicator" id="driver-form-loading"></span>
         </div>

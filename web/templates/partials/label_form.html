@@ -1,14 +1,14 @@
 {{define "label_form"}}
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">{{if .Label.ID}}Edit{{else}}Add New{{end}} Label</h3>
+        <h3 class="card-title">{{if .Label.ID}}Edit{{else}}Add{{end}} label</h3>
         <button class="btn btn-sm btn-outline"
                 onclick="document.getElementById('label-form-container').innerHTML = ''">
             Cancel
         </button>
     </div>
 
-    <form {{if .Label.ID}}
+    <form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" {{if .Label.ID}}
             hx-put="/api/v1/labels/{{.Label.ID}}"
           {{else}}
             hx-post="/api/v1/labels"
@@ -31,7 +31,7 @@
 
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
-                {{if .Label.ID}}Update{{else}}Add{{end}} Label
+                {{if .Label.ID}}Update{{else}}Add{{end}} label
             </button>
             <span class="loading htmx-indicator" id="label-form-loading"></span>
         </div>

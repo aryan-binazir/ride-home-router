@@ -32,6 +32,7 @@ func (a *Access) Register(mux *http.ServeMux) {
 
 </header>
 <section class="login-panel" aria-label="Sign in">
+<p id="auth-status" class="login-message" role="status" hidden></p>
 <div id="clerk-sign-in"></div>
 <button id="auth-retry" class="btn login-sign-out" type="button" hidden>Try again</button>
 <button class="btn login-sign-out" type="button" data-sign-out hidden>Use another account</button>
@@ -51,14 +52,21 @@ func (a *Access) Register(mux *http.ServeMux) {
 
 var accessPanel = template.Must(template.New("access").Parse(`<section id="access-management" class="card">
 <h2>Approved emails</h2>
-<p>Approved accounts share all application data. Administrators are configured in Railway.</p>
+<p>Approved accounts share all saved people, locations and events.</p>
 {{if .Message}}<p role="status">{{.Message}}</p>{{end}}
-<form hx-post="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><label for="approved-email">Email address</label><input id="approved-email" class="form-input" type="email" name="email" required maxlength="254"><button class="btn btn-primary" type="submit">Approve email</button></form>
-<ul>{{range .Emails}}<li>{{.}} <form hx-delete="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><input type="hidden" name="email" value="{{.}}"><button class="btn" type="submit">Remove access</button></form></li>{{else}}<li>No approved non-admin emails.</li>{{end}}</ul>
+<form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-post="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><label for="approved-email">Email address</label><input id="approved-email" class="form-input" type="email" name="email" required maxlength="254"><button class="btn btn-primary" type="submit">Approve email</button></form>
+<ul>{{range .Emails}}<li>{{.}} <form hx-confirm="Remove access for {{.}}?" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-delete="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><input type="hidden" name="email" value="{{.}}"><button class="btn" type="submit">Remove access</button></form></li>{{else}}<li>No approved emails yet. Add one above.</li>{{end}}</ul>
 </section>`))
 
 func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 	reject := func(message string, status int) {
+		if r.Header.Get("HX-Request") == "true" && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("X-RHR-Access-Panel", "error")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`<section id="access-management" class="card"><h2>Approved emails</h2><p role="alert">Could not load approved emails. Try again.</p><button type="button" class="btn" hx-get="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML" hx-disabled-elt="this">Try again</button></section>`))
+			return
+		}
 		if r.Header.Get("HX-Request") == "true" {
 			payload, _ := json.Marshal(map[string]any{"showToast": map[string]string{"message": message, "type": "error"}})
 			w.Header().Set("HX-Trigger", string(payload))
@@ -98,7 +106,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if a.admins[email] {
-			reject("Administrators are managed through ADMIN_EMAILS", http.StatusBadRequest)
+			reject("This address is an administrator and cannot be changed here.", http.StatusBadRequest)
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -110,7 +118,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			log.Print("[ERROR] auth approval mutation failed")
-			reject("Service Unavailable", http.StatusServiceUnavailable)
+			reject("The service is temporarily unavailable. Try again in a minute.", http.StatusServiceUnavailable)
 			return
 		}
 		p, _ := r.Context().Value(principalKey{}).(principal)
@@ -124,7 +132,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 	emails, err := a.store.ApprovedEmails(r.Context())
 	if err != nil {
 		log.Print("[ERROR] auth approval list failed")
-		reject("Service Unavailable", http.StatusServiceUnavailable)
+		reject("The service is temporarily unavailable. Try again in a minute.", http.StatusServiceUnavailable)
 		return
 	}
 	// An email promoted through the environment is not editable in this UI.

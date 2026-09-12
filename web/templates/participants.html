@@ -8,8 +8,8 @@
         <button class="btn btn-primary"
                 hx-get="/api/v1/participants/new"
                 hx-target="#participant-form-container"
-                hx-swap="innerHTML">
-            Add Participant
+                hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="this">
+            Add participant
         </button>
     </div>
 </div>
@@ -41,7 +41,7 @@
                     hx-get="/api/v1/participants/deleted"
                     hx-target="#participants-deleted"
                     hx-swap="innerHTML"
-                    onclick="switchRosterTab(this, 'participants')">
+                    onclick="switchRosterTab(this, 'participants')" hx-indicator="this" hx-disabled-elt="this">
                 Deleted
             </button>
         </div>
@@ -66,7 +66,7 @@
                             hx-vals='{"label_id": "{{.ID}}"}'
                             hx-include="#participant-bulk-form input[name='participant_ids']:checked"
                             hx-target="#participants-list"
-                            hx-swap="innerHTML">
+                            hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="this">
                         {{.Name}}
                     </button>
                     {{end}}
@@ -83,7 +83,7 @@
                             hx-vals='{"label_id": "{{.ID}}"}'
                             hx-include="#participant-bulk-form input[name='participant_ids']:checked"
                             hx-target="#participants-list"
-                            hx-swap="innerHTML">
+                            hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="this">
                         {{.Name}}
                     </button>
                     {{end}}

@@ -1,14 +1,14 @@
 {{define "participant_form"}}
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">{{if .Participant.ID}}Edit{{else}}Add New{{end}} Participant</h3>
+        <h3 class="card-title">{{if .Participant.ID}}Edit{{else}}Add{{end}} participant</h3>
         <button class="btn btn-sm btn-outline"
                 onclick="document.getElementById('participant-form-container').innerHTML = ''">
             Cancel
         </button>
     </div>
 
-    <form {{if .Participant.ID}}
+    <form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" {{if .Participant.ID}}
             hx-put="/api/v1/participants/{{.Participant.ID}}"
           {{else}}
             hx-post="/api/v1/participants"
@@ -31,7 +31,7 @@
         <div class="form-group">
             <label class="form-label">Address</label>
             {{template "address_input" .Participant.Address}}
-            <div class="form-help">Address will be geocoded automatically</div>
+            <div class="form-help">We'll look up this address automatically</div>
         </div>
 
         <div class="form-group">
@@ -64,7 +64,7 @@
 
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
-                {{if .Participant.ID}}Update{{else}}Add{{end}} Participant
+                {{if .Participant.ID}}Update{{else}}Add{{end}} participant
             </button>
             <span class="loading htmx-indicator" id="participant-form-loading"></span>
         </div>
