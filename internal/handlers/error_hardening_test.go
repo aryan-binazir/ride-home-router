@@ -3,9 +3,12 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
@@ -259,5 +262,38 @@ func TestMobileSaveKnownFailuresKeepActionableStatus(t *testing.T) {
 				t.Fatalf("save: %d %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestMobileLabelsOutageRetryRetainsMemberships(t *testing.T) {
+	h, store := newTestManagementHandler(t)
+	label, err := store.Labels().Create(t.Context(), &models.Label{Name: "Keep label"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	person, err := store.Participants().CreateWithLabels(t.Context(), &models.Participant{Name: "Rider", Address: "Same address"}, []int64{label.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.DB = rosterRefreshFailureStore{DataStore: store, participants: store.Participants(), drivers: store.Drivers(), labels: failedRosterLabels{store.Labels()}}
+	path := fmt.Sprintf("/m/people/participants/%d/edit", person.ID)
+	values := url.Values{"name": {"Rider"}, "address": {"Same address"}, "label_ids": {fmt.Sprint(label.ID)}}
+	failed := postMobileForm(t, nil, path, values, h.HandleMobileParticipantForm)
+	if failed.Code != 500 {
+		t.Fatalf("failure: %d", failed.Code)
+	}
+	match := regexp.MustCompile(`<form[^>]*action="([^"]+)"`).FindStringSubmatch(failed.Body.String())
+	if len(match) != 2 {
+		t.Fatal("missing retry form")
+	}
+	h.DB = store
+	values.Del("label_ids") // Failed lookup rendered no label controls.
+	retry := postMobileForm(t, nil, html.UnescapeString(match[1]), values, h.HandleMobileParticipantForm)
+	if retry.Code != 303 {
+		t.Fatalf("retry: %d %s", retry.Code, retry.Body.String())
+	}
+	labels, err := store.Labels().ListLabelsForParticipant(t.Context(), person.ID)
+	if err != nil || len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("labels lost: %v %v", labels, err)
 	}
 }

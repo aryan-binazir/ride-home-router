@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -71,7 +72,16 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
 		if r.Method == http.MethodPost {
-			h.renderMobileTemplateStatus(w, r, http.StatusInternalServerError, "mobile/person_form.html", mobilePersonSubmittedView(r, kind, nil, messageGenericInternalError))
+			view := mobilePersonSubmittedView(r, kind, nil, messageGenericInternalError)
+			// Labels cannot be rendered during this outage. Carry the submitted selection
+			// into the retry so an absent checkbox group cannot clear memberships.
+			query := url.Values{"label_ids": r.Form["label_ids"]}
+			if target := mobileReturnPath(r, ""); target != "" {
+				query.Set("return", target)
+			}
+			action := url.URL{Path: r.URL.Path, RawQuery: query.Encode()}
+			view.Action = action.String()
+			h.renderMobileTemplateStatus(w, r, http.StatusInternalServerError, "mobile/person_form.html", view)
 			return
 		}
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)

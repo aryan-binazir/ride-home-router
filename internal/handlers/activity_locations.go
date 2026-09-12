@@ -174,14 +174,14 @@ func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Reque
 func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Request) {
 	id, err := parseActivityLocationID(r.URL.Path)
 	if err != nil {
-		h.renderError(w, r, fmt.Errorf("invalid activity location ID"))
+		h.handleValidationErrorHTMX(w, r, "Choose a valid location. Refresh the page and try again.")
 		return
 	}
 
 	location, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			h.renderError(w, r, fmt.Errorf("activity location not found"))
+			h.handleNotFoundHTMX(w, r, "Location not found. Refresh the page and try again.")
 			return
 		}
 		h.renderError(w, r, err)
