@@ -156,3 +156,5 @@ This software is provided "as is" without warranty. Verify every driver, address
 ## License
 
 MIT
+
+Authentication troubleshooting: empty entries (including trailing commas) in `ADMIN_EMAILS` or `CLERK_AUTHORIZED_PARTIES` are rejected at startup. Authentication logs report fixed failure categories without tokens or raw Clerk responses; access changes log the verified Clerk actor ID and target email. Clerk lookup outages return 503 without a sign-in redirect. Mobile POST forms refresh their session before submitting; planner mutations retry at most once after a 401 and preserve the current page when sign-in is required. Network failures and 5xx responses are never automatically retried.

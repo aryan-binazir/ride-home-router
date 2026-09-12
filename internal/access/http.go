@@ -3,7 +3,9 @@ package access
 import (
 	"encoding/json"
 	"html/template"
+	"log"
 	"net/http"
+	"ride-home-router/internal/logutil"
 )
 
 // Register adds authentication and admin-only access management to the router.
@@ -44,6 +46,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 	}
 	if !IsAdmin(r.Context()) {
+		log.Print("[AUTH] denied: non-admin access management")
 		reject("Forbidden", http.StatusForbidden)
 		return
 	}
@@ -85,9 +88,13 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 			message = "Access removed."
 		}
 		if err != nil {
+			log.Print("[ERROR] auth approval mutation failed")
 			reject("Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		p, _ := r.Context().Value(principalKey{}).(principal)
+		//nolint:gosec // G706: every request-derived string is escaped with logutil.SafeString and quoted.
+		log.Printf("[AUTH] access change: actor=%q method=%q email=%q", logutil.SafeString(p.UserID), logutil.SafeString(r.Method), logutil.SafeString(email))
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
 		reject("Method Not Allowed", http.StatusMethodNotAllowed)
@@ -95,6 +102,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 	}
 	emails, err := a.store.ApprovedEmails(r.Context())
 	if err != nil {
+		log.Print("[ERROR] auth approval list failed")
 		reject("Service Unavailable", http.StatusServiceUnavailable)
 		return
 	}

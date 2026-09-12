@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -53,10 +54,16 @@ type Access struct {
 	store    Store
 }
 
-type principalKey struct{}
+type (
+	principalKey struct{}
+	principal    struct {
+		Admin  bool
+		UserID string
+	}
+)
 
 // IsAdmin only consumes identity installed by this package after verification.
-func IsAdmin(ctx context.Context) bool { admin, _ := ctx.Value(principalKey{}).(bool); return admin }
+func IsAdmin(ctx context.Context) bool { p, _ := ctx.Value(principalKey{}).(principal); return p.Admin }
 
 func NormalizeEmail(raw string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(raw))
@@ -154,13 +161,16 @@ func public(r *http.Request) bool {
 // Protect is the outer boundary around the entire router, including future routes.
 func (a *Access) Protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
+		if !public(r) || !strings.HasPrefix(r.URL.Path, "/static/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if public(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		raw := token(r)
 		if raw == "" || len(raw) > 16384 {
+			log.Print("[AUTH] denied: missing or malformed session credential")
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
@@ -171,17 +181,28 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		}{}
 		claims, err := jwt.Verify(ctx, &jwt.VerifyParams{Token: raw, JWK: a.key, CustomClaimsConstructor: func(context.Context) any { return &state }, AuthorizedPartyHandler: func(p string) bool { return a.parties[p] }})
 		if err != nil || (state.Status != "" && state.Status != "active") || claims.Issuer != a.issuer || claims.Subject == "" || claims.SessionID == "" || claims.Expiry == nil || claims.NotBefore == nil || claims.IssuedAt == nil || *claims.Expiry <= time.Now().Unix() {
+			log.Print("[AUTH] denied: JWT signature, claims or instance verification failed")
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
 		// Live lookups also reject revoked sessions and removed/unverified addresses.
 		s, err := a.sessions.Get(ctx, claims.SessionID)
-		if err != nil || s.ID != claims.SessionID || s.UserID != claims.Subject || s.Status != "active" {
+		if err != nil {
+			deny(w, r, clerkFailureStatus(err))
+			return
+		}
+		if s.ID != claims.SessionID || s.UserID != claims.Subject || s.Status != "active" {
+			log.Print("[AUTH] denied: inactive or mismatched session")
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
 		u, err := a.users.Get(ctx, claims.Subject)
-		if err != nil || u.ID != claims.Subject || u.Banned || u.Locked {
+		if err != nil {
+			deny(w, r, clerkFailureStatus(err))
+			return
+		}
+		if u.ID != claims.Subject || u.Banned || u.Locked {
+			log.Print("[AUTH] denied: unavailable or mismatched user")
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
@@ -205,10 +226,12 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		if !admin {
 			allowed, err := a.store.Approved(ctx, emails)
 			if err != nil {
+				log.Print("[ERROR] auth approval lookup failed")
 				deny(w, r, http.StatusServiceUnavailable)
 				return
 			}
 			if !allowed {
+				log.Print("[AUTH] denied: no approved verified email")
 				deny(w, r, http.StatusForbidden)
 				return
 			}
@@ -219,6 +242,7 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			u, err := url.Parse(origin)
 			if err != nil || !a.parties[origin] || u.Host != r.Host {
+				log.Print("[AUTH] denied: cookie mutation origin mismatch")
 				deny(w, r, http.StatusForbidden)
 				return
 			}
@@ -227,12 +251,25 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		// They never confer authority and are written only after all auth checks.
 		if admin {
 			if err := a.store.RecordAdminEmails(ctx, adminEmails); err != nil {
+				log.Print("[ERROR] auth verified admin email persistence failed")
 				deny(w, r, http.StatusServiceUnavailable)
 				return
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, admin)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, principal{Admin: admin, UserID: u.ID})))
 	})
+}
+
+// Clerk 404 means the session/user no longer exists; other API/transport errors
+// indicate an unavailable identity service, not evidence that the user signed out.
+func clerkFailureStatus(err error) int {
+	var apiErr *clerk.APIErrorResponse
+	if errors.As(err, &apiErr) && apiErr.HTTPStatusCode == http.StatusNotFound {
+		log.Print("[AUTH] denied: Clerk session or user not found")
+		return http.StatusUnauthorized
+	}
+	log.Print("[ERROR] auth Clerk lookup unavailable")
+	return http.StatusServiceUnavailable
 }
 
 func deny(w http.ResponseWriter, r *http.Request, status int) {
@@ -244,7 +281,7 @@ func deny(w http.ResponseWriter, r *http.Request, status int) {
 		if status == http.StatusForbidden {
 			w.Header().Set("HX-Redirect", "/sign-in?denied=1")
 		}
-	} else if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") && !strings.HasPrefix(r.URL.Path, "/api/") && status != http.StatusServiceUnavailable {
+	} else if strings.Contains(r.Header.Get("Accept"), "text/html") && !strings.HasPrefix(r.URL.Path, "/api/") && status != http.StatusServiceUnavailable {
 		target := "/sign-in"
 		if status == http.StatusForbidden {
 			target += "?denied=1"

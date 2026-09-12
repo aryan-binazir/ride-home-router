@@ -5,9 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
-async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false} = {}) {
-    const state = {message: {textContent: ''}, button: {hidden: true}, requests: []};
+async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token'} = {}) {
+    const state = {listeners: {}, message: {textContent: ''}, button: {hidden: true}, requests: []};
     const clerk = {
+        session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
         user: signedIn ? {id: 'user_test'} : null,
         load: async () => { state.loaded = true; },
         mountSignIn: (_, options) => { state.options = options; },
@@ -15,18 +16,23 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
     };
     state.button.addEventListener = (_, callback) => { state.click = callback; };
     await vm.runInNewContext(source, {
-        window: {Clerk: clerk},
-        location: {pathname, replace: value => { state.redirect = value; }},
+        window: state.window = {Clerk: clerk},
+        URL, Headers,
+        location: {pathname, href: 'https://app.example'+pathname, origin: 'https://app.example', replace: value => { state.redirect = value; }},
         document: {
             getElementById: id => id === 'auth-message' ? state.message : {},
-            createElement: () => ({dataset: {}}),
+            addEventListener: (name, listener) => { state.listeners[name] = listener; },
+            body: {prepend: node => { state.recovery = node; }},
+            createElement: () => ({dataset: {}, setAttribute: () => {}, appendChild: node => { state.recoveryLink = node; }}),
             head: {appendChild: script => { state.script = script; script.onload(); }},
             querySelectorAll: () => [state.button],
         },
-        fetch: async url => {
+        fetch: async (url, options) => {
+            state.lastOptions = options;
             state.requests.push(url);
             if (url === '/auth/config') return {ok: !configFails, json: async () => ({publishableKey: 'pk_test_fixture', scriptURL: 'https://fixture.clerk.accounts.dev/clerk.js'})};
-            return {ok: status === 200, status};
+            const nextStatus = responses.shift() ?? status;
+            return {ok: nextStatus === 200, status: nextStatus};
         },
     });
     return state;
@@ -63,4 +69,55 @@ test('Clerk configuration failure displays a generic error without mounting sign
     assert.match(state.message.textContent, /unavailable/);
     assert.equal(state.loaded, undefined);
     assert.equal(state.options, undefined);
+});
+
+
+test('planner requests refresh and retry once only after a denied 401', async () => {
+    const state = await run({signedIn: true, pathname: '/', responses: [401, 200]});
+    const response = await state.window.authFetch('/api/v1/routes/edit/test', {method: 'POST', body: 'unchanged'});
+    assert.equal(response.status, 200);
+    assert.equal(state.refreshes, 1);
+    assert.equal(state.lastOptions.body, 'unchanged');
+    assert.equal(state.lastOptions.headers.get('Authorization'), 'Bearer fresh-token');
+});
+test('planner denial preserves current page and offers sign-in separately', async () => {
+    const state = await run({signedIn: true, pathname: '/', responses: [401, 401]});
+    await assert.rejects(state.window.authFetch('/api/v1/routes/edit/test'), /not saved/);
+    assert.equal(state.refreshes, 1);
+    assert.equal(state.redirect, undefined);
+    assert.equal(state.recoveryLink.target, '_blank');
+});
+test('auth fetch never retries 403 or 503 and never sends credentials off-site', async () => {
+    for (const status of [403, 503]) {
+        const state = await run({signedIn: true, pathname: '/', status});
+        if (status === 403) await assert.rejects(state.window.authFetch('/api/v1/routes/edit/test'));
+        else assert.equal((await state.window.authFetch('/api/v1/routes/edit/test')).status, 503);
+        assert.equal(state.refreshes, undefined);
+        assert.equal(state.requests.length, 2);
+        await assert.rejects(state.window.authFetch('https://attacker.example'), /this site/);
+        assert.equal(state.requests.length, 2);
+    }
+});
+test('mobile submission refreshes first and retains input when refresh fails', async () => {
+    for (const refreshToken of ['fresh-token', null]) {
+        const state = await run({signedIn: true, pathname: '/m/people', refreshToken});
+        let prevented = false;
+        let submitted = 0;
+        const button = {};
+        const form = {matches: () => true, requestSubmit: submitter => { assert.equal(submitter, button); submitted++; }};
+        await state.listeners.submit({target: form, submitter: button, preventDefault: () => {prevented = true;}, stopImmediatePropagation: () => {}});
+        assert.equal(prevented, true);
+        assert.equal(state.refreshes, 1);
+        assert.equal(submitted, refreshToken ? 1 : 0);
+        assert.equal(state.redirect, undefined);
+        if (!refreshToken) assert.match(state.recovery.textContent, /not been submitted/);
+    }
+});
+
+test('mobile Enter submission preserves the absence of a submitter', async () => {
+    const state = await run({signedIn: true, pathname: '/m/people'});
+    let submitted = false;
+    const form = {matches: () => true, requestSubmit: (...args) => { assert.equal(args.length, 0); submitted = true; }};
+    await state.listeners.submit({target: form, submitter: null, preventDefault: () => {}, stopImmediatePropagation: () => {}});
+    assert.equal(submitted, true);
 });

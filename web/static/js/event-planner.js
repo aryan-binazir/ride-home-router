@@ -939,7 +939,7 @@
                 }
 
                 try {
-                    const response = await fetch('/api/v1/routes/edit/move-participant', {
+                    const response = await (window.authFetch || fetch)('/api/v1/routes/edit/move-participant', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1010,7 +1010,7 @@
                 const state = plannerState.refresh();
                 if (!state.canSave || state.sessionId !== sessionId) return false;
                 try {
-                    const response = await fetch(endpoint, {
+                    const response = await (window.authFetch || fetch)(endpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
                         ...(payload ? { body: JSON.stringify(payload) } : {}),

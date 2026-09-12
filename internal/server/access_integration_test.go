@@ -358,8 +358,8 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 		{"unknown_session", f.Token("user_admin", "unknown"), 401},
 		{"mismatched_session", f.Token("user_admin", "mismatch"), 401},
 		{"revoked_session", f.Token("user_admin", "revoked"), 401},
-		{"session_service_failure", f.Token("user_admin", "service_failure"), 401},
-		{"user_service_failure", f.Token("missing_user", "user_failure"), 401},
+		{"session_service_failure", f.Token("user_admin", "service_failure"), 503},
+		{"user_service_failure", f.Token("missing_user", "user_failure"), 503},
 		{"unapproved", f.Token("unapproved", "unapproved_session", map[string]any{"role": "admin"}), 403},
 		{"unverified_admin", f.Token("unverified", "unverified_session"), 403},
 	}
@@ -387,7 +387,12 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 				}
 			}
 			status, body, headers := local.request(base, "GET", "/participants", tc.token, "", "", map[string]string{"Accept": "text/html"})
-			if status != http.StatusSeeOther || !strings.HasPrefix(headers.Get("Location"), "/sign-in") || len(headers.Values("Set-Cookie")) != 0 || strings.Contains(body, "protected matrix secret") {
+			if tc.status == http.StatusServiceUnavailable {
+				assertAccessDenied(t, status, body, headers, tc.status, "GET")
+				if headers.Get("Location") != "" {
+					t.Fatal("Clerk outage redirected browser")
+				}
+			} else if status != http.StatusSeeOther || !strings.HasPrefix(headers.Get("Location"), "/sign-in") || len(headers.Values("Set-Cookie")) != 0 || strings.Contains(body, "protected matrix secret") {
 				t.Fatalf("browser denial: status %d headers=%v body=%q", status, headers, body)
 			}
 			upload, contentType := accessImportBody(t)
