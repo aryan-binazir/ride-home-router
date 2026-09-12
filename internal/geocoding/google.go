@@ -96,6 +96,11 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		}
 		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
 	}
+	if decodeErr != nil {
+		// A recognised status with an unreadable body must not pass as a result.
+		log.Printf("[ERROR] Google geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
+	}
 	switch decoded.Status {
 	case "OK":
 	case "ZERO_RESULTS":

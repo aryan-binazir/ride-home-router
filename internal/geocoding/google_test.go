@@ -385,8 +385,9 @@ func TestGoogleKeyProblemsFailFastWithoutRequestRetries(t *testing.T) {
 
 func TestGoogleGeocodeRejectsIncompleteResponses(t *testing.T) {
 	for name, body := range map[string]string{
-		"missing coordinates": `{"status":"OK","results":[{"formatted_address":"x","geometry":{"location":{}}}]}`,
-		"ok without results":  `{"status":"OK","results":[]}`,
+		"missing coordinates":             `{"status":"OK","results":[{"formatted_address":"x","geometry":{"location":{}}}]}`,
+		"ok without results":              `{"status":"OK","results":[]}`,
+		"ok with non-numeric coordinates": `{"status":"OK","results":[{"formatted_address":"x","geometry":{"location":{"lat":"invalid","lng":-71}}}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := googleStatusServer(t, http.StatusOK, body)
