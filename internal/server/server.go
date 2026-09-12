@@ -51,8 +51,7 @@ type Config struct {
 	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
 	AllowedHosts []string
 	// DatabaseURL points to the migrated Postgres database to serve.
-	DatabaseURL      string
-	NominatimBaseURL string
+	DatabaseURL string
 }
 
 const (
@@ -88,7 +87,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
-	geocoder := geocoding.NewNominatimGeocoderWithGate(db.NominatimGate(), cfg.NominatimBaseURL)
+	geocoder := geocoding.NewGoogleGeocoder(db.Settings().GoogleMapsKey, db.GeocodingGate())
 	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), db.Settings().GoogleMapsKey)
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewPersistentStore(distanceCalc, db.Workflows())

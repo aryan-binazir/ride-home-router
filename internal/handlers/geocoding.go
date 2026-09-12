@@ -11,7 +11,7 @@ import (
 
 // HandleAddressSearch handles GET /api/v1/address-search
 func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
-	// Require HTMX so another site cannot exhaust the shared Nominatim limit.
+	// Require HTMX so another site cannot spend the Google Places quota through this endpoint.
 	if !h.isHTMX(r) {
 		http.Error(w, messageForbidden, http.StatusForbidden)
 		return

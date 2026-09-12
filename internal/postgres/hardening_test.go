@@ -79,11 +79,11 @@ func TestProviderGateFailsFastForInvalidStoredCooldown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	var cooldown *geocoding.CooldownError
-	if err = store.NominatimGate().Wait(ctx); !errors.As(err, &cooldown) {
+	if err = store.GeocodingGate().Wait(ctx); !errors.As(err, &cooldown) {
 		t.Fatalf("cooldown=%v", err)
 	}
 	var seconds float64
-	if err = conn.QueryRow(t.Context(), "SELECT EXTRACT(EPOCH FROM next_at-clock_timestamp())::float8 FROM provider_throttles WHERE name='nominatim'").Scan(&seconds); err != nil {
+	if err = conn.QueryRow(t.Context(), "SELECT EXTRACT(EPOCH FROM next_at-clock_timestamp())::float8 FROM provider_throttles WHERE name='google_geocoding'").Scan(&seconds); err != nil {
 		t.Fatal(err)
 	}
 	if seconds > 900 || seconds < 890 {
