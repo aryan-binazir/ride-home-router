@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -61,16 +60,7 @@ func (h *Handler) setMobileDraftCookie(w http.ResponseWriter, r *http.Request, i
 }
 
 func mobileDraftCookieSecure(r *http.Request) bool {
-	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https") {
-		return true
-	}
-	host := r.Host
-	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
-		host = parsedHost
-	}
-	host = strings.Trim(strings.ToLower(host), "[]")
-	ip := net.ParseIP(host)
-	return host != "localhost" && (ip == nil || !ip.IsLoopback())
+	return httpx.RequestIsSecure(r)
 }
 
 func validMobileDraftID(id string) bool {
