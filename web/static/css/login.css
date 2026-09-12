@@ -1,0 +1,45 @@
+/* Sign-in reuses the application's palette and typography, including dark mode. */
+.login-page {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: max(40px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  -webkit-font-smoothing: antialiased;
+}
+.login-shell { width: 100%; max-width: 420px; }
+.login-brand { text-align: center; margin-bottom: 28px; }
+.login-mark {
+  display: grid; place-items: center; width: 52px; height: 52px;
+  margin: 0 auto 18px; border: 1px solid var(--line);
+  border-radius: 14px; background: var(--pane); color: var(--accent);
+}
+.login-mark svg { width: 30px; height: 30px; }
+.login-brand h1 { margin: 0 0 8px; font-size: 26px; font-weight: 650; letter-spacing: -.035em; }
+.login-panel {
+  overflow: hidden; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--pane); box-shadow: 0 8px 28px rgb(0 0 0 / 4%);
+}
+.login-page .login-clerk-root, .login-page .login-clerk-box { width: 100%; max-width: 100%; min-width: 0; }
+.login-page .login-clerk-box { box-shadow: none; border: 0; border-radius: 0; }
+.login-page .login-clerk-card { padding: 28px; gap: 24px; background: var(--pane); box-shadow: none; border: 0; border-radius: 0; }
+.login-page .login-clerk-title { color: var(--ink); font-size: 18px; font-weight: 650; line-height: 1.4; letter-spacing: -.02em; }
+.login-page .login-clerk-subtitle { color: var(--ink-2); }
+.login-page .login-google-button {
+  min-height: 48px; border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--field); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+  font-size: 15px; font-weight: 600;
+}
+.login-page .login-google-button:hover { background: var(--field-2); border-color: var(--accent); }
+.login-page .login-google-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.login-page .login-clerk-footer { background: var(--pane-2); background-image: none; border-top: 1px solid var(--line); color: var(--ink-2); }
+.login-sign-out { display: block; margin: 24px auto; min-height: 44px; padding-inline: 24px; }
+.login-sign-out[hidden] { display: none; }
+@media (max-width: 480px) {
+  .login-page { align-items: start; padding-top: max(64px, env(safe-area-inset-top)); }
+  .login-brand { margin-bottom: 24px; }
+  .login-brand h1 { font-size: 24px; }
+  .login-page .login-clerk-card { padding: 24px 20px; }
+}
+@media (max-height: 600px) {
+  .login-page { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+}

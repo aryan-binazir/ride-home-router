@@ -6,7 +6,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
 async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token'} = {}) {
-    const state = {listeners: {}, message: {textContent: ''}, button: {hidden: true}, requests: []};
+    const state = {listeners: {}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
     const clerk = {
         session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
         user: signedIn ? {id: 'user_test'} : null,
@@ -20,7 +20,7 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
         URL, Headers,
         location: {pathname, href: 'https://app.example'+pathname, origin: 'https://app.example', replace: value => { state.redirect = value; }},
         document: {
-            getElementById: id => id === 'auth-message' ? state.message : {},
+            getElementById: id => id === 'auth-retry' ? state.retry : {},
             addEventListener: (name, listener) => { state.listeners[name] = listener; },
             body: {prepend: node => { state.recovery = node; }},
             createElement: () => ({dataset: {}, setAttribute: () => {}, appendChild: node => { state.recoveryLink = node; }}),
@@ -52,7 +52,7 @@ test('only successful backend admission redirects a signed-in user to protected 
         const state = await run({signedIn: true, status});
         assert.equal(state.redirect, undefined);
         assert.equal(state.options, undefined);
-        assert.ok(state.message.textContent.length > 0);
+        assert.equal(state.retry.hidden, status === 403);
         assert.equal(state.button.hidden, false);
     }
 });
@@ -64,9 +64,10 @@ test('protected pages load Clerk for refresh and expose sign-out', async () => {
     state.click();
     assert.equal(state.signOut.redirectUrl, '/sign-in');
 });
-test('Clerk configuration failure displays a generic error without mounting sign-in', async () => {
+test('Clerk configuration failure offers retry without error copy or mounting sign-in', async () => {
     const state = await run({configFails: true});
-    assert.match(state.message.textContent, /unavailable/);
+    assert.equal(state.retry.hidden, false);
+    assert.equal(state.message.textContent, '');
     assert.equal(state.loaded, undefined);
     assert.equal(state.options, undefined);
 });
