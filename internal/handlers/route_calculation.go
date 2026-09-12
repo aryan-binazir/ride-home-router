@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
+	"time"
 )
 
 type routeCalculationKind int
@@ -146,7 +147,9 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		return routeCalculationOutcome{Kind: routeCalculationInternalFailure, Err: err}
 	}
 	if err := ctx.Err(); err != nil {
-		_ = c.sessions.DeleteContext(ctx, session.ID)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		_ = c.sessions.DeleteContext(cleanupCtx, session.ID)
 		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
 	}
 

@@ -79,3 +79,81 @@ func TestPersistentImportResumesAfterWorkerShutdownAndCommitsOnce(t *testing.T) 
 		t.Fatalf("roster: %d %v", len(rows), err)
 	}
 }
+
+func TestPersistentImportPreservesDiagnosticsAndSkipsInvalidRows(t *testing.T) {
+	db := postgrestest.Open(t)
+	g := &fakeGeocoder{result: func(context.Context, string, int) (*geocoding.GeocodingResult, error) {
+		return &geocoding.GeocodingResult{Coords: models.Coordinates{Lat: 35, Lng: -79}}, nil
+	}}
+	s := NewPersistentStore(t.Context(), g, db, db.Workflows(), db.ImportJobs())
+	defer s.Close()
+	grid := testGrid(t, "name,address\nGood,1 Example St\n,2 Example St\nBad\x00Name,3 Example St\n")
+	grid.Warnings = []string{"synthetic file warning"}
+	created, err := s.CreateContext(t.Context(), KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ApplyMapping(t.Context(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snap, ok, err := s.Load(t.Context(), created.ID)
+		if err != nil || !ok {
+			t.Fatalf("load: %v %v", ok, err)
+		}
+		if len(snap.Grid.Headers) != 2 || len(snap.Grid.Warnings) != 1 {
+			t.Fatalf("lost diagnostics: %+v", snap.Grid)
+		}
+		if !snap.GeocodeProgress.Running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("geocode timeout")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err = s.SelectRowsContext(t.Context(), created.ID, []bool{true}); !errors.Is(err, ErrInvalidSelection) {
+		t.Fatalf("invalid selection: %v", err)
+	}
+	result, err := s.Commit(t.Context(), created.ID, nil)
+	if err != nil || result.Created != 1 {
+		t.Fatalf("commit valid row: %+v %v", result, err)
+	}
+}
+
+func TestPersistentImportProviderDeadlineFinishesJob(t *testing.T) {
+	t.Parallel()
+	db := postgrestest.Open(t)
+	g := &fakeGeocoder{result: func(ctx context.Context, _ string, _ int) (*geocoding.GeocodingResult, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	s := NewPersistentStore(t.Context(), g, db, db.Workflows(), db.ImportJobs())
+	defer s.Close()
+	grid := testGrid(t, "name,address\nRider,1 Example St\n")
+	created, err := s.CreateContext(t.Context(), KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ApplyMapping(t.Context(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(35 * time.Second)
+	for {
+		snap, ok, err := s.Load(t.Context(), created.ID)
+		if err != nil || !ok {
+			t.Fatalf("load: %v %v", ok, err)
+		}
+		if !snap.GeocodeProgress.Running {
+			if len(snap.Rows) != 1 || snap.Rows[0].NeedsGeocoding || len(snap.Rows[0].Errors) == 0 {
+				t.Fatalf("deadline not terminal: %+v", snap)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("deadline job kept retrying")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}

@@ -107,15 +107,17 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 		return Snapshot{}, false, err
 	}
 	snapshot := Snapshot{ID: id, Kind: header.Kind, Filename: header.Filename, Grid: header.Grid.grid(), Mapping: header.Mapping, Status: header.Status, Failure: header.Failure, CommitResult: header.Result}
+	// Read progress first: a finishing job may make this poll conservative,
+	// but it cannot enable commit while the returned rows are still pending.
+	done, total, err := s.durableJobs.Progress(ctx, id)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
 	stored, err := s.durableJobs.Rows(ctx, id)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
 	snapshot.Rows, snapshot.Selected, err = decodeImportRows(stored)
-	if err != nil {
-		return Snapshot{}, false, err
-	}
-	done, total, err := s.durableJobs.Progress(ctx, id)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
@@ -166,6 +168,9 @@ func (s *Store) applyMappingPersistent(ctx context.Context, id string, mapping M
 	stored := make([]database.ImportRow, len(rows))
 	selections := defaultSelections(rows)
 	for i, row := range rows {
+		if len(row.Errors) > 0 {
+			row.NeedsGeocoding = false
+		}
 		data, err := json.Marshal(row)
 		if err != nil {
 			return Snapshot{}, err
@@ -183,7 +188,7 @@ func (s *Store) applyMappingPersistent(ctx context.Context, id string, mapping M
 		if err := w.StageImport(ctx, id, stored, jobs); err != nil {
 			return err
 		}
-		header.Grid = nil
+		header.Grid.Rows = nil
 		header.Mapping = copyMapping(mapping)
 		header.Status = StatusPreviewing
 		data, err := json.Marshal(header)
@@ -209,7 +214,11 @@ func (s *Store) SelectRowsContext(ctx context.Context, id string, selected []boo
 		if h.Status != StatusPreviewing || record.Consumed {
 			return ErrInvalidSessionState
 		}
-		return w.SelectImportRows(ctx, id, selected)
+		err := w.SelectImportRows(ctx, id, selected)
+		if errors.Is(err, database.ErrInvalidWorkflowSelection) {
+			return ErrInvalidSelection
+		}
+		return err
 	})
 	if err != nil {
 		return Snapshot{}, err
@@ -330,11 +339,18 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	workCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	result, err := s.geocoder.GeocodeWithRetry(workCtx, job.Address, geocodeMaxRetries)
-	if workCtx.Err() != nil {
-		return workCtx.Err()
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
+	// A provider deadline is terminal for this address; process shutdown is not.
+	// Persist using a fresh bounded context because the work budget may be spent.
+	if workCtx.Err() != nil {
+		err = workCtx.Err()
+	}
+	persistCtx, persistCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer persistCancel()
 	failed := err != nil || result == nil || !validCoordinatePair(result.Coords.Lat, result.Coords.Lng)
-	stored, err := s.durableJobs.Rows(workCtx, job.SessionID)
+	stored, err := s.durableJobs.Rows(persistCtx, job.SessionID)
 	if err != nil {
 		return err
 	}
@@ -361,5 +377,5 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 		}
 		updated = append(updated, database.ImportRow{Index: index, Data: data})
 	}
-	return s.durableJobs.Finish(workCtx, job, updated, failed)
+	return s.durableJobs.Finish(persistCtx, job, updated, failed)
 }

@@ -53,7 +53,7 @@ func (w workflowWrites) StageImport(ctx context.Context, id string, rows []datab
 	if err != nil {
 		return err
 	}
-	_, err = w.tx.ExecContext(ctx, `INSERT INTO import_rows(session_id,row_index,payload,selected) SELECT $1,ordinality-1,value,($3::boolean[])[ordinality] FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY`, id, string(encoded), selected)
+	_, err = w.tx.ExecContext(ctx, `INSERT INTO import_rows(session_id,row_index,payload,selected) SELECT $1,ordinality-1,value,($3::boolean[])[ordinality] FROM json_array_elements($2::json) WITH ORDINALITY`, id, string(encoded), selected)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (w workflowWrites) SelectImportRows(ctx context.Context, id string, selecte
 		return err
 	}
 	if count != len(selected) {
-		return database.ErrWorkflowConflict
+		return database.ErrInvalidWorkflowSelection
 	}
 	_, err := w.tx.ExecContext(ctx, `UPDATE import_rows SET selected=($2::boolean[])[row_index+1] WHERE session_id=$1`, id, selected)
 	return err
@@ -109,7 +109,7 @@ func (r *importJobRepository) Claim(ctx context.Context, token string, ttl time.
 }
 
 func (r *importJobRepository) Release(ctx context.Context, job database.ImportJob) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET claim_token=NULL,claimed_until=NULL WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done`, job.SessionID, job.Index, job.Token)
+	_, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET claim_token=NULL,claimed_until=clock_timestamp()+interval '1 second' WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done`, job.SessionID, job.Index, job.Token)
 	return err
 }
 
@@ -130,7 +130,7 @@ func (r *importJobRepository) Finish(ctx context.Context, job database.ImportJob
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE import_jobs SET done=true,claim_token=NULL,claimed_until=NULL WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done AND claimed_until>clock_timestamp()`, job.SessionID, job.Index, job.Token)
+	result, err := tx.ExecContext(ctx, `UPDATE import_jobs SET done=true,claim_token=NULL,claimed_until=clock_timestamp()+interval '1 second' WHERE session_id=$1 AND job_index=$2 AND claim_token=$3 AND NOT done AND claimed_until>clock_timestamp()`, job.SessionID, job.Index, job.Token)
 	if err != nil {
 		return err
 	}

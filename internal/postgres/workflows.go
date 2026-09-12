@@ -15,7 +15,7 @@ func (s *Store) Workflows() database.WorkflowRepository { return &workflowReposi
 
 func (r *workflowRepository) Create(ctx context.Context, kind, id string, data []byte, ttl time.Duration) error {
 	if len(data) > 24<<20 {
-		return errors.New("workflow payload exceeds 24 MiB")
+		return database.ErrWorkflowPayloadTooLarge
 	}
 	limit := 256
 	if kind == "import" {
@@ -47,6 +47,8 @@ func (r *workflowRepository) Create(ctx context.Context, kind, id string, data [
 }
 
 func (r *workflowRepository) Load(ctx context.Context, kind, id string, ttl time.Duration) (database.WorkflowRecord, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var record database.WorkflowRecord
 	err := r.db.QueryRowContext(ctx, `UPDATE workflow_sessions SET expires_at=clock_timestamp()+$3*interval '1 second' WHERE kind=$1 AND id=$2 AND expires_at>clock_timestamp() RETURNING payload,revision,consumed`, kind, id, ttl.Seconds()).Scan(&record.Data, &record.Revision, &record.Consumed)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -78,6 +80,9 @@ func (r *workflowRepository) Transact(ctx context.Context, kind, id string, ttl 
 	}
 	if err = update(&record, workflowWrites{db: r.db, tx: tx}); err != nil {
 		return err
+	}
+	if len(record.Data) > 24<<20 {
+		return database.ErrWorkflowPayloadTooLarge
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_sessions SET payload=$3,revision=revision+1,consumed=$4,expires_at=clock_timestamp()+$5*interval '1 second' WHERE kind=$1 AND id=$2`, kind, id, string(record.Data), record.Consumed, ttl.Seconds())
 	if err != nil {

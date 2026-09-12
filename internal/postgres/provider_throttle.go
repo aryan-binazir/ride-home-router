@@ -9,7 +9,7 @@ import (
 
 // ProviderGate shares Nominatim's budget across imports and interactive searches.
 // It never holds a database connection while waiting, and canceled requests do
-// not reserve future slots.
+// not reserve a queue of future slots (an acquired slot is spent).
 type ProviderGate struct{ db *sql.DB }
 
 func (s *Store) NominatimGate() *ProviderGate { return &ProviderGate{db: s.db} }

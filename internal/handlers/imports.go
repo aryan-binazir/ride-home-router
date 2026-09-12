@@ -359,6 +359,8 @@ func (h *Handler) cancelImportSession(w http.ResponseWriter, r *http.Request, id
 
 func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, sessionID string, err error) int {
 	switch {
+	case errors.Is(err, database.ErrWorkflowPayloadTooLarge):
+		return h.writeImportError(w, r, sessionID, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", err.Error(), nil)
 	case errors.Is(err, database.ErrNotFound), errors.Is(err, importer.ErrSessionNotFound):
 		return h.writeImportError(w, r, sessionID, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
 	case errors.Is(err, importer.ErrCommitConsumed):

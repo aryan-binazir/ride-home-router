@@ -48,3 +48,43 @@ func TestSharedNominatimGateHonorsOtherInstance(t *testing.T) {
 		t.Fatalf("second instance skipped shared throttle: %v", err)
 	}
 }
+
+func TestProviderCooldownExpiresWithoutRestart(t *testing.T) {
+	db := postgrestest.Open(t)
+	gate := db.NominatimGate()
+	if err := gate.Defer(t.Context(), 150*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	short, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	if err := gate.Wait(short); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("cooldown ignored: %v", err)
+	}
+	recovered, stop := context.WithTimeout(t.Context(), 2*time.Second)
+	defer stop()
+	if err := gate.Wait(recovered); err != nil {
+		t.Fatalf("cooldown did not recover: %v", err)
+	}
+}
+
+func TestExpiredWorkflowDoesNotCountAgainstCapacity(t *testing.T) {
+	db := postgrestest.Open(t)
+	r := db.Workflows()
+	for i := range 5 {
+		if err := r.Create(t.Context(), "import", fmt.Sprint(i), []byte(`{}`), -time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Create(t.Context(), "import", "live", []byte(`{}`), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CleanupWorkflows(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Load(t.Context(), "import", "live", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Load(t.Context(), "import", "0", time.Hour); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("expired: %v", err)
+	}
+}

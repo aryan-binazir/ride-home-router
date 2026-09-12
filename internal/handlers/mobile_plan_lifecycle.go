@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
 )
@@ -51,7 +52,7 @@ func (l mobilePlanLifecycle) EditInputsContext(ctx context.Context, id string, e
 		return plandraft.Draft{}, err
 	}
 	if err := l.sessions.DeleteContext(ctx, displacedSessionID); err != nil {
-		return draft, err
+		log.Printf("[WARN] Remove displaced route session: %v", err)
 	}
 	return draft, nil
 }
@@ -92,7 +93,7 @@ func (l mobilePlanLifecycle) AdoptCalculationContext(ctx context.Context, id str
 		return mobilePlanExpired, nil
 	}
 	if err = l.sessions.DeleteContext(ctx, displaced); err != nil {
-		return mobilePlanAdopted, err
+		log.Printf("[WARN] Remove displaced route session: %v", err)
 	}
 	return mobilePlanAdopted, nil
 }

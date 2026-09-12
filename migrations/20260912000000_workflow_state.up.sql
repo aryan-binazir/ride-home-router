@@ -1,7 +1,7 @@
 CREATE TABLE workflow_sessions (
     kind text NOT NULL CHECK (kind IN ('draft', 'route', 'import')),
     id text NOT NULL,
-    payload jsonb NOT NULL,
+    payload json NOT NULL,
     revision bigint NOT NULL DEFAULT 1,
     consumed boolean NOT NULL DEFAULT false,
     expires_at timestamptz NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE import_rows (
     kind text NOT NULL DEFAULT 'import' CHECK (kind = 'import'),
     session_id text NOT NULL,
     row_index integer NOT NULL,
-    payload jsonb NOT NULL,
+    payload json NOT NULL,
     selected boolean NOT NULL,
     PRIMARY KEY (session_id,row_index),
     FOREIGN KEY (kind,session_id) REFERENCES workflow_sessions(kind,id) ON DELETE CASCADE

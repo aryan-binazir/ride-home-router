@@ -103,6 +103,9 @@ func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snap
 		return Snapshot{}, err
 	}
 	if err = s.records.CompareAndSwap(ctx, "route", id, record.Revision, data, s.ttl); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			return Snapshot{}, ErrNotFound
+		}
 		return Snapshot{}, err
 	}
 	return result, nil

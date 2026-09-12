@@ -135,7 +135,10 @@ func NewNominatimGeocoderWithGate(gate RateGate) Geocoder {
 
 func (g *nominatimGeocoder) wait(ctx context.Context) error {
 	if g.gate != nil {
-		return g.gate.Wait(ctx)
+		if err := g.gate.Wait(ctx); err != nil {
+			return &ErrGeocodingFailed{Reason: "provider pacing unavailable", Cause: err, HTTPStatus: http.StatusServiceUnavailable}
+		}
+		return nil
 	}
 	select {
 	case <-g.rateLimiter.C:
@@ -150,7 +153,9 @@ func (g *nominatimGeocoder) deferProvider(ctx context.Context, resp *http.Respon
 		return nil
 	}
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		return g.gate.Defer(ctx, max(time.Second, parseNominatimRetryAfter(resp.Header.Get("Retry-After"))))
+		if err := g.gate.Defer(ctx, max(time.Second, parseNominatimRetryAfter(resp.Header.Get("Retry-After")))); err != nil {
+			return &ErrGeocodingFailed{Reason: "provider pacing unavailable", Cause: err, HTTPStatus: http.StatusServiceUnavailable}
+		}
 	}
 	return nil
 }

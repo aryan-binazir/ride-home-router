@@ -125,3 +125,7 @@ This software is provided "as is" without warranty. Verify every driver, address
 ## License
 
 MIT
+
+Import workflow payloads are limited to 24 MiB after parsing; oversized uploads return HTTP 413. Headers and file warnings remain available in previews, and invalid rows do not block saving valid rows. Provider calls have a 30-second work budget; an exhausted budget marks that address as failed rather than retrying forever. Process shutdown leaves the job recoverable. Shared `Retry-After` deadlines are honored across instances and expire automatically; restarting the app does not bypass an upstream cooldown.
+
+Do not expose this version directly to the public internet. Clerk and admin access are a separate, required follow-up before public deployment. Anonymous mobile page visits create drafts and count toward the shared capacity limit; keep health monitors on the health endpoints.

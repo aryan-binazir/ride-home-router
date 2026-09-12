@@ -7,7 +7,11 @@ import (
 	"time"
 )
 
-var ErrWorkflowCapacity = errors.New("too many active workflows; finish or cancel an existing plan")
+var ErrWorkflowCapacity = errors.New("too many active plans; finish or cancel an existing plan")
+
+var ErrWorkflowPayloadTooLarge = errors.New("import data exceeds the 24 MiB storage limit")
+
+var ErrInvalidWorkflowSelection = errors.New("invalid import selection")
 
 var ErrWorkflowConflict = errors.New("workflow changed; reload and try again")
 
