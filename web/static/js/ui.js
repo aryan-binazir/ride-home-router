@@ -121,7 +121,12 @@ if (typeof document !== 'undefined') {
     const form = event.detail?.elt;
     if (form?.id === 'import-selection-form') {
       const key = form.getAttribute('hx-put');
-      if (event.detail.successful) failedImportSelections.delete(key);
+      let successful = event.detail.successful;
+      try {
+        const trigger = JSON.parse(event.detail.xhr?.getResponseHeader?.('HX-Trigger') || '{}');
+        successful &&= trigger.showToast?.type !== 'error';
+      } catch (_) { /* An absent or unrelated trigger does not change the status. */ }
+      if (successful) failedImportSelections.delete(key);
       else failedImportSelections.add(key);
     }
     if (event.detail?.successful || event.detail?.requestConfig?.verb !== 'get' || event.detail?.target?.id !== 'access-management') return;
