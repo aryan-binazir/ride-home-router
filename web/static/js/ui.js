@@ -109,7 +109,65 @@ function handleTableSwap(event) {
 }
 
 if (typeof document !== 'undefined') {
+  const failedImportSelections = new Set();
+  document.addEventListener('change', event => {
+    if (!event.target.matches?.('#import-selection-form input[name="selected"]')) return;
+    // A new checkbox edit explicitly authorizes a write, including one queued
+    // behind a poll that replaces this form. Synthetic form retries do not.
+    failedImportSelections.delete(event.target.form.getAttribute('hx-put'));
+  }, true);
   document.addEventListener('htmx:afterSettle', handleTableSwap, true);
+  document.addEventListener('htmx:afterSettle', () => {
+    const form = document.querySelector('#import-selection-form[data-persist-selection]');
+    if (!form) return;
+    delete form.dataset.persistSelection;
+    htmx.trigger(form, 'change');
+  });
+  document.addEventListener('htmx:afterRequest', event => {
+    const form = event.detail?.elt;
+    if (form?.id === 'import-selection-form') {
+      const key = form.getAttribute('hx-put');
+      let successful = event.detail.successful;
+      try {
+        const trigger = JSON.parse(event.detail.xhr?.getResponseHeader?.('HX-Trigger') || '{}');
+        successful &&= trigger.showToast?.type !== 'error';
+      } catch (_) { /* An absent or unrelated trigger does not change the status. */ }
+      if (successful) failedImportSelections.delete(key);
+      else failedImportSelections.add(key);
+    }
+    if (event.detail?.successful || event.detail?.requestConfig?.verb !== 'get' || event.detail?.target?.id !== 'access-management') return;
+    const panel = document.getElementById('access-management');
+    if (panel && !panel.querySelector('[role="alert"]')) {
+      panel.textContent = 'Could not load approved emails. Reload the page to try again.';
+    }
+  });
+  document.addEventListener('htmx:beforeSwap', event => {
+    const detail = event.detail;
+    if (detail.target?.id === 'access-management' && detail.xhr?.getResponseHeader('X-RHR-Access-Panel') === 'error') {
+      detail.shouldSwap = true;
+    }
+    if (detail.target?.id !== 'import-steps' || !detail.shouldSwap) return;
+    const current = document.getElementById('import-selection-form');
+    if (!current) return;
+    const response = new DOMParser().parseFromString(detail.serverResponse, 'text/html');
+    const selection = response.getElementById('import-selection-form');
+    if (!selection || selection.getAttribute('hx-put') !== current.getAttribute('hx-put')) return;
+    const choices = new Map(Array.from(current.querySelectorAll('input[name="selected"]'), input => [input.value, input.checked]));
+    let changed = false;
+    selection.querySelectorAll('input[name="selected"]').forEach(input => {
+      if (!choices.has(input.value)) return;
+      changed ||= input.checked !== choices.get(input.value);
+      input.toggleAttribute('checked', choices.get(input.value));
+    });
+    if (!changed) return;
+    // A poll may repair a selection request displaced by its swap, but must
+    // never retry a failed write. The next user change or Import includes the
+    // preserved choices and provides an explicit retry.
+    if (!failedImportSelections.has(selection.getAttribute('hx-put'))) {
+      selection.dataset.persistSelection = 'true';
+    }
+    detail.serverResponse = response.body.innerHTML;
+  });
 }
 
 function toggleBulkDropdown(button) {
@@ -154,6 +212,9 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     request.then(() => {
       if (detailDiv.dataset.eventRequestId !== String(requestId)) return;
       detailDiv.removeAttribute('aria-busy');
+      if (!detailDiv.innerHTML.trim()) {
+        setExpanded(false);
+      }
       if (!eventItem.classList.contains('expanded')) detailDiv.innerHTML = '';
     }).catch(() => {
       if (detailDiv.dataset.eventRequestId !== String(requestId)) return;
@@ -181,7 +242,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     overlay.innerHTML = `
       <div class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
         <div class="confirm-dialog-body">
-          <h3 id="confirm-dialog-title" class="confirm-dialog-title">Confirm Action</h3>
+          <h3 id="confirm-dialog-title" class="confirm-dialog-title">Are you sure?</h3>
           <p id="confirm-dialog-message" class="confirm-dialog-message" data-confirm-message></p>
         </div>
         <div class="confirm-dialog-actions">
@@ -263,6 +324,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
   }
 
   function showConfirmDialog(message) {
+    if (confirmResolve) return Promise.resolve(false);
     const overlay = ensureConfirmDialog();
     const messageEl = overlay.querySelector("[data-confirm-message]");
     const confirmBtn = overlay.querySelector('[data-confirm-action="confirm"]');
@@ -284,6 +346,8 @@ function toggleEventDetail(eventItem, eventId, toggle) {
       confirmResolve = resolve;
     });
   }
+
+  window.showConfirmDialog = showConfirmDialog;
 
   function shouldEnhanceSelects() {
     const platform = (navigator.platform || "").toLowerCase();
@@ -487,7 +551,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     if (email) {
       email.addEventListener("invalid", (e) => {
         e.preventDefault();
-        showToast('Please enter a valid SME email address.', 'warning');
+        showToast('Please enter a valid reviewer email address.', 'warning');
         email.focus();
       });
     }
@@ -594,6 +658,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
 
   document.addEventListener("DOMContentLoaded", () => {
     ensureConfirmDialog();
+    if (document.querySelector(".mobile-shell")) return;
     initAll(document);
     initSettingsValidation();
     initAddressAutocomplete();
@@ -601,6 +666,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
   });
 
   document.addEventListener("htmx:load", (e) => {
+    if (document.querySelector(".mobile-shell")) return;
     initAll(e.target);
     initSettingsValidation();
     initAddressAutocomplete();

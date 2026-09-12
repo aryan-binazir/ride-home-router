@@ -28,22 +28,22 @@
         </div>
 
         <div class="form-group">
-            <label class="form-label" for="sme-email">SME email</label>
+            <label class="form-label" for="sme-email">Reviewer email</label>
             <input type="email"
                    id="sme-email"
                    name="sme_email"
                    class="form-input"
                    value="{{.Settings.SMEEmail}}">
-            <p class="form-help">Route edits saved by this person are recorded for algorithm review. Leave blank to disable.</p>
+            <p class="form-help">Route edits saved by this person help improve route suggestions. Leave blank to turn this off.</p>
         </div>
 
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
-                Save Preferences
+                Save preferences
             </button>
             <span class="loading htmx-indicator" id="settings-loading"></span>
         </div>
     </form>
 </div>
-{{if .IsAdmin}}<div hx-get="/api/v1/settings/google-maps-key" hx-trigger="load" hx-swap="outerHTML"></div><div hx-get="/api/v1/access" hx-trigger="load" hx-swap="outerHTML"><p>Loading approved emails...</p></div>{{end}}
+{{if .IsAdmin}}<div hx-get="/api/v1/settings/google-maps-key" hx-trigger="load" hx-swap="outerHTML"></div><div id="access-management" role="status" hx-get="/api/v1/access" hx-trigger="load" hx-swap="outerHTML"><p>Loading approved emails…</p></div>{{end}}
 {{end}}

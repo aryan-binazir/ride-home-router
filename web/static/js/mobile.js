@@ -1,5 +1,8 @@
 (() => {
-    function initializeEventDate() {
+    let selectedSeats;
+    let knownSeats = 0;
+    function initializePage() {
+        captureSeatCount();
         const today = new Date();
         const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         document.querySelectorAll('input[type="date"][name="event_date"]').forEach(input => {
@@ -8,10 +11,139 @@
     }
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        initializeEventDate();
+        initializePage();
     } else {
-        document.addEventListener('DOMContentLoaded', initializeEventDate, { once: true });
+        document.addEventListener('DOMContentLoaded', initializePage, { once: true });
     }
+
+    let failedElement;
+    function showRequestError(message, type = 'error') {
+        const alert = document.getElementById('mobile-request-error');
+        if (!alert) return;
+        alert.setAttribute('role', type === 'success' ? 'status' : 'alert');
+        alert.className = type === 'success' ? 'mobile-notice' : 'mobile-alert';
+        alert.textContent = message;
+        alert.hidden = false;
+    }
+    document.addEventListener('showToast', event => {
+        if (event.detail?.message) showRequestError(event.detail.message, event.detail.type);
+    });
+    for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
+        document.addEventListener(name, event => {
+            const xhr = event.detail?.xhr;
+            if (name === 'htmx:responseError' && xhr?.getResponseHeader?.('HX-Trigger')) return;
+            failedElement = event.detail?.elt;
+            showRequestError(name !== 'htmx:responseError'
+                ? 'Could not reach the server. Check your connection and try again.'
+                : ({413: 'That file is too large. Choose a smaller file and try again.',
+                    403: 'You no longer have access. Sign in again.',
+                    503: 'The service is temporarily unavailable. Try again in a minute.'}[xhr?.status]
+                    || 'An error occurred. Please try again.'));
+        });
+    }
+    document.addEventListener('htmx:afterRequest', event => {
+        if (!event.detail?.successful || !failedElement || event.detail.elt !== failedElement) return;
+        const alert = document.getElementById('mobile-request-error');
+        if (alert) alert.hidden = true;
+        failedElement = null;
+    });
+    const submitting = new Set();
+    const confirmed = new WeakSet();
+    document.addEventListener('auth:submitFailed', event => confirmed.delete(event.target));
+    document.addEventListener('submit', async event => {
+        const form = event.target;
+        if (event.defaultPrevented || !form.matches?.('.mobile-shell form[method="post"]')) return;
+        if (submitting.has(form)) { event.preventDefault(); return; }
+        const confirmation = form.getAttribute('data-confirm');
+        if (confirmation && !confirmed.delete(form)) {
+            event.preventDefault();
+            if (await window.showConfirmDialog(confirmation)) {
+                confirmed.add(form);
+                if (event.submitter) form.requestSubmit(event.submitter);
+                else form.requestSubmit();
+            }
+            return;
+        }
+        submitting.add(form);
+        const action = form.getAttribute('action');
+        form.querySelectorAll('button[type="submit"]').forEach(button => {
+            if (button.disabled) return;
+            button.dataset.submitLabel = button.textContent;
+            // Retain successful-control data when a submitter has a name.
+            if (button === event.submitter && button.name) {
+                const input = document.createElement('input');
+                input.type = 'hidden'; input.name = button.name; input.value = button.value;
+                input.dataset.submitValue = 'true'; form.appendChild(input);
+            }
+            button.disabled = true;
+            button.textContent = action === '/m/calculate' ? 'Calculating…'
+                : action === '/m/routes/save' ? 'Saving…' : action?.startsWith('/m/routes/') ? 'Updating…' : 'Saving…';
+        });
+    });
+    window.addEventListener?.('pageshow', () => {
+        for (const form of submitting) {
+            form.querySelectorAll('[data-submit-label]').forEach(button => {
+                button.disabled = false; button.textContent = button.dataset.submitLabel;
+                delete button.dataset.submitLabel;
+            });
+            form.querySelectorAll('[data-submit-value]').forEach(input => input.remove());
+            form.querySelectorAll('select[data-submit-disabled]').forEach(select => {
+                select.disabled = select.dataset.submitDisabled === 'true';
+                delete select.dataset.submitDisabled;
+            });
+        }
+        submitting.clear();
+    });
+
+    function countKnownSeats(defaults = false) {
+        let total = 0;
+        const picker = document.getElementById?.('mobile-driver-picker');
+        if (!picker) return total;
+        const drivers = [];
+        const vans = new Set();
+        picker.querySelectorAll('input[type="hidden"][name="driver_ids"]').forEach(input => {
+            const assignment = picker.querySelector(`input[name="org_vehicle_${input.value}"]`);
+            if (input.dataset.capacity === undefined) {
+                if (assignment?.value) vans.add(assignment.value);
+                return;
+            }
+            drivers.push({id: input.value, capacity: Number(input.dataset.capacity),
+                van: assignment?.value, vanCapacity: Number(assignment?.dataset.capacity)});
+        });
+        picker.querySelectorAll('.mobile-driver-choice').forEach(row => {
+            const checkbox = row.querySelector('input[name="driver_ids"]');
+            if (!(defaults ? checkbox?.defaultChecked : checkbox?.checked)) return;
+            const select = row.querySelector('select');
+            const option = defaults ? Array.from(select?.options || []).find(option => option.defaultSelected) || select?.options[0] : select?.selectedOptions[0];
+            drivers.push({id: checkbox.value, capacity: Number(checkbox.dataset.capacity || 0),
+                van: option?.value, vanCapacity: Number(option?.dataset.capacity)});
+        });
+        // Keep van ownership stable when a filter moves a selected driver into
+        // hidden inputs. Unknown initial hidden capacities stay in the server total.
+        drivers.sort((a, b) => Number(a.id) - Number(b.id));
+        for (const driver of drivers) {
+            total += driver.van && !vans.has(driver.van) ? driver.vanCapacity : driver.capacity;
+            if (driver.van) vans.add(driver.van);
+        }
+        return total;
+    }
+    function captureSeatCount() {
+        const count = document.getElementById?.('mobile-selected-seats');
+        if (!count) return;
+        knownSeats = countKnownSeats();
+        selectedSeats ??= Number(count.dataset.seats) + knownSeats - countKnownSeats(true);
+        count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
+    }
+    document.addEventListener('htmx:afterSwap', captureSeatCount);
+    document.addEventListener('change', event => {
+        if (!event.target.closest?.('#mobile-driver-picker')) return;
+        const count = document.getElementById?.('mobile-selected-seats');
+        if (!count) return;
+        const next = countKnownSeats();
+        selectedSeats = (selectedSeats ?? Number(count.dataset.seats)) + next - knownSeats;
+        knownSeats = next;
+        count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
+    });
 
     async function copyText(source) {
         if (navigator.clipboard?.writeText) {
@@ -72,6 +204,8 @@
             input.type = 'hidden';
             input.name = name;
             input.value = id;
+            const original = form.querySelector(`input[name="${name}"][value="${id}"]`);
+            if (original?.dataset.capacity !== undefined) input.dataset.capacity = original.dataset.capacity;
             results.append(input);
             const vehicle = current.get(`org_vehicle_${id}`);
             if (name === 'driver_ids' && vehicle) {
@@ -79,6 +213,9 @@
                 assignment.type = 'hidden';
                 assignment.name = `org_vehicle_${id}`;
                 assignment.value = vehicle;
+                const source = form.querySelector(`[name="org_vehicle_${id}"]`);
+                const capacity = source?.selectedOptions?.[0]?.dataset.capacity ?? source?.dataset.capacity;
+                if (capacity !== undefined) assignment.dataset.capacity = capacity;
                 results.append(assignment);
             }
         }
@@ -104,7 +241,7 @@
 
     document.addEventListener('submit', event => {
         const form = event.target;
-        if (!form.matches?.('#mobile-driver-picker')) return;
+        if (event.defaultPrevented || !form.matches?.('#mobile-driver-picker')) return;
         const selected = new Set(
             Array.from(form.querySelectorAll('input[name="driver_ids"]'))
                 .filter(input => input.checked)
@@ -112,9 +249,10 @@
         );
         for (const select of form.querySelectorAll('select[name^="org_vehicle_"]')) {
             const driverID = select.name.slice('org_vehicle_'.length);
+            select.dataset.submitDisabled = String(select.disabled);
             select.disabled = !selected.has(driverID) || !select.value;
         }
-    }, true);
+    });
 
     document.addEventListener('click', async event => {
         const copyButton = event.target.closest('[data-copy-target]');

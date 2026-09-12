@@ -285,9 +285,9 @@
             installRouteResults({ target: resultsSection, html, htmx, afterRender });
         }
 
-        function applyEditResult({ requestedSessionId, ok, html }) {
+        function applyEditResult({ requestedSessionId, ok, html, errorHeader }) {
             if (!ok) {
-                reportError(html);
+                reportError(html, errorHeader);
                 return false;
             }
             if (getActiveSessionId() !== requestedSessionId) {
@@ -580,7 +580,7 @@
                 await platform.copyText(text);
                 return true;
             } catch {
-                platform.notify('Failed to copy to clipboard', 'error');
+                platform.notify('Could not copy. Try again.', 'error');
                 return false;
             }
         }
@@ -623,7 +623,7 @@
                 context.mode,
             );
             if (!mapsUrl) {
-                platform.notify('Could not build a valid Google Maps route for this trip.', 'warning');
+                platform.notify('This route cannot be opened in Google Maps.', 'warning');
                 return false;
             }
 
@@ -631,7 +631,7 @@
                 await platform.openUrl(mapsUrl);
                 return true;
             } catch {
-                platform.notify('Failed to open browser', 'error');
+                platform.notify('Could not open Google Maps. Check whether your browser blocked the new tab.', 'error');
                 return false;
             }
         }
@@ -802,12 +802,41 @@
     }
 
     function bootBrowser() {
+        function extractErrorMessage(response, errorHeader) {
+            if (errorHeader) {
+                try {
+                    const message = JSON.parse(errorHeader).showToast?.message;
+                    if (typeof message === 'string') response = message;
+                } catch (_) { /* Fall back to the response body. */ }
+            }
+            const fallback = 'An error occurred. Please try again.';
+            if (typeof response !== 'string') return fallback;
+            let message = response;
+            const alert = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
+            if (alert) message = alert[1];
+            else {
+                try {
+                    const json = JSON.parse(response);
+                    message = json.error?.message || json.message || '';
+                } catch (_) {
+                    // Proxy pages are not useful error messages.
+                    if (/<[^>]+>/.test(response)) return fallback;
+                }
+            }
+            if (typeof message !== 'string') return fallback;
+            message = message.trim();
+            return message.length <= 240 && /[a-z]{2}/i.test(message) ? message : fallback;
+        }
+
         function getToastContainer() {
             let container = document.getElementById('toast-container');
             if (!container) {
                 container = document.createElement('div');
                 container.id = 'toast-container';
                 container.className = 'toast-container';
+                container.setAttribute('role', 'status');
+                container.setAttribute('aria-live', 'polite');
+                container.setAttribute('aria-atomic', 'true');
                 document.body.appendChild(container);
             }
             return container;
@@ -830,12 +859,14 @@
             messageSpan.textContent = message;
             toast.appendChild(messageSpan);
 
-            const closeSpan = document.createElement('span');
-            closeSpan.className = 'toast-close';
-            closeSpan.innerHTML = '&times;';
-            toast.appendChild(closeSpan);
+            const closeButton = document.createElement('button');
+            closeButton.type = 'button';
+            closeButton.setAttribute('aria-label', 'Dismiss');
+            closeButton.className = 'toast-close';
+            closeButton.innerHTML = '&times;';
+            toast.appendChild(closeButton);
 
-            toast.addEventListener('click', () => dismissToast(toast));
+            closeButton.addEventListener('click', () => dismissToast(toast));
 
             container.appendChild(toast);
 
@@ -852,6 +883,28 @@
             setTimeout(() => toast.remove(), 200);
         }
 
+        getToastContainer();
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('.confirm-overlay.is-open, .ui-select.is-open')) {
+                document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
+            }
+        });
+        for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
+            document.body.addEventListener(name, event => {
+                if (event.detail?.elt?.id === 'calculate-btn') setCalculateButtonLoading(false);
+                const xhr = event.detail?.xhr;
+                if (name === 'htmx:responseError' && (xhr?.getResponseHeader?.('HX-Trigger') || xhr?.getResponseHeader?.('X-RHR-Access-Panel'))) return;
+                const message = name !== 'htmx:responseError'
+                    ? 'Could not reach the server. Check your connection and try again.'
+                    : ({413: 'That file is too large. Choose a smaller file and try again.',
+                        403: 'You no longer have access. Sign in again.',
+                        503: 'The service is temporarily unavailable. Try again in a minute.'}[xhr?.status]
+                        || 'An error occurred. Please try again.');
+                const detailsFailed = name === 'htmx:responseError' && event.detail?.elt?.id?.startsWith('event-detail-');
+                showToast(detailsFailed ? "Could not load this event's details. Try again." : message, 'error');
+            });
+        }
+
         document.addEventListener('showToast', function(evt) {
             const detail = evt.detail;
             if (detail && detail.message) {
@@ -859,23 +912,8 @@
             }
         });
 
-        function extractErrorMessage(response) {
-            if (response.includes('class="alert')) {
-                const match = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
-                if (match) return match[1].trim();
-            }
-            try {
-                const json = JSON.parse(response);
-                if (json.error && json.error.message) return json.error.message;
-                if (json.message) return json.message;
-            } catch (e) {
-                // Ignore the parse failure; strip HTML below.
-            }
-            return response.replace(/<[^>]*>/g, '').trim() || 'An error occurred';
-        }
-
-        function showRouteError(response) {
-            const message = extractErrorMessage(response);
+        function showRouteError(response, errorHeader) {
+            const message = extractErrorMessage(response, errorHeader);
             showToast(message, 'error');
         }
 
@@ -952,11 +990,12 @@
                     return routeSessionOrchestrator.applyEditResult({
                         requestedSessionId: payload.session_id,
                         ok: response.ok,
+                        errorHeader: response.headers?.get('HX-Trigger'),
                         html,
                     });
                 } catch (err) {
                     console.error('Failed to move participant:', err);
-                    showRouteError('Failed to move participant: ' + err.message);
+                    showToast('Could not update routes. Please try again.', 'error');
                     return false;
                 }
             }
@@ -967,7 +1006,7 @@
 
             const sessionId = getSessionId();
             if (!sessionId) {
-                showToast('Session not found', 'error');
+                showToast('That route plan is no longer available. Calculate it again.', 'error');
                 return;
             }
 
@@ -1018,11 +1057,12 @@
                     return routeSessionOrchestrator.applyEditResult({
                         requestedSessionId: sessionId,
                         ok: response.ok,
+                        errorHeader: response.headers?.get('HX-Trigger'),
                         html: await response.text(),
                     });
                 } catch (error) {
                     console.error('Failed to update routes:', error);
-                    showRouteError('Failed to update routes: ' + error.message);
+                    showToast('Could not update routes. Please try again.', 'error');
                     return false;
                 }
             });
@@ -1032,12 +1072,12 @@
             const selectElement = document.getElementById('swap-select-' + routeIndex1);
             const routeIndex2 = selectElement ? selectElement.value : null;
             if (!routeIndex2) {
-                showToast('Please select a driver to swap with', 'warning');
+                showToast('Please select a driver to swap with.', 'warning');
                 return;
             }
             const sessionId = getSessionId();
             if (!sessionId) {
-                showToast('Session not found', 'error');
+                showToast('That route plan is no longer available. Calculate it again.', 'error');
                 return;
             }
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/swap-drivers', {
@@ -1050,16 +1090,17 @@
         async function resetRoutes() {
             const sessionId = getSessionId();
             if (!sessionId) {
-                showToast('Session not found', 'error');
+                showToast('That route plan is no longer available. Calculate it again.', 'error');
                 return;
             }
+            if (!await root.showConfirmDialog('Reset changes? Your edits will be lost.')) return false;
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
         }
 
         async function addUnusedDriver(driverId) {
             const sessionId = getSessionId();
             if (!sessionId) {
-                showToast('Session not found', 'error');
+                showToast('That route plan is no longer available. Calculate it again.', 'error');
                 return;
             }
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/add-driver', { session_id: sessionId, driver_id: parseInt(driverId) });
@@ -1071,7 +1112,7 @@
             const originalText = button.textContent;
             const originalWidth = button.style.width;
             button.style.width = `${button.offsetWidth}px`;
-            button.textContent = 'Copied!';
+            button.textContent = 'Copied';
             button.classList.add('btn-success');
             button.classList.remove(baseClass);
 
@@ -1161,7 +1202,7 @@
             if (!container) return;
 
             const pendingEdits = participantMoveBatcher.hasPendingFor(container.dataset.sessionId);
-            const message = pendingEdits ? 'Updating routes. Copy, preview and save will be available when edits finish.' : PLAN_STATE_MESSAGES[status] || '';
+            const message = pendingEdits ? 'Updating routes. Copy, preview and save will be available in a moment.' : PLAN_STATE_MESSAGES[status] || '';
             let lockedActions = PLAN_STATE_LOCKS[status] || '';
             if (pendingEdits) {
                 lockedActions = [lockedActions, '[data-session-action="copy"], [data-session-action="preview"], [data-session-action="save"]'].filter(Boolean).join(', ');
@@ -1488,7 +1529,7 @@
 
                 const options = orgVehicles.map((vehicle) => {
                     const selected = String(vehicle.id) === String(selectedVehicleId) ? ' selected' : '';
-                    return `<option value="${vehicle.id}" data-capacity="${vehicle.capacity}"${selected}>${escapeHtml(vehicle.name)} (${vehicle.capacity} available seats)</option>`;
+                    return `<option value="${vehicle.id}" data-capacity="${vehicle.capacity}"${selected}>${escapeHtml(vehicle.name)} (${vehicle.capacity} available seat${vehicle.capacity === 1 ? '' : 's'})</option>`;
                 }).join('');
 
                 select.disabled = !checkbox.checked;
@@ -1781,12 +1822,13 @@
             const restore = plannerState.beginRestore(session);
 
             // This same-origin HTML uses the same trusted templates as HTMX swaps.
-            fetch('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
+            (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
                 signal: restore.signal
             })
             .then(function(response) {
                 if (response.status === 204 || !response.ok) {
+                    showToast('That route plan expired. Calculate routes again.', 'warning');
                     plannerState.clear();
                     return null;
                 }
@@ -1801,6 +1843,7 @@
             .catch(function(err) {
                 if (err.name !== 'AbortError') {
                     console.warn('Failed to restore route session', err);
+                    showToast('Could not restore your routes. Check your connection and try again.', 'error');
                     plannerState.clear();
                 }
             })
@@ -1874,20 +1917,7 @@
             });
 
             document.body.addEventListener('htmx:afterRequest', function(event) {
-                const elt = event.detail && event.detail.elt;
-                if (elt && elt.id === 'calculate-btn') {
-                    setCalculateButtonLoading(false);
-                }
-            });
-
-            document.body.addEventListener('htmx:sendError', function(event) {
-                const elt = event.detail && event.detail.elt;
-                if (elt && elt.id === 'calculate-btn') {
-                    setCalculateButtonLoading(false);
-                }
-            });
-
-            document.body.addEventListener('htmx:responseError', function(event) {
+                applyPlanStateAffordance(plannerState.getSnapshot().status);
                 const elt = event.detail && event.detail.elt;
                 if (elt && elt.id === 'calculate-btn') {
                     setCalculateButtonLoading(false);

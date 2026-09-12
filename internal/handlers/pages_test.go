@@ -127,8 +127,8 @@ func TestHandleSettingsPage_RendersSMEEmailControl(t *testing.T) {
 		`type="email"`,
 		`name="sme_email"`,
 		`value="sme@example.com"`,
-		`SME email`,
-		`Route edits saved by this person are recorded for algorithm review. Leave blank to disable.`,
+		`Reviewer email`,
+		`Route edits saved by this person help improve route suggestions. Leave blank to turn this off.`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("settings page missing %q, body=%q", want, body)

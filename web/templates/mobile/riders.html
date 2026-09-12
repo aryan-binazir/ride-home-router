@@ -28,7 +28,7 @@
     {{end}}
   </div>
   {{end}}
-  <p class="mobile-count">Choose riders</p>
+  <p class="mobile-count">Choose riders <a href="/m/people/participants/new?return=/m/plan/riders">Add rider</a></p>
   <div id="mobile-rider-results">
     {{range .HiddenSelectedIDs}}
     <input type="hidden" name="participant_ids" value="{{.}}">
@@ -40,7 +40,7 @@
         <span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>
         {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.LabelIDs .ID))}}
       </label>
-      {{else}}<p class="mobile-empty">No participants found.</p>{{end}}
+      {{else}}<p class="mobile-empty">No participants match your search.</p>{{end}}
     </div>
   </div>
   <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>

@@ -167,7 +167,7 @@ func TestHandleResetRoutesPreservesHTMXResetControl(t *testing.T) {
 	req.Header.Set("HX-Request", "true")
 	h.HandleResetRoutes(w, req)
 
-	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Reset to Original")) {
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Reset changes")) {
 		t.Fatalf("status=%d body=%q, want reset control", w.Code, w.Body.String())
 	}
 }

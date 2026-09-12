@@ -1189,7 +1189,7 @@ func TestHandleCalculateRoutes_HTMXRendersRouteTimeMetadataAndParentCopyButton(t
 		`data-route-time="18:30"`,
 		`data-route-duration-secs="900"`,
 		`data-stop-cumulative-duration-secs="600"`,
-		`Copy for Parents`,
+		`Copy for parents`,
 		`data-session-action="preview" onclick="previewRoute(this)"`,
 	} {
 		if !strings.Contains(body, fragment) {
@@ -1617,8 +1617,8 @@ func TestHandleGetRouteSession_ValidSession(t *testing.T) {
 	if !strings.Contains(body, "Driver1") {
 		t.Error("response should contain driver name")
 	}
-	if strings.Contains(body, "Reset to Original") {
-		t.Error("unedited session should not show Reset to Original button")
+	if strings.Contains(body, "Reset changes") {
+		t.Error("unedited session should not show Reset changes button")
 	}
 }
 
@@ -1756,8 +1756,8 @@ func TestHandleGetRouteSession_DetectsEditing(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Reset to Original") {
-		t.Error("edited session should show Reset to Original button")
+	if !strings.Contains(body, "Reset changes") {
+		t.Error("edited session should show Reset changes button")
 	}
 }
 
@@ -1820,7 +1820,7 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 		"<dt>Pickup</dt>",
 		"<dt>To Activity</dt>",
 		"from Driver1's home",
-		"Unused Driver (1)",
+		"Unused driver (1)",
 		"<dt>Passenger</dt>",
 		`class="label">Participant`,
 		`class="label">Driver`,

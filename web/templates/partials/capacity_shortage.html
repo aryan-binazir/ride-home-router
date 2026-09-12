@@ -13,12 +13,12 @@
         <h3>Not Enough Available Capacity</h3>
         <p>
             <strong>{{.Error.TotalParticipants}}</strong> {{pluralize .Error.TotalParticipants "participant"}} selected, but only
-            <strong>{{.Error.TotalCapacity}}</strong> available seats.
+            <strong>{{.Error.TotalCapacity}}</strong> available {{pluralize .Error.TotalCapacity "seat"}}.
             You need <strong>{{.Error.Shortage}}</strong> more {{pluralize .Error.Shortage "seat"}}.
         </p>
         {{else}}
         <h3>Households do not fit the selected vehicles</h3>
-        <p>{{.Error.Message}}. There are {{.Error.TotalCapacity}} available seats for {{.Error.TotalParticipants}} participants, but the households cannot fit into these vehicles without splitting up.</p>
+        <p>There are {{.Error.TotalCapacity}} available {{pluralize .Error.TotalCapacity "seat"}} for {{.Error.TotalParticipants}} participants, but the households cannot fit into these vehicles without splitting up.</p>
         <p>Add a driver or assign larger vehicles, then recalculate.</p>
         {{end}}
     </div>
@@ -28,7 +28,7 @@
         <h3>Adjust Van Assignments</h3>
         <p class="text-muted">Pick the driver who will use each van. That driver's available seats will switch from their personal vehicle capacity to the van capacity for this event.</p>
 
-        <form id="recalc-form"
+        <form id="recalc-form" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]"
               hx-post="/api/v1/routes/calculate-with-org-vehicles"
               hx-target="#results-section"
               hx-indicator="#recalc-loading">
@@ -61,7 +61,7 @@
                                 <strong>{{.Name}}</strong>
                                 <div class="text-muted" style="font-size: 0.85em;">{{displayAddress .AddressName .Address}}</div>
                             </td>
-                            <td>{{.VehicleCapacity}} available seats</td>
+                            <td>{{.VehicleCapacity}} available {{pluralize .VehicleCapacity "seat"}}</td>
                             <td>
                                 <select name="org_vehicle_{{.ID}}"
                                         class="form-select org-vehicle-select"
@@ -69,7 +69,7 @@
                                         onchange="updateCapacityDisplay(this)">
                                     <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
                                     {{range $.OrgVehicles}}
-                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}" {{if eq .ID (index $.SelectedOrgVehicles $driver.ID)}}selected{{end}}>{{.Name}} ({{.Capacity}} available seats)</option>
+                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}" {{if eq .ID (index $.SelectedOrgVehicles $driver.ID)}}selected{{end}}>{{.Name}} ({{.Capacity}} available {{pluralize .Capacity "seat"}})</option>
                                     {{end}}
                                 </select>
                             </td>
@@ -81,7 +81,7 @@
                         <tr>
                             <td colspan="2"></td>
                             <td><strong>Total Available Capacity:</strong></td>
-                            <td><strong id="total-capacity">{{.Error.TotalCapacity}} available seats</strong></td>
+                            <td><strong id="total-capacity">{{.Error.TotalCapacity}} available {{pluralize .Error.TotalCapacity "seat"}}</strong></td>
                         </tr>
                         <tr>
                             <td colspan="2"></td>
@@ -93,7 +93,7 @@
                             <td><strong>Status:</strong></td>
                             <td>
                                 <span id="capacity-status" class="text-danger">
-                                    {{if gt .Error.Shortage 0}}Need {{.Error.Shortage}} more seat{{if gt .Error.Shortage 1}}s{{end}}{{else}}Recalculate to check household fit{{end}}
+                                    {{if gt .Error.Shortage 0}}Need {{.Error.Shortage}} more seat{{if gt .Error.Shortage 1}}s{{end}}{{else}}Recalculate to check whether households fit{{end}}
                                 </span>
                             </td>
                         </tr>
@@ -103,7 +103,7 @@
 
             <div class="d-flex align-center gap-2 mt-3">
                 <button type="submit" class="btn btn-primary" id="recalc-btn">
-                    Recalculate Routes
+                    Recalculate routes
                 </button>
                 <span class="loading htmx-indicator" id="recalc-loading"></span>
             </div>
@@ -116,7 +116,7 @@
             const selectedOption = select.options[select.selectedIndex];
             const newCapacity = parseInt(selectedOption.dataset.capacity);
 
-            row.querySelector('.capacity-display').textContent = newCapacity + ' available seats';
+            row.querySelector('.capacity-display').textContent = newCapacity + ' available seat' + (newCapacity === 1 ? '' : 's');
 
             syncAssignedVans();
             updateTotalCapacity();
@@ -153,13 +153,13 @@
                 total += parseInt(selectedOption.dataset.capacity);
             });
 
-            document.getElementById('total-capacity').textContent = total + ' available seats';
+            document.getElementById('total-capacity').textContent = total + ' available seat' + (total === 1 ? '' : 's');
 
             const participants = {{.Error.TotalParticipants}};
             const statusEl = document.getElementById('capacity-status');
 
             if (total >= participants) {
-                statusEl.textContent = total + ' available seats. Recalculate to check household fit.';
+                statusEl.textContent = total + ' available seat' + (total === 1 ? '' : 's') + '. Recalculate to check whether households fit.';
                 statusEl.className = 'text-muted';
             } else {
                 const shortage = participants - total;

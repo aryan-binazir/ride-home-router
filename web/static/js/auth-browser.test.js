@@ -35,7 +35,7 @@ window.addEventListener('error', event => evidence.errors.push(event.message));
 window.addEventListener('unhandledrejection', event => evidence.errors.push(String(event.reason)));
 const form = document.querySelector('form');
 const button = document.getElementById('save');
-const fields = () => Array.from(form.elements, input => ({name: input.name, value: input.value, checked: input.checked}));
+const fields = () => Array.from(form.elements).filter(input => !input.hasAttribute('data-submit-value')).map(input => ({name: input.name, value: input.value, checked: input.checked}));
 const controls = () => Array.from(form.querySelectorAll('select'), input => input.disabled);
 const initialFields = fields();
 // The injected SDK loads as a real script; only configuration and Clerk are synthetic.
@@ -57,7 +57,8 @@ window.fetch = async url => {
  return {ok: true, json: async () => ({scriptURL: 'data:text/javascript,window.syntheticSDKLoaded%3Dtrue', publishableKey: 'synthetic'})};
 };
 // Runs only after auth permits propagation. Prevent navigation before recording data.
-form.addEventListener('submit', event => {
+window.addEventListener('submit', event => {
+ if (event.defaultPrevented) return;
  event.preventDefault();
  evidence.final.push({
   settled: evidence.refreshSettled === true,
@@ -113,7 +114,7 @@ function run() {
                 assert.equal(result.refreshCalls, 1, 'pending attempts must share one refresh');
                 assert.deepEqual(result.options, { skipCache: true });
                 assert.equal(result.beforeRefresh.final, 0, 'no final submit before the asynchronous refresh');
-                assert.deepEqual(result.beforeRefresh.disabled, [false, true, true], 'mobile capture handler runs before auth');
+                assert.deepEqual(result.beforeRefresh.disabled, [false, false, false], 'failed refresh must leave every field enabled');
                 assert.equal(result.fieldsUnchanged, true, 'entered values and selections survive refresh');
                 assert.equal(result.urlUnchanged, true);
                 assert.equal(result.navigations, 0);

@@ -345,7 +345,7 @@ test('single-route clipboard failure returns false and reports an error', async 
     });
 
     assert.equal(await handoff.copyRoute(routeCard), false);
-    assert.deepEqual(notifications, [['Failed to copy to clipboard', 'error']]);
+    assert.deepEqual(notifications, [['Could not copy. Try again.', 'error']]);
 });
 
 test('copy-all clipboard failure returns false and reports an error', async () => {
@@ -360,7 +360,7 @@ test('copy-all clipboard failure returns false and reports an error', async () =
     });
 
     assert.equal(await handoff.copyAllRoutes(container), false);
-    assert.deepEqual(notifications, [['Failed to copy to clipboard', 'error']]);
+    assert.deepEqual(notifications, [['Could not copy. Try again.', 'error']]);
 });
 
 test('preview opens a deduplicated pickup route without navigation mode', async () => {
@@ -439,7 +439,7 @@ test('preview reports a warning when no valid route can be built', async () => {
     assert.equal(await handoff.previewRoute(routeCard), false);
     assert.deepEqual(opened, []);
     assert.deepEqual(notifications, [[
-        'Could not build a valid Google Maps route for this trip.',
+        'This route cannot be opened in Google Maps.',
         'warning',
     ]]);
 });
@@ -456,7 +456,7 @@ test('preview open failure returns false and reports an error', async () => {
     });
 
     assert.equal(await handoff.previewRoute(routeCard), false);
-    assert.deepEqual(notifications, [['Failed to open browser', 'error']]);
+    assert.deepEqual(notifications, [['Could not open Google Maps. Check whether your browser blocked the new tab.', 'error']]);
 });
 
 test('preview ignores whatever openUrl resolves with', async () => {
@@ -1110,7 +1110,7 @@ const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'),
 
 // Boots the real planner against the fixture below so the invalidation rule is
 // exercised end to end, not through a re-implementation of it.
-function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null } = {}) {
+function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null, restoreStatus = 200 } = {}) {
     const initialSessionId = storedSession?.id || legacySessionId || 'session-1';
     const participants = ['1', '2'].map(value => domNode('input', {
         classes: ['participant-checkbox'],
@@ -1257,6 +1257,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
     const fetches = [];
     const context = {
         document,
+        showConfirmDialog: async () => true,
         console,
         HTMLFormElement,
         Event: class { constructor(type) { return fakeEvent(type); } },
@@ -1264,7 +1265,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         htmx: { process() {} },
         fetch: async (url, options) => {
             fetches.push({ url, options });
-            return { ok: true, status: 200, text: async () => '<div>routes</div>' };
+            return { ok: restoreStatus >= 200 && restoreStatus < 300, status: restoreStatus, text: async () => '<div>routes</div>' };
         },
         setTimeout: callback => {
             nextTimeoutId += 1;
@@ -1275,6 +1276,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         JSON,
         Intl,
         window: {
+            showConfirmDialog: async () => true,
             localStorage: storage,
             matchMedia: () => ({ matches: true }),
             requestAnimationFrame: () => 0,
@@ -2042,6 +2044,7 @@ test('moves on either side of a reset stay ordered and Save waits for every edit
     };
     await app.context.moveParticipant(1, 0, 1);
     const resetting = app.context.resetRoutes();
+    await app.settleRestore();
     await app.context.moveParticipant(2, 1, 0);
     assert.equal(app.submitSave().defaultPrevented, true);
     await app.settleRestore();
@@ -2088,6 +2091,7 @@ test('changing the plan cancels queued manual edits without leaving their caller
     const adding = app.context.addUnusedDriver(20);
     let resetCancelled = false;
     app.context.resetRoutes().then(result => { resetCancelled = result === false; });
+    await app.settleRestore();
     app.driver.checked = false;
     app.change(app.driver);
     await app.settleRestore();
@@ -2142,3 +2146,60 @@ for (const mode of ['pickup', 'dropoff']) {
         }
     }
 }
+
+test('all htmx request failures show feedback and server toasts are not duplicated', () => {
+    const app = bootPlanner();
+    for (const type of ['htmx:sendError', 'htmx:timeout']) {
+        app.document.body.dispatchEvent(fakeEvent(type, {elt: {id: 'other-action'}}));
+    }
+    for (const status of [413, 403, 503, 500]) {
+        app.document.body.dispatchEvent(fakeEvent('htmx:responseError', {xhr: {status, getResponseHeader: () => null}}));
+    }
+    app.document.body.dispatchEvent(fakeEvent('htmx:responseError', {xhr: {status: 500, getResponseHeader: () => '{"showToast":{}}'}}));
+    const container = app.document.getElementById('toast-container');
+    assert.ok(container);
+    assert.equal(container.getAttribute('role'), 'status');
+    assert.equal(container.getAttribute('aria-live'), 'polite');
+    assert.equal(container.children.length, 6);
+    assert.equal(container.children[0].children[0].textContent, 'Could not reach the server. Check your connection and try again.');
+    assert.equal(container.children[0].children[1].tagName, 'button');
+});
+
+test('route error extraction rejects empty, oversized and non-word responses', async () => {
+    for (const response of ['', 'x'.repeat(241), '1234 !!!', '<html><body>'+ 'proxy '.repeat(100)+'</body></html>']) {
+        const app = bootPlanner(); app.calculate();
+        app.context.fetch = async () => ({ok:false,text:async()=>response});
+        await app.context.addUnusedDriver(99);
+        assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent, 'An error occurred. Please try again.');
+    }
+});
+
+test('expired restore responses clear the saved plan and explain recovery', async () => {
+ for (const restoreStatus of [204,404,410,500]) {
+  const app=bootPlanner({legacySessionId:'expired-plan',restoreStatus});
+  await app.settleRestore();
+  assert.equal(storedSessionId(app),null);
+  assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,'That route plan expired. Calculate routes again.');
+ }
+});
+test('route edits use the server conflict explanation from HX-Trigger', async () => {
+ const app=bootPlanner();app.calculate();
+ app.context.fetch=async()=>({ok:false,headers:{get:()=>JSON.stringify({showToast:{message:'This route plan changed. Reload it and try again.'}})},text:async()=>''});
+ assert.equal(await app.context.addUnusedDriver(99),false);
+ assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,'This route plan changed. Reload it and try again.');
+});
+test('cancelling reset leaves routes and pending edits untouched', async () => {
+ const app=bootPlanner();app.calculate();app.context.showConfirmDialog=async()=>false;
+ await app.context.resetRoutes();
+ assert.equal(app.fetches.length,0);
+ assert.equal(app.saveButton.disabled,false);
+});
+
+test('a failed save restores the current planner lock after htmx enables its button', () => {
+ const app=bootPlanner();app.calculate();app.saveButton.disabled=true;
+ app.routeTime.value='12:00';app.change(app.routeTime);
+ app.saveButton.disabled=false;
+ app.document.body.dispatchEvent(fakeEvent('htmx:afterRequest',{elt:app.saveForm,successful:false}));
+ assert.equal(app.saveButton.disabled,true);
+ assert.equal(app.submitSave().defaultPrevented,true);
+});

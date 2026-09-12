@@ -77,7 +77,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	if !strings.Contains(resultBody, "1 imported, 0 updated") {
 		t.Fatalf("result fragment = %s", resultBody)
 	}
-	if !strings.Contains(resultBody, `id="participants-list"`) || !strings.Contains(resultBody, `hx-swap-oob="true"`) {
+	if !strings.Contains(resultBody, `id="participants-list"`) || !strings.Contains(resultBody, `hx-swap-oob="innerHTML"`) {
 		t.Fatalf("result fragment should refresh the roster out of band: %s", resultBody)
 	}
 	if !strings.Contains(resultBody, "Alex") || strings.Contains(resultBody, "Blair") {
@@ -471,8 +471,8 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 		listID  string
 		heading string
 	}{
-		{"participants", "/participants", importer.KindParticipant, (*Handler).HandleParticipantsPage, "participants-list", "Add Participant"},
-		{"drivers", "/drivers", importer.KindDriver, (*Handler).HandleDriversPage, "drivers-list", "Add Driver"},
+		{"participants", "/participants", importer.KindParticipant, (*Handler).HandleParticipantsPage, "participants-list", "Add participant"},
+		{"drivers", "/drivers", importer.KindDriver, (*Handler).HandleDriversPage, "drivers-list", "Add driver"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -494,7 +494,7 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				`steps.innerHTML = ''`,
 				`value="` + string(tt.kind) + `"`,
 				`id="import-steps"`,
-				"Addresses are geocoded automatically.",
+				"We look up addresses automatically.",
 				tt.heading,
 			} {
 				if !strings.Contains(body, want) {

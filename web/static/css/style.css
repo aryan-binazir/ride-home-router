@@ -2509,3 +2509,5 @@ tfoot td {
     animation-iteration-count: 1 !important;
   }
 }
+
+button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; cursor: progress; }

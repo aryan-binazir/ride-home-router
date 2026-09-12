@@ -149,3 +149,17 @@ button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
 }
+
+/* The same confirmation dialog is used on desktop and mobile. */
+.confirm-overlay { display: none; position: fixed; inset: 0; z-index: 100; place-items: center; padding: 20px; background: rgb(0 0 0 / 46%); }
+.confirm-overlay.is-open { display: grid; }
+.confirm-dialog { width: min(100%, 390px); border-radius: 12px; background: var(--m-card); color: var(--m-ink); overflow: hidden; }
+.confirm-dialog-body { padding: 18px; }
+.confirm-dialog-title { margin: 0 0 6px; font-size: 18px; }
+.confirm-dialog-message { margin: 0; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; padding: 12px 18px; }
+.confirm-dialog-actions button { padding: 12px; }
+button.htmx-request { opacity: .6; cursor: progress; }
+
+.confirm-dialog-actions .btn { border: 1px solid var(--m-line); border-radius: 8px; background: var(--m-card); color: var(--m-ink); }
+.confirm-dialog-actions .btn-danger { background: var(--m-danger); color: var(--m-card); }

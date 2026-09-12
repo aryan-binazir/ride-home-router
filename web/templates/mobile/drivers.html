@@ -28,7 +28,7 @@
     {{end}}
   </div>
   {{end}}
-  <p class="mobile-count">{{.SelectedSeats}} seats selected <a href="/m/people/drivers/new">Add driver</a></p>
+  <p class="mobile-count"><span id="mobile-selected-seats" data-seats="{{.SelectedSeats}}">{{.SelectedSeats}} {{pluralize .SelectedSeats "seat"}} selected</span> <a href="/m/people/drivers/new?return=/m/plan/drivers">Add driver</a></p>
   <div id="mobile-driver-results">
     {{range .HiddenSelectedIDs}}{{$driverID := .}}
     <input type="hidden" name="driver_ids" value="{{$driverID}}">
@@ -38,21 +38,21 @@
       {{range .Drivers}}{{$driver := .}}
       <div class="mobile-driver-choice">
         <label class="mobile-row mobile-choice">
-          <input type="checkbox" name="driver_ids" value="{{.ID}}" {{if index $.Selected .ID}}checked{{end}}>
+          <input type="checkbox" name="driver_ids" data-capacity="{{.VehicleCapacity}}" value="{{.ID}}" {{if index $.Selected .ID}}checked{{end}}>
           <span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>
-          <em>{{.VehicleCapacity}} seats</em>
+          <em>{{.VehicleCapacity}} {{pluralize .VehicleCapacity "seat"}}</em>
         </label>
         <label class="mobile-vehicle">
           <span>Vehicle</span>
           <select name="org_vehicle_{{.ID}}">
-            <option value="">Personal vehicle</option>
+            <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
             {{range $.Vehicles}}
-            <option value="{{.ID}}" {{if eq .ID (index $.Assignments $driver.ID)}}selected{{end}}>{{.Name}} · {{.Capacity}} seats</option>
+            <option data-capacity="{{.Capacity}}" value="{{.ID}}" {{if eq .ID (index $.Assignments $driver.ID)}}selected{{end}}>{{.Name}} · {{.Capacity}} {{pluralize .Capacity "seat"}}</option>
             {{end}}
           </select>
         </label>
       </div>
-      {{else}}<p class="mobile-empty">No drivers found.</p>{{end}}
+      {{else}}<p class="mobile-empty">No drivers match your search.</p>{{end}}
     </div>
   </div>
   <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>

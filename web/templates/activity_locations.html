@@ -10,11 +10,11 @@
     <h3>Saved Locations</h3>
     <p class="text-muted">Examples: school, soccer practice, rehearsal, or any recurring destination.</p>
 
-    <form hx-post="/api/v1/activity-locations"
+    <form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-post="/api/v1/activity-locations"
           hx-target="#location-list"
           hx-swap="beforeend"
-          hx-on::after-request="if(event.detail.requestConfig.verb === 'post') { this.reset(); const empty = document.getElementById('no-locations-message'); if (empty) empty.remove(); }"
-          class="mb-4">
+          hx-on::after-request="if(event.detail.successful && event.detail.elt === this && event.detail.requestConfig.verb === 'post') { this.reset(); const empty = document.getElementById('no-locations-message'); if (empty) empty.remove(); }"
+          class="mb-4" hx-indicator="find button[type=submit]">
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label">Location Name</label>
@@ -29,7 +29,7 @@
                 {{template "address_input" ""}}
             </div>
             <div class="form-group form-group-actions">
-                <button type="submit" class="btn btn-primary">Add Location</button>
+                <button type="submit" class="btn btn-primary">Add location</button>
             </div>
         </div>
     </form>
@@ -49,7 +49,7 @@
                 hx-get="/api/v1/activity-locations/deleted"
                 hx-target="#location-deleted-list"
                 hx-swap="innerHTML"
-                onclick="switchRosterTab(this, 'location')">
+                onclick="switchRosterTab(this, 'location')" hx-indicator="this" hx-disabled-elt="this">
             Deleted locations
         </button>
     </div>

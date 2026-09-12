@@ -15,6 +15,7 @@
     <div class="import-progress"
          hx-get="/api/v1/imports/{{.SessionID}}?view=panel"
          hx-trigger="every 2s"
+         hx-sync="#import-steps:drop"
          hx-target="#import-steps"
          hx-swap="innerHTML">
         <p class="import-progress-label">Looking up addresses… {{.GeocodeDone}}/{{.GeocodeTotal}}</p>
@@ -25,6 +26,7 @@
     <form id="import-selection-form"
           hx-put="/api/v1/imports/{{.SessionID}}/selection?view=panel"
           hx-trigger="change"
+          hx-sync="#import-steps:queue last"
           hx-disabled-elt="#import-commit-button"
           hx-target="#import-commit-bar"
           hx-swap="outerHTML">
@@ -89,6 +91,7 @@
                 type="button"
                 class="btn btn-primary"
                 hx-post="/api/v1/imports/{{.SessionID}}/commit?view=panel"
+                hx-sync="#import-steps:queue last" hx-disabled-elt="this" hx-indicator="this"
                 hx-include="#import-selection-form"
                 hx-target="#import-steps"
                 hx-swap="innerHTML"

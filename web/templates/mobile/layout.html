@@ -7,13 +7,17 @@
   <meta name="color-scheme" content="light dark">
   <title>{{.Title}} · Ride Home Router</title>
   <link rel="stylesheet" href="/static/css/mobile.css">
-  <script src="/static/js/htmx.min.js" defer></script>
+  <script src="/static/js/htmx.min.js"></script>
+  <script>htmx.config.timeout = 45000;</script>
+  <script src="/static/js/ui.js" defer></script>
   <script src="/static/js/mobile.js" defer></script>
   <script src="/static/js/auth.js?v=20260912-theme" defer></script>
 </head>
 <body>
   <div class="mobile-shell">
     <main class="mobile-main">
+      <noscript><p class="mobile-alert">Enable JavaScript to plan and save routes.</p></noscript>
+      <div id="mobile-request-error" class="mobile-alert" role="alert" hidden></div>
       {{if .Error}}<div class="mobile-alert" role="alert">{{.Error}}</div>{{end}}
       {{if .Notice}}<div class="mobile-notice" role="status">{{.Notice}}</div>{{end}}
       {{template "mobile_content" .}}

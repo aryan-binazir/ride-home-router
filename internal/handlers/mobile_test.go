@@ -474,7 +474,7 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 		"<b>2</b>Riders",
 		"<b>1</b>Driver",
 		`class="mobile-route-card mobile-route-card-over-capacity"`,
-		"Metrics paused",
+		"Unavailable",
 		`disabled title="Redistribute passengers to re-enable copying"`,
 		`disabled title="Redistribute passengers before saving"`,
 	} {

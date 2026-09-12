@@ -8,8 +8,8 @@
         <button class="btn btn-primary"
                 hx-get="/api/v1/drivers/new"
                 hx-target="#driver-form-container"
-                hx-swap="innerHTML">
-            Add Driver
+                hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="this">
+            Add driver
         </button>
     </div>
 </div>
@@ -41,7 +41,7 @@
                     hx-get="/api/v1/drivers/deleted"
                     hx-target="#drivers-deleted"
                     hx-swap="innerHTML"
-                    onclick="switchRosterTab(this, 'drivers')">
+                    onclick="switchRosterTab(this, 'drivers')" hx-indicator="this" hx-disabled-elt="this">
                 Deleted
             </button>
         </div>
@@ -66,7 +66,7 @@
                             hx-vals='{"label_id": "{{.ID}}"}'
                             hx-include="#driver-bulk-form input[name='driver_ids']:checked"
                             hx-target="#drivers-list"
-                            hx-swap="innerHTML">
+                            hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="this">
                         {{.Name}}
                     </button>
                     {{end}}
@@ -83,7 +83,7 @@
                             hx-vals='{"label_id": "{{.ID}}"}'
                             hx-include="#driver-bulk-form input[name='driver_ids']:checked"
                             hx-target="#drivers-list"
-                            hx-swap="innerHTML">
+                            hx-swap="innerHTML" hx-indicator="this" hx-disabled-elt="this">
                         {{.Name}}
                     </button>
                     {{end}}
