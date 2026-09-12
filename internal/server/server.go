@@ -50,8 +50,6 @@ type Config struct {
 	AllowedHosts []string
 	// DatabaseURL points to the migrated Postgres database to serve.
 	DatabaseURL string
-	// GoogleMapsAPIKey enables Google Routes distances; empty disables routing.
-	GoogleMapsAPIKey string
 }
 
 const (
@@ -90,9 +88,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 
 	geocoder := geocoding.NewNominatimGeocoderWithGate(db.NominatimGate())
-	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), func() (string, error) {
-		return cfg.GoogleMapsAPIKey, nil
-	})
+	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), db.Settings().GoogleMapsKey)
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewPersistentStore(distanceCalc, db.Workflows())
 	importSession := importer.NewPersistentStore(ctx, geocoder, db, db.Workflows(), db.ImportJobs())
@@ -288,6 +284,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 	mux.HandleFunc("/api/v1/ready", requireMethod(http.MethodGet, handler.HandleReadinessCheck))
 
+	mux.HandleFunc("/api/v1/settings/google-maps-key", handler.HandleGoogleMapsKey)
 	mux.HandleFunc("/api/v1/settings", handleMethods(handler.HandleGetSettings, nil, handler.HandleUpdateSettings, nil))
 	mux.HandleFunc("/api/v1/imports", handler.HandleCreateImport)
 	mux.HandleFunc("/api/v1/imports/", handler.HandleImportSession)

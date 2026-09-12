@@ -23,10 +23,9 @@ const (
 )
 
 type options struct {
-	Addr             string
-	AllowedHosts     []string
-	DatabaseURL      string
-	GoogleMapsAPIKey string
+	Addr         string
+	AllowedHosts []string
+	DatabaseURL  string
 }
 
 type applicationServer interface {
@@ -59,10 +58,9 @@ func run(args []string) error {
 			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
 			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
 		},
-		Addr:             opts.Addr,
-		AllowedHosts:     opts.AllowedHosts,
-		DatabaseURL:      opts.DatabaseURL,
-		GoogleMapsAPIKey: opts.GoogleMapsAPIKey,
+		Addr:         opts.Addr,
+		AllowedHosts: opts.AllowedHosts,
+		DatabaseURL:  opts.DatabaseURL,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -122,9 +120,8 @@ func parseArgs(args []string) (options, error) {
 	}
 
 	opts := options{
-		Addr:             *addr,
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		GoogleMapsAPIKey: os.Getenv("GOOGLE_MAPS_API_KEY"),
+		Addr:        *addr,
+		DatabaseURL: os.Getenv("DATABASE_URL"),
 	}
 	if opts.DatabaseURL == "" {
 		return options{}, errors.New("DATABASE_URL is required (Postgres connection string)")
