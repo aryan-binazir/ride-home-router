@@ -114,7 +114,7 @@ func TestHandleUpdateActivityLocation_HTMXReturnsUpdatedRow(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "Updated Gym") {
 		t.Fatalf("expected updated row HTML, body=%q", rr.Body.String())
 	}
-	expectedTrigger := `{"showToast":{"message":"Location 'Updated Gym' updated!","type":"success"}}`
+	expectedTrigger := `{"showToast":{"message":"` + messageEntityUpdated("Location", "Updated Gym") + `","type":"success"}}`
 	if rr.Header().Get("HX-Trigger") != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}
@@ -191,7 +191,7 @@ func TestHandleUpdateActivityLocation_HTMXValidationKeepsForm(t *testing.T) {
 	if got := rr.Header().Get("HX-Reswap"); got != "none" {
 		t.Fatalf("HX-Reswap = %q, want %q", got, "none")
 	}
-	expectedTrigger := `{"showToast":{"message":"name is required","type":"error"}}`
+	expectedTrigger := `{"showToast":{"message":"` + messageNameRequired + `","type":"error"}}`
 	if rr.Header().Get("HX-Trigger") != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}
@@ -225,7 +225,7 @@ func TestHandleUpdateOrgVehicle_HTMXReturnsUpdatedRow(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "Updated Van") {
 		t.Fatalf("expected updated row HTML, body=%q", rr.Body.String())
 	}
-	expectedTrigger := `{"showToast":{"message":"Van 'Updated Van' updated!","type":"success"}}`
+	expectedTrigger := `{"showToast":{"message":"` + messageEntityUpdated("Van", "Updated Van") + `","type":"success"}}`
 	if rr.Header().Get("HX-Trigger") != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}
@@ -267,7 +267,7 @@ func TestHandleUpdateOrgVehicle_HTMXValidationKeepsForm(t *testing.T) {
 	if got := rr.Header().Get("HX-Reswap"); got != "none" {
 		t.Fatalf("HX-Reswap = %q, want %q", got, "none")
 	}
-	expectedTrigger := `{"showToast":{"message":"Capacity must be at least 1","type":"error"}}`
+	expectedTrigger := `{"showToast":{"message":"` + messageOrganizationVehicleCapacityMustBeAtLeastOne + `","type":"error"}}`
 	if rr.Header().Get("HX-Trigger") != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
 	}

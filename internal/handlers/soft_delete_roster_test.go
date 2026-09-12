@@ -439,7 +439,7 @@ func rosterSoftDeleteCases() []rosterSoftDeleteCase {
 			livePath:       "/api/v1/activity-locations",
 			deletedPath:    "/api/v1/activity-locations/deleted",
 			restorePath:    "/api/v1/activity-locations/restore",
-			notFoundText:   "Activity location not found",
+			notFoundText:   "Location not found. Refresh the page and try again.",
 			emptyStateText: "No deleted locations",
 			create: func(t *testing.T, store *postgres.Store) int64 {
 				t.Helper()

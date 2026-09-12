@@ -47,7 +47,7 @@ func (h *Handler) mobilePlaceForm(w http.ResponseWriter, r *http.Request, kind s
 	if !isNew {
 		id, err = mobileID(r.URL.Path, prefix, "/edit")
 		if err != nil {
-			h.renderMobileError(w, r, http.StatusNotFound, "Page not found", err)
+			h.renderMobileError(w, r, http.StatusNotFound, "Page not found. Return to your plan and try again.", err)
 			return
 		}
 	}
@@ -62,13 +62,15 @@ func (h *Handler) mobilePlaceForm(w http.ResponseWriter, r *http.Request, kind s
 				h.renderMobileTemplateStatus(w, r, http.StatusBadRequest, "mobile/place_form.html", view)
 				return
 			}
-			h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
+			log.Print("[ERROR] Mobile save failed")
+			h.renderMobileTemplateStatus(w, r, http.StatusInternalServerError, "mobile/place_form.html", mobilePlaceSubmittedView(r, kind, messageGenericInternalError))
 			return
 		}
-		http.Redirect(w, r, "/m/places", http.StatusSeeOther)
+		//nolint:gosec // mobileReturnPath permits only local /m/ paths without a scheme, host, or backslash.
+		http.Redirect(w, r, mobileReturnPath(r, "/m/places"), http.StatusSeeOther)
 		return
 	}
-	view := mobilePlaceFormView{mobileBaseView: newMobileBase(mobilePlaceTitle(kind, isNew), "places", ""), Kind: kind, Action: r.URL.Path}
+	view := mobilePlaceFormView{mobileBaseView: newMobileBase(mobilePlaceTitle(kind, isNew), "places", ""), Kind: kind, Action: mobileFormAction(r)}
 	if isNew && kind == "van" {
 		view.Capacity = 8
 	}
@@ -93,7 +95,7 @@ func (h *Handler) mobilePlaceForm(w http.ResponseWriter, r *http.Request, kind s
 
 func mobilePlaceSubmittedView(r *http.Request, kind, message string) mobilePlaceFormView {
 	capacity, _ := strconv.Atoi(r.FormValue("capacity"))
-	return mobilePlaceFormView{mobileBaseView: newMobileBase(mobilePlaceTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "places", message), Kind: kind, Action: r.URL.Path, Name: r.FormValue("name"), Address: r.FormValue("address"), Capacity: capacity}
+	return mobilePlaceFormView{mobileBaseView: newMobileBase(mobilePlaceTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "places", message), Kind: kind, Action: mobileFormAction(r), Name: r.FormValue("name"), Address: r.FormValue("address"), Capacity: capacity}
 }
 
 func mobilePlaceTitle(kind string, isNew bool) string {
@@ -116,11 +118,14 @@ func (h *Handler) saveMobilePlace(r *http.Request, kind string, id int64) error 
 		return mobileFormError{messageMobileInvalidForm}
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
+	if message := personLengthMessage(name, r.FormValue("address")); message != "" {
+		return mobileFormError{message}
+	}
 	if name == "" {
 		return mobileFormError{messageNameRequired}
 	}
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] Mobile save place: kind=%s id=%d name=%s", logutil.SafeString(kind), id, logutil.SafeString(name))
+	log.Printf("[HTTP] Mobile save place: kind=%s id=%d", logutil.SafeString(kind), id)
 	if kind == "van" {
 		capacity, err := strconv.Atoi(r.FormValue("capacity"))
 		if err != nil || capacity < 1 {

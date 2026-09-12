@@ -12,6 +12,7 @@ import (
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/plandraft"
+	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
 	"time"
@@ -36,7 +37,7 @@ type routeIntakePolicy struct {
 
 const (
 	routeSolveTimeout          = 30 * time.Second
-	messageCalculationTimedOut = "calculation timed out — reduce the selection"
+	messageCalculationTimedOut = "Calculating routes took too long. Select fewer people and try again."
 )
 
 var (
@@ -61,10 +62,10 @@ func routeCalculationTimeoutError(ctx context.Context, err error) error {
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", errors.New(messageChooseRouteTime)
+		return "", mobileFormError{messageChooseRouteTime}
 	}
 	if _, err := time.Parse("15:04", trimmed); err != nil {
-		return "", errors.New(messageChooseValidRouteTime)
+		return "", mobileFormError{messageChooseValidRouteTime}
 	}
 	return trimmed, nil
 }
@@ -128,7 +129,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/routes/calculate: form_parse_error err=%v", err)
 			// Preserve the existing JSON response for malformed initial HTMX forms.
-			h.handleValidationError(w, messageInvalidFormData)
+			h.handleValidationError(w, r, messageInvalidFormData)
 			return
 		}
 		var err error
@@ -141,7 +142,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/routes/calculate: invalid_json err=%v", err)
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
@@ -251,14 +252,14 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		staleEntity := errors.Is(outcome.Err, errSomeParticipantsNotFound) || errors.Is(outcome.Err, errSomeDriversNotFound)
 		if policy.staleEntityErrorsUseJSON && staleEntity {
 			// Preserve the initial endpoint's existing JSON response for stale HTMX selections.
-			h.handleValidationError(w, message)
+			h.handleValidationError(w, r, message)
 		} else {
 			h.handleValidationErrorHTMX(w, r, message)
 		}
 		return
 	}
 	if outcome.Kind == routeCalculationInternalFailure {
-		h.handleInternalError(w, outcome.Err)
+		h.handleInternalError(w, r, outcome.Err)
 		return
 	}
 	if outcome.Kind == routeCalculationRouteFailure {
@@ -295,7 +296,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 			))
 			return
 		}
-		h.handleRoutingError(w, shortage.RoutingError)
+		h.handleRoutingError(w, r, shortage.RoutingError)
 		return
 	}
 
@@ -323,16 +324,28 @@ func routeCalculationValidationMessage(err error) string {
 	case errors.Is(err, errActivityLocationNotFound):
 		return messageSelectedActivityLocationNotFoundChooseAnother
 	case errors.Is(err, errSomeParticipantsNotFound):
-		return "Some participants not found"
+		return messageStaleRiders
 	case errors.Is(err, errSomeDriversNotFound):
-		return "Some drivers not found"
+		return messageStaleDrivers
+	case errors.Is(err, errSelectedVanNotFound):
+		return errSelectedVanNotFound.Error()
+	case errors.Is(err, distance.ErrProviderNotConfigured):
+		return messageRouteCalculationNotConfigured
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return messageCalculationTimedOut
 	default:
-		return err.Error()
+		if _, ok := errors.AsType[*routing.ErrRoutingFailed](err); ok {
+			return messageHouseholdsDoNotFit
+		}
+		if _, ok := errors.AsType[*distance.ErrDistanceCalculationFailed](err); ok {
+			return messageRouteCalculationUnavailable
+		}
+		return messageGenericInternalError
 	}
 }
 
 func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Request, err error) {
-	message := err.Error()
+	message := routeCalculationValidationMessage(err)
 	status := http.StatusServiceUnavailable
 	code := "DISTANCE_PROVIDER_FAILED"
 
@@ -340,8 +353,8 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 		message = messageCalculationTimedOut
 		code = "CALCULATION_TIMED_OUT"
 	} else if errors.Is(err, distance.ErrProviderNotConfigured) {
-		message = "Google Maps API key is not configured. Ask an administrator to configure it in Settings."
-		status = http.StatusBadRequest
+		message = messageRouteCalculationNotConfigured
+		status = http.StatusServiceUnavailable
 		code = "DISTANCE_PROVIDER_NOT_CONFIGURED"
 	}
 

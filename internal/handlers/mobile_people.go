@@ -64,23 +64,31 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 	if !isNew {
 		id, err = mobileID(r.URL.Path, prefix, "/edit")
 		if err != nil {
-			h.renderMobileError(w, r, http.StatusNotFound, "Page not found", err)
+			h.renderMobileError(w, r, http.StatusNotFound, "Page not found. Return to your plan and try again.", err)
 			return
 		}
 	}
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
+		if r.Method == http.MethodPost {
+			h.renderMobileTemplateStatus(w, r, http.StatusInternalServerError, "mobile/person_form.html", mobilePersonSubmittedView(r, kind, nil, messageGenericInternalError))
+			return
+		}
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
 		return
 	}
 	if r.Method == http.MethodPost {
 		if err := h.saveMobilePerson(r, kind, id); err != nil {
-			if _, ok := errors.AsType[rosterGeocodeError](err); ok {
+			if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 				log.Print("[ERROR] Mobile geocoding failed")
-				err = mobileFormError{messageMobileAddressLookupFailed}
+				err = mobileFormError{geocodingErrorMessage(geocodeErr.err)}
 			}
 			if h.checkNotFound(err) {
 				h.renderMobileError(w, r, http.StatusNotFound, mobilePersonNotFoundMessage(kind), err)
+				return
+			}
+			if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
+				h.renderMobileTemplateStatus(w, r, http.StatusConflict, "mobile/person_form.html", mobilePersonSubmittedView(r, kind, labels, duplicate.Error()))
 				return
 			}
 			if formErr, ok := errors.AsType[mobileFormError](err); ok {
@@ -88,13 +96,15 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 				h.renderMobileTemplateStatus(w, r, http.StatusBadRequest, "mobile/person_form.html", view)
 				return
 			}
-			h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
+			log.Print("[ERROR] Mobile save failed")
+			h.renderMobileTemplateStatus(w, r, http.StatusInternalServerError, "mobile/person_form.html", mobilePersonSubmittedView(r, kind, labels, messageGenericInternalError))
 			return
 		}
-		http.Redirect(w, r, "/m/people", http.StatusSeeOther)
+		//nolint:gosec // mobileReturnPath permits only local /m/ paths without a scheme, host, or backslash.
+		http.Redirect(w, r, mobileReturnPath(r, "/m/people"), http.StatusSeeOther)
 		return
 	}
-	view := mobilePersonFormView{mobileBaseView: newMobileBase(mobilePersonTitle(kind, isNew), "people", ""), Kind: kind, Action: r.URL.Path, Labels: labels, Selected: map[int64]bool{}}
+	view := mobilePersonFormView{mobileBaseView: newMobileBase(mobilePersonTitle(kind, isNew), "people", ""), Kind: kind, Action: mobileFormAction(r), Labels: labels, Selected: map[int64]bool{}}
 	if isNew && kind == "driver" {
 		view.VehicleCapacity = 4
 	}
@@ -137,7 +147,7 @@ func mobilePersonSubmittedView(r *http.Request, kind string, labels []models.Lab
 	capacity, _ := strconv.Atoi(r.FormValue("vehicle_capacity"))
 	return mobilePersonFormView{
 		mobileBaseView: newMobileBase(mobilePersonTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "people", message),
-		Kind:           kind, Action: r.URL.Path, Name: r.FormValue("name"), Address: r.FormValue("address"),
+		Kind:           kind, Action: mobileFormAction(r), Name: r.FormValue("name"), Address: r.FormValue("address"),
 		AddressName: r.FormValue("address_name"), VehicleCapacity: capacity, Labels: labels,
 		Selected: mobileSelected(parseMobileIDs(r.Form["label_ids"])),
 	}
@@ -165,6 +175,9 @@ func (h *Handler) saveMobilePerson(r *http.Request, kind string, id int64) error
 	name := strings.TrimSpace(r.FormValue("name"))
 	address := strings.TrimSpace(r.FormValue("address"))
 	addressName := strings.TrimSpace(r.FormValue("address_name"))
+	if message := personLengthMessage(name, address); message != "" {
+		return mobileFormError{message}
+	}
 	if name == "" || address == "" {
 		return mobileFormError{messageNameAndAddressRequired}
 	}
@@ -179,7 +192,7 @@ func (h *Handler) saveMobilePerson(r *http.Request, kind string, id int64) error
 		return mobileFormError{messageInvalidLabelSelection}
 	}
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] Mobile save person: kind=%s id=%d name=%s", logutil.SafeString(kind), id, logutil.SafeString(name))
+	log.Printf("[HTTP] Mobile save person: kind=%s id=%d", logutil.SafeString(kind), id)
 	editor := rosterEditor{db: h.DB, geocoder: h.Geocoder}
 	edit := participantEdit{Name: name, Address: address, AddressName: addressName, LabelIDs: labels, SetLabels: true}
 	if kind == "participant" {
@@ -215,7 +228,7 @@ func (h *Handler) geocodeMobile(ctx context.Context, address string, lat, lng *f
 	result, err := h.Geocoder.GeocodeWithRetry(ctx, address, 3)
 	if err != nil {
 		log.Print("[ERROR] Mobile geocoding failed")
-		return mobileFormError{messageMobileAddressLookupFailed}
+		return mobileFormError{geocodingErrorMessage(err)}
 	}
 	*lat, *lng = result.Coords.Lat, result.Coords.Lng
 	return nil

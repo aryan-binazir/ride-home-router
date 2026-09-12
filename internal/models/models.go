@@ -10,6 +10,10 @@ import (
 )
 
 const (
+	MaxNameLength        = 200
+	MaxAddressLength     = 500
+	MaxNotesLength       = 4000
+	MaxLabelNameLength   = 200
 	MaxAddressNameLength = 200
 	MinVehicleCapacity   = 1
 	// DefaultVehicleCapacity applies when an import supplies no capacity.
@@ -231,11 +235,12 @@ type RouteFeedbackRoute struct {
 
 // Event represents a historical event record
 type Event struct {
-	ID        int64     `json:"id"`
-	EventDate time.Time `json:"event_date"`
-	Notes     string    `json:"notes"`
-	Mode      RouteMode `json:"mode"`
-	CreatedAt time.Time `json:"created_at"`
+	RouteSessionID string    `json:"-"`
+	ID             int64     `json:"id"`
+	EventDate      time.Time `json:"event_date"`
+	Notes          string    `json:"notes"`
+	Mode           RouteMode `json:"mode"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // EventRoute stores a saved route snapshot for a historical event.

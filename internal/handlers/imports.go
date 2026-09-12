@@ -26,6 +26,8 @@ const (
 
 const importMultipartMemory = 1 << 20
 
+var importAdmission = make(chan struct{}, importer.MaxConcurrentSessions)
+
 type importMappingJSON struct {
 	NameColumn        int                      `json:"name_column"`
 	AddressColumn     int                      `json:"address_column"`
@@ -97,25 +99,32 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import requests must come from this application's own origin", nil)
+		h.writeError(w, status, "FORBIDDEN", "Reload this page and try the import again.", nil)
 		return
 	}
 	if r.Method != http.MethodPost {
 		status = http.StatusMethodNotAllowed
-		h.writeError(w, status, "METHOD_NOT_ALLOWED", "Method not allowed", nil)
+		h.writeError(w, status, "METHOD_NOT_ALLOWED", "That action is unavailable. Reload the page and try again.", nil)
 		return
 	}
 	if r.Header.Get("HX-Request") != "true" {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import uploads require HX-Request: true", nil)
+		h.writeError(w, status, "FORBIDDEN", "Open the import form and choose your file again.", nil)
 		return
 	}
 	if h.ImportSession == nil {
 		status = http.StatusServiceUnavailable
-		h.writeError(w, status, "SERVICE_UNAVAILABLE", "Import sessions are unavailable", nil)
+		h.writeError(w, status, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
 		return
 	}
 
+	select {
+	case importAdmission <- struct{}{}:
+		defer func() { <-importAdmission }()
+	default:
+		status = h.writeImportStoreError(w, r, "", importer.ErrStoreFull)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, MaxImportUploadBytes)
 	parseErr := r.ParseMultipartForm(importMultipartMemory)
 	if r.MultipartForm != nil {
@@ -130,31 +139,31 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 			status = h.writeImportError(w, r, "", http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("Import uploads are limited to %d bytes", MaxImportUploadBytes), nil)
 			return
 		}
-		status = h.writeImportError(w, r, "", http.StatusBadRequest, "INVALID_MULTIPART_FORM", "Invalid multipart import request", nil)
+		status = h.writeImportError(w, r, "", http.StatusBadRequest, "INVALID_MULTIPART_FORM", "That upload could not be read. Choose the file again.", nil)
 		return
 	}
 
 	kind := importer.Kind(r.FormValue("kind"))
 	if kind != importer.KindParticipant && kind != importer.KindDriver {
-		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Import kind must be participant or driver", nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Choose whether to import riders or drivers.", nil)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Import file is required", nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Choose a file to import.", nil)
 		return
 	}
 	defer func() { _ = file.Close() }()
 
 	format, ok := importFormat(header.Filename)
 	if !ok {
-		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Import file must have a .csv or .xlsx extension", nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Choose a CSV or Excel file.", nil)
 		return
 	}
 	contents, err := io.ReadAll(file)
 	if err != nil {
-		status = h.writeImportError(w, r, "", http.StatusBadRequest, "INVALID_IMPORT_FILE", "Import file could not be read", nil)
+		status = h.writeImportError(w, r, "", http.StatusBadRequest, "INVALID_IMPORT_FILE", "That file could not be read. Choose the file again.", nil)
 		return
 	}
 
@@ -162,7 +171,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	if format == importer.FormatXLSX && sheet == "" {
 		sheets, sheetsErr := importer.Sheets(bytes.NewReader(contents))
 		if sheetsErr != nil {
-			status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", sheetsErr.Error(), nil)
+			status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Could not read that spreadsheet. Check the file and try again.", nil)
 			return
 		}
 		if len(sheets) > 1 {
@@ -172,14 +181,14 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			status = http.StatusUnprocessableEntity
-			h.writeError(w, status, "WORKSHEET_REQUIRED", "XLSX file has multiple non-empty worksheets; choose a worksheet explicitly", map[string]any{"sheets": sheets})
+			h.writeError(w, status, "WORKSHEET_REQUIRED", "Choose a worksheet to import.", map[string]any{"sheets": sheets})
 			return
 		}
 	}
 
 	grid, err := importer.Parse(bytes.NewReader(contents), format, sheet)
 	if err != nil {
-		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error(), nil)
+		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", fmt.Sprintf("Could not read that file. Check the file and use no more than %d rows.", importer.MaxDataRows), nil)
 		return
 	}
 	rowCount = grid.Len()
@@ -209,17 +218,17 @@ func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 
 	if !validImportRequestSource(r) {
 		status = http.StatusForbidden
-		h.writeError(w, status, "FORBIDDEN", "Import requests must come from this application's own origin", nil)
+		h.writeError(w, status, "FORBIDDEN", "Reload this page and try the import again.", nil)
 		return
 	}
 	if h.ImportSession == nil {
 		status = http.StatusServiceUnavailable
-		h.writeError(w, status, "SERVICE_UNAVAILABLE", "Import sessions are unavailable", nil)
+		h.writeError(w, status, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
 		return
 	}
 	if !pathOK {
 		status = http.StatusNotFound
-		h.writeError(w, status, "NOT_FOUND", "Import session not found", nil)
+		h.writeError(w, status, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return
 	}
 
@@ -283,7 +292,7 @@ func (h *Handler) getImportSession(w http.ResponseWriter, r *http.Request, id st
 		return h.writeImportStoreError(w, r, id, loadErr), -1
 	}
 	if !ok {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
+		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return http.StatusNotFound, -1
 	}
 	h.writeJSON(w, http.StatusOK, newImportSnapshotJSON(snapshot))
@@ -296,7 +305,7 @@ func (h *Handler) updateImportMapping(w http.ResponseWriter, r *http.Request, id
 		return h.writeImportStoreError(w, r, id, loadErr), -1
 	}
 	if !ok {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
+		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return http.StatusNotFound, -1
 	}
 	var request importMappingRequest
@@ -351,7 +360,7 @@ func (h *Handler) cancelImportSession(w http.ResponseWriter, r *http.Request, id
 		return h.writeImportStoreError(w, r, id, err)
 	}
 	if !canceled {
-		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
+		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 		return http.StatusNotFound
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -362,25 +371,25 @@ func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, 
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		w.Header().Set("Retry-After", "2")
-		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Import is busy; try again shortly", nil)
+		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "The import is busy. Try again shortly.", nil)
 	case errors.Is(err, database.ErrWorkflowPayloadTooLarge):
-		return h.writeImportError(w, r, sessionID, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", err.Error(), nil)
+		return h.writeImportError(w, r, sessionID, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", "That file contains too much data. Import fewer rows at a time.", nil)
 	case errors.Is(err, database.ErrNotFound), errors.Is(err, importer.ErrSessionNotFound):
-		return h.writeImportError(w, r, sessionID, http.StatusNotFound, "NOT_FOUND", "Import session not found", nil)
+		return h.writeImportError(w, r, sessionID, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil)
 	case errors.Is(err, importer.ErrCommitConsumed):
-		return h.writeImportError(w, r, sessionID, http.StatusConflict, "COMMIT_CONSUMED", err.Error(), nil)
+		return h.writeImportError(w, r, sessionID, http.StatusConflict, "COMMIT_CONSUMED", "That import has already been saved. Refresh the roster to see it.", nil)
 	case errors.Is(err, database.ErrWorkflowConflict), errors.Is(err, importer.ErrInvalidSessionState):
-		return h.writeImportError(w, r, sessionID, http.StatusConflict, "INVALID_SESSION_STATE", err.Error(), nil)
+		return h.writeImportError(w, r, sessionID, http.StatusConflict, "INVALID_SESSION_STATE", "That import changed. Reload it and try again.", nil)
 	case errors.Is(err, importer.ErrGeocodingInProgress):
-		return h.writeImportError(w, r, sessionID, http.StatusConflict, "GEOCODING_IN_PROGRESS", err.Error(), nil)
+		return h.writeImportError(w, r, sessionID, http.StatusConflict, "GEOCODING_IN_PROGRESS", "Addresses are still being checked. Try again shortly.", nil)
 	case errors.Is(err, importer.ErrInvalidSelection):
-		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "INVALID_SELECTION", err.Error(), nil)
+		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "INVALID_SELECTION", "Choose valid rows to import.", nil)
 	case errors.Is(err, importer.ErrTooManyGeocodeAddresses):
 		return h.writeImportError(w, r, sessionID, http.StatusUnprocessableEntity, "GEOCODE_LIMIT_EXCEEDED", fmt.Sprintf("Import needs more than the limit of %d unique addresses requiring geocoding", importer.MaxGeocodeAddresses), nil)
 	case errors.Is(err, database.ErrWorkflowCapacity), errors.Is(err, importer.ErrStoreFull):
-		return h.writeImportError(w, r, sessionID, http.StatusTooManyRequests, "IMPORT_STORE_FULL", fmt.Sprintf("At most %d import sessions can be active", importer.MaxConcurrentSessions), nil)
+		return h.writeImportError(w, r, sessionID, http.StatusTooManyRequests, "IMPORT_STORE_FULL", "Too many imports are active. Finish an import and try again.", nil)
 	case errors.Is(err, importer.ErrStoreClosed):
-		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Import sessions are unavailable", nil)
+		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
 	default:
 		log.Printf("[ERROR] Internal error: %v", err)
 		return h.writeImportError(w, r, sessionID, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError, nil)
@@ -484,7 +493,7 @@ func parseImportSessionPath(path string) (id, action string, ok bool) {
 }
 
 func writeImportMethodNotAllowed(h *Handler, w http.ResponseWriter) int {
-	h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed", nil)
+	h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "That action is unavailable. Reload the page and try again.", nil)
 	return http.StatusMethodNotAllowed
 }
 

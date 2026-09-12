@@ -113,8 +113,9 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		t.Fatal("calculate did not save the route session ID in the draft")
 	}
 	oldSessionID := draft.RouteSessionID
-	handler.Router = &captureRouter{err: errors.New("routing failed")}
+	handler.Router = &captureRouter{err: errors.New(internalSentinel)}
 	failedResponse := postMobileForm(t, draftCookie, "/m/calculate", nil, handler.HandleMobileCalculate)
+	assertSafeFailure(t, failedResponse)
 	if failedResponse.Code != http.StatusSeeOther || !strings.HasPrefix(failedResponse.Header().Get("Location"), "/m?error=") {
 		t.Fatalf("failed calculate redirect = %d %q", failedResponse.Code, failedResponse.Header().Get("Location"))
 	}

@@ -285,7 +285,7 @@ func TestImportPanelUploadErrorRendersMessage(t *testing.T) {
 	handler.HandleCreateImport(recorder, upload)
 	assertPanelFragment(t, recorder)
 
-	if body := recorder.Body.String(); !strings.Contains(body, "Import file must have a .csv or .xlsx extension") {
+	if body := recorder.Body.String(); !strings.Contains(body, "Choose a CSV or Excel file.") {
 		t.Fatalf("expected the server message in the panel: %s", body)
 	}
 	var trigger triggerHeader
@@ -322,7 +322,7 @@ func TestImportPanelCommitConflictRendersServerMessage(t *testing.T) {
 
 	retry := commit()
 	assertPanelFragment(t, retry)
-	if body := retry.Body.String(); !strings.Contains(body, importer.ErrCommitConsumed.Error()) {
+	if body := retry.Body.String(); !strings.Contains(body, "That import has already been saved. Refresh the roster to see it.") {
 		t.Fatalf("retry should show the conflict message: %s", body)
 	}
 }

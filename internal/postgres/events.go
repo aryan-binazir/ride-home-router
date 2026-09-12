@@ -15,13 +15,15 @@ type eventRepository struct {
 }
 
 func (r *eventRepository) List(ctx context.Context, limit, offset int) ([]models.Event, int, error) {
+	limit = min(max(limit, 1), 100)
+	offset = max(offset, 0)
 	var total int
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count events: %w", err)
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, event_date, notes, mode, created_at
+		SELECT id, event_date, notes, mode, created_at, route_session_id
 		FROM events
 		ORDER BY event_date DESC, id DESC
 		LIMIT $1 OFFSET $2`, limit, offset)
@@ -46,15 +48,16 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int) ([]models
 
 func scanEvent(scanner interface{ Scan(dest ...any) error }) (models.Event, error) {
 	var event models.Event
-	var notes sql.NullString
+	var notes, sessionID sql.NullString
 	var mode string
-	if err := scanner.Scan(&event.ID, &event.EventDate, &notes, &mode, &event.CreatedAt); err != nil {
+	if err := scanner.Scan(&event.ID, &event.EventDate, &notes, &mode, &event.CreatedAt, &sessionID); err != nil {
 		return models.Event{}, err
 	}
 	// Force UTC so event dates do not shift with the server's time zone.
 	event.EventDate = event.EventDate.UTC()
 	event.CreatedAt = event.CreatedAt.UTC()
 	event.Notes = notes.String
+	event.RouteSessionID = sessionID.String
 	var err error
 	event.Mode, err = models.ParseRouteMode(mode)
 	if err != nil {
@@ -105,7 +108,7 @@ func (r *eventRepository) GetSummariesByEventIDs(ctx context.Context, eventIDs [
 }
 
 func (r *eventRepository) GetByID(ctx context.Context, id int64) (*models.Event, []models.EventRoute, *models.EventSummary, error) {
-	event, err := scanEvent(r.db.QueryRowContext(ctx, `SELECT id, event_date, notes, mode, created_at FROM events WHERE id = $1`, id))
+	event, err := scanEvent(r.db.QueryRowContext(ctx, `SELECT id, event_date, notes, mode, created_at, route_session_id FROM events WHERE id = $1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, nil, database.ErrNotFound
 	}
@@ -233,8 +236,8 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 func createEventTx(ctx context.Context, tx *sql.Tx, event *models.Event, routes []models.EventRoute, summary *models.EventSummary) (*models.Event, error) {
 	event.CreatedAt = time.Now()
 	if err := tx.QueryRowContext(ctx, `
-		INSERT INTO events (event_date, notes, mode, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
-		event.EventDate, event.Notes, string(event.Mode), event.CreatedAt).Scan(&event.ID); err != nil {
+		INSERT INTO events (event_date, notes, mode, created_at, route_session_id) VALUES ($1, $2, $3, $4, NULLIF($5, '')) RETURNING id`,
+		event.EventDate, event.Notes, string(event.Mode), event.CreatedAt, event.RouteSessionID).Scan(&event.ID); err != nil {
 		return nil, fmt.Errorf("failed to create event: %w", err)
 	}
 
@@ -308,4 +311,16 @@ func (r *eventRepository) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("failed to delete event: %w", err)
 	}
 	return rowsAffectedOrNotFound(result)
+}
+
+// FindByRouteSessionID resolves a retried save without loading route snapshots.
+func (r *eventRepository) FindByRouteSessionID(ctx context.Context, sessionID string) (*models.Event, error) {
+	event, err := scanEvent(r.db.QueryRowContext(ctx, `SELECT id, event_date, notes, mode, created_at, route_session_id FROM events WHERE route_session_id = $1`, sessionID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, database.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
 }

@@ -28,17 +28,17 @@ type ParticipantResponse struct {
 func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] GET /api/v1/participants: search=%s", logutil.SafeString(search))
+	log.Printf("[HTTP] GET /api/v1/participants:")
 
 	participants, err := h.DB.Participants().List(r.Context(), search)
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to list participants: search=%s err=%s", logutil.SafeString(search), logutil.SafeString(err.Error()))
+		log.Printf("[ERROR] Failed to list participants: err=%s", logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -57,7 +57,7 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 	responseParticipants, err := h.participantResponses(r.Context(), participants)
 	if err != nil {
 		log.Printf("[ERROR] Failed to load participant labels for list: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *Handler) HandleListDeletedParticipants(w http.ResponseWriter, r *http.R
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *Handler) HandleListDeletedParticipants(w http.ResponseWriter, r *http.R
 	responseParticipants, err := h.participantResponses(r.Context(), participants)
 	if err != nil {
 		log.Printf("[ERROR] Failed to load deleted participant labels: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, ParticipantListResponse{
@@ -112,7 +112,7 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, "Invalid participant ID")
+		h.handleValidationError(w, r, "Choose a valid rider. Refresh the page and try again.")
 		return
 	}
 
@@ -121,18 +121,18 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found: id=%d", id)
-			h.handleNotFound(w, "Participant not found")
+			h.handleNotFound(w, r, "Rider not found. Refresh the page and try again.")
 			return
 		}
 		log.Printf("[ERROR] Failed to get participant: id=%d err=%v", id, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	response, err := h.participantResponse(r.Context(), participant)
 	if err != nil {
 		log.Printf("[ERROR] Failed to load participant labels: id=%d err=%v", participant.ID, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -160,28 +160,32 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 		req.AddressName = r.FormValue("address_name")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("invalid label selection"))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 		labelIDs = parsedLabelIDs
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 		labelIDs = req.LabelIDs
 	}
 	req.AddressName = strings.TrimSpace(req.AddressName)
 
+	if message := personLengthMessage(req.Name, req.Address); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" || req.Address == "" {
 		//nolint:gosec // G706: request fields are logged only as presence booleans.
 		log.Printf("[HTTP] POST /api/v1/participants: missing_name=%t missing_address=%t", req.Name == "", req.Address == "")
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
+			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 			return
 		}
-		h.handleValidationError(w, messageNameAndAddressRequired)
+		h.handleValidationError(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
@@ -189,47 +193,51 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong())
+		h.handleValidationError(w, r, messageAddressNameTooLong())
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 		log.Printf("[HTTP] POST /api/v1/participants: invalid_labels err=%v", err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
-		h.handleValidationError(w, messageInvalidLabelSelection)
+		h.handleValidationError(w, r, messageInvalidLabelSelection)
 		return
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] POST /api/v1/participants: name=%s", logutil.SafeString(req.Name))
+	log.Print("[HTTP] POST /api/v1/participants:")
 	participant, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createParticipant(r.Context(), participantEdit{
 		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
 	})
+	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
+		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "DUPLICATE_ROSTER_ENTRY", duplicate.Error())
+		return
+	}
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		log.Print("[ERROR] Failed to geocode participant address")
 		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
 			return
 		}
-		h.handleGeocodingError(w, geocodeErr.err)
+		h.handleGeocodingError(w, r, geocodeErr.err)
 		return
 	}
 
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to create participant: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
+		log.Printf("[ERROR] Failed to create participant: err=%s", logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] Created participant: id=%d name=%s", participant.ID, logutil.SafeString(participant.Name))
+	log.Printf("[HTTP] Created participant: id=%d", participant.ID)
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
@@ -266,10 +274,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageInvalidParticipantID))
+			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 			return
 		}
-		h.handleValidationError(w, messageInvalidParticipantID)
+		h.handleValidationError(w, r, messageInvalidParticipantID)
 		return
 	}
 
@@ -280,10 +288,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found for update: id=%d", id)
 			if h.isHTMX(r) {
-				h.renderError(w, r, errors.New(messageParticipantNotFound))
+				h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 				return
 			}
-			h.handleNotFound(w, messageParticipantNotFound)
+			h.handleNotFound(w, r, messageParticipantNotFound)
 			return
 		}
 		log.Printf("[ERROR] Failed to get participant for update: id=%d err=%v", id, err)
@@ -291,7 +299,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -314,14 +322,14 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		req.AddressName = r.FormValue("address_name")
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("invalid label selection"))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 		labelIDs = parsedLabelIDs
 		shouldSetLabels = true
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 		if req.LabelIDs != nil {
@@ -331,12 +339,16 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	}
 	req.AddressName = strings.TrimSpace(req.AddressName)
 
+	if message := personLengthMessage(req.Name, req.Address); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
+			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 			return
 		}
-		h.handleValidationError(w, messageNameAndAddressRequired)
+		h.handleValidationError(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
@@ -344,17 +356,17 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong())
+		h.handleValidationError(w, r, messageAddressNameTooLong())
 		return
 	}
 	if shouldSetLabels {
 		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_labels id=%d err=%v", id, err)
 			if h.isHTMX(r) {
-				h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+				h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 				return
 			}
-			h.handleValidationError(w, messageInvalidLabelSelection)
+			h.handleValidationError(w, r, messageInvalidLabelSelection)
 			return
 		}
 	}
@@ -362,12 +374,16 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	participant, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).updateParticipant(r.Context(), existing, participantEdit{
 		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs, SetLabels: shouldSetLabels,
 	})
+	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
+		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "DUPLICATE_ROSTER_ENTRY", duplicate.Error())
+		return
+	}
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
 			return
 		}
-		h.handleGeocodingError(w, geocodeErr.err)
+		h.handleGeocodingError(w, r, geocodeErr.err)
 		return
 	}
 
@@ -375,10 +391,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found after update: id=%d", id)
 			if h.isHTMX(r) {
-				h.renderError(w, r, errors.New(messageParticipantNotFound))
+				h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 				return
 			}
-			h.handleNotFound(w, messageParticipantNotFound)
+			h.handleNotFound(w, r, messageParticipantNotFound)
 			return
 		}
 		log.Printf("[ERROR] Failed to update participant: id=%d err=%v", id, err)
@@ -386,12 +402,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] Updated participant: id=%d name=%s", participant.ID, logutil.SafeString(participant.Name))
+	log.Printf("[HTTP] Updated participant: id=%d", participant.ID)
 	if h.isHTMX(r) {
 		participants, err := h.DB.Participants().List(r.Context(), "")
 		if err != nil {
@@ -413,7 +429,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to load participant labels after update: id=%d err=%s", participant.ID, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -428,10 +444,10 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageInvalidParticipantID))
+			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 			return
 		}
-		h.handleValidationError(w, messageInvalidParticipantID)
+		h.handleValidationError(w, r, messageInvalidParticipantID)
 		return
 	}
 
@@ -440,10 +456,10 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Participant not found for delete: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageParticipantNotFound))
+			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 			return
 		}
-		h.handleNotFound(w, messageParticipantNotFound)
+		h.handleNotFound(w, r, messageParticipantNotFound)
 		return
 	}
 	if err != nil {
@@ -452,7 +468,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -491,7 +507,7 @@ func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Reques
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -520,14 +536,14 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			h.renderError(w, r, errors.New(messageInvalidParticipantID))
+			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 			return
 		}
 
 		participant, err = h.DB.Participants().GetByID(r.Context(), id)
 		if err != nil {
 			if h.checkNotFound(err) {
-				h.renderError(w, r, errors.New(messageParticipantNotFound))
+				h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 				return
 			}
 			h.renderError(w, r, err)

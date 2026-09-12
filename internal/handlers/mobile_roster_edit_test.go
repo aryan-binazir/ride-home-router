@@ -93,15 +93,15 @@ func TestRosterEditGeocodeErrorPresentation(t *testing.T) {
 					rr := rosterEditHTTPRequest(t, h, kind, surface, id, url.Values{"name": {"Must not persist"}, "address": {"Changed address"}, "vehicle_capacity": {"4"}})
 					switch surface {
 					case "json":
-						if rr.Code != http.StatusUnprocessableEntity || rr.Body.String() != `{"error":{"code":"GEOCODING_FAILED","message":"provider detail sentinel"}}`+"\n" {
+						if rr.Code != http.StatusUnprocessableEntity || rr.Body.String() != `{"error":{"code":"GEOCODING_FAILED","message":"`+messageAddressLookupUnavailable+`"}}`+"\n" {
 							t.Fatalf("json = %d %s", rr.Code, rr.Body.String())
 						}
 					case "htmx":
-						if rr.Code != http.StatusUnprocessableEntity || rr.Body.Len() != 0 || !strings.Contains(rr.Header().Get("HX-Trigger"), messageMobileAddressLookupFailed) {
+						if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), messageAddressLookupUnavailable) || !strings.Contains(rr.Header().Get("HX-Trigger"), messageAddressLookupUnavailable) {
 							t.Fatalf("htmx = %d %s", rr.Code, rr.Body.String())
 						}
 					case "mobile":
-						if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageMobileAddressLookupFailed) || strings.Contains(rr.Body.String(), "provider detail sentinel") || !strings.Contains(rr.Body.String(), "Must not persist") {
+						if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageAddressLookupUnavailable) || strings.Contains(rr.Body.String(), "provider detail sentinel") || !strings.Contains(rr.Body.String(), "Must not persist") {
 							t.Fatalf("mobile = %d %s", rr.Code, rr.Body.String())
 						}
 					}
@@ -192,7 +192,7 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				rr = rosterEditHTTPRequest(t, h, kind, surface, id, form)
 				wantStatus = http.StatusBadRequest
 				if surface == "htmx" {
-					wantStatus = http.StatusInternalServerError
+					wantStatus = http.StatusBadRequest
 				}
 				if rr.Code != wantStatus {
 					t.Fatalf("malformed = %d %s", rr.Code, rr.Body.String())

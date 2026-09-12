@@ -29,7 +29,7 @@ func (h *Handler) HandleListActivityLocations(w http.ResponseWriter, r *http.Req
 	locations, err := h.DB.ActivityLocations().List(r.Context())
 	if err != nil {
 		log.Printf("[ERROR] Failed to list activity locations: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *Handler) HandleListDeletedActivityLocations(w http.ResponseWriter, r *h
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: form_parse_error err=%v", err)
-			h.handleValidationError(w, messageInvalidFormData)
+			h.handleValidationError(w, r, messageInvalidFormData)
 			return
 		}
 		req.Name = r.FormValue("name")
@@ -82,11 +82,15 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/activity-locations: invalid_json err=%v", err)
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
 
+	if message := personLengthMessage(req.Name, req.Address); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" {
 		log.Printf("[HTTP] POST /api/v1/activity-locations: missing name")
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
@@ -100,12 +104,12 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] POST /api/v1/activity-locations: name=%s", logutil.SafeString(req.Name))
+	log.Print("[HTTP] POST /api/v1/activity-locations:")
 
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
 	if err != nil {
 		log.Print("[ERROR] Failed to geocode activity location address")
-		h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageFailedToGeocodeAddress(err))
+		h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(err))
 		return
 	}
 
@@ -119,12 +123,11 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	createdLocation, err := h.DB.ActivityLocations().Create(r.Context(), location)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create activity location: err=%v", err)
-		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageFailedToSaveLocation(err))
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageFailedToSaveLocation())
 		return
 	}
 
-	log.Printf("[HTTP] Created activity location: id=%d name=%s lat=%.6f lng=%.6f",
-		createdLocation.ID, logutil.SafeString(createdLocation.Name), createdLocation.Lat, createdLocation.Lng)
+	log.Printf("[HTTP] Created activity location: id=%d", createdLocation.ID)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityAdded("Location", createdLocation.Name), toastTypeSuccess)
@@ -141,7 +144,7 @@ func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/activity-locations/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, "Invalid activity location ID")
+		h.handleValidationError(w, r, "Choose a valid location. Refresh the page and try again.")
 		return
 	}
 
@@ -150,12 +153,12 @@ func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Reque
 	location, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			h.handleNotFoundHTMX(w, r, "Activity location not found")
+			h.handleNotFoundHTMX(w, r, "Location not found. Refresh the page and try again.")
 			return
 		}
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to get activity location: id=%d err=%s", id, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -194,19 +197,19 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/activity-locations/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, "Invalid activity location ID")
+		h.handleValidationError(w, r, "Choose a valid location. Refresh the page and try again.")
 		return
 	}
 
 	existing, err := h.DB.ActivityLocations().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Location not found. Refresh the page and try again.")
 			return
 		}
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to get activity location for update: id=%d err=%s", id, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -229,11 +232,15 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 			log.Printf("[HTTP] PUT /api/v1/activity-locations/%d: invalid_json err=%s", id, logutil.SafeString(err.Error()))
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
 
+	if message := personLengthMessage(req.Name, req.Address); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" {
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
 		return
@@ -257,7 +264,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		if err != nil {
 			//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 			log.Printf("[ERROR] Failed to geocode updated activity location: id=%d", id)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageFailedToGeocodeAddress(err))
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(err))
 			return
 		}
 		location.Lat = geocodeResult.Coords.Lat
@@ -269,14 +276,14 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to update activity location: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if errors.Is(err, database.ErrNotFound) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Location not found. Refresh the page and try again.")
 			return
 		}
-		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update location")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Could not save the location. Try again.")
 		return
 	}
 
-	log.Printf("[HTTP] Updated activity location: id=%d name=%s", updatedLocation.ID, logutil.SafeString(updatedLocation.Name))
+	log.Printf("[HTTP] Updated activity location: id=%d", updatedLocation.ID)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityUpdated("Location", updatedLocation.Name), toastTypeSuccess)
@@ -293,7 +300,7 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/activity-locations/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, "Invalid activity location ID")
+		h.handleValidationError(w, r, "Choose a valid location. Refresh the page and try again.")
 		return
 	}
 
@@ -305,12 +312,12 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 		log.Printf("[ERROR] Failed to delete activity location: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if errors.Is(err, database.ErrNotFound) {
 			if h.isHTMX(r) {
-				h.setHTMXToast(w, "Activity location not found", toastTypeError)
+				h.setHTMXToast(w, "Location not found. Refresh the page and try again.", toastTypeError)
 				w.Header().Set(httpx.HeaderHXReswap, httpx.ReswapNone)
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			h.handleNotFound(w, "Activity location not found")
+			h.handleNotFound(w, r, "Location not found. Refresh the page and try again.")
 			return
 		}
 		if h.isHTMX(r) {
@@ -319,7 +326,7 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -342,7 +349,7 @@ func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.R
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/activity-locations/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, "Invalid activity location ID")
+		h.handleValidationErrorHTMX(w, r, "Choose a valid location. Refresh the page and try again.")
 		return
 	}
 
@@ -352,7 +359,7 @@ func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.R
 		if h.checkNotFound(err) {
 			//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 			log.Printf("[HTTP] Activity location not found for restore: id=%d", id)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Activity location not found")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", "Location not found. Refresh the page and try again.")
 			return
 		}
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
@@ -361,7 +368,7 @@ func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.R
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 

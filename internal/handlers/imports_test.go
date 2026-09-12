@@ -329,7 +329,7 @@ func TestImportHTTPOversizeRowCount(t *testing.T) {
 	if recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want %d body=%q", recorder.Code, http.StatusUnprocessableEntity, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), fmt.Sprintf("%d data rows", importer.MaxDataRows)) {
+	if !strings.Contains(recorder.Body.String(), fmt.Sprintf("%d rows", importer.MaxDataRows)) {
 		t.Fatalf("response does not include row limit: %q", recorder.Body.String())
 	}
 }

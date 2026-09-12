@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	messageLabelNameRequired       = "Label name is required"
-	messageLabelNotFound           = "label not found"
-	messageDuplicateLabelName      = "A label with that name already exists"
-	messageChooseLabelFirst        = "Choose a label first"
-	messageInvalidLabelSelection   = "invalid label selection"
-	messageSelectParticipantForTag = "Select at least one participant"
-	messageSelectDriverForTag      = "Select at least one driver"
+	messageLabelNameRequired       = "Enter a label name."
+	messageLabelNotFound           = "Label not found. Refresh the page and try again."
+	messageDuplicateLabelName      = "A label with that name already exists. Choose another name."
+	messageChooseLabelFirst        = "Choose a label first."
+	messageInvalidLabelSelection   = "Choose a valid label. Refresh the page and try again."
+	messageSelectParticipantForTag = "Select at least one rider."
+	messageSelectDriverForTag      = "Select at least one driver."
 )
 
 var (
@@ -50,7 +50,7 @@ func (h *Handler) HandleListLabels(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -68,17 +68,17 @@ func (h *Handler) HandleListLabels(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleGetLabel(w http.ResponseWriter, r *http.Request) {
 	id, err := parseLabelID(r.URL.Path)
 	if err != nil {
-		h.handleValidationError(w, messageInvalidLabelSelection)
+		h.handleValidationError(w, r, messageInvalidLabelSelection)
 		return
 	}
 
 	label, err := h.DB.Labels().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			h.handleNotFound(w, messageLabelNotFound)
+			h.handleNotFound(w, r, messageLabelNotFound)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -98,12 +98,16 @@ func (h *Handler) HandleCreateLabel(w http.ResponseWriter, r *http.Request) {
 		req.Name = strings.TrimSpace(r.FormValue("name"))
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 		req.Name = strings.TrimSpace(req.Name)
 	}
 
+	if message := fieldLengthMessage("Label name", req.Name, models.MaxLabelNameLength); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" {
 		h.handleLabelValidationError(w, r, messageLabelNameRequired)
 		return
@@ -136,7 +140,7 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 			h.handleLabelNotFound(w, r)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -151,12 +155,16 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 		req.Name = strings.TrimSpace(r.FormValue("name"))
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 		req.Name = strings.TrimSpace(req.Name)
 	}
 
+	if message := fieldLengthMessage("Label name", req.Name, models.MaxLabelNameLength); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" {
 		h.handleLabelValidationError(w, r, messageLabelNameRequired)
 		return
@@ -179,7 +187,7 @@ func (h *Handler) HandleUpdateLabel(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.DB.Labels().GetByID(r.Context(), id)
 	if err != nil {
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	if updated != nil {
@@ -200,7 +208,7 @@ func (h *Handler) HandleDeleteLabel(w http.ResponseWriter, r *http.Request) {
 			h.handleLabelNotFound(w, r)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -220,13 +228,13 @@ func (h *Handler) HandleLabelForm(w http.ResponseWriter, r *http.Request) {
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 		label, err = h.DB.Labels().GetByID(r.Context(), id)
 		if err != nil {
 			if h.checkNotFound(err) {
-				h.renderError(w, r, errors.New(messageLabelNotFound))
+				h.handleNotFoundHTMX(w, r, messageLabelNotFound)
 				return
 			}
 			h.renderError(w, r, err)
@@ -262,7 +270,7 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 	}
 	participantIDs, err := parseInt64FormValues(r, "participant_ids")
 	if err != nil {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid participant selection")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Choose valid riders. Refresh the page and try again.")
 		return
 	}
 	if len(participantIDs) == 0 {
@@ -271,10 +279,10 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 	}
 	if err := h.validateBulkParticipantIDs(r.Context(), participantIDs); err != nil {
 		if errors.Is(err, errInvalidParticipantSelection) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid participant selection")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Choose valid riders. Refresh the page and try again.")
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -291,18 +299,18 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	participants, err := h.DB.Participants().List(r.Context(), "")
 	if err != nil {
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	data, err := h.participantListView(r, participants)
 	if err != nil {
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -321,7 +329,7 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 	}
 	driverIDs, err := parseInt64FormValues(r, "driver_ids")
 	if err != nil {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid driver selection")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Choose valid drivers. Refresh the page and try again.")
 		return
 	}
 	if len(driverIDs) == 0 {
@@ -330,10 +338,10 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 	}
 	if err := h.validateBulkDriverIDs(r.Context(), driverIDs); err != nil {
 		if errors.Is(err, errInvalidDriverSelection) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid driver selection")
+			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Choose valid drivers. Refresh the page and try again.")
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -350,18 +358,18 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	drivers, err := h.DB.Drivers().List(r.Context(), "")
 	if err != nil {
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	data, err := h.driverListView(r, drivers)
 	if err != nil {
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -391,7 +399,7 @@ func (h *Handler) parseBulkLabelAction(w http.ResponseWriter, r *http.Request) (
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageLabelNotFound)
 			return 0, nil, false
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return 0, nil, false
 	}
 
@@ -414,7 +422,7 @@ func (h *Handler) handleLabelValidationError(w http.ResponseWriter, r *http.Requ
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", message)
 		return
 	}
-	h.handleValidationError(w, message)
+	h.handleValidationError(w, r, message)
 }
 
 func (h *Handler) handleLabelNotFound(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +430,7 @@ func (h *Handler) handleLabelNotFound(w http.ResponseWriter, r *http.Request) {
 		h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageLabelNotFound)
 		return
 	}
-	h.handleNotFound(w, messageLabelNotFound)
+	h.handleNotFound(w, r, messageLabelNotFound)
 }
 
 func (h *Handler) handleLabelWriteError(w http.ResponseWriter, r *http.Request, err error) {
@@ -439,7 +447,7 @@ func (h *Handler) handleLabelWriteError(w http.ResponseWriter, r *http.Request, 
 		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError)
 		return
 	}
-	h.handleInternalError(w, err)
+	h.handleInternalError(w, r, err)
 }
 
 func parseInt64FormValues(r *http.Request, fieldName string) ([]int64, error) {
@@ -462,14 +470,14 @@ func parseLabelIDs(r *http.Request) ([]int64, error) {
 func (h *Handler) validateLabelIDs(ctx context.Context, labelIDs []int64) error {
 	uniqueIDs, ok := uniquePositiveIDs(labelIDs)
 	if !ok {
-		return errors.New(messageInvalidLabelSelection)
+		return mobileFormError{messageInvalidLabelSelection}
 	}
 	labels, err := h.DB.Labels().GetByIDs(ctx, uniqueIDs)
 	if err != nil {
 		return err
 	}
 	if len(labels) != len(uniqueIDs) {
-		return errors.New(messageInvalidLabelSelection)
+		return mobileFormError{messageInvalidLabelSelection}
 	}
 	return nil
 }

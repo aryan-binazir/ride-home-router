@@ -92,13 +92,21 @@ func (s rosterRefreshFailureStore) Labels() database.LabelRepository   { return 
 
 type failedParticipantList struct{ database.ParticipantRepository }
 
-func (s failedParticipantList) List(context.Context, string) ([]models.Participant, error) {
+func (s failedParticipantList) List(ctx context.Context, search string) ([]models.Participant, error) {
+	rows, err := s.ParticipantRepository.List(ctx, search)
+	if err != nil || len(rows) == 0 {
+		return rows, err
+	}
 	return nil, errors.New("post-write list failure")
 }
 
 type failedDriverList struct{ database.DriverRepository }
 
-func (s failedDriverList) List(context.Context, string) ([]models.Driver, error) {
+func (s failedDriverList) List(ctx context.Context, search string) ([]models.Driver, error) {
+	rows, err := s.DriverRepository.List(ctx, search)
+	if err != nil || len(rows) == 0 {
+		return rows, err
+	}
 	return nil, errors.New("post-write list failure")
 }
 
@@ -172,6 +180,22 @@ func TestJSONRosterCreateAcknowledgesCommitWhenLabelReadFails(t *testing.T) {
 			}
 			if err := json.Unmarshal(response.Body.Bytes(), &person); err != nil || response.Code != http.StatusCreated || person.ID == 0 || person.LabelIDs == nil {
 				t.Fatalf("create response=%d %s err=%v", response.Code, response.Body.String(), err)
+			}
+		})
+	}
+}
+
+func TestDesktopDuplicateRosterCreateRejected(t *testing.T) {
+	for _, kind := range []string{"participant", "driver"} {
+		t.Run(kind, func(t *testing.T) {
+			h, _ := newTestManagementHandler(t)
+			first := rosterRequest(h, kind, http.MethodPost, "/api/v1/"+kind+"s", true)
+			if first.Code >= 400 {
+				t.Fatalf("first create: %d %s", first.Code, first.Body.String())
+			}
+			second := rosterRequest(h, kind, http.MethodPost, "/api/v1/"+kind+"s", true)
+			if second.Code != 409 || !strings.Contains(second.Header().Get("HX-Trigger"), "already in the roster") {
+				t.Fatalf("second create: %d %s", second.Code, second.Header())
 			}
 		})
 	}

@@ -295,7 +295,7 @@ func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {
 	}
 }
 
-func TestHandleCreateEvent_AllEmptyRoutesReturnsLowercaseMessage(t *testing.T) {
+func TestHandleCreateEvent_AllEmptyRoutesReturnsSafeMessage(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
 	session := handler.RouteSession.Create(routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
@@ -320,8 +320,8 @@ func TestHandleCreateEvent_AllEmptyRoutesReturnsLowercaseMessage(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Error.Message != "routes are required" {
-		t.Fatalf("message = %q, want %q", response.Error.Message, "routes are required")
+	if response.Error.Message != messageGenericInternalError {
+		t.Fatalf("message = %q, want %q", response.Error.Message, messageGenericInternalError)
 	}
 }
 

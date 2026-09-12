@@ -34,7 +34,7 @@ func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
 	}
-	if want := "Participant not found in source route"; !bytes.Contains(w.Body.Bytes(), []byte(want)) {
+	if want := "That rider is no longer on this route. Refresh the page and try again."; !bytes.Contains(w.Body.Bytes(), []byte(want)) {
 		t.Fatalf("body = %q, want %q", w.Body.String(), want)
 	}
 }
