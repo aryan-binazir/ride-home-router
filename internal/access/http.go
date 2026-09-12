@@ -21,8 +21,8 @@ func (a *Access) Register(mux *http.ServeMux) {
 <meta name="color-scheme" content="light dark">
 <title>Sign in - Ride Home Router</title>
 <link rel="stylesheet" href="/static/css/style.css">
-<link rel="stylesheet" href="/static/css/login.css">
-<script src="/static/js/auth.js" defer></script>
+<link rel="stylesheet" href="/static/css/login.css?v=20260912-theme">
+<script src="/static/js/auth.js?v=20260912-theme" defer></script>
 </head>
 <body class="login-page">
 <main class="login-shell">
