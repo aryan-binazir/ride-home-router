@@ -583,6 +583,14 @@ func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Delete the configured Google Maps credential") || strings.Contains(err.Error(), "synthetic-rollback-secret") {
 		t.Fatalf("rollback error=%v", err)
 	}
+	version, dirty, err := migrations.Version(t.Context(), databaseURL)
+	if err != nil || version != 20260912210000 || dirty {
+		t.Fatalf("refused rollback changed migration state: version=%d dirty=%t err=%v", version, dirty, err)
+	}
+	if err := migrations.Run(t.Context(), databaseURL); err != nil {
+		t.Fatalf("deploy after refused rollback: %v", err)
+	}
+
 	var count int
 	if err := connection.QueryRow(t.Context(), `SELECT count(*) FROM google_maps_credentials`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("credential count=%d err=%v", count, err)

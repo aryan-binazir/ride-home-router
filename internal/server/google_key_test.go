@@ -223,6 +223,8 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 			{"invalid JSON", endpoint, `{"api_key":`, "", false},
 			{"trailing JSON", endpoint, `{"api_key":"` + secondKey + `"} {}`, "", false},
 			{"trailing garbage", endpoint, `{"api_key":"` + secondKey + `"} invalid`, "", false},
+			{"escaped key", endpoint, `{"api_key":"synthetic\\key"}`, "", false},
+			{"quoted key", endpoint, `{"api_key":"synthetic\"key"}`, "", false},
 			{"wrong type", endpoint, `{"api_key":123}`, "", false},
 			{"unknown field", endpoint, `{"api_key":"` + secondKey + `","reveal":true}`, "", false},
 			{"mask", endpoint, `{"api_key":"••••••••"}`, "", false},

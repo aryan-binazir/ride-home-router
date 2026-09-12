@@ -116,7 +116,7 @@ func VersionFromDB(ctx context.Context, database *sql.DB) (version uint, dirty b
 // Down rolls back exactly one migration.
 func Down(ctx context.Context, databaseURL string) error {
 	return withMigrator(ctx, databaseURL, func(migrator *migrate.Migrate, sourceDriver source.Driver) error {
-		if err := preflightDown(migrator, sourceDriver); err != nil {
+		if err := preflightDown(ctx, databaseURL, migrator, sourceDriver); err != nil {
 			return err
 		}
 		if err := migrator.Steps(-1); err != nil &&
@@ -140,7 +140,7 @@ func migrationOperationError(action string, err error) error {
 	return fmt.Errorf("migrate %s: %w", action, err)
 }
 
-func preflightDown(migrator *migrate.Migrate, sourceDriver source.Driver) error {
+func preflightDown(ctx context.Context, databaseURL string, migrator *migrate.Migrate, sourceDriver source.Driver) error {
 	version, dirty, err := migrator.Version()
 	if errors.Is(err, migrate.ErrNilVersion) {
 		return nil
@@ -150,6 +150,24 @@ func preflightDown(migrator *migrate.Migrate, sourceDriver source.Driver) error 
 	}
 	if dirty {
 		return fmt.Errorf("refuse down: migration state is dirty at version %d; repair or restore the database before retrying", version)
+	}
+
+	// Refuse before golang-migrate marks the previous version dirty. Keep the
+	// SQL guard too, for other migration runners and concurrent credential writes.
+	if version == 20260912210000 {
+		db, err := openDatabase(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		var configured bool
+		queryErr := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM google_maps_credentials)`).Scan(&configured)
+		closeErr := db.Close()
+		if queryErr != nil || closeErr != nil {
+			return errors.New("refuse down: unable to inspect Google Maps credential status")
+		}
+		if configured {
+			return errors.New("refuse down: Delete the configured Google Maps credential explicitly before rolling back")
+		}
 	}
 
 	migration, identifier, err := sourceDriver.ReadDown(version)
