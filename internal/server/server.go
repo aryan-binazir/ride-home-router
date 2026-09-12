@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"ride-home-router/internal/access"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/geocoding"
@@ -43,6 +44,7 @@ type Server struct {
 
 // Config defines server startup settings.
 type Config struct {
+	Auth access.Config
 	Addr string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
 	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
 	AllowedHosts []string
@@ -76,6 +78,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize data store: %w", err)
 	}
 
+	gate, err := access.New(cfg.Auth, db)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("authentication configuration: %w", err)
+	}
 	renderer, err := templates.New(web.Templates)
 	if err != nil {
 		_ = db.Close()
@@ -102,10 +109,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 
 	mux := setupRoutes(handler, web.Static)
+	gate.Register(mux)
 
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      mux,
+		Handler:      gate.Protect(mux),
 		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: serverWriteTimeout,
 		IdleTimeout:  serverIdleTimeout,

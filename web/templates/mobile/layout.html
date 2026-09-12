@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/css/mobile.css">
   <script src="/static/js/htmx.min.js" defer></script>
   <script src="/static/js/mobile.js" defer></script>
+<script src="/static/js/auth.js" defer></script>
 </head>
 <body>
   <div class="mobile-shell">
@@ -16,7 +17,7 @@
       {{if .Error}}<div class="mobile-alert" role="alert">{{.Error}}</div>{{end}}
       {{if .Notice}}<div class="mobile-notice" role="status">{{.Notice}}</div>{{end}}
       {{template "mobile_content" .}}
-      <footer class="mobile-footer"><a href="/m/desktop">Desktop site</a></footer>
+      <footer class="mobile-footer"><a href="/m/desktop">Desktop site</a><button type="button" data-sign-out hidden>Sign out</button></footer>
     </main>
     {{template "mobile_tabs" .}}
   </div>

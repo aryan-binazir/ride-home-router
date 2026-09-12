@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"ride-home-router/internal/access"
 	"ride-home-router/internal/server"
 	"strings"
 	"syscall"
@@ -51,6 +52,13 @@ func run(args []string) error {
 	defer signal.Stop(shutdown)
 
 	srv, err := server.New(context.Background(), server.Config{
+		Auth: access.Config{
+			SecretKey:         os.Getenv("CLERK_SECRET_KEY"),
+			PublishableKey:    os.Getenv("CLERK_PUBLISHABLE_KEY"),
+			JWTKey:            os.Getenv("CLERK_JWT_KEY"),
+			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
+			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
+		},
 		Addr:             opts.Addr,
 		AllowedHosts:     opts.AllowedHosts,
 		DatabaseURL:      opts.DatabaseURL,
@@ -147,7 +155,7 @@ func parseArgs(args []string) (options, error) {
 	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
 	if !loopback && len(opts.AllowedHosts) == 0 {
 		return options{}, fmt.Errorf(
-			"refusing to bind unauthenticated server to non-loopback address %q without --allowed-hosts naming the public hostname(s) it is reached by",
+			"refusing to bind server to non-loopback address %q without --allowed-hosts naming the public hostname(s) it is reached by",
 			opts.Addr,
 		)
 	}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"ride-home-router/internal/access"
 )
 
 // HandleIndexPage handles GET /
@@ -166,6 +167,7 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "settings.html", SettingsPageView{
+		IsAdmin:    access.IsAdmin(r.Context()),
 		Title:      "Settings",
 		ActivePage: ActivePageSettings,
 		Settings:   settings,

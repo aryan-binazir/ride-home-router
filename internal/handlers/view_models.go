@@ -61,6 +61,7 @@ type VansPageView struct {
 }
 
 type SettingsPageView struct {
+	IsAdmin bool
 	BasePageView
 	Settings *models.Settings
 }
