@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
@@ -130,7 +131,7 @@ func (h *Handler) renderMobileError(w http.ResponseWriter, r *http.Request, stat
 	}
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 	w.WriteHeader(status)
-	view := mobileErrorView{mobileBaseView: newMobileBase(http.StatusText(status), mobileActiveTab(r.URL.Path), ""), Message: message}
+	view := mobileErrorView{mobileBaseView: newMobileBase(mobileErrorTitle(status), mobileActiveTab(r.URL.Path), ""), Message: message, ChangeDrivers: message == messageHouseholdsDoNotFit}
 	if renderErr := h.Renderer.Render(w, "mobile/error.html", view); renderErr != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Mobile error template failed: path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(renderErr.Error()))
@@ -148,7 +149,7 @@ func (h *Handler) renderMobileTemplateStatus(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) renderMobileStoreError(w http.ResponseWriter, r *http.Request, err error, notFoundMessage string) {
 	if errors.Is(err, database.ErrWorkflowCapacity) {
-		h.renderMobileError(w, r, http.StatusTooManyRequests, err.Error(), err)
+		h.renderMobileError(w, r, http.StatusTooManyRequests, database.ErrWorkflowCapacity.Error(), err)
 		return
 	}
 	if h.checkNotFound(err) {
@@ -233,4 +234,41 @@ func formatMobileTime(value string) string {
 		return value
 	}
 	return parsed.Format("3:04 PM")
+}
+
+func mobileErrorTitle(status int) string {
+	switch status {
+	case http.StatusNotFound:
+		return "Not found"
+	case http.StatusTooManyRequests:
+		return "Too many active plans"
+	default:
+		return "Something went wrong"
+	}
+}
+
+func mobileReturnPath(r *http.Request, fallback string) string {
+	value := r.FormValue("return")
+	target, err := url.Parse(value)
+	if err != nil || target.IsAbs() || target.Host != "" || !strings.HasPrefix(path.Clean(target.Path), "/m/") || strings.ContainsAny(target.Path, "\\\r\n") {
+		return fallback
+	}
+	return target.String()
+}
+
+func mobileFormAction(r *http.Request) string {
+	target := mobileReturnPath(r, "")
+	if target == "" {
+		return r.URL.Path
+	}
+	return r.URL.Path + "?" + url.Values{"return": {target}}.Encode()
+}
+
+func curatedMobileQueryError(message string) string {
+	switch message {
+	case messageRoutePlanExpired, messageGenericInternalError, messageHouseholdsDoNotFit, messageCalculationTimedOut, messageRouteCalculationNotConfigured, messageRouteCalculationUnavailable, messageStaleDrivers, messageStaleRiders, messageMobileInvalidForm, "This route plan changed. Review the current routes and try again.":
+		return message
+	default:
+		return messageGenericInternalError
+	}
 }

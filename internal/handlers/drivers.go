@@ -28,17 +28,17 @@ type DriverResponse struct {
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] GET /api/v1/drivers: search=%s", logutil.SafeString(search))
+	log.Printf("[HTTP] GET /api/v1/drivers:")
 
 	drivers, err := h.DB.Drivers().List(r.Context(), search)
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to list drivers: search=%s err=%s", logutil.SafeString(search), logutil.SafeString(err.Error()))
+		log.Printf("[ERROR] Failed to list drivers: err=%s", logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -57,7 +57,7 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	responseDrivers, err := h.driverResponses(r.Context(), drivers)
 	if err != nil {
 		log.Printf("[ERROR] Failed to load driver labels for list: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Reques
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Reques
 	responseDrivers, err := h.driverResponses(r.Context(), drivers)
 	if err != nil {
 		log.Printf("[ERROR] Failed to load deleted driver labels: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, DriverListResponse{
@@ -112,7 +112,7 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, messageInvalidDriverID)
+		h.handleValidationError(w, r, messageInvalidDriverID)
 		return
 	}
 
@@ -121,18 +121,18 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Driver not found: id=%d", id)
-			h.handleNotFound(w, messageDriverNotFound)
+			h.handleNotFound(w, r, messageDriverNotFound)
 			return
 		}
 		log.Printf("[ERROR] Failed to get driver: id=%d err=%v", id, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
 		log.Printf("[ERROR] Failed to load driver labels: id=%d err=%v", driver.ID, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -162,32 +162,36 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
 			if err != nil {
-				h.renderError(w, r, errors.New("invalid vehicle capacity"))
+				h.handleValidationErrorHTMX(w, r, "Enter a valid vehicle capacity.")
 				return
 			}
 			req.VehicleCapacity = capacity
 		}
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("invalid label selection"))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 		labelIDs = parsedLabelIDs
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 		labelIDs = req.LabelIDs
 	}
 	req.AddressName = strings.TrimSpace(req.AddressName)
 
+	if message := personLengthMessage(req.Name, req.Address); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
+			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 			return
 		}
-		h.handleValidationError(w, messageNameAndAddressRequired)
+		h.handleValidationError(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
@@ -195,7 +199,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong())
+		h.handleValidationError(w, r, messageAddressNameTooLong())
 		return
 	}
 
@@ -204,48 +208,52 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
 			return
 		}
-		h.handleValidationError(w, messageVehicleCapacityOutOfRange())
+		h.handleValidationError(w, r, messageVehicleCapacityOutOfRange())
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 		log.Printf("[HTTP] POST /api/v1/drivers: invalid_labels err=%v", err)
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
-		h.handleValidationError(w, messageInvalidLabelSelection)
+		h.handleValidationError(w, r, messageInvalidLabelSelection)
 		return
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] POST /api/v1/drivers: name=%s capacity=%d", logutil.SafeString(req.Name), req.VehicleCapacity)
+	log.Printf("[HTTP] POST /api/v1/drivers: capacity=%d", req.VehicleCapacity)
 	driver, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createDriver(r.Context(), driverEdit{
 		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
 		VehicleCapacity: req.VehicleCapacity,
 	})
+	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
+		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "DUPLICATE_ROSTER_ENTRY", duplicate.Error())
+		return
+	}
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		log.Print("[ERROR] Failed to geocode driver address")
 		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
 			return
 		}
-		h.handleGeocodingError(w, geocodeErr.err)
+		h.handleGeocodingError(w, r, geocodeErr.err)
 		return
 	}
 
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to create driver: name=%s err=%s", logutil.SafeString(req.Name), logutil.SafeString(err.Error()))
+		log.Printf("[ERROR] Failed to create driver: err=%s", logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] Created driver: id=%d name=%s", driver.ID, logutil.SafeString(driver.Name))
+	log.Printf("[HTTP] Created driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
@@ -282,10 +290,10 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageInvalidDriverID))
+			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 			return
 		}
-		h.handleValidationError(w, messageInvalidDriverID)
+		h.handleValidationError(w, r, messageInvalidDriverID)
 		return
 	}
 
@@ -294,17 +302,17 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if h.checkNotFound(err) {
 			if h.isHTMX(r) {
-				h.renderError(w, r, errors.New(messageDriverNotFound))
+				h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 				return
 			}
-			h.handleNotFound(w, messageDriverNotFound)
+			h.handleNotFound(w, r, messageDriverNotFound)
 			return
 		}
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -330,21 +338,21 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		if capacityStr != "" {
 			capacity, err := strconv.Atoi(capacityStr)
 			if err != nil {
-				h.renderError(w, r, errors.New("invalid vehicle capacity"))
+				h.handleValidationErrorHTMX(w, r, "Enter a valid vehicle capacity.")
 				return
 			}
 			req.VehicleCapacity = capacity
 		}
 		parsedLabelIDs, err := parseLabelIDs(r)
 		if err != nil {
-			h.renderError(w, r, errors.New("invalid label selection"))
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 		labelIDs = parsedLabelIDs
 		shouldSetLabels = true
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 		if req.LabelIDs != nil {
@@ -354,12 +362,16 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 	req.AddressName = strings.TrimSpace(req.AddressName)
 
+	if message := personLengthMessage(req.Name, req.Address); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" || req.Address == "" {
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageNameAndAddressRequired))
+			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 			return
 		}
-		h.handleValidationError(w, messageNameAndAddressRequired)
+		h.handleValidationError(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
@@ -367,7 +379,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 			return
 		}
-		h.handleValidationError(w, messageAddressNameTooLong())
+		h.handleValidationError(w, r, messageAddressNameTooLong())
 		return
 	}
 
@@ -376,17 +388,17 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
 			return
 		}
-		h.handleValidationError(w, messageVehicleCapacityOutOfRange())
+		h.handleValidationError(w, r, messageVehicleCapacityOutOfRange())
 		return
 	}
 	if shouldSetLabels {
 		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_labels id=%d err=%v", id, err)
 			if h.isHTMX(r) {
-				h.renderError(w, r, errors.New(messageInvalidLabelSelection))
+				h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 				return
 			}
-			h.handleValidationError(w, messageInvalidLabelSelection)
+			h.handleValidationError(w, r, messageInvalidLabelSelection)
 			return
 		}
 	}
@@ -397,10 +409,10 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	})
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
 		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", messageMobileAddressLookupFailed)
+			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
 			return
 		}
-		h.handleGeocodingError(w, geocodeErr.err)
+		h.handleGeocodingError(w, r, geocodeErr.err)
 		return
 	}
 
@@ -408,10 +420,10 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Driver not found after update: id=%d", id)
 			if h.isHTMX(r) {
-				h.renderError(w, r, errors.New(messageDriverNotFound))
+				h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 				return
 			}
-			h.handleNotFound(w, messageDriverNotFound)
+			h.handleNotFound(w, r, messageDriverNotFound)
 			return
 		}
 		log.Printf("[ERROR] Failed to update driver: id=%d err=%v", id, err)
@@ -419,12 +431,12 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] Updated driver: id=%d name=%s", driver.ID, logutil.SafeString(driver.Name))
+	log.Printf("[HTTP] Updated driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), "")
 		if err != nil {
@@ -446,7 +458,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to load driver labels after update: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -461,10 +473,10 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageInvalidDriverID))
+			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 			return
 		}
-		h.handleValidationError(w, messageInvalidDriverID)
+		h.handleValidationError(w, r, messageInvalidDriverID)
 		return
 	}
 
@@ -473,10 +485,10 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Driver not found for delete: id=%d", id)
 		if h.isHTMX(r) {
-			h.renderError(w, r, errors.New(messageDriverNotFound))
+			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 			return
 		}
-		h.handleNotFound(w, messageDriverNotFound)
+		h.handleNotFound(w, r, messageDriverNotFound)
 		return
 	}
 	if err != nil {
@@ -485,7 +497,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -524,7 +536,7 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 			h.renderError(w, r, err)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -553,14 +565,14 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	if idStr != "new" && idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			h.renderError(w, r, errors.New(messageInvalidDriverID))
+			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 			return
 		}
 
 		driver, err = h.DB.Drivers().GetByID(r.Context(), id)
 		if err != nil {
 			if h.checkNotFound(err) {
-				h.renderError(w, r, errors.New(messageDriverNotFound))
+				h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 				return
 			}
 			h.renderError(w, r, err)

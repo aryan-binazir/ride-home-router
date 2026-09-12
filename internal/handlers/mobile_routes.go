@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"strconv"
@@ -17,27 +19,35 @@ func (h *Handler) HandleMobileRoutes(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	_, draft, _, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if draft.RouteSessionID == "" {
-		http.Redirect(w, r, "/m", http.StatusSeeOther)
+		if message := r.URL.Query().Get("error"); message != "" {
+			h.mobileRedirectError(w, r, "/m", curatedMobileQueryError(message))
+		} else {
+			http.Redirect(w, r, "/m", http.StatusSeeOther)
+		}
 		return
 	}
 	snapshot, ok, err := h.RouteSession.Load(r.Context(), draft.RouteSessionID)
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Routes not found")
+		h.renderMobileStoreError(w, r, err, "That route plan expired. Calculate it again.")
 		return
 	}
 	if !ok {
 		h.mobileRedirectError(w, r, "/m", "That route plan expired. Calculate it again.")
 		return
 	}
-	view := mobileRoutesView{mobileBaseView: newMobileBase("Routes", "plan", r.URL.Query().Get("error")), Snapshot: snapshot}
+	h.renderMobileRoutes(w, r, snapshot, http.StatusOK, r.URL.Query().Get("error"), "", "")
+}
+
+func (h *Handler) renderMobileRoutes(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string) {
+	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
 	for index, route := range snapshot.Routes {
 		view.Routes = append(view.Routes, mobileRoute{Index: index, Route: route, DriverText: formatMobileHandoff(snapshot, route, false), ParentText: formatMobileHandoff(snapshot, route, true), ETAs: mobileETAs(snapshot, route)})
 	}
-	h.renderTemplate(w, "mobile/routes.html", view)
+	h.renderMobileTemplateStatus(w, r, status, "mobile/routes.html", view)
 }
 
 func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
@@ -121,22 +131,57 @@ func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	id, sessionID, ok := h.mobileRouteSession(w, r)
-	if !ok {
+	if err := r.ParseForm(); err != nil {
+		h.renderMobileError(w, r, http.StatusBadRequest, messageMobileInvalidForm, nil)
 		return
 	}
+	sessionID := strings.TrimSpace(r.FormValue("session_id"))
+	id, draft, _, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, messageRoutePlanExpired)
+		return
+	}
+	if sessionID == "" || sessionID != draft.RouteSessionID {
+		if sessionID != "" && h.redirectSavedMobileEvent(w, r, sessionID) {
+			return
+		}
+		h.mobileRedirectError(w, r, "/m/routes", "This route plan changed. Review the current routes and try again.")
+		return
+	}
+
 	date := r.FormValue("event_date")
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
+	snapshot, found, loadErr := h.RouteSession.Load(r.Context(), sessionID)
+	if loadErr != nil {
+		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, loadErr)
+		return
+	}
+	if !found {
+		if h.redirectSavedMobileEvent(w, r, sessionID) {
+			return
+		}
+		h.renderMobileError(w, r, http.StatusConflict, messageRoutePlanExpired, nil)
+		return
+	}
 	created, _, err := h.commitEventSession(r, sessionID, date, strings.TrimSpace(r.FormValue("notes")))
 	if err != nil {
 		log.Printf("[ERROR] Mobile event save failed: err=%v", err)
-		if validationErr, ok := errors.AsType[eventValidationError](err); ok {
-			h.mobileRedirectError(w, r, "/m/routes", validationErr.message)
+		if (errors.Is(err, routesession.ErrAlreadyCommitted) || errors.Is(err, routesession.ErrNotFound)) && h.redirectSavedMobileEvent(w, r, sessionID) {
 			return
 		}
-		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
+		status, message := http.StatusInternalServerError, mobileRouteErrorMessage(err)
+		switch {
+		case errors.Is(err, routesession.ErrNotFound), errors.Is(err, routesession.ErrAlreadyCommitted), errors.Is(err, database.ErrWorkflowConflict):
+			status = http.StatusConflict
+		case errors.Is(err, routesession.ErrUnbalanced):
+			status = http.StatusBadRequest
+		}
+		if validationErr, ok := errors.AsType[eventValidationError](err); ok {
+			status, message = http.StatusBadRequest, validationErr.message
+		}
+		h.renderMobileRoutes(w, r, snapshot, status, message, date, r.FormValue("notes"))
 		return
 	}
 	if err := h.mobilePlan().ReleaseSavedSessionContext(r.Context(), id, sessionID); err != nil {
@@ -149,7 +194,7 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) mobileRouteSession(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	id, draft, _, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return "", "", false
 	}
 	if err := r.ParseForm(); err != nil {
@@ -187,6 +232,13 @@ func formatMobileHandoff(snapshot routesession.Snapshot, route models.Calculated
 	locationName, locationAddress := "Activity location", ""
 	if snapshot.ActivityLocation != nil {
 		locationName, locationAddress = snapshot.ActivityLocation.Name, snapshot.ActivityLocation.Address
+	}
+	if routeTime, err := time.Parse("15:04", snapshot.RouteTime); err == nil {
+		if snapshot.Mode == models.RouteModePickup {
+			fmt.Fprintf(&b, "Pickup: arrive at %s by %s\n\n", locationName, routeTime.Format("3:04 PM"))
+		} else {
+			fmt.Fprintf(&b, "Dropoff: leave %s at %s\n\n", locationName, routeTime.Format("3:04 PM"))
+		}
 	}
 	fmt.Fprintf(&b, "Activity Location: %s\n%s\n\n", locationName, locationAddress)
 	if route.Driver == nil {
@@ -311,4 +363,31 @@ func mobileMapsURLs(snapshot routesession.Snapshot, route models.CalculatedRoute
 		start = end
 	}
 	return links
+}
+
+func mobileRoutesTitle(mode models.RouteMode) string {
+	if mode == models.RouteModePickup {
+		return "Pickup routes"
+	}
+	return "Dropoff routes"
+}
+
+func (h *Handler) redirectSavedMobileEvent(w http.ResponseWriter, r *http.Request, sessionID string) bool {
+	repository, ok := h.DB.Events().(interface {
+		FindByRouteSessionID(context.Context, string) (*models.Event, error)
+	})
+	if !ok {
+		return false
+	}
+	event, err := repository.FindByRouteSessionID(r.Context(), sessionID)
+	if errors.Is(err, database.ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
+		return true
+	}
+	//nolint:gosec // The target contains only a fixed local prefix and a numeric database ID.
+	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", event.ID), http.StatusSeeOther)
+	return true
 }

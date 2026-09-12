@@ -14,15 +14,19 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	draft, selectedDrivers, notice, err := h.pruneMobileDraftWithDrivers(r.Context(), id, draft, notice)
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Plan not found")
+		h.renderMobileStoreError(w, r, err, "That plan is no longer available. Start a new plan.")
 		return
 	}
 
+	if r.URL.Query().Get("error") == messageHouseholdsDoNotFit {
+		h.renderMobileError(w, r, http.StatusUnprocessableEntity, messageHouseholdsDoNotFit, nil)
+		return
+	}
 	base := newMobileBase("Plan", "plan", r.URL.Query().Get("error"))
 	base.Notice = notice
 	view := mobilePlanView{
@@ -38,19 +42,19 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 				d.LocationID = 0
 			})
 			if err != nil {
-				h.renderMobileStoreError(w, r, err, "Plan not found")
+				h.renderMobileStoreError(w, r, err, "That plan is no longer available. Start a new plan.")
 				return
 			}
 			view.Draft = draft
 			view.Notice = mergeMobileNotice(view.Notice, "An unavailable place was removed from this plan.")
 		} else if err != nil {
-			h.renderMobileStoreError(w, r, err, "Location not found")
+			h.renderMobileStoreError(w, r, err, "Location not found. Choose another location.")
 			return
 		}
 	}
 	view.Participants, err = h.DB.Participants().GetByIDs(r.Context(), draft.ParticipantIDs)
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Participants not found")
+		h.renderMobileStoreError(w, r, err, "Some riders are no longer available. Select riders again.")
 		return
 	}
 	view.Drivers = selectedDrivers
@@ -62,7 +66,7 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 		}
 		vehicles, listErr := h.DB.OrganizationVehicles().GetByIDs(r.Context(), vehicleIDs)
 		if listErr != nil {
-			h.renderMobileStoreError(w, r, listErr, "Vans not found")
+			h.renderMobileStoreError(w, r, listErr, "Some vans are no longer available. Select vans again.")
 			return
 		}
 		for _, vehicle := range vehicles {
@@ -84,7 +88,7 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if r.Method == http.MethodPost && notice != "" {
@@ -106,14 +110,14 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 				h.mobileRedirectError(w, r, "/m/plan/location", messageChooseValidActivityLocation)
 				return
 			}
-			h.renderMobileStoreError(w, r, err, "Location not found")
+			h.renderMobileStoreError(w, r, err, "Location not found. Choose another location.")
 			return
 		}
 		_, editErr := h.mobilePlan().EditInputsContext(r.Context(), id, func(d *mobilePlanInputs) {
 			d.LocationID = locationID
 		})
 		if editErr != nil {
-			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			h.renderMobileStoreError(w, r, editErr, "That plan is no longer available. Start a new plan.")
 			return
 		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
@@ -131,7 +135,7 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if r.Method == http.MethodPost && notice != "" {
@@ -141,7 +145,7 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	var err error
 	draft, notice, err = h.pruneMobileDraft(r.Context(), id, draft, notice)
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Participants not found")
+		h.renderMobileStoreError(w, r, err, "Some riders are no longer available. Select riders again.")
 		return
 	}
 	isSearch := r.Method == http.MethodPost && h.isHTMX(r)
@@ -165,7 +169,7 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 			d.ParticipantIDs = participantIDs
 		})
 		if editErr != nil {
-			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			h.renderMobileStoreError(w, r, editErr, "That plan is no longer available. Start a new plan.")
 			return
 		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
@@ -189,7 +193,7 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	labelID, _ := strconv.ParseInt(values.Get("label"), 10, 64)
 	participants, err := h.DB.Participants().List(r.Context(), search)
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Participants not found")
+		h.renderMobileStoreError(w, r, err, "Some riders are no longer available. Select riders again.")
 		return
 	}
 	labels, err := h.DB.Labels().List(r.Context())
@@ -227,7 +231,7 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if r.Method == http.MethodPost && notice != "" {
@@ -262,7 +266,7 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 			d.DriverVehicleIDs = assignments
 		})
 		if editErr != nil {
-			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			h.renderMobileStoreError(w, r, editErr, "That plan is no longer available. Start a new plan.")
 			return
 		}
 		if err != nil {
@@ -306,7 +310,7 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	}
 	vehicles, err := h.DB.OrganizationVehicles().List(r.Context())
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Vans not found")
+		h.renderMobileStoreError(w, r, err, "Some vans are no longer available. Select vans again.")
 		return
 	}
 	vehiclesByID := make(map[int64]models.OrganizationVehicle, len(vehicles))
@@ -350,7 +354,7 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	id, draft, notice, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if r.Method == http.MethodPost && notice != "" {
@@ -377,7 +381,7 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 			d.Mode = string(mode)
 		})
 		if editErr != nil {
-			h.renderMobileStoreError(w, r, editErr, "Plan not found")
+			h.renderMobileStoreError(w, r, editErr, "That plan is no longer available. Start a new plan.")
 			return
 		}
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
@@ -390,7 +394,7 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 	logMobileRequest(r)
 	id, draft, notice, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
-		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		h.renderMobileStoreError(w, r, loadErr, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if len(draft.ParticipantIDs) > plandraft.MaxSelectionSize || len(draft.DriverIDs) > plandraft.MaxSelectionSize {
@@ -406,7 +410,7 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Plan not found")
+		h.renderMobileStoreError(w, r, err, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	if notice != "" {
@@ -440,14 +444,14 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 			message = routeCalculationValidationMessage(outcome.Err)
 		}
 		if outcome.Shortage != nil {
-			message = outcome.Shortage.RoutingError.Reason
+			message = messageHouseholdsDoNotFit
 		}
 		h.mobileRedirectError(w, r, "/m", message)
 		return
 	}
 	adoption, err := h.mobilePlan().AdoptCalculationContext(r.Context(), id, draft, outcome.Session.ID)
 	if err != nil {
-		h.renderMobileStoreError(w, r, err, "Plan not found")
+		h.renderMobileStoreError(w, r, err, "That plan is no longer available. Start a new plan.")
 		return
 	}
 	switch adoption {

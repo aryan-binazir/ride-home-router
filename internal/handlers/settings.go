@@ -16,7 +16,7 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
 		log.Printf("[ERROR] Failed to get settings: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -34,7 +34,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[ERROR] Failed to parse form: err=%v", err)
-			h.setHTMXToast(w, err.Error(), toastTypeError)
+			h.setHTMXToast(w, messageInvalidFormData, toastTypeError)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -51,7 +51,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/settings: invalid_body err=%v", err)
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
@@ -60,11 +60,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[ERROR] Failed to get existing settings: err=%v", err)
 		if h.isHTMX(r) {
-			h.setHTMXToast(w, err.Error(), toastTypeError)
+			h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -83,11 +83,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				}
 				log.Printf("[ERROR] Failed to get activity location: err=%v", err)
 				if h.isHTMX(r) {
-					h.setHTMXToast(w, err.Error(), toastTypeError)
+					h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
-				h.handleInternalError(w, err)
+				h.handleInternalError(w, r, err)
 				return
 			}
 		}
@@ -116,11 +116,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("[ERROR] Failed to update settings: err=%v", err)
 		if h.isHTMX(r) {
-			h.setHTMXToast(w, err.Error(), toastTypeError)
+			h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 

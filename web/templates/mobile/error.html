@@ -3,6 +3,7 @@
   {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" .Title)}}
   <div class="mobile-form-card mobile-error-page" role="alert">
     <p>{{.Message}}</p>
+ {{if .ChangeDrivers}}<a class="mobile-button" href="/m/plan/drivers">Add or change drivers</a>{{end}}
     <a class="mobile-button mobile-button-secondary" href="/m">Back to plan</a>
   </div>
 </section>

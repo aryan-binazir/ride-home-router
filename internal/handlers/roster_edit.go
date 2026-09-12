@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
+	"sync"
 )
 
 // rosterEditor accepts validated, normalized edits. Adapters own validation and
@@ -20,6 +22,16 @@ type participantEdit struct {
 	// SetLabels distinguishes an omitted JSON field from an explicit replacement.
 	// Creates always attach LabelIDs.
 	SetLabels bool
+}
+
+// Serialize the live identity check and create across HTTP handlers in this process.
+// Database-wide enforcement remains a repository concern.
+var rosterCreateMu sync.Mutex
+
+type rosterDuplicateError struct{ name string }
+
+func (e rosterDuplicateError) Error() string {
+	return fmt.Sprintf("%s at that address is already in the roster.", e.name)
 }
 
 type rosterGeocodeError struct{ err error }
@@ -43,6 +55,18 @@ func (e rosterEditor) createParticipant(ctx context.Context, edit participantEdi
 	participant := &models.Participant{
 		Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
 		Lat: coords.Lat, Lng: coords.Lng,
+	}
+	rosterCreateMu.Lock()
+	defer rosterCreateMu.Unlock()
+	existing, err := e.db.Participants().List(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	key := models.RosterKey(edit.Name, edit.Address)
+	for _, row := range existing {
+		if key != "" && models.RosterKey(row.Name, row.Address) == key {
+			return nil, rosterDuplicateError{edit.Name}
+		}
 	}
 	return e.db.Participants().CreateWithLabels(ctx, participant, edit.LabelIDs)
 }
@@ -78,6 +102,18 @@ func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*model
 	driver := &models.Driver{
 		Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
 		VehicleCapacity: edit.VehicleCapacity, Lat: coords.Lat, Lng: coords.Lng,
+	}
+	rosterCreateMu.Lock()
+	defer rosterCreateMu.Unlock()
+	existing, err := e.db.Drivers().List(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	key := models.RosterKey(edit.Name, edit.Address)
+	for _, row := range existing {
+		if key != "" && models.RosterKey(row.Name, row.Address) == key {
+			return nil, rosterDuplicateError{edit.Name}
+		}
 	}
 	return e.db.Drivers().CreateWithLabels(ctx, driver, edit.LabelIDs)
 }

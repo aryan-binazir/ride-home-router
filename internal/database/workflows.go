@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-var ErrWorkflowCapacity = errors.New("too many active plans; finish or cancel an existing plan")
+//nolint:staticcheck // This shared capacity sentinel is intentionally user-facing copy.
+var ErrWorkflowCapacity = errors.New("Too many active plans. Finish or cancel an existing plan and try again.")
 
 var ErrWorkflowPayloadTooLarge = errors.New("import data exceeds the 24 MiB storage limit")
 

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"ride-home-router/internal/geocoding"
@@ -29,8 +31,10 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	results, err := h.Geocoder.Search(r.Context(), query, 5)
 	if err != nil {
 		log.Print("[ERROR] Failed to search addresses")
+		h.setHTMXToast(w, geocodingErrorMessage(err), toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `<div class="address-no-results" role="alert">%s</div>`, html.EscapeString(geocodingErrorMessage(err)))
 		return
 	}
 	seenLabels := make(map[string]struct{}, len(results))

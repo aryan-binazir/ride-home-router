@@ -140,7 +140,7 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 	}
 	snapshot, ok, err := h.RouteSession.Load(r.Context(), id)
 	if err != nil {
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	if !ok {
@@ -169,16 +169,16 @@ func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request
 	case errors.Is(err, routesession.ErrParticipantNotFound):
 		h.handleValidationErrorHTMX(w, r, messageParticipantNotFound)
 	case errors.Is(err, routesession.ErrParticipantNotInSource):
-		h.handleValidationErrorHTMX(w, r, "Participant not found in source route")
+		h.handleValidationErrorHTMX(w, r, "That rider is no longer on this route. Refresh the page and try again.")
 	case errors.Is(err, routesession.ErrSwapMissingDriver):
-		h.handleValidationErrorHTMX(w, r, "Cannot swap - route is missing a driver")
+		h.handleValidationErrorHTMX(w, r, "Both routes need a driver before they can be swapped.")
 	case errors.Is(err, routesession.ErrSwapCapacity):
-		h.handleValidationErrorHTMX(w, r, "Cannot swap - capacity constraints violated")
+		h.handleValidationErrorHTMX(w, r, "These drivers cannot be swapped because a vehicle would be full.")
 	case errors.Is(err, routesession.ErrDriverNotSelected):
-		h.handleValidationErrorHTMX(w, r, "Driver not found in selected drivers")
+		h.handleValidationErrorHTMX(w, r, "Select this driver before adding them to a route.")
 	case errors.Is(err, routesession.ErrDriverAlreadyInRoutes):
-		h.handleValidationErrorHTMX(w, r, "Driver is already in routes")
+		h.handleValidationErrorHTMX(w, r, "That driver already has a route.")
 	default:
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 	}
 }

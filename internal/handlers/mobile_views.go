@@ -19,7 +19,8 @@ func newMobileBase(title, activeTab, message string) mobileBaseView {
 
 type mobileErrorView struct {
 	mobileBaseView
-	Message string
+	Message       string
+	ChangeDrivers bool
 }
 
 type mobilePlanView struct {
@@ -81,8 +82,10 @@ type mobileRoute struct {
 
 type mobileRoutesView struct {
 	mobileBaseView
-	Snapshot routesession.Snapshot
-	Routes   []mobileRoute
+	Snapshot  routesession.Snapshot
+	EventDate string
+	Notes     string
+	Routes    []mobileRoute
 }
 
 type mobilePeopleView struct {

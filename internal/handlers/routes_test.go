@@ -509,17 +509,18 @@ func TestRouteCalculationEndpoints_PreserveMalformedFormResponses(t *testing.T) 
 		wantTrigger     string
 	}{
 		{
-			name:            "initial returns JSON without a toast",
+			name:            "initial returns JSON with a toast",
 			path:            "/api/v1/routes/calculate",
 			handle:          (*Handler).HandleCalculateRoutes,
 			wantContentType: "application/json",
+			wantTrigger:     `{"showToast":{"message":"` + messageInvalidFormData + `","type":"error"}}`,
 		},
 		{
 			name:            "retry returns HTML with a toast",
 			path:            "/api/v1/routes/calculate-with-org-vehicles",
 			handle:          (*Handler).HandleCalculateRoutesWithOrgVehicles,
 			wantContentType: "text/html",
-			wantTrigger:     `{"showToast":{"message":"Invalid form data","type":"error"}}`,
+			wantTrigger:     `{"showToast":{"message":"` + messageInvalidFormData + `","type":"error"}}`,
 		},
 	}
 
@@ -667,10 +668,10 @@ func TestHandleCalculateRoutes_DistanceProviderFailureReturnsVisibleError(t *tes
 
 	handler.HandleCalculateRoutes(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusServiceUnavailable, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "Google Maps API key is not configured") {
+	if !strings.Contains(rr.Body.String(), messageRouteCalculationNotConfigured) {
 		t.Fatalf("body = %q, want provider setup message", rr.Body.String())
 	}
 }
@@ -692,7 +693,7 @@ func TestHandleRouteCalculationError_TimeoutIsDistinctFromProviderFailure(t *tes
 	if got, want := response.Error.Code, "CALCULATION_TIMED_OUT"; got != want {
 		t.Fatalf("code = %q, want %q", got, want)
 	}
-	if got, want := response.Error.Message, "calculation timed out — reduce the selection"; got != want {
+	if got, want := response.Error.Message, messageCalculationTimedOut; got != want {
 		t.Fatalf("message = %q, want %q", got, want)
 	}
 }
@@ -740,7 +741,7 @@ func TestHandleCalculateRoutes_JSONCapacityShortageReturnsRoutingFailure(t *test
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Error.Code != "ROUTING_FAILED" || response.Error.Message != "not enough capacity" {
+	if response.Error.Code != "ROUTING_FAILED" || response.Error.Message != messageHouseholdsDoNotFit {
 		t.Fatalf("error = %#v, want ROUTING_FAILED capacity error", response.Error)
 	}
 	if got, want := response.Error.Details, (RoutingErrorDetails{UnassignedCount: 2, TotalCapacity: 1, TotalParticipants: 3}); got != want {
@@ -894,7 +895,7 @@ func TestHandleCalculateRoutesWithOrgVehicles_SuccessRendersHTMLAndCreatesSessio
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
 			}
-			if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"Routes calculated! 1 driver assigned.","type":"success"}}`; got != want {
+			if got, want := rr.Header().Get("HX-Trigger"), `{"showToast":{"message":"`+messageRoutesCalculated(1)+`","type":"success"}}`; got != want {
 				t.Fatalf("HX-Trigger = %q, want %q", got, want)
 			}
 			body := rr.Body.String()
@@ -967,10 +968,10 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 		activityLocationID int64
 		wantMessage        string
 	}{
-		{name: "unknown participant", participantID: participant.ID + 1000, driverID: driver.ID, activityLocationID: location.ID, wantMessage: "Some participants not found"},
-		{name: "unknown driver", participantID: participant.ID, driverID: driver.ID + 1000, activityLocationID: location.ID, wantMessage: "Some drivers not found"},
-		{name: "archived participant", participantID: archivedParticipant.ID, driverID: driver.ID, activityLocationID: location.ID, wantMessage: "Some participants not found"},
-		{name: "archived driver", participantID: participant.ID, driverID: archivedDriver.ID, activityLocationID: location.ID, wantMessage: "Some drivers not found"},
+		{name: "unknown participant", participantID: participant.ID + 1000, driverID: driver.ID, activityLocationID: location.ID, wantMessage: messageStaleRiders},
+		{name: "unknown driver", participantID: participant.ID, driverID: driver.ID + 1000, activityLocationID: location.ID, wantMessage: messageStaleDrivers},
+		{name: "archived participant", participantID: archivedParticipant.ID, driverID: driver.ID, activityLocationID: location.ID, wantMessage: messageStaleRiders},
+		{name: "archived driver", participantID: participant.ID, driverID: archivedDriver.ID, activityLocationID: location.ID, wantMessage: messageStaleDrivers},
 		{name: "archived activity location", participantID: participant.ID, driverID: driver.ID, activityLocationID: archivedLocation.ID, wantMessage: messageSelectedActivityLocationNotFoundChooseAnother},
 	}
 	for _, test := range tests {
@@ -1004,7 +1005,7 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 	}
 }
 
-func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithoutToast(t *testing.T) {
+func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithToast(t *testing.T) {
 	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
 	// not the desired HTMX error experience.
 	handler, store := newTestRouteHandler(t)
@@ -1028,8 +1029,8 @@ func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithoutToast(t
 		driverID      int64
 		wantMessage   string
 	}{
-		{name: "participant", participantID: participant.ID + 1000, driverID: driver.ID, wantMessage: "Some participants not found"},
-		{name: "driver", participantID: participant.ID, driverID: driver.ID + 1000, wantMessage: "Some drivers not found"},
+		{name: "participant", participantID: participant.ID + 1000, driverID: driver.ID, wantMessage: messageStaleRiders},
+		{name: "driver", participantID: participant.ID, driverID: driver.ID + 1000, wantMessage: messageStaleDrivers},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1053,8 +1054,8 @@ func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithoutToast(t
 			if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
 				t.Fatalf("Content-Type = %q, want application/json", got)
 			}
-			if got := rr.Header().Get("HX-Trigger"); got != "" {
-				t.Fatalf("HX-Trigger = %q, want no toast", got)
+			if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, test.wantMessage) {
+				t.Fatalf("HX-Trigger = %q, want toast", got)
 			}
 			if !strings.Contains(rr.Body.String(), `"message":"`+test.wantMessage+`"`) {
 				t.Fatalf("body = %q, want %q", rr.Body.String(), test.wantMessage)
@@ -1277,7 +1278,7 @@ func TestHandleCalculateRoutes_RejectsDuplicateVanAssignments(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
-	expected := `{"showToast":{"message":"a van can only be assigned to one driver per event","type":"error"}}`
+	expected := `{"showToast":{"message":"` + duplicateVanAssignmentMessage + `","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expected {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
 	}
@@ -1312,7 +1313,7 @@ func TestHandleCalculateRoutes_RequiresRouteTime(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
-	expected := `{"showToast":{"message":"please choose a route time","type":"error"}}`
+	expected := `{"showToast":{"message":"` + messageChooseRouteTime + `","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expected {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
 	}
@@ -1377,7 +1378,7 @@ func TestHandleCalculateRoutes_RejectsAssignmentsForUnselectedDrivers(t *testing
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
-	expected := `{"showToast":{"message":"only selected drivers can be assigned vans","type":"error"}}`
+	expected := `{"showToast":{"message":"` + unselectedDriverVanAssignmentMessage + `","type":"error"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expected {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expected)
 	}
@@ -1461,7 +1462,7 @@ func TestHandleCalculateRoutes_PreservesVanAssignmentsInShortageFlow(t *testing.
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%q", http.StatusOK, rr.Code, rr.Body.String())
 	}
-	expectedTrigger := `{"showToast":{"message":"Not enough capacity - need 1 more seat","type":"warning"}}`
+	expectedTrigger := `{"showToast":{"message":"` + messageNotEnoughCapacity(1) + `","type":"warning"}}`
 	if got := rr.Header().Get("HX-Trigger"); got != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", got, expectedTrigger)
 	}
@@ -1552,8 +1553,8 @@ func TestHandleCalculateRoutes_OrgVehicleRepositoryFailureReturnsInternalError(t
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status %d, got %d body=%q", http.StatusInternalServerError, rr.Code, rr.Body.String())
 	}
-	if got := rr.Header().Get("HX-Trigger"); got != "" {
-		t.Fatalf("expected no validation toast for internal error, got %q", got)
+	if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageGenericInternalError) {
+		t.Fatalf("expected internal error toast, got %q", got)
 	}
 }
 

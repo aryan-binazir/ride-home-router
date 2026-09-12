@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"net/url"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
@@ -11,13 +10,13 @@ import (
 )
 
 const (
-	invalidVanAssignmentMessage          = "please choose a valid van assignment"
-	unselectedDriverVanAssignmentMessage = "only selected drivers can be assigned vans"
-	duplicateVanAssignmentMessage        = "a van can only be assigned to one driver per event"
-	selectedVanNotFoundMessage           = "selected van not found; refresh and try again"
+	invalidVanAssignmentMessage          = "Choose a valid van assignment."
+	unselectedDriverVanAssignmentMessage = "Select a driver before assigning a van."
+	duplicateVanAssignmentMessage        = "Assign each van to only one driver."
+	selectedVanNotFoundMessage           = "The selected van is no longer available. Refresh the page and try again."
 )
 
-var errSelectedVanNotFound = errors.New(selectedVanNotFoundMessage)
+var errSelectedVanNotFound = mobileFormError{selectedVanNotFoundMessage}
 
 // parseOrgVehicleAssignments returns submitted choices with validation errors so
 // failed input can be preserved. Callers must validate again before routing it.
@@ -47,10 +46,10 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 	for _, key := range assignmentKeys {
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)
 		if err != nil {
-			return assignments, errors.New(invalidVanAssignmentMessage)
+			return assignments, mobileFormError{invalidVanAssignmentMessage}
 		}
 		if _, ok := selectedDrivers[driverID]; !ok {
-			return assignments, errors.New(unselectedDriverVanAssignmentMessage)
+			return assignments, mobileFormError{unselectedDriverVanAssignmentMessage}
 		}
 	}
 
@@ -61,7 +60,7 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		}
 		vehicleID, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil || vehicleID <= 0 {
-			return assignments, errors.New(invalidVanAssignmentMessage)
+			return assignments, mobileFormError{invalidVanAssignmentMessage}
 		}
 
 		assignments[driverID] = vehicleID
@@ -74,7 +73,7 @@ func validateUniqueOrgVehicleAssignments(assignments map[int64]int64) error {
 	vehicleOwners := make(map[int64]int64, len(assignments))
 	for driverID, vehicleID := range assignments {
 		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
-			return errors.New(duplicateVanAssignmentMessage)
+			return mobileFormError{duplicateVanAssignmentMessage}
 		}
 		vehicleOwners[vehicleID] = driverID
 	}
@@ -163,7 +162,7 @@ func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []mod
 	shortage := max(0, rerr.TotalParticipants-rerr.TotalCapacity)
 	return CapacityShortageView{
 		Error: CapacityShortageErrorView{
-			Message:           rerr.Reason,
+			Message:           messageHouseholdsDoNotFit,
 			UnassignedCount:   rerr.UnassignedCount,
 			TotalCapacity:     rerr.TotalCapacity,
 			TotalParticipants: rerr.TotalParticipants,

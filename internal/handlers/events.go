@@ -69,12 +69,12 @@ func (e eventValidationError) Unwrap() error {
 	return e.cause
 }
 
-func (h *Handler) handleEventValidationError(w http.ResponseWriter, err error) bool {
+func (h *Handler) handleEventValidationError(w http.ResponseWriter, r *http.Request, err error) bool {
 	var validationErr eventValidationError
 	if !errors.As(err, &validationErr) {
 		return false
 	}
-	h.handleValidationError(w, validationErr.message)
+	h.handleValidationError(w, r, validationErr.message)
 	return true
 }
 
@@ -123,7 +123,7 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
+			limit = min(l, 100)
 		}
 	}
 
@@ -138,7 +138,7 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	view, err := h.buildEventListView(r.Context(), limit, offset)
 	if err != nil {
 		log.Printf("[ERROR] Failed to build event list view: limit=%d offset=%d err=%v", limit, offset, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -166,7 +166,7 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/events/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, messageInvalidEventID)
+		h.handleValidationError(w, r, messageInvalidEventID)
 		return
 	}
 
@@ -175,11 +175,11 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Event not found: id=%d", id)
-			h.handleNotFound(w, messageEventNotFound)
+			h.handleNotFound(w, r, messageEventNotFound)
 			return
 		}
 		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 	assignments := groupRoutesByDriver(routes)
@@ -218,7 +218,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: form_parse_error err=%v", err)
-			h.handleValidationError(w, messageInvalidFormData)
+			h.handleValidationError(w, r, messageInvalidFormData)
 			return
 		}
 
@@ -228,7 +228,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
@@ -241,7 +241,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	createdEvent, savedRouteCount, sessionErr := h.commitEventSession(r, req.SessionID, req.EventDate, req.Notes)
-	if h.handleEventValidationError(w, sessionErr) {
+	if h.handleEventValidationError(w, r, sessionErr) {
 		return
 	}
 	switch {
@@ -255,10 +255,10 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(sessionErr, routesession.ErrUnbalanced):
 		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", logutil.SafeString(req.SessionID))
-		h.handleValidationError(w, messageRoutesMustBeBalancedBeforeSaving)
+		h.handleValidationError(w, r, messageRoutesMustBeBalancedBeforeSaving)
 		return
 	case sessionErr != nil:
-		h.handleInternalError(w, sessionErr)
+		h.handleInternalError(w, r, sessionErr)
 		return
 	}
 
@@ -314,6 +314,9 @@ func (h *Handler) captureRouteFeedback(r *http.Request, createdEvent *models.Eve
 }
 
 func (h *Handler) persistEvent(ctx context.Context, date, notes string, session routesession.CommitSnapshot, writer database.WorkflowWrites) (*models.Event, int, error) {
+	if message := fieldLengthMessage("Notes", notes, models.MaxNotesLength); message != "" {
+		return nil, 0, eventValidationError{message: message}
+	}
 	if date == "" {
 		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
 		return nil, 0, eventValidationError{message: messageEventDateRequired}
@@ -328,7 +331,7 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 	snapshot, err := eventsnapshot.Build(session.RoutingResult())
 	if err != nil {
 		log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
-		message := err.Error()
+		message := messageGenericInternalError
 		if errors.Is(err, models.ErrInvalidRouteMode) {
 			message = messageInvalidRouteMode
 		}
@@ -346,7 +349,7 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 		savedIndex++
 	}
 
-	event := &models.Event{EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
+	event := &models.Event{RouteSessionID: session.SessionID, EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
 	var created *models.Event
 	if writer != nil {
 		created, err = writer.CreateEvent(ctx, event, snapshot.Routes, &snapshot.Summary)
@@ -368,7 +371,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/events/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, messageInvalidEventID)
+		h.handleValidationError(w, r, messageInvalidEventID)
 		return
 	}
 
@@ -376,12 +379,12 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Events().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Event not found for delete: id=%d", id)
-		h.handleNotFound(w, messageEventNotFound)
+		h.handleNotFound(w, r, messageEventNotFound)
 		return
 	}
 	if err != nil {
 		log.Printf("[ERROR] Failed to delete event: id=%d err=%v", id, err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -391,7 +394,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 		limit := defaultEventListPageSize
 		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-				limit = l
+				limit = min(l, 100)
 			}
 		}
 		view, err := h.buildEventListView(r.Context(), limit, 0)

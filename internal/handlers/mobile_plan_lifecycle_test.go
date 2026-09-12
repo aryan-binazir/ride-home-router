@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"net/http"
 	"net/url"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
@@ -145,7 +146,9 @@ func TestMobileSaveFailureKeepsDraftSessionForRetry(t *testing.T) {
 	}
 
 	response := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {session.ID}, "event_date": {"2026-09-07"}}, handler.HandleMobileSave)
-	assertMobileRedirect(t, response, "/m/routes?error="+url.QueryEscape(messageGenericInternalError))
+	if response.Code != http.StatusInternalServerError || response.Header().Get("Location") != "" {
+		t.Fatalf("failed save: %d %s", response.Code, response.Header())
+	}
 	current, ok := handler.PlanDraft.Get(id)
 	if !ok || current.RouteSessionID != session.ID {
 		t.Fatalf("draft after failed save = %#v, want captured session still attached", current)

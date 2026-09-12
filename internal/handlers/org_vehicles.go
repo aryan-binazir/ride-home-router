@@ -29,7 +29,7 @@ func (h *Handler) HandleListOrgVehicles(w http.ResponseWriter, r *http.Request) 
 	vehicles, err := h.DB.OrganizationVehicles().List(r.Context())
 	if err != nil {
 		log.Printf("[ERROR] Failed to list organization vehicles: err=%v", err)
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -63,11 +63,15 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
 			log.Printf("[HTTP] POST /api/v1/org-vehicles: invalid_json err=%v", err)
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
 
+	if message := fieldLengthMessage("Name", req.Name, models.MaxNameLength); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" {
 		log.Printf("[HTTP] POST /api/v1/org-vehicles: missing name")
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
@@ -81,7 +85,7 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] POST /api/v1/org-vehicles: name=%s capacity=%d", logutil.SafeString(req.Name), req.Capacity)
+	log.Printf("[HTTP] POST /api/v1/org-vehicles: capacity=%d", req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
 		Name:     req.Name,
@@ -91,12 +95,11 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	createdVehicle, err := h.DB.OrganizationVehicles().Create(r.Context(), vehicle)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create organization vehicle: err=%v", err)
-		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageFailedToSaveVan(err))
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageFailedToSaveVan())
 		return
 	}
 
-	log.Printf("[HTTP] Created organization vehicle: id=%d name=%s capacity=%d",
-		createdVehicle.ID, logutil.SafeString(createdVehicle.Name), createdVehicle.Capacity)
+	log.Printf("[HTTP] Created organization vehicle: id=%d capacity=%d", createdVehicle.ID, createdVehicle.Capacity)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityAdded("Van", createdVehicle.Name), toastTypeSuccess)
@@ -113,7 +116,7 @@ func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] GET /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, messageInvalidOrganizationVehicleID)
+		h.handleValidationError(w, r, messageInvalidOrganizationVehicleID)
 		return
 	}
 
@@ -127,7 +130,7 @@ func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 		}
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to get organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
@@ -143,14 +146,14 @@ func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		h.renderError(w, r, errors.New(messageInvalidOrganizationVehicleID))
+		h.handleValidationErrorHTMX(w, r, messageInvalidOrganizationVehicleID)
 		return
 	}
 
 	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			h.renderError(w, r, errors.New(messageOrganizationVehicleNotFound))
+			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 			return
 		}
 		h.renderError(w, r, err)
@@ -193,11 +196,15 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		}
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, messageInvalidRequestBody)
+			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
 	}
 
+	if message := fieldLengthMessage("Name", req.Name, models.MaxNameLength); message != "" {
+		h.handleValidationErrorHTMX(w, r, message)
+		return
+	}
 	if req.Name == "" {
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
 		return
@@ -209,7 +216,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	}
 
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] PUT /api/v1/org-vehicles/%d: name=%s capacity=%d", id, logutil.SafeString(req.Name), req.Capacity)
+	log.Printf("[HTTP] PUT /api/v1/org-vehicles/%d: capacity=%d", id, req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
 		ID:       id,
@@ -225,7 +232,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageOrganizationVehicleNotFound)
 			return
 		}
-		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update van")
+		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Could not save the van. Try again.")
 		return
 	}
 
@@ -261,7 +268,7 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 			return
 		}
-		h.handleInternalError(w, err)
+		h.handleInternalError(w, r, err)
 		return
 	}
 
