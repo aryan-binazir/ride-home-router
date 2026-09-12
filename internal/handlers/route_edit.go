@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
@@ -97,7 +98,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		id = r.FormValue("session_id")
 	}
-	snapshot, err := h.RouteSession.Reset(id)
+	snapshot, err := h.RouteSession.ResetContext(r.Context(), id)
 	if err != nil {
 		h.handleRouteSessionError(w, r, err)
 		return
@@ -137,7 +138,11 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	snapshot, ok := h.RouteSession.Snapshot(id)
+	snapshot, ok, err := h.RouteSession.Load(r.Context(), id)
+	if err != nil {
+		h.handleInternalError(w, err)
+		return
+	}
 	if !ok {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -155,6 +160,8 @@ func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snap
 
 func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, database.ErrWorkflowConflict):
+		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_CONFLICT", "This route plan changed. Reload it and try again.")
 	case errors.Is(err, routesession.ErrNotFound):
 		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 	case errors.Is(err, routesession.ErrInvalidRouteIndex):

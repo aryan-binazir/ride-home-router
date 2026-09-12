@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"log"
 	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
 )
@@ -29,9 +31,9 @@ func (h *Handler) mobilePlan() mobilePlanLifecycle {
 // EditInputs invalidates even an edit that leaves input values unchanged, as the
 // existing pickers do. The callback runs under the draft lock and must only edit
 // inputs. Session deletion happens after the draft lock has been released.
-func (l mobilePlanLifecycle) EditInputs(id string, edit func(*mobilePlanInputs)) plandraft.Draft {
+func (l mobilePlanLifecycle) EditInputsContext(ctx context.Context, id string, edit func(*mobilePlanInputs)) (plandraft.Draft, error) {
 	displacedSessionID := ""
-	draft := l.drafts.Update(id, func(d *plandraft.Draft) {
+	draft, err := l.drafts.Edit(ctx, id, func(d *plandraft.Draft) {
 		inputs := mobilePlanInputs{
 			LocationID: d.LocationID, ParticipantIDs: d.ParticipantIDs, DriverIDs: d.DriverIDs,
 			DriverVehicleIDs: d.DriverVehicleIDs, RouteTime: d.RouteTime, Mode: d.Mode,
@@ -46,8 +48,13 @@ func (l mobilePlanLifecycle) EditInputs(id string, edit func(*mobilePlanInputs))
 		displacedSessionID = d.RouteSessionID
 		d.RouteSessionID = ""
 	})
-	l.sessions.Delete(displacedSessionID)
-	return draft
+	if err != nil {
+		return plandraft.Draft{}, err
+	}
+	if err := l.sessions.DeleteContext(ctx, displacedSessionID); err != nil {
+		log.Printf("[WARN] Remove displaced route session: %v", err)
+	}
+	return draft, nil
 }
 
 type mobilePlanAdoption uint8
@@ -61,23 +68,38 @@ const (
 // AdoptCalculation accepts only a result for the original, unchanged draft.
 // A losing result is deleted without touching a competing winner. Keep the
 // existing failure-path reads: Get and Snapshot also refresh their stores' TTLs.
-func (l mobilePlanLifecycle) AdoptCalculation(id string, original plandraft.Draft, sessionID string) mobilePlanAdoption {
-	displacedSessionID, ok := l.drafts.SetRouteSessionIDIfUnchanged(id, original.Revision, sessionID)
+func (l mobilePlanLifecycle) AdoptCalculationContext(ctx context.Context, id string, original plandraft.Draft, sessionID string) (mobilePlanAdoption, error) {
+	displaced, ok, err := l.drafts.Attach(ctx, id, original.Revision, sessionID)
+	if err != nil {
+		return mobilePlanExpired, err
+	}
 	if !ok {
-		l.sessions.Delete(sessionID)
-		if currentDraft, found := l.drafts.Get(id); found && currentDraft.RouteSessionID != "" {
-			if _, live := l.sessions.Snapshot(currentDraft.RouteSessionID); live {
-				return mobilePlanSupersededLive
+		if err = l.sessions.DeleteContext(ctx, sessionID); err != nil {
+			return mobilePlanExpired, err
+		}
+		current, found, err := l.drafts.Load(ctx, id)
+		if err != nil {
+			return mobilePlanExpired, err
+		}
+		if found && current.RouteSessionID != "" {
+			_, live, err := l.sessions.Load(ctx, current.RouteSessionID)
+			if err != nil {
+				return mobilePlanExpired, err
+			}
+			if live {
+				return mobilePlanSupersededLive, nil
 			}
 		}
-		return mobilePlanExpired
+		return mobilePlanExpired, nil
 	}
-	l.sessions.Delete(displacedSessionID)
-	return mobilePlanAdopted
+	if err = l.sessions.DeleteContext(ctx, displaced); err != nil {
+		log.Printf("[WARN] Remove displaced route session: %v", err)
+	}
+	return mobilePlanAdopted, nil
 }
 
-// ReleaseSavedSession is called only after a successful commit, with the session
-// captured before that commit. A result attached during persistence stays attached.
-func (l mobilePlanLifecycle) ReleaseSavedSession(id, consumedSessionID string) {
-	l.drafts.ClearRouteSessionIDIfCurrent(id, consumedSessionID)
+// ReleaseSavedSessionContext never detaches a newer calculation.
+func (l mobilePlanLifecycle) ReleaseSavedSessionContext(ctx context.Context, id, sessionID string) error {
+	_, err := l.drafts.Detach(ctx, id, sessionID)
+	return err
 }

@@ -15,12 +15,20 @@ import (
 
 func (h *Handler) HandleMobileRoutes(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
-	_, draft, _ := h.mobileDraft(w, r)
+	_, draft, _, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return
+	}
 	if draft.RouteSessionID == "" {
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
-	snapshot, ok := h.RouteSession.Snapshot(draft.RouteSessionID)
+	snapshot, ok, err := h.RouteSession.Load(r.Context(), draft.RouteSessionID)
+	if err != nil {
+		h.renderMobileStoreError(w, r, err, "Routes not found")
+		return
+	}
 	if !ok {
 		h.mobileRedirectError(w, r, "/m", "That route plan expired. Calculate it again.")
 		return
@@ -84,7 +92,7 @@ func (h *Handler) HandleMobileReset(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := h.RouteSession.Reset(sessionID); err != nil {
+	if _, err := h.RouteSession.ResetContext(r.Context(), sessionID); err != nil {
 		log.Printf("[ERROR] Mobile route reset failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
@@ -131,13 +139,19 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.mobilePlan().ReleaseSavedSession(id, sessionID)
+	if err := h.mobilePlan().ReleaseSavedSessionContext(r.Context(), id, sessionID); err != nil {
+		log.Printf("[MOBILE] Saved event but draft release failed: %v", err)
+	}
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", created.ID), http.StatusSeeOther)
 }
 
 // mobileRouteSession binds a submitted action to the routes its form displayed.
 func (h *Handler) mobileRouteSession(w http.ResponseWriter, r *http.Request) (string, string, bool) {
-	id, draft, _ := h.mobileDraft(w, r)
+	id, draft, _, loadErr := h.mobileDraft(w, r)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, "Plan not found")
+		return "", "", false
+	}
 	if err := r.ParseForm(); err != nil {
 		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
 		return "", "", false

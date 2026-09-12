@@ -58,7 +58,13 @@ func (e *ErrGeocodingFailed) Unwrap() error {
 	return e.Cause
 }
 
+type RateGate interface {
+	Wait(context.Context) error
+	Defer(context.Context, time.Duration) error
+}
+
 type nominatimGeocoder struct {
+	gate        RateGate
 	baseURL     string
 	httpClient  *http.Client
 	rateLimiter *time.Ticker
@@ -119,6 +125,41 @@ func NewNominatimGeocoder() Geocoder {
 	return newNominatimGeocoder("https://nominatim.openstreetmap.org", httpClient, time.NewTicker(nominatimRateInterval))
 }
 
+// NewNominatimGeocoderWithGate uses a deployment-wide request budget.
+func NewNominatimGeocoderWithGate(gate RateGate) Geocoder {
+	if gate == nil {
+		panic("geocoding: rate gate is required")
+	}
+	return &nominatimGeocoder{baseURL: "https://nominatim.openstreetmap.org", httpClient: &http.Client{Timeout: geocoderClientTimeout}, gate: gate}
+}
+
+func (g *nominatimGeocoder) wait(ctx context.Context) error {
+	if g.gate != nil {
+		if err := g.gate.Wait(ctx); err != nil {
+			return &ErrGeocodingFailed{Reason: "provider pacing unavailable", Cause: err, HTTPStatus: http.StatusServiceUnavailable}
+		}
+		return nil
+	}
+	select {
+	case <-g.rateLimiter.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (g *nominatimGeocoder) deferProvider(ctx context.Context, resp *http.Response) error {
+	if g.gate == nil {
+		return nil
+	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		if err := g.gate.Defer(ctx, max(time.Second, parseNominatimRetryAfter(resp.Header.Get("Retry-After")))); err != nil {
+			return &ErrGeocodingFailed{Reason: "provider pacing unavailable", Cause: err, HTTPStatus: http.StatusServiceUnavailable}
+		}
+	}
+	return nil
+}
+
 func newNominatimGeocoder(baseURL string, httpClient *http.Client, rateLimiter *time.Ticker) *nominatimGeocoder {
 	return &nominatimGeocoder{
 		baseURL:     baseURL,
@@ -129,10 +170,8 @@ func newNominatimGeocoder(baseURL string, httpClient *http.Client, rateLimiter *
 
 func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*GeocodingResult, error) {
 	started := time.Now()
-	select {
-	case <-g.rateLimiter.C:
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	if err := g.wait(ctx); err != nil {
+		return nil, err
 	}
 
 	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&addressdetails=1&limit=1", g.baseURL, url.QueryEscape(address))
@@ -154,6 +193,9 @@ func (g *nominatimGeocoder) Geocode(ctx context.Context, address string) (*Geoco
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
+		if err := g.deferProvider(ctx, resp); err != nil {
+			return nil, err
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, providerBodyLimit))
 		log.Printf("[ERROR] Nominatim geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{
@@ -226,10 +268,8 @@ func (g *nominatimGeocoder) Search(ctx context.Context, query string, limit int)
 
 func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit int) ([]GeocodingResult, error) {
 	started := time.Now()
-	select {
-	case <-g.rateLimiter.C:
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	if err := g.wait(ctx); err != nil {
+		return nil, err
 	}
 
 	queryURL := fmt.Sprintf("%s/search?q=%s&format=json&addressdetails=1&limit=%d", g.baseURL, url.QueryEscape(query), limit)
@@ -251,6 +291,9 @@ func (g *nominatimGeocoder) searchOnce(ctx context.Context, query string, limit 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
+		if err := g.deferProvider(ctx, resp); err != nil {
+			return nil, err
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, providerBodyLimit))
 		log.Printf("[ERROR] Nominatim search outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{
@@ -544,19 +587,21 @@ func (e *nominatimTransportError) Unwrap() error {
 	return e.Cause
 }
 
+// Retryable distinguishes temporary provider or pacing failures from invalid addresses.
+func (e *ErrGeocodingFailed) Retryable() bool {
+	if _, ok := errors.AsType[*nominatimTransportError](e.Cause); ok {
+		return true
+	}
+	return isNominatimRetryableStatus(e.HTTPStatus)
+}
+
 func nominatimRetryDelay(err error, attempt int) (time.Duration, bool) {
 	var geocodingErr *ErrGeocodingFailed
 	if !errors.As(err, &geocodingErr) {
 		return 0, false
 	}
 
-	retryable := false
-	if _, ok := errors.AsType[*nominatimTransportError](geocodingErr.Cause); ok {
-		retryable = true
-	} else {
-		retryable = isNominatimRetryableStatus(geocodingErr.HTTPStatus)
-	}
-	if !retryable {
+	if !geocodingErr.Retryable() {
 		return 0, false
 	}
 

@@ -21,7 +21,10 @@ func TestMobileDraftRejectsUnknownCookieAndRefreshesKnownCookie(t *testing.T) {
 	unknownRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m", nil)
 	unknownRequest.AddCookie(mobileTestCookie("0123456789abcdef0123456789abcdef"))
 	unknownResponse := httptest.NewRecorder()
-	newID, _, notice := handler.mobileDraft(unknownResponse, unknownRequest)
+	newID, _, notice, err := handler.mobileDraft(unknownResponse, unknownRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if newID == "0123456789abcdef0123456789abcdef" || notice == "" {
 		t.Fatalf("unknown cookie returned id=%q notice=%q", newID, notice)
 	}
@@ -29,7 +32,10 @@ func TestMobileDraftRejectsUnknownCookieAndRefreshesKnownCookie(t *testing.T) {
 	knownRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/m", nil)
 	knownRequest.AddCookie(mobileTestCookie(newID))
 	knownResponse := httptest.NewRecorder()
-	gotID, _, notice := handler.mobileDraft(knownResponse, knownRequest)
+	gotID, _, notice, err := handler.mobileDraft(knownResponse, knownRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if gotID != newID || notice != "" {
 		t.Fatalf("known cookie returned id=%q notice=%q", gotID, notice)
 	}

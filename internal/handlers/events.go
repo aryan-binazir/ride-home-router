@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/eventsnapshot"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
@@ -276,39 +277,43 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) commitEventSession(r *http.Request, sessionID, date, notes string) (*models.Event, int, error) {
 	var createdEvent *models.Event
 	var savedRouteCount int
-	err := h.RouteSession.Commit(r.Context(), sessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot) error {
-		created, routeCount, err := h.persistEvent(ctx, date, notes, snapshot)
-		if err != nil {
-			return err
-		}
-		createdEvent = created
-		savedRouteCount = routeCount
-		if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
-			return nil
-		}
-		feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		settings, err := h.DB.Settings().Get(feedbackCtx)
-		if err != nil {
-			log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
-			return nil
-		}
-		email, ok := routefeedback.ShouldCapture(r, settings)
-		if !ok {
-			return nil
-		}
-		record := routefeedback.Build(snapshot)
-		record.EventID = createdEvent.ID
-		record.SMEEmail = email
-		if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
-			log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
-		}
-		return nil
+	var captured routesession.CommitSnapshot
+	err := h.RouteSession.CommitEvent(r.Context(), sessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot, writer database.WorkflowWrites) error {
+		var err error
+		createdEvent, savedRouteCount, err = h.persistEvent(ctx, date, notes, snapshot, writer)
+		captured = snapshot
+		return err
 	})
+	if err == nil {
+		h.captureRouteFeedback(r, createdEvent, captured)
+	}
 	return createdEvent, savedRouteCount, err
 }
 
-func (h *Handler) persistEvent(ctx context.Context, date, notes string, session routesession.CommitSnapshot) (*models.Event, int, error) {
+func (h *Handler) captureRouteFeedback(r *http.Request, createdEvent *models.Event, snapshot routesession.CommitSnapshot) {
+	if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
+		return
+	}
+	feedbackCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer cancel()
+	settings, err := h.DB.Settings().Get(feedbackCtx)
+	if err != nil {
+		log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+		return
+	}
+	email, ok := routefeedback.ShouldCapture(r, settings)
+	if !ok {
+		return
+	}
+	record := routefeedback.Build(snapshot)
+	record.EventID = createdEvent.ID
+	record.SMEEmail = email
+	if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
+		log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+	}
+}
+
+func (h *Handler) persistEvent(ctx context.Context, date, notes string, session routesession.CommitSnapshot, writer database.WorkflowWrites) (*models.Event, int, error) {
 	if date == "" {
 		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
 		return nil, 0, eventValidationError{message: messageEventDateRequired}
@@ -342,7 +347,12 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 	}
 
 	event := &models.Event{EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
-	created, err := h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
+	var created *models.Event
+	if writer != nil {
+		created, err = writer.CreateEvent(ctx, event, snapshot.Routes, &snapshot.Summary)
+	} else {
+		created, err = h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
+	}
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%s", logutil.SafeString(date), len(snapshot.Routes), logutil.SafeString(err.Error()))

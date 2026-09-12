@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"maps"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"slices"
 	"sync"
@@ -32,6 +33,7 @@ type Draft struct {
 }
 
 type Store struct {
+	records     database.WorkflowRepository
 	mu          sync.Mutex
 	drafts      map[string]Draft
 	ttl         time.Duration
@@ -170,7 +172,11 @@ func (s *Store) evictOldestLocked() {
 	}
 }
 
-func (s *Store) Close() { s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone }) }
+func (s *Store) Close() {
+	if s.records == nil {
+		s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone })
+	}
+}
 
 func (s *Store) cleanupLoop() {
 	defer close(s.cleanupDone)

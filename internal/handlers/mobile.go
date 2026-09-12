@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/plandraft"
@@ -25,24 +26,29 @@ const (
 	messageMobileAddressLookupFailed = "Could not find that address. Check it and try again."
 )
 
-func (h *Handler) mobileDraft(w http.ResponseWriter, r *http.Request) (string, plandraft.Draft, string) {
+func (h *Handler) mobileDraft(w http.ResponseWriter, r *http.Request) (string, plandraft.Draft, string, error) {
 	if cookie, err := r.Cookie(mobileDraftCookie); err == nil && validMobileDraftID(cookie.Value) {
-		if draft, ok := h.PlanDraft.Get(cookie.Value); ok {
-			h.setMobileDraftCookie(w, r, cookie.Value)
-			return cookie.Value, draft, ""
+		draft, ok, err := h.PlanDraft.Load(r.Context(), cookie.Value)
+		if err != nil {
+			return "", plandraft.Draft{}, "", err
 		}
-		id, draft := h.newMobileDraft(w, r)
-		return id, draft, "Your saved plan expired. Start a new plan below."
+		if ok {
+			h.setMobileDraftCookie(w, r, cookie.Value)
+			return cookie.Value, draft, "", nil
+		}
+		id, draft, err := h.newMobileDraft(w, r)
+		return id, draft, "Your saved plan expired. Start a new plan below.", err
 	}
-	id, draft := h.newMobileDraft(w, r)
-	return id, draft, ""
+	id, draft, err := h.newMobileDraft(w, r)
+	return id, draft, "", err
 }
 
-func (h *Handler) newMobileDraft(w http.ResponseWriter, r *http.Request) (string, plandraft.Draft) {
-	id := h.PlanDraft.NewID()
-	draft := h.PlanDraft.Update(id, func(*plandraft.Draft) {})
-	h.setMobileDraftCookie(w, r, id)
-	return id, draft
+func (h *Handler) newMobileDraft(w http.ResponseWriter, r *http.Request) (string, plandraft.Draft, error) {
+	id, draft, err := h.PlanDraft.CreateDraft(r.Context())
+	if err == nil {
+		h.setMobileDraftCookie(w, r, id)
+	}
+	return id, draft, err
 }
 
 func (h *Handler) setMobileDraftCookie(w http.ResponseWriter, r *http.Request, id string) {
@@ -141,6 +147,10 @@ func (h *Handler) renderMobileTemplateStatus(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) renderMobileStoreError(w http.ResponseWriter, r *http.Request, err error, notFoundMessage string) {
+	if errors.Is(err, database.ErrWorkflowCapacity) {
+		h.renderMobileError(w, r, http.StatusTooManyRequests, err.Error(), err)
+		return
+	}
 	if h.checkNotFound(err) {
 		h.renderMobileError(w, r, http.StatusNotFound, notFoundMessage, err)
 		return
@@ -183,6 +193,8 @@ func (h *Handler) mobileRedirectError(w http.ResponseWriter, r *http.Request, pa
 
 func mobileRouteErrorMessage(err error) string {
 	switch {
+	case errors.Is(err, database.ErrWorkflowConflict):
+		return "This route plan changed. Review the current routes and try again."
 	case errors.Is(err, routesession.ErrNotFound), errors.Is(err, routesession.ErrAlreadyCommitted):
 		return messageRoutePlanExpired
 	case errors.Is(err, routesession.ErrInvalidRouteIndex):

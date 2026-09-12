@@ -220,6 +220,17 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	created, err := createEventTx(ctx, tx, event, routes, summary)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func createEventTx(ctx context.Context, tx *sql.Tx, event *models.Event, routes []models.EventRoute, summary *models.EventSummary) (*models.Event, error) {
 	event.CreatedAt = time.Now()
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO events (event_date, notes, mode, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -288,9 +299,6 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
 	return event, nil
 }
 

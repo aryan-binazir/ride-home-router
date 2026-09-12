@@ -185,6 +185,10 @@ func (h *Handler) handleRoutingError(w http.ResponseWriter, err error) {
 }
 
 func (h *Handler) handleInternalError(w http.ResponseWriter, err error) {
+	if errors.Is(err, database.ErrWorkflowCapacity) {
+		h.writeError(w, http.StatusTooManyRequests, "WORKFLOW_CAPACITY", err.Error(), nil)
+		return
+	}
 	log.Printf("[ERROR] Internal error: %v", err)
 	h.writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError, nil)
 }

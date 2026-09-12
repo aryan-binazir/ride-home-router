@@ -40,6 +40,17 @@ func (w rosterWriteCore[T]) upsertBatch(ctx context.Context, entities []*T) (dat
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	result, err := w.upsertBatchTx(ctx, tx, entities)
+	if err != nil {
+		return database.BatchUpsertResult{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return database.BatchUpsertResult{}, err
+	}
+	return result, nil
+}
+
+func (w rosterWriteCore[T]) upsertBatchTx(ctx context.Context, tx *sql.Tx, entities []*T) (database.BatchUpsertResult, error) {
 	if err := lockRoster(ctx, tx, w.table); err != nil {
 		return database.BatchUpsertResult{}, err
 	}
@@ -88,9 +99,6 @@ func (w rosterWriteCore[T]) upsertBatch(ctx context.Context, entities []*T) (dat
 		result.Created++
 	}
 
-	if err := tx.Commit(); err != nil {
-		return database.BatchUpsertResult{}, fmt.Errorf("failed to commit %s batch transaction: %w", w.noun, err)
-	}
 	for _, row := range written {
 		fields := w.fields(row.entity)
 		*fields.id = row.id
