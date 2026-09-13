@@ -311,8 +311,18 @@
 
     // The formatters mirror the Go template helpers so browser-computed totals
     // read exactly like server-rendered ones.
+    // Go's %.2f rounds an exact tie to even (8.125 → 8.12); toFixed rounds it up.
+    function toFixedHalfEven(value, digits) {
+        const scale = 10 ** digits;
+        const scaled = value * scale;
+        const floor = Math.floor(scaled);
+        let rounded = Math.round(scaled);
+        if (scaled - floor === 0.5 && floor % 2 === 0) rounded = floor;
+        return (rounded / scale).toFixed(digits);
+    }
+
     function formatDistance(meters, useMiles) {
-        return useMiles ? `${(meters / 1609.344).toFixed(2)} mi` : `${(meters / 1000).toFixed(2)} km`;
+        return useMiles ? `${toFixedHalfEven(meters / 1609.344, 2)} mi` : `${toFixedHalfEven(meters / 1000, 2)} km`;
     }
 
     function formatDuration(seconds) {
@@ -360,9 +370,10 @@
         }));
         const summary = summarizeMeasuredCards(cards, container.dataset.useMiles === 'true');
         if (!summary) return false;
+        // Only placeholders are filled; a total the server rendered stays as is.
         const write = (key, value) => {
             const element = container.querySelector(`[data-summary="${key}"]`);
-            if (element) element.textContent = value;
+            if (element && element.textContent.trim() === '—') element.textContent = value;
         };
         write('total-distance', summary.totalDistance);
         write('max-detour', summary.maxDetour);

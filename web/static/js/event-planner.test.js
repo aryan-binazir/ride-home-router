@@ -2219,6 +2219,11 @@ test('summarizeMeasuredCards adds up occupied cars only once every one of them h
     assert.deepEqual(summarizeMeasuredCards([measured(1500, 45)], false), {
         totalDistance: '1.50 km', maxDetour: '45s', averageDetour: '45s',
     });
+    assert.deepEqual(summarizeMeasuredCards([measured(8125, 0)], false).totalDistance, '8.12 km', 'exact ties round to even like Go');
+    assert.deepEqual(summarizeMeasuredCards([measured(2635, 0)], false).totalDistance, '2.64 km');
+    assert.deepEqual(summarizeMeasuredCards([measured('1000.400', '59.600')], false), {
+        totalDistance: '1.00 km', maxDetour: '59s', averageDetour: '59s',
+    }, 'fractional seconds truncate like the Go helper');
     assert.equal(summarizeMeasuredCards([measured(8000, 300), stale], true), null, 'one unmeasured car means no total');
     assert.equal(summarizeMeasuredCards([empty], true), null, 'nothing to add up');
     assert.equal(summarizeMeasuredCards([{ timings: 'measured', hasStops: true, totalMeters: 'x', detourSecs: '1' }], true), null, 'bad numbers never produce a total');

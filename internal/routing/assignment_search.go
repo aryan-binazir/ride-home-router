@@ -41,10 +41,6 @@ func (s cachedSolveDistances) GetDistance(ctx context.Context, a, b models.Coord
 type assignmentCandidate struct {
 	firstDriverID, secondDriverID int64
 	firstStops, secondStops       []*models.Participant
-	// noExtraDriving rejects a candidate that lengthens total driving even when
-	// the lexicographic score prefers it; whole-car driver swaps exist to cut
-	// driver detours, not to trade them for rider time.
-	noExtraDriving bool
 }
 
 type assignmentEvaluation struct {

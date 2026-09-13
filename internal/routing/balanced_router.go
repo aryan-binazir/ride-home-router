@@ -146,14 +146,6 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 	log.Printf("[TIMING] Phase 3 (assignment search): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
-	// Phase 4 exchanges whole cars between drivers who live near each other's riders.
-	phase4Start := time.Now()
-	swaps, err := optimizeDriverAssignments(ctx, rc, routes, driverIDs)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("[TIMING] Phase 4 (driver swaps): %v (swaps=%d)", time.Since(phase4Start), swaps)
-
 	if len(unassigned) > 0 {
 		totalCapacity := 0
 		for _, d := range req.Drivers {
@@ -166,6 +158,14 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 			TotalParticipants: len(req.Participants),
 		}
 	}
+
+	// Phase 4 exchanges whole cars between drivers who live near each other's riders.
+	phase4Start := time.Now()
+	swaps, err := optimizeDriverAssignments(ctx, rc, routes, driverIDs)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[TIMING] Phase 4 (driver swaps): %v (swaps=%d)", time.Since(phase4Start), swaps)
 
 	result, err := buildResult(ctx, rc, routes, len(req.Participants))
 	if err != nil {
@@ -1071,9 +1071,6 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			if !result.score.betterThan(currentScore) || best.found && !result.score.betterThan(best.score) {
 				return nil
 			}
-			if candidate.noExtraDriving && result.score.aggregateDriveDuration > currentScore.aggregateDriveDuration+scoreImprovementEpsilon {
-				return nil
-			}
 			best = assignmentChange{
 				firstDriverID: candidate.firstDriverID, secondDriverID: candidate.secondDriverID,
 				firstStops: result.stops[candidate.firstDriverID], secondStops: result.stops[candidate.secondDriverID], score: result.score, found: true,
@@ -1283,11 +1280,14 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 	return maxIterations, nil
 }
 
-// optimizeDriverAssignments keeps every car's riders and stop order and lets two
-// drivers exchange cars when the comparator prefers it and total driving does
-// not grow. It runs after the household search with its own bounds, so a large
-// roster that exhausts the household budget still gets its drivers matched.
-// Stop order is settled once at the end, with the planner's usual ordering.
+// optimizeDriverAssignments keeps every car's riders and lets two drivers
+// exchange cars when the comparator prefers it and total driving does not grow.
+// It runs after the household search with its own bounds, so a large roster
+// that exhausts the household budget still gets its drivers matched. Pairs are
+// scored at fixed stop order; the order is settled once at the end, and the
+// phase as a whole never returns a plan that drives more than it was given.
+// The soft time budget is the router's only wall-clock bound: a very slow host
+// may stop swapping early and keep what was accepted so far.
 func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
 	const (
 		maxPairEvaluations = 100000
@@ -1303,6 +1303,7 @@ func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[
 		}
 		routeMetrics[driverID] = metrics
 	}
+	baseline := scoreSolution(routeMetrics, driverIDs)
 	evaluations := 0
 	swaps := 0
 	for range maxPasses {
@@ -1362,9 +1363,29 @@ func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[
 			break
 		}
 	}
-	if swaps > 0 {
-		if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
+	if swaps == 0 {
+		return 0, nil
+	}
+	// Settle stop order for the new drivers, but never let that ordering pass
+	// (which ranks rider time above driving) undo the phase's promise of no
+	// extra driving: if it does, keep the fixed-order swapped routes.
+	fixedOrder := make(map[int64][]*models.Participant, len(driverIDs))
+	for _, driverID := range driverIDs {
+		fixedOrder[driverID] = slices.Clone(routes[driverID].stops)
+	}
+	if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
+		return swaps, err
+	}
+	for _, driverID := range driverIDs {
+		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
+		if err != nil {
 			return swaps, err
+		}
+		routeMetrics[driverID] = metrics
+	}
+	if scoreSolution(routeMetrics, driverIDs).aggregateDriveDuration > baseline.aggregateDriveDuration+scoreImprovementEpsilon {
+		for _, driverID := range driverIDs {
+			routes[driverID].stops = fixedOrder[driverID]
 		}
 	}
 	return swaps, nil

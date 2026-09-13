@@ -83,3 +83,48 @@ func names(stops []*models.Participant) []string {
 	}
 	return out
 }
+
+// A swap the comparator would prefer (it lowers the worst detour) is still
+// refused when it adds driving overall, and refusing it leaves both cars as
+// they were.
+func TestDriverSwapThatAddsDrivingIsRefused(t *testing.T) {
+	institute := models.Coordinates{Lat: 0, Lng: 0}
+	a := &models.Driver{ID: 1, Name: "A", Lat: 0.029, Lng: 0.099, VehicleCapacity: 2}
+	b := &models.Driver{ID: 2, Name: "B", Lat: 0.064, Lng: -0.043, VehicleCapacity: 2}
+	g1 := &models.Participant{ID: 11, Name: "G1", Address: "1 First St", Lat: -0.023, Lng: 0.034}
+	g2 := &models.Participant{ID: 21, Name: "G2", Address: "1 Second St", Lat: -0.095, Lng: -0.008}
+	req := &RoutingRequest{InstituteCoords: institute, Drivers: []models.Driver{*a, *b}, Participants: []models.Participant{*g1, *g2}, Mode: "dropoff"}
+	lookup, err := prepareSolveDistances(context.Background(), distance.NewEstimator(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := newRouteContext(lookup, institute, normalizeRouteMode("dropoff"))
+	rc.prepareParticipants([]*models.Participant{g1, g2})
+	routes := map[int64]*balancedRoute{a.ID: {driver: a, stops: []*models.Participant{g1}}, b.ID: {driver: b, stops: []*models.Participant{g2}}}
+	before := scoreSolution(mustMetrics(t, rc, routes), []int64{a.ID, b.ID})
+	swapped := map[int64]*balancedRoute{a.ID: {driver: a, stops: []*models.Participant{g2}}, b.ID: {driver: b, stops: []*models.Participant{g1}}}
+	after := scoreSolution(mustMetrics(t, rc, swapped), []int64{a.ID, b.ID})
+	if !(after.maxDriverDetour < before.maxDriverDetour && after.aggregateDriveDuration > before.aggregateDriveDuration) {
+		t.Fatalf("fixture no longer discriminates: before=%+v after=%+v", before, after)
+	}
+	swaps, err := optimizeDriverAssignments(context.Background(), rc, routes, []int64{a.ID, b.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swaps != 0 || routes[a.ID].stops[0] != g1 || routes[b.ID].stops[0] != g2 {
+		t.Fatalf("swap accepted despite extra driving: swaps=%d a=%v b=%v", swaps, names(routes[a.ID].stops), names(routes[b.ID].stops))
+	}
+}
+
+func mustMetrics(t *testing.T, rc routeContext, routes map[int64]*balancedRoute) map[int64]routeObjectiveMetrics {
+	t.Helper()
+	out := make(map[int64]routeObjectiveMetrics, len(routes))
+	for id, route := range routes {
+		metrics, err := rc.evaluateRouteObjective(context.Background(), route.driver, route.stops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[id] = metrics
+	}
+	return out
+}
