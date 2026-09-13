@@ -33,7 +33,9 @@ func TestCalculationResultsAgreeAcrossParallelism(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	for _, mode := range []routing.RouteMode{routing.RouteModePickup, routing.RouteModeDropoff} {
 		for _, households := range []bool{false, true} {
-			req, source := performanceFixture(40, 8, households)
+			// Keep repeated determinism checks small under race and coverage
+			// instrumentation. Large solves belong in BenchmarkCalculateRoutesWarm.
+			req, source := performanceFixture(12, 3, households)
 			req.Mode = mode
 			runtime.GOMAXPROCS(1)
 			expected, err := routing.NewBalancedRouter(source).CalculateRoutes(t.Context(), &req)
