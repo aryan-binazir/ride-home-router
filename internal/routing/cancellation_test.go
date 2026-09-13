@@ -121,7 +121,8 @@ func TestParallelCalculationJoinsWorkersOnParentCancellation(t *testing.T) {
 	discardRoutingLogs(t)
 	previous := runtime.GOMAXPROCS(4)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
-	req, source := performanceFixture(40, 8, false)
+	// Reach parallel search promptly even with race and coverage instrumentation.
+	req, source := performanceFixture(12, 3, false)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
@@ -167,7 +168,8 @@ func TestConcurrentCalculationsBoundWorkersAndJoinOnCancellation(t *testing.T) {
 	previous := runtime.GOMAXPROCS(4)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	for range 5 {
-		req, source := performanceFixture(40, 8, false)
+		// Four simultaneous solves must reach parallel search before the deadline.
+		req, source := performanceFixture(12, 3, false)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 4)
 		for range 4 {
