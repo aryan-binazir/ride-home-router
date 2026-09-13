@@ -174,3 +174,10 @@ button.htmx-request { opacity: .6; cursor: progress; }
   height: 18px;
   width: auto;
 }
+
+/* A desktop visitor should not have to scroll a long route list to leave. */
+.mobile-desktop-switch { display: none; }
+@media (min-width: 821px) and (hover: hover) and (pointer: fine) {
+  .mobile-desktop-switch { display: block; margin-bottom: 16px; }
+  .mobile-footer a[href="/m/desktop"] { display: none; }
+}

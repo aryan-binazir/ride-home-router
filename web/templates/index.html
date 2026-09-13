@@ -105,7 +105,6 @@
                                 </button>
                                 {{end}}
                             </div>
-                            <button type="button" class="link" onclick="clearPlannerFilters('participants-selection')">Clear filters</button>
                         </div>
                         {{end}}
                         <input type="search"
@@ -118,6 +117,7 @@
                                oninput="filterSelectList(this, 'participants-selection')">
                         <span class="panel-count text-muted">
                             <strong id="participants-selected-count">0</strong> selected
+                            <button type="button" class="link" onclick="clearPlannerFilters('participants-selection')">Clear filters</button>
                         </span>
                     </div>
 
@@ -167,7 +167,6 @@
                                 </button>
                                 {{end}}
                             </div>
-                            <button type="button" class="link" onclick="clearPlannerFilters('drivers-selection')">Clear filters</button>
                         </div>
                         {{end}}
                         <input type="search"
@@ -181,6 +180,7 @@
                         <span class="panel-count text-muted">
                             <strong id="drivers-selected-count">0</strong> selected ·
                             <span id="drivers-selected-seats">0</span> available seats
+                            <button type="button" class="link" onclick="clearPlannerFilters('drivers-selection')">Clear filters</button>
                         </span>
                     </div>
 
