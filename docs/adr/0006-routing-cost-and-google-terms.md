@@ -33,6 +33,6 @@ Estimated monthly usage: about 2,800 requests at 80/20 and 6,000 at 500/100, bot
 
 ## Consequences
 
-Google cost becomes linear in riders and stays inside the free tier at the scales planned. Compliance depends on never persisting measured values, which touches sessions, saved events, handoff text and route feedback. Users lose stored travel times in history and get them on demand instead. Route quality relative to the all-pairs solver is unproven until the replay runs; the estimator cannot see rivers or one-way streets. The ledger month rolls over at midnight Pacific time to match Google's billing calendar.
+Google cost becomes linear in riders and stays inside the free tier at the scales planned. Compliance depends on never persisting measured values, which touches sessions, saved events, handoff text and route feedback. Users lose stored travel times in history; saved events show the itinerary only, and on-demand timings for history pages are a deferred follow-up. Route quality relative to the all-pairs solver is unproven until the replay runs; the estimator cannot see rivers or one-way streets. The ledger month rolls over at midnight Pacific time to match Google's billing calendar.
 
 Consultation record: `_scratch/_reviews/algorithm/r1.out` through `r4.out` (local, not committed); `r4.out` holds the implementation specification.
