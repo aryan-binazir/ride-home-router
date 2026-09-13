@@ -623,7 +623,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     if (!workspace || !toggle || !content || toggle.dataset.uiPaneInit === "true") return;
 
     toggle.dataset.uiPaneInit = "true";
-    const desktopQuery = window.matchMedia("(min-width: 1025px)");
+    const desktopQuery = window.matchMedia("(min-width: 821px)");
     let prefersCollapsed = false;
 
     try {

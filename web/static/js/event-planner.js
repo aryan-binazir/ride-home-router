@@ -1914,6 +1914,10 @@
             const hasVisibleResults = target.children.length > 0 && !target.querySelector('.calculate-indicator');
             if (!hasVisibleResults) return;
 
+            // Desktop results already occupy their own pane. Only the stacked
+            // narrow layout needs to bring newly calculated routes into view.
+            if (window.matchMedia('(min-width: 821px)').matches) return;
+
             const anchor = document.getElementById('calculate-btn');
             const scrollTarget = anchor || target;
             const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
