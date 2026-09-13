@@ -21,8 +21,15 @@ the bearing sweep repairs a partial seed instead of falling back to the slow
 round-robin (`tight-seats-500` no longer times out: seeds 1 and 3 went from
 about 85 s and 10,400 km to under a second and about 3,800 km), and pickup
 routes are scored by riders' time aboard with single-block relocations in the
-ordering pass (pickup backtracking cars 194 → 18 across the suite, worst
-rider trips shorter in 30 runs and longer in 1; seven runs gave up 1–3%
-distance or a few minutes of detour, accepted by the owner). Known remaining
+ordering pass. Pickup, 63 runs: backtracking cars 194 → 18, summed worst
+rider time 3,642 → 3,274 min, far drivers 225 → 198, driving 106,148 →
+105,830 km; the worst rider improved in 30 runs and worsened in 1. Seven
+pickup runs got worse on something, two of them substantially:
+triangle-wide-500 seed 2 worst rider 67.5 → 86.7 min, chapel-hill-venue-100
+seed 2 max detour 42.3 → 59.6 min and +3% distance; the other five gave up
+1–3% distance or up to 4 min of detour. Dropoff, 63 runs: relocations changed
+42 plans within the gates (driving −0.14%, backtracking 19 → 9, worst rider
+and far drivers unchanged, two runs +0.2% distance). The owner accepted these
+trade-offs as a policy change after reviewing them. Known remaining
 defect: `drivers-in-durham-*` has many far drivers because every selected
 driver is used and groups are not yet matched to driver homes.

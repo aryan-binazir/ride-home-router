@@ -11,7 +11,8 @@ Regenerated again on 2026-09-13 when pickup routes began to be scored by each
 rider's time aboard (pickup to venue) instead of the whole drive per rider,
 and the ordering pass gained single-block relocations: both pickup plans
 changed (household-free total distance 59,007 → 56,431 m; households 39,887 →
-40,505 m, same maximum detour and longest rider), dropoff unchanged.
+40,505 m, same maximum detour and longest rider); the two dropoff fixtures
+happened not to change, although relocations apply to dropoff too.
 Regenerate only for a decided
 solver change, with `UPDATE_ROUTING_REFERENCES=1 go test ./internal/routing -run
 TestRoutingPreservesReferenceResults`.
