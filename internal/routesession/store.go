@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	MaxConcurrentSessions  = 256
-	MaxCommittedSessions   = 256
-	defaultTTL             = 8 * time.Hour
+	MaxConcurrentSessions = 256
+	MaxCommittedSessions  = 256
+	// DefaultTTL is the maximum lifetime of a route session.
+	DefaultTTL             = 8 * time.Hour
 	defaultCleanupInterval = 15 * time.Minute
 )
 
@@ -122,7 +123,7 @@ type Store struct {
 }
 
 func NewStore(distanceCalc distance.Lookup) *Store {
-	return newStore(distanceCalc, defaultTTL, defaultCleanupInterval, time.Now)
+	return newStore(distanceCalc, DefaultTTL, defaultCleanupInterval, time.Now)
 }
 
 func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {

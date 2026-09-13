@@ -16,6 +16,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Reserve the calculation budget and full session lifetime so route edits keep
+// using coordinates younger than CoordinateMaxAge until the session expires.
+const coordinateRefreshMargin = routesession.DefaultTTL + routeSolveTimeout
+
 type routeCalculationKind int
 
 var (
@@ -219,7 +223,7 @@ func (e *refreshProviderError) Unwrap() error { return e.cause }
 func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants []models.Participant, drivers []models.Driver, location *models.ActivityLocation) error {
 	group, workCtx := errgroup.WithContext(ctx)
 	group.SetLimit(4)
-	cutoff := time.Now().Add(-models.CoordinateMaxAge)
+	cutoff := time.Now().Add(-(models.CoordinateMaxAge - coordinateRefreshMargin))
 	var refreshed atomic.Int32
 	submit := func(id int64, name, address string, lat, lng *float64, at *time.Time, persist func(context.Context, int64, string, models.Coordinates, time.Time) error) {
 		if at.After(cutoff) {

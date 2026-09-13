@@ -9,6 +9,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
+	"ride-home-router/internal/routesession"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -36,72 +37,97 @@ func (g *refreshGeocoder) GeocodeWithRetry(ctx context.Context, _ string, _ int)
 }
 
 func TestCalculateRefreshesExpiredCoordinates(t *testing.T) {
-	for _, subject := range []string{"participant", "driver", "location", "fresh"} {
-		t.Run(subject, func(t *testing.T) {
-			h, s := newTestRouteHandler(t)
-			g := &refreshGeocoder{}
-			h.Geocoder = g
-			ctx := t.Context()
-			p, err := s.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 1, Lng: 2})
-			if err != nil {
-				t.Fatal(err)
-			}
-			d, err := s.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 3, Lng: 4, VehicleCapacity: 4})
-			if err != nil {
-				t.Fatal(err)
-			}
-			loc, err := s.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Gym Rd", Lat: 5, Lng: 6})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if subject == "participant" {
-				if err := s.Participants().UpdateCoordinates(ctx, p.ID, p.Address, p.GetCoords(), time.Now().Add(-31*24*time.Hour)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if subject == "driver" {
-				if err := s.Drivers().UpdateCoordinates(ctx, d.ID, d.Address, d.GetCoords(), time.Now().Add(-31*24*time.Hour)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if subject == "location" {
-				if err := s.ActivityLocations().UpdateCoordinates(ctx, loc.ID, loc.Address, loc.GetCoords(), time.Now().Add(-31*24*time.Hour)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			router := &captureRouter{result: &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: d, Stops: []models.RouteStop{{Participant: p}}}}}}
-			h.Router = router
-			form := url.Values{"participant_ids": {fmt.Sprint(p.ID)}, "driver_ids": {fmt.Sprint(d.ID)}, "activity_location_id": {fmt.Sprint(loc.ID)}, "route_time": {"18:30"}, "mode": {"dropoff"}}
-			response := postMobileForm(t, nil, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				r.Header.Set("HX-Request", "true")
-				h.HandleCalculateRoutes(w, r)
-			}))
-			if response.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s", response.Code, response.Body)
-			}
-			wantCalls := int32(0)
-			wantLat := float64(1)
-			if subject != "fresh" {
-				wantCalls = 1
-			}
-			if subject == "participant" {
-				wantLat = 41
-			}
-			if g.calls.Load() != wantCalls {
-				t.Fatalf("calls=%d want=%d", g.calls.Load(), wantCalls)
-			}
-			if router.lastRequest == nil || router.lastRequest.Participants[0].Lat != wantLat {
-				t.Fatalf("solver input=%#v", router.lastRequest)
-			}
-			if subject == "driver" && router.lastRequest.Drivers[0].Lat != 41 {
-				t.Fatal("solver used stale driver")
-			}
-			if subject == "location" && router.lastRequest.InstituteCoords.Lat != 41 {
-				t.Fatal("solver used stale location")
-			}
-			saved, err := s.Participants().GetByID(ctx, p.ID)
-			if err != nil || saved.Lat != wantLat || time.Since(saved.GeocodedAt) > time.Minute {
-				t.Fatalf("saved=%#v %v", saved, err)
+	for _, tc := range []struct {
+		name    string
+		age     time.Duration
+		refresh bool
+	}{
+		{"expired", 31 * 24 * time.Hour, true},
+		{"expires during session", models.CoordinateMaxAge - routesession.DefaultTTL - routeSolveTimeout + time.Second, true},
+		{"fresh through session", models.CoordinateMaxAge - routesession.DefaultTTL - routeSolveTimeout - time.Hour, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, subject := range []string{"participant", "driver", "location"} {
+				t.Run(subject, func(t *testing.T) {
+					h, s := newTestRouteHandler(t)
+					g := &refreshGeocoder{}
+					h.Geocoder = g
+					ctx := t.Context()
+					p, err := s.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 1, Lng: 2})
+					if err != nil {
+						t.Fatal(err)
+					}
+					d, err := s.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 3, Lng: 4, VehicleCapacity: 4})
+					if err != nil {
+						t.Fatal(err)
+					}
+					loc, err := s.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Gym Rd", Lat: 5, Lng: 6})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if subject == "participant" {
+						if err := s.Participants().UpdateCoordinates(ctx, p.ID, p.Address, p.GetCoords(), time.Now().Add(-tc.age)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if subject == "driver" {
+						if err := s.Drivers().UpdateCoordinates(ctx, d.ID, d.Address, d.GetCoords(), time.Now().Add(-tc.age)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if subject == "location" {
+						if err := s.ActivityLocations().UpdateCoordinates(ctx, loc.ID, loc.Address, loc.GetCoords(), time.Now().Add(-tc.age)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					router := &captureRouter{result: &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: d, Stops: []models.RouteStop{{Participant: p}}}}}}
+					h.Router = router
+					form := url.Values{"participant_ids": {fmt.Sprint(p.ID)}, "driver_ids": {fmt.Sprint(d.ID)}, "activity_location_id": {fmt.Sprint(loc.ID)}, "route_time": {"18:30"}, "mode": {"dropoff"}}
+					response := postMobileForm(t, nil, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						r.Header.Set("HX-Request", "true")
+						h.HandleCalculateRoutes(w, r)
+					}))
+					if response.Code != http.StatusOK {
+						t.Fatalf("status=%d body=%s", response.Code, response.Body)
+					}
+					wantCalls := int32(0)
+					wantLat := float64(1)
+					if tc.refresh {
+						wantCalls = 1
+					}
+					if subject == "participant" && tc.refresh {
+						wantLat = 41
+					}
+					if g.calls.Load() != wantCalls {
+						t.Fatalf("calls=%d want=%d", g.calls.Load(), wantCalls)
+					}
+					if router.lastRequest == nil || router.lastRequest.Participants[0].Lat != wantLat {
+						t.Fatalf("solver input=%#v", router.lastRequest)
+					}
+					if subject == "driver" && tc.refresh && router.lastRequest.Drivers[0].Lat != 41 {
+						t.Fatal("solver used stale driver")
+					}
+					if subject == "location" && tc.refresh && router.lastRequest.InstituteCoords.Lat != 41 {
+						t.Fatal("solver used stale location")
+					}
+					saved, err := s.Participants().GetByID(ctx, p.ID)
+					if err != nil || saved.Lat != wantLat || time.Since(saved.GeocodedAt) > models.CoordinateMaxAge-routesession.DefaultTTL-routeSolveTimeout {
+						t.Fatalf("saved=%#v %v", saved, err)
+					}
+					savedDriver, err := s.Drivers().GetByID(ctx, d.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					savedLocation, err := s.ActivityLocations().GetByID(ctx, loc.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for name, at := range map[string]time.Time{"participant": saved.GeocodedAt, "driver": savedDriver.GeocodedAt, "location": savedLocation.GeocodedAt} {
+						if time.Since(at) > models.CoordinateMaxAge-routesession.DefaultTTL-routeSolveTimeout {
+							t.Fatalf("%s coordinates expire before the session can end: %s", name, at)
+						}
+					}
+				})
 			}
 		})
 	}

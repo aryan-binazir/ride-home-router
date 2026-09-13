@@ -44,7 +44,7 @@ func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepositor
 	if records == nil {
 		panic("routesession: workflow repository is required")
 	}
-	return &Store{distanceCalc: calc, records: records, ttl: defaultTTL, now: time.Now}
+	return &Store{distanceCalc: calc, records: records, ttl: DefaultTTL, now: time.Now}
 }
 
 func (s *Store) CreateContext(ctx context.Context, input CreateInput) (Snapshot, error) {
