@@ -43,7 +43,15 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 		m.TotalDistanceKm += route.TotalDistanceMeters / 1000
 		m.MaxDetourMin = math.Max(m.MaxDetourMin, route.DetourSecs/60)
 		m.AverageDetourMin += route.DetourSecs / 60
-		burdens = append(burdens, route.DetourSecs/60/float64(len(route.Stops)))
+		riders := 0
+		for _, stop := range route.Stops {
+			if stop.Participant != nil {
+				riders++
+			}
+		}
+		if riders > 0 {
+			burdens = append(burdens, route.DetourSecs/60/float64(riders))
+		}
 		var lat, lng float64
 		var radii []float64
 		var path []models.Coordinates

@@ -111,7 +111,7 @@ func TestBurdenAndHomePassMetrics(t *testing.T) {
 	// Car 1: driver lives at 0.05N; the route goes venue -> 0.05N (within 2 km
 	// of home) -> 0.20N (17 km beyond home): a home-pass excursion. Detour
 	// 20 min for 2 riders = 10 min/rider.
-	// Car 2: driver at 0.30E, riders at 0.10E and 0.20E on the way: no pass.
+	// Car 2: driver at 0.30E, riders at 0.10E, 0.20E and 0.21E on the way: no pass.
 	// Detour 6 min for 3 riders = 2 min/rider.
 	result := &models.RoutingResult{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{
 		{Driver: &models.Driver{ID: 1, Lat: 0.05, Lng: 0}, DetourSecs: 1200, Stops: []models.RouteStop{{Participant: rider(1, 0.05, 0.001)}, {Participant: rider(2, 0.20, 0)}}},
@@ -121,12 +121,23 @@ func TestBurdenAndHomePassMetrics(t *testing.T) {
 	if m.HomePassCars != 1 || m.BurdenMaxMin != 10 || m.BurdenP95Min != 10 {
 		t.Fatalf("metrics = %+v, want 1 home-pass car and 10 min/rider burden", m)
 	}
-	// In pickup the same coordinates are read venue-to-riders in reverse.
+	// Pickup order is reversed into venue-to-riders order before the test, and
+	// this fixture only passes when it is. Home 0.10E; pickup order: near rider
+	// at home, then a far rider at 0.30E offset 0.06N.
+	//   Canonical (reversed) venue -> far -> near: the venue->far leg runs about
+	//   6.7 km north of home (miss); the far->near leg ends at home with nothing
+	//   far still ahead: no pass.
+	//   Raw pickup order venue -> near -> far: the first leg reaches home with
+	//   the far rider (22 km away) ahead: a pass.
 	pickup := &models.RoutingResult{Mode: models.RouteModePickup, Routes: []models.CalculatedRoute{
-		{Driver: &models.Driver{ID: 1, Lat: 0.05, Lng: 0}, DetourSecs: 1200, Stops: []models.RouteStop{{Participant: rider(2, 0.20, 0)}, {Participant: rider(1, 0.05, 0.001)}}},
+		{Driver: &models.Driver{ID: 1, Lat: 0, Lng: 0.10}, DetourSecs: 600, Stops: []models.RouteStop{{Participant: rider(1, 0.001, 0.10)}, {Participant: rider(2, 0.06, 0.30)}}},
 	}}
-	if got := Measure(pickup, venue, 0).HomePassCars; got != 1 {
-		t.Fatalf("pickup home-pass cars = %d, want 1", got)
+	if got := Measure(pickup, venue, 0).HomePassCars; got != 0 {
+		t.Fatalf("pickup home-pass cars = %d, want 0: pickup order must be reversed before the test", got)
+	}
+	asDropoff := &models.RoutingResult{Mode: models.RouteModeDropoff, Routes: pickup.Routes}
+	if got := Measure(asDropoff, venue, 0).HomePassCars; got != 1 {
+		t.Fatalf("same stops read as dropoff = %d home-pass cars, want 1", got)
 	}
 	base := []Result{{Key: "drivers-in-durham-100/dropoff/1", Scenario: "drivers-in-durham-100", Riders: 100, Drivers: 28, Metrics: Metrics{CarsUsed: 28, BurdenP95Min: 20, BurdenMaxMin: 30, HomePassCars: 5}}}
 	worse := []Result{{Key: "drivers-in-durham-100/dropoff/1", Scenario: "drivers-in-durham-100", Riders: 100, Drivers: 28, Metrics: Metrics{CarsUsed: 28, BurdenP95Min: 21.5, BurdenMaxMin: 32.5, HomePassCars: 6}}}

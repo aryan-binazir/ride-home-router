@@ -7,23 +7,32 @@ than this file (`Compare` in `../evaluate.go`). Solve times are not stored;
 timeouts are.
 
 Two metrics describe whether a plan reads as sensible to a coordinator, beyond
-distance and detour: driver burden per rider (detour minutes divided by riders
-served; the 95th percentile by nearest rank and the worst car, stored and
-gated unrounded; gates +1 and +2 min/rider), and home-pass cars (the car's
-great-circle path in venue-to-riders order comes within 2 km of the driver's
-home on a leg while a rider more than 5 km from that home is still to be
-served; gate +1 car, or +0 in the drivers-in-durham shapes). They are
-straight-line geometry, not road evidence. Baseline regenerated on 2026-09-13
-to add them; the planner was unchanged at that point.
+distance and detour: driver burden per rider (the planner's estimated detour
+minutes divided by riders served; the 95th percentile by nearest rank and the
+worst car, stored and gated unrounded; gates +1 and +2 min/rider), and
+home-pass cars (the car's great-circle path in venue-to-riders order comes
+within 2 km, inclusive, of the driver's home on a leg while a rider more than
+5 km from that home is still to be served; gate +1 car, or +0 in the
+drivers-in-durham shapes). Home-pass is straight-line geometry, not road
+evidence. In the summary, `home` is a sum over a scenario's runs and `b95` /
+`bmax` are the worst run. Baseline regenerated on 2026-09-13 to add them; the
+planner was unchanged at that point.
 
-The same day, four candidate assignment changes were measured against this
-baseline and none earned shipment: a driver-corridor seed (far drivers flat,
-driving +5%, worst rider +38%, backtracking 9 → 46), a seed portfolio picked by
-the comparator (4 runs fail gates), a burden tier in the comparator (7 runs
-fail), and a guarded global driver reassignment after Phase 4 (passes every
-gate, improves only two runs). Reordering the comparator so detour outranks
-corridor spread also made every total worse. Records: the design exchange
-under `_scratch/_reviews/rr/codex_design*.out` in the driver-matching worktree.
+The same day, five candidate assignment changes were measured against this
+baseline and none earned shipment. Measured by Codex on all 126 runs: a
+driver-corridor seed, households handed to drivers by insertion cost into the
+venue-to-home trip (122 of 126 runs fail gates; far drivers +19%, driving
++7.4%, burden p95 worse in every Durham-driver run; Claude's independent
+prototype of the same idea saw far drivers flat, driving +5%, worst rider
++38%, backtracking 9 → 46); a seed portfolio picked by the comparator (4 runs
+fail, one with max detour 13.6 → 34.0 min); a burden tier in the comparator
+(burden totals improve but 7 runs fail and the Durham shapes do not improve);
+and a guarded global driver reassignment after Phase 4 (passes every gate;
+p95 burden improves in 18 runs but by at least one minute in only two). Measured
+by Claude: reordering the comparator so detour outranks corridor spread made
+every total worse (driving +1.1%, detour +5%). The design exchange transcripts
+were kept under `_scratch/_reviews/rr/` in the driver-matching worktree
+(gitignored, temporary); this paragraph is the durable record.
 
 Rules:
 - Never regenerate the baseline to make a change pass. Regenerate only after a

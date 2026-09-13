@@ -289,6 +289,7 @@ func Summary(baseline, current []Result) string {
 		baseTimeouts, curTimeouts int
 		baseHome, curHome         int
 		baseB95, curB95           float64
+		baseBMax, curBMax         float64
 		runs                      int
 		maxSolve                  int64
 		baseLongest, curLongest   float64
@@ -327,6 +328,8 @@ func Summary(baseline, current []Result) string {
 		a.curHome += c.HomePassCars
 		a.baseB95 = max(a.baseB95, b.BurdenP95Min)
 		a.curB95 = max(a.curB95, c.BurdenP95Min)
+		a.baseBMax = max(a.baseBMax, b.BurdenMaxMin)
+		a.curBMax = max(a.curBMax, c.BurdenMaxMin)
 		a.baseLongest = max(a.baseLongest, b.LongestRiderMin)
 		a.curLongest = max(a.curLongest, c.LongestRiderMin)
 		a.baseMaxDet = max(a.baseMaxDet, b.MaxDetourMin)
@@ -339,14 +342,14 @@ func Summary(baseline, current []Result) string {
 	}
 	sort.Strings(order)
 	var out strings.Builder
-	fmt.Fprintf(&out, "%-32s %5s %10s %8s %8s %9s %9s %8s %11s %8s %8s\n", "scenario", "runs", "km change", "far", "back", "maxdet", "rider", "home", "b95", "timeout", "max ms")
+	fmt.Fprintf(&out, "%-32s %5s %10s %8s %8s %9s %9s %8s %12s %12s %8s %8s\n", "scenario", "runs", "km change", "far", "back", "maxdet", "rider", "home", "b95 (max)", "bmax (max)", "timeout", "max ms")
 	for _, name := range order {
 		a := byScenario[name]
 		change := 0.0
 		if a.baseKm > 0 {
 			change = (a.curKm - a.baseKm) / a.baseKm * 100
 		}
-		fmt.Fprintf(&out, "%-32s %5d %+9.2f%% %3d->%-3d %3d->%-3d %4.0f->%-4.0f %4.0f->%-4.0f %3d->%-3d %5.1f->%-5.1f %3d->%-3d %8d\n", name, a.runs, change, a.baseFar, a.curFar, a.baseBack, a.curBack, a.baseMaxDet, a.curMaxDet, a.baseLongest, a.curLongest, a.baseHome, a.curHome, a.baseB95, a.curB95, a.baseTimeouts, a.curTimeouts, a.maxSolve)
+		fmt.Fprintf(&out, "%-32s %5d %+9.2f%% %3d->%-3d %3d->%-3d %4.0f->%-4.0f %4.0f->%-4.0f %3d->%-3d %5.1f->%-5.1f %5.1f->%-5.1f %3d->%-3d %8d\n", name, a.runs, change, a.baseFar, a.curFar, a.baseBack, a.curBack, a.baseMaxDet, a.curMaxDet, a.baseLongest, a.curLongest, a.baseHome, a.curHome, a.baseB95, a.curB95, a.baseBMax, a.curBMax, a.baseTimeouts, a.curTimeouts, a.maxSolve)
 	}
 	return out.String()
 }
