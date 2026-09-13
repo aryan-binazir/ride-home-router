@@ -14,7 +14,10 @@
       "longest_rider_min": 41.8,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 14.005932467459353,
+      "burden_max_min": 14.005932467459353,
+      "home_pass_cars": 2
     }
   },
   {
@@ -32,7 +35,10 @@
       "longest_rider_min": 41.8,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 14.005932467459353,
+      "burden_max_min": 14.005932467459353,
+      "home_pass_cars": 2
     }
   },
   {
@@ -50,7 +56,10 @@
       "longest_rider_min": 43.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 4.568679012672573,
+      "burden_max_min": 4.568679012672573,
+      "home_pass_cars": 0
     }
   },
   {
@@ -68,7 +77,10 @@
       "longest_rider_min": 43.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 4.568679012672571,
+      "burden_max_min": 4.568679012672571,
+      "home_pass_cars": 0
     }
   },
   {
@@ -86,7 +98,10 @@
       "longest_rider_min": 43.8,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.615870490893179,
+      "burden_max_min": 5.615870490893179,
+      "home_pass_cars": 0
     }
   },
   {
@@ -104,7 +119,10 @@
       "longest_rider_min": 43.8,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.615870490893179,
+      "burden_max_min": 5.615870490893179,
+      "home_pass_cars": 0
     }
   },
   {
@@ -122,7 +140,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.073390110158817,
+      "burden_max_min": 10.746904503213186,
+      "home_pass_cars": 2
     }
   },
   {
@@ -140,7 +161,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.0733901101588215,
+      "burden_max_min": 10.746904503213186,
+      "home_pass_cars": 2
     }
   },
   {
@@ -158,7 +182,10 @@
       "longest_rider_min": 43.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.06941228361392,
+      "burden_max_min": 6.549418672050553,
+      "home_pass_cars": 1
     }
   },
   {
@@ -176,7 +203,10 @@
       "longest_rider_min": 43.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.069412283613916,
+      "burden_max_min": 6.549418672050553,
+      "home_pass_cars": 1
     }
   },
   {
@@ -194,7 +224,10 @@
       "longest_rider_min": 43.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.788902852123287,
+      "burden_max_min": 5.970993820114259,
+      "home_pass_cars": 1
     }
   },
   {
@@ -212,7 +245,10 @@
       "longest_rider_min": 43.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.788902852123287,
+      "burden_max_min": 5.970993820114259,
+      "home_pass_cars": 1
     }
   },
   {
@@ -230,7 +266,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.284680027980526,
+      "burden_max_min": 9.611182168081973,
+      "home_pass_cars": 5
     }
   },
   {
@@ -248,7 +287,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.284680027980524,
+      "burden_max_min": 9.611182168081973,
+      "home_pass_cars": 5
     }
   },
   {
@@ -266,7 +308,10 @@
       "longest_rider_min": 45,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.337388483219107,
+      "burden_max_min": 11.577106795205944,
+      "home_pass_cars": 0
     }
   },
   {
@@ -284,7 +329,10 @@
       "longest_rider_min": 45,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.337388483219107,
+      "burden_max_min": 11.577106795205944,
+      "home_pass_cars": 0
     }
   },
   {
@@ -302,7 +350,10 @@
       "longest_rider_min": 43.7,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.864968119792737,
+      "burden_max_min": 14.665212636382327,
+      "home_pass_cars": 7
     }
   },
   {
@@ -320,7 +371,10 @@
       "longest_rider_min": 43.7,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.864968119792737,
+      "burden_max_min": 14.665212636382327,
+      "home_pass_cars": 7
     }
   },
   {
@@ -338,7 +392,10 @@
       "longest_rider_min": 43.2,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.9758758170377,
+      "burden_max_min": 16.76074899283474,
+      "home_pass_cars": 5
     }
   },
   {
@@ -356,7 +413,10 @@
       "longest_rider_min": 43.2,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.185792304335018,
+      "burden_max_min": 16.76074899283474,
+      "home_pass_cars": 5
     }
   },
   {
@@ -374,7 +434,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.186871352896801,
+      "burden_max_min": 12.357403484543932,
+      "home_pass_cars": 6
     }
   },
   {
@@ -392,7 +455,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.2020949253247215,
+      "burden_max_min": 12.357403484543932,
+      "home_pass_cars": 5
     }
   },
   {
@@ -410,7 +476,10 @@
       "longest_rider_min": 42.9,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.9392692410372,
+      "burden_max_min": 14.821795113186855,
+      "home_pass_cars": 6
     }
   },
   {
@@ -428,7 +497,10 @@
       "longest_rider_min": 42.9,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.980396085394308,
+      "burden_max_min": 14.821795113186855,
+      "home_pass_cars": 6
     }
   },
   {
@@ -446,7 +518,10 @@
       "longest_rider_min": 44.1,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.837099364103426,
+      "burden_max_min": 13.25143841448324,
+      "home_pass_cars": 4
     }
   },
   {
@@ -464,7 +539,10 @@
       "longest_rider_min": 44.1,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.765560104497274,
+      "burden_max_min": 13.25143841448324,
+      "home_pass_cars": 3
     }
   },
   {
@@ -482,7 +560,10 @@
       "longest_rider_min": 43.2,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.231271148032904,
+      "burden_max_min": 9.776776777844363,
+      "home_pass_cars": 3
     }
   },
   {
@@ -500,7 +581,10 @@
       "longest_rider_min": 43.2,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.71820280648774,
+      "burden_max_min": 7.513144284549693,
+      "home_pass_cars": 3
     }
   },
   {
@@ -518,7 +602,10 @@
       "longest_rider_min": 44.2,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 9.626406121773964,
+      "burden_max_min": 14.607932074727268,
+      "home_pass_cars": 2
     }
   },
   {
@@ -536,7 +623,10 @@
       "longest_rider_min": 44.2,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 9.626406121773964,
+      "burden_max_min": 14.607932074727268,
+      "home_pass_cars": 2
     }
   },
   {
@@ -554,7 +644,10 @@
       "longest_rider_min": 38.4,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.719070412537697,
+      "burden_max_min": 2.719070412537697,
+      "home_pass_cars": 0
     }
   },
   {
@@ -572,7 +665,10 @@
       "longest_rider_min": 38.4,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.719070412537697,
+      "burden_max_min": 2.719070412537697,
+      "home_pass_cars": 0
     }
   },
   {
@@ -590,7 +686,10 @@
       "longest_rider_min": 39.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.527298728432399,
+      "burden_max_min": 6.527298728432399,
+      "home_pass_cars": 0
     }
   },
   {
@@ -608,7 +707,10 @@
       "longest_rider_min": 39.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.527298728432399,
+      "burden_max_min": 6.527298728432399,
+      "home_pass_cars": 0
     }
   },
   {
@@ -626,7 +728,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.7180491520173717,
+      "burden_max_min": 2.7180491520173717,
+      "home_pass_cars": 0
     }
   },
   {
@@ -644,7 +749,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.7180491520173726,
+      "burden_max_min": 2.7180491520173726,
+      "home_pass_cars": 0
     }
   },
   {
@@ -662,7 +770,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.15836577971795,
+      "burden_max_min": 17.243258426987644,
+      "home_pass_cars": 1
     }
   },
   {
@@ -680,7 +791,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.15836577971795,
+      "burden_max_min": 17.243258426987644,
+      "home_pass_cars": 1
     }
   },
   {
@@ -698,7 +812,10 @@
       "longest_rider_min": 39.1,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.7916076244062746,
+      "burden_max_min": 8.228175851520405,
+      "home_pass_cars": 0
     }
   },
   {
@@ -716,7 +833,10 @@
       "longest_rider_min": 39.1,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 2.791607624406273,
+      "burden_max_min": 8.228175851520405,
+      "home_pass_cars": 0
     }
   },
   {
@@ -734,7 +854,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.817362422581164,
+      "burden_max_min": 9.711705600489129,
+      "home_pass_cars": 2
     }
   },
   {
@@ -752,7 +875,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.817362422581164,
+      "burden_max_min": 9.711705600489129,
+      "home_pass_cars": 2
     }
   },
   {
@@ -770,7 +896,10 @@
       "longest_rider_min": 39.3,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.201943351761349,
+      "burden_max_min": 10.917841876618606,
+      "home_pass_cars": 0
     }
   },
   {
@@ -788,7 +917,10 @@
       "longest_rider_min": 39.3,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 5.201943351761349,
+      "burden_max_min": 10.917841876618606,
+      "home_pass_cars": 0
     }
   },
   {
@@ -806,7 +938,10 @@
       "longest_rider_min": 39.5,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.659570808704344,
+      "burden_max_min": 16.51149732974536,
+      "home_pass_cars": 2
     }
   },
   {
@@ -824,7 +959,10 @@
       "longest_rider_min": 39.5,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.659570808704343,
+      "burden_max_min": 16.51149732974536,
+      "home_pass_cars": 2
     }
   },
   {
@@ -842,7 +980,10 @@
       "longest_rider_min": 39.9,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.1211894446903825,
+      "burden_max_min": 8.986496695748123,
+      "home_pass_cars": 0
     }
   },
   {
@@ -860,7 +1001,10 @@
       "longest_rider_min": 39.9,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.1211894446903825,
+      "burden_max_min": 8.986496695748123,
+      "home_pass_cars": 0
     }
   },
   {
@@ -878,7 +1022,10 @@
       "longest_rider_min": 39.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 9.939846938289614,
+      "burden_max_min": 13.378905004691196,
+      "home_pass_cars": 0
     }
   },
   {
@@ -896,7 +1043,10 @@
       "longest_rider_min": 39.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 9.801896503078293,
+      "burden_max_min": 13.378905004691196,
+      "home_pass_cars": 2
     }
   },
   {
@@ -914,7 +1064,10 @@
       "longest_rider_min": 39.6,
       "far_drivers": 10,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.496501155779316,
+      "burden_max_min": 10.542495975184853,
+      "home_pass_cars": 0
     }
   },
   {
@@ -932,7 +1085,10 @@
       "longest_rider_min": 39.6,
       "far_drivers": 10,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.496501155779316,
+      "burden_max_min": 10.542495975184853,
+      "home_pass_cars": 0
     }
   },
   {
@@ -950,7 +1106,10 @@
       "longest_rider_min": 39.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.449715698514833,
+      "burden_max_min": 10.854523343910245,
+      "home_pass_cars": 0
     }
   },
   {
@@ -968,7 +1127,10 @@
       "longest_rider_min": 39.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.071473939666476,
+      "burden_max_min": 10.363280920134802,
+      "home_pass_cars": 0
     }
   },
   {
@@ -986,7 +1148,10 @@
       "longest_rider_min": 42.4,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 3.781765123162227,
+      "burden_max_min": 4.651832168373768,
+      "home_pass_cars": 0
     }
   },
   {
@@ -1004,7 +1169,10 @@
       "longest_rider_min": 42.4,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 3.781765123162227,
+      "burden_max_min": 4.651832168373768,
+      "home_pass_cars": 0
     }
   },
   {
@@ -1022,7 +1190,10 @@
       "longest_rider_min": 42.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.852486617160473,
+      "burden_max_min": 16.56547651019395,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1040,7 +1211,10 @@
       "longest_rider_min": 42.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.852486617160473,
+      "burden_max_min": 16.565476510193953,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1058,7 +1232,10 @@
       "longest_rider_min": 41.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.726459182267841,
+      "burden_max_min": 8.588624526273577,
+      "home_pass_cars": 3
     }
   },
   {
@@ -1076,7 +1253,10 @@
       "longest_rider_min": 41.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 6.726459182267841,
+      "burden_max_min": 8.588624526273579,
+      "home_pass_cars": 3
     }
   },
   {
@@ -1094,7 +1274,10 @@
       "longest_rider_min": 42.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.197201344776978,
+      "burden_max_min": 15.100444904498305,
+      "home_pass_cars": 11
     }
   },
   {
@@ -1112,7 +1295,10 @@
       "longest_rider_min": 42.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.197201344776978,
+      "burden_max_min": 15.100444904498305,
+      "home_pass_cars": 11
     }
   },
   {
@@ -1130,7 +1316,10 @@
       "longest_rider_min": 41.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.757710240464049,
+      "burden_max_min": 13.239352955151974,
+      "home_pass_cars": 1
     }
   },
   {
@@ -1148,7 +1337,10 @@
       "longest_rider_min": 41.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 7.757710240464046,
+      "burden_max_min": 13.239352955151974,
+      "home_pass_cars": 1
     }
   },
   {
@@ -1166,7 +1358,10 @@
       "longest_rider_min": 42.8,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 11.008819202961416,
+      "burden_max_min": 11.853305385915997,
+      "home_pass_cars": 7
     }
   },
   {
@@ -1184,7 +1379,10 @@
       "longest_rider_min": 42.8,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 11.008819202961416,
+      "burden_max_min": 11.853305385915997,
+      "home_pass_cars": 7
     }
   },
   {
@@ -1202,7 +1400,10 @@
       "longest_rider_min": 62.2,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.136703021083479,
+      "burden_max_min": 14.014463564290436,
+      "home_pass_cars": 6
     }
   },
   {
@@ -1220,7 +1421,10 @@
       "longest_rider_min": 62.2,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.136703021083475,
+      "burden_max_min": 14.014463564290436,
+      "home_pass_cars": 6
     }
   },
   {
@@ -1238,7 +1442,10 @@
       "longest_rider_min": 63.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.123587047344124,
+      "burden_max_min": 12.64587835543412,
+      "home_pass_cars": 4
     }
   },
   {
@@ -1256,7 +1463,10 @@
       "longest_rider_min": 63.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.123587047344124,
+      "burden_max_min": 12.645878355434121,
+      "home_pass_cars": 4
     }
   },
   {
@@ -1274,7 +1484,10 @@
       "longest_rider_min": 78.9,
       "far_drivers": 5,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.111204762045203,
+      "burden_max_min": 13.76553832290662,
+      "home_pass_cars": 1
     }
   },
   {
@@ -1292,7 +1505,10 @@
       "longest_rider_min": 78.9,
       "far_drivers": 5,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.111204762045203,
+      "burden_max_min": 13.76553832290662,
+      "home_pass_cars": 1
     }
   },
   {
@@ -1310,7 +1526,10 @@
       "longest_rider_min": 62.9,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 11.302112290688536,
+      "burden_max_min": 12.750024806148799,
+      "home_pass_cars": 4
     }
   },
   {
@@ -1328,7 +1547,10 @@
       "longest_rider_min": 62.9,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 11.302112290688536,
+      "burden_max_min": 12.750024806148799,
+      "home_pass_cars": 4
     }
   },
   {
@@ -1346,7 +1568,10 @@
       "longest_rider_min": 63.3,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.648032593790932,
+      "burden_max_min": 15.49799753891203,
+      "home_pass_cars": 9
     }
   },
   {
@@ -1364,7 +1589,10 @@
       "longest_rider_min": 63.3,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.648032593790932,
+      "burden_max_min": 15.49799753891203,
+      "home_pass_cars": 9
     }
   },
   {
@@ -1382,7 +1610,10 @@
       "longest_rider_min": 63.3,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 14.361968713514148,
+      "burden_max_min": 15.537176426138416,
+      "home_pass_cars": 15
     }
   },
   {
@@ -1400,7 +1631,10 @@
       "longest_rider_min": 63.3,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 14.361968713514148,
+      "burden_max_min": 15.537176426138416,
+      "home_pass_cars": 15
     }
   },
   {
@@ -1418,7 +1652,10 @@
       "longest_rider_min": 62.7,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 10.973469840251669,
+      "burden_max_min": 16.945406698430958,
+      "home_pass_cars": 12
     }
   },
   {
@@ -1436,7 +1673,10 @@
       "longest_rider_min": 62.7,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 10.973469840251669,
+      "burden_max_min": 16.535380748088247,
+      "home_pass_cars": 11
     }
   },
   {
@@ -1454,7 +1694,10 @@
       "longest_rider_min": 61.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.643716819212939,
+      "burden_max_min": 15.19419151156733,
+      "home_pass_cars": 23
     }
   },
   {
@@ -1472,7 +1715,10 @@
       "longest_rider_min": 61.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 12.137926722448325,
+      "burden_max_min": 15.173660720584307,
+      "home_pass_cars": 22
     }
   },
   {
@@ -1490,7 +1736,10 @@
       "longest_rider_min": 62.9,
       "far_drivers": 6,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.257530624003572,
+      "burden_max_min": 15.52752922802412,
+      "home_pass_cars": 17
     }
   },
   {
@@ -1508,7 +1757,10 @@
       "longest_rider_min": 62.9,
       "far_drivers": 6,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.380722915154625,
+      "burden_max_min": 15.418016194791456,
+      "home_pass_cars": 18
     }
   },
   {
@@ -1526,7 +1778,10 @@
       "longest_rider_min": 63.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 9.848987702105546,
+      "burden_max_min": 29.117232987677973,
+      "home_pass_cars": 1
     }
   },
   {
@@ -1544,7 +1799,10 @@
       "longest_rider_min": 63.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 9.848987702105546,
+      "burden_max_min": 29.117232987677973,
+      "home_pass_cars": 1
     }
   },
   {
@@ -1562,7 +1820,10 @@
       "longest_rider_min": 62.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 10.148600151563906,
+      "burden_max_min": 13.696849520431389,
+      "home_pass_cars": 5
     }
   },
   {
@@ -1580,7 +1841,10 @@
       "longest_rider_min": 62.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 10.148600151563906,
+      "burden_max_min": 13.696849520431389,
+      "home_pass_cars": 5
     }
   },
   {
@@ -1598,7 +1862,10 @@
       "longest_rider_min": 63.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 19.84293785178432,
+      "burden_max_min": 20.09149228740818,
+      "home_pass_cars": 4
     }
   },
   {
@@ -1616,7 +1883,10 @@
       "longest_rider_min": 63.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 19.84293785178432,
+      "burden_max_min": 20.09149228740818,
+      "home_pass_cars": 4
     }
   },
   {
@@ -1634,7 +1904,10 @@
       "longest_rider_min": 43.5,
       "far_drivers": 9,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 20.873723860409658,
+      "burden_max_min": 24.14713407022794,
+      "home_pass_cars": 5
     }
   },
   {
@@ -1652,7 +1925,10 @@
       "longest_rider_min": 43.5,
       "far_drivers": 9,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 20.873723860409655,
+      "burden_max_min": 22.277190143935243,
+      "home_pass_cars": 5
     }
   },
   {
@@ -1670,7 +1946,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 8,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 23.287476073002125,
+      "burden_max_min": 33.94700936883384,
+      "home_pass_cars": 13
     }
   },
   {
@@ -1688,7 +1967,10 @@
       "longest_rider_min": 43.1,
       "far_drivers": 8,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 23.287476073002125,
+      "burden_max_min": 33.94700936883384,
+      "home_pass_cars": 13
     }
   },
   {
@@ -1706,7 +1988,10 @@
       "longest_rider_min": 44.2,
       "far_drivers": 7,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 18.449086436719217,
+      "burden_max_min": 18.685747163547415,
+      "home_pass_cars": 12
     }
   },
   {
@@ -1724,7 +2009,10 @@
       "longest_rider_min": 44.2,
       "far_drivers": 7,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 18.449086436719217,
+      "burden_max_min": 18.685747163547415,
+      "home_pass_cars": 12
     }
   },
   {
@@ -1742,7 +2030,10 @@
       "longest_rider_min": 43.7,
       "far_drivers": 15,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 21.976524875157732,
+      "burden_max_min": 23.4688960298116,
+      "home_pass_cars": 26
     }
   },
   {
@@ -1760,7 +2051,10 @@
       "longest_rider_min": 43.7,
       "far_drivers": 15,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 21.976524875157732,
+      "burden_max_min": 23.4688960298116,
+      "home_pass_cars": 26
     }
   },
   {
@@ -1778,7 +2072,10 @@
       "longest_rider_min": 43,
       "far_drivers": 19,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 18.094351847227124,
+      "burden_max_min": 24.05243421333085,
+      "home_pass_cars": 31
     }
   },
   {
@@ -1796,7 +2093,10 @@
       "longest_rider_min": 43,
       "far_drivers": 19,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 18.094351847227124,
+      "burden_max_min": 24.05243421333085,
+      "home_pass_cars": 31
     }
   },
   {
@@ -1814,7 +2114,10 @@
       "longest_rider_min": 43.5,
       "far_drivers": 18,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 22.795003213217452,
+      "burden_max_min": 35.64634133060527,
+      "home_pass_cars": 29
     }
   },
   {
@@ -1832,7 +2135,10 @@
       "longest_rider_min": 43.5,
       "far_drivers": 18,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 22.795003213217452,
+      "burden_max_min": 35.64634133060527,
+      "home_pass_cars": 29
     }
   },
   {
@@ -1850,7 +2156,10 @@
       "longest_rider_min": 63.6,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 10.489634077680394,
+      "burden_max_min": 25.36439582756202,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1868,7 +2177,10 @@
       "longest_rider_min": 63.6,
       "far_drivers": 3,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 10.489634077680394,
+      "burden_max_min": 25.36439582756202,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1886,7 +2198,10 @@
       "longest_rider_min": 62,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.02337376425012,
+      "burden_max_min": 23.106863861831183,
+      "home_pass_cars": 12
     }
   },
   {
@@ -1904,7 +2219,10 @@
       "longest_rider_min": 62,
       "far_drivers": 2,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.02337376425012,
+      "burden_max_min": 23.106863861831183,
+      "home_pass_cars": 12
     }
   },
   {
@@ -1922,7 +2240,10 @@
       "longest_rider_min": 64.7,
       "far_drivers": 5,
       "backtracking_cars": 1,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.454224519276552,
+      "burden_max_min": 20.740666079513513,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1940,7 +2261,10 @@
       "longest_rider_min": 64.7,
       "far_drivers": 5,
       "backtracking_cars": 1,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.454224519276552,
+      "burden_max_min": 20.740666079513513,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1958,7 +2282,10 @@
       "longest_rider_min": 61.9,
       "far_drivers": 2,
       "backtracking_cars": 2,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.44377095966477,
+      "burden_max_min": 14.982314908653438,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1976,7 +2303,10 @@
       "longest_rider_min": 61.9,
       "far_drivers": 2,
       "backtracking_cars": 4,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 8.172705034666455,
+      "burden_max_min": 14.982314908653438,
+      "home_pass_cars": 8
     }
   },
   {
@@ -1994,7 +2324,10 @@
       "longest_rider_min": 64.3,
       "far_drivers": 4,
       "backtracking_cars": 2,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 14.355343442707957,
+      "burden_max_min": 15.344757152031637,
+      "home_pass_cars": 12
     }
   },
   {
@@ -2012,7 +2345,10 @@
       "longest_rider_min": 64.3,
       "far_drivers": 6,
       "backtracking_cars": 3,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.462734321998205,
+      "burden_max_min": 15.009284802820199,
+      "home_pass_cars": 13
     }
   },
   {
@@ -2030,7 +2366,10 @@
       "longest_rider_min": 63.4,
       "far_drivers": 12,
       "backtracking_cars": 3,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.804292845057073,
+      "burden_max_min": 27.3998655933122,
+      "home_pass_cars": 18
     }
   },
   {
@@ -2048,7 +2387,10 @@
       "longest_rider_min": 63.4,
       "far_drivers": 10,
       "backtracking_cars": 1,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.326319536483958,
+      "burden_max_min": 21.284922026012755,
+      "home_pass_cars": 19
     }
   },
   {
@@ -2066,7 +2408,10 @@
       "longest_rider_min": 63,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 15.794219809492192,
+      "burden_max_min": 22.415378618116268,
+      "home_pass_cars": 17
     }
   },
   {
@@ -2084,7 +2429,10 @@
       "longest_rider_min": 63,
       "far_drivers": 4,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 15.794219809492196,
+      "burden_max_min": 22.415378618116268,
+      "home_pass_cars": 15
     }
   },
   {
@@ -2102,7 +2450,10 @@
       "longest_rider_min": 62.8,
       "far_drivers": 12,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 16.066371736655782,
+      "burden_max_min": 21.431942119390317,
+      "home_pass_cars": 25
     }
   },
   {
@@ -2120,7 +2471,10 @@
       "longest_rider_min": 62.8,
       "far_drivers": 13,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 16.148972784649207,
+      "burden_max_min": 21.431942119390317,
+      "home_pass_cars": 22
     }
   },
   {
@@ -2138,7 +2492,10 @@
       "longest_rider_min": 66.1,
       "far_drivers": 10,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.43755032560155,
+      "burden_max_min": 24.39417044319617,
+      "home_pass_cars": 21
     }
   },
   {
@@ -2156,7 +2513,10 @@
       "longest_rider_min": 66.1,
       "far_drivers": 9,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 17.46548551800023,
+      "burden_max_min": 24.39417044319617,
+      "home_pass_cars": 20
     }
   },
   {
@@ -2174,7 +2534,10 @@
       "longest_rider_min": 40.7,
       "far_drivers": 1,
       "backtracking_cars": 1,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 4.82344746358027,
+      "burden_max_min": 5.735543524026472,
+      "home_pass_cars": 0
     }
   },
   {
@@ -2192,7 +2555,10 @@
       "longest_rider_min": 40.7,
       "far_drivers": 1,
       "backtracking_cars": 1,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 4.82344746358027,
+      "burden_max_min": 5.735543524026472,
+      "home_pass_cars": 0
     }
   },
   {
@@ -2210,7 +2576,10 @@
       "longest_rider_min": 40.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.247121336911777,
+      "burden_max_min": 14.530778713712817,
+      "home_pass_cars": 0
     }
   },
   {
@@ -2228,7 +2597,10 @@
       "longest_rider_min": 40.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 13.247121336911777,
+      "burden_max_min": 14.530778713712817,
+      "home_pass_cars": 0
     }
   },
   {
@@ -2246,7 +2618,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 4.198099031452418,
+      "burden_max_min": 4.275169506277607,
+      "home_pass_cars": 0
     }
   },
   {
@@ -2264,7 +2639,10 @@
       "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
-      "split_households": 0
+      "split_households": 0,
+      "burden_p95_min": 4.198099031452418,
+      "burden_max_min": 4.275169506277607,
+      "home_pass_cars": 0
     }
   }
 ]
