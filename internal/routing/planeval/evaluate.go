@@ -176,8 +176,15 @@ func Compare(baseline, current []Result) []string {
 	if len(current) == 0 {
 		return []string{"no runs to compare"}
 	}
-	base := indexByKey(baseline)
 	var regressions []string
+	baseSeen := make(map[string]bool, len(baseline))
+	for _, r := range baseline {
+		if baseSeen[r.Key] {
+			regressions = append(regressions, r.Key+": duplicate baseline run; the baseline file is corrupt")
+		}
+		baseSeen[r.Key] = true
+	}
+	base := indexByKey(baseline)
 	seen := make(map[string]bool, len(current))
 	for _, r := range current {
 		if seen[r.Key] {
@@ -286,6 +293,10 @@ func Summary(baseline, current []Result) string {
 		}
 		if c.TimedOut {
 			a.curTimeouts++
+		}
+		if b.TimedOut || c.TimedOut {
+			// A timeout has no plan to add up; totals compare only planned runs.
+			continue
 		}
 		a.baseKm += b.TotalDistanceKm
 		a.curKm += c.TotalDistanceKm

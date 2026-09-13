@@ -137,12 +137,12 @@ func TestReportListsWorstCarsInPlainLanguage(t *testing.T) {
 }
 
 func TestCompareCoversCountsRostersAndTimeouts(t *testing.T) {
-	base := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 20, BacktrackingCars: 3, CarsUsed: 27}}}
-	ok := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 22, BacktrackingCars: 4, CarsUsed: 27}}}
+	base := []Result{{Key: "b/pickup/1", Scenario: "b", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 20, BacktrackingCars: 3, CarsUsed: 27}}}
+	ok := []Result{{Key: "b/pickup/1", Scenario: "b", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 22, BacktrackingCars: 4, CarsUsed: 27}}}
 	if got := Compare(base, ok); len(got) != 0 {
 		t.Fatalf("10%% more far drivers and one more backtracking car should pass: %v", got)
 	}
-	bad := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 23, BacktrackingCars: 5, CarsUsed: 26}}}
+	bad := []Result{{Key: "b/pickup/1", Scenario: "b", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 23, BacktrackingCars: 5, CarsUsed: 26}}}
 	joined := strings.Join(Compare(base, bad), "\n")
 	for _, want := range []string{"far drivers 20 -> 23", "backtracking cars 3 -> 5", "cars used 27 -> 26"} {
 		if !strings.Contains(joined, want) {
@@ -162,8 +162,17 @@ func TestCompareCoversCountsRostersAndTimeouts(t *testing.T) {
 	if got := Compare(slowBase, bad); len(got) != 0 {
 		t.Fatalf("improvement over a timeout flagged: %v", got)
 	}
-	if !strings.Contains(Table(timedOut), "TIMEOUT") || !strings.Contains(Summary(base, ok), "b/pickup/1"[:1]) {
-		t.Fatal("table or summary missing content")
+	if !strings.Contains(Table(timedOut), "TIMEOUT") {
+		t.Fatal("table does not mark the timed-out run")
+	}
+	summary := Summary(base, ok)
+	if !strings.Contains(summary, "b ") || !strings.Contains(summary, "20->22") || !strings.Contains(summary, "3->4") {
+		t.Fatalf("summary missing the scenario row with far 20->22 and back 3->4:\n%s", summary)
+	}
+	// A timeout on either side leaves the km totals to the planned runs only.
+	mixed := Summary(slowBase, bad)
+	if !strings.Contains(mixed, "+0.00%") || !strings.Contains(mixed, "1->0") {
+		t.Fatalf("summary with a baseline timeout should show no km change and 1->0 timeouts:\n%s", mixed)
 	}
 }
 
@@ -179,6 +188,10 @@ func TestCompareRefusesDroppedOrDuplicateRuns(t *testing.T) {
 	duplicate := Compare(base, []Result{{Key: "a/dropoff/1"}, {Key: "a/dropoff/1"}, {Key: "a/pickup/1"}})
 	if len(duplicate) != 1 || !strings.Contains(duplicate[0], "duplicate") {
 		t.Fatalf("duplicate run = %v", duplicate)
+	}
+	corrupt := Compare([]Result{{Key: "a/dropoff/1"}, {Key: "a/dropoff/1"}}, []Result{{Key: "a/dropoff/1"}})
+	if len(corrupt) != 1 || !strings.Contains(corrupt[0], "duplicate baseline") {
+		t.Fatalf("duplicate baseline = %v", corrupt)
 	}
 }
 
@@ -260,7 +273,10 @@ func TestPlannerEvaluation(t *testing.T) {
 		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("baseline rewritten; %d run(s) differed from the old baseline (listed above if any)", len(regressions))
+		if len(regressions) > 0 {
+			t.Logf("runs worse than the old baseline, now accepted as the new baseline:\n%s", strings.Join(regressions, "\n"))
+		}
+		t.Logf("baseline rewritten (%d finding(s) against the old baseline; improvements are visible in the summary above)", len(regressions))
 		return
 	}
 	if len(regressions) > 0 {
