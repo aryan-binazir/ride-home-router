@@ -287,6 +287,8 @@
             if (oldStops.length !== newStops.length) return;
             newStats.innerHTML = oldStats.innerHTML;
             card.dataset.routeDurationSecs = old.dataset.routeDurationSecs || '';
+            card.dataset.totalDistanceMeters = old.dataset.totalDistanceMeters || '';
+            card.dataset.detourSecs = old.dataset.detourSecs || '';
             card.dataset.timings = 'measured';
             newStops.forEach((stop, index) => {
                 stop.dataset.stopCumulativeDurationSecs = oldStops[index].dataset.stopCumulativeDurationSecs || '';
@@ -307,9 +309,71 @@
         return preserved > 0 ? template.innerHTML : html;
     }
 
+    // The formatters mirror the Go template helpers so browser-computed totals
+    // read exactly like server-rendered ones.
+    function formatDistance(meters, useMiles) {
+        return useMiles ? `${(meters / 1609.344).toFixed(2)} mi` : `${(meters / 1000).toFixed(2)} km`;
+    }
+
+    function formatDuration(seconds) {
+        const mins = Math.trunc(seconds / 60);
+        const secs = Math.trunc(seconds) % 60;
+        if (mins === 0) return `${secs}s`;
+        if (secs === 0) return `${mins}m`;
+        return `${mins}m ${secs}s`;
+    }
+
+    // Plan totals exist only when every occupied car has timings. The server
+    // can only add up the cars it measured in one response, so once cars have
+    // been measured one at a time the page adds up what is already on screen.
+    function summarizeMeasuredCards(cards, useMiles) {
+        let occupied = 0;
+        let totalMeters = 0;
+        let maxDetour = 0;
+        let sumDetour = 0;
+        for (const card of cards) {
+            if (!card.hasStops) continue;
+            const meters = Number(card.totalMeters);
+            const detour = Number(card.detourSecs);
+            if (card.timings !== 'measured' || card.totalMeters === '' || card.detourSecs === '' || !Number.isFinite(meters) || !Number.isFinite(detour)) return null;
+            occupied += 1;
+            totalMeters += meters;
+            sumDetour += detour;
+            maxDetour = Math.max(maxDetour, detour);
+        }
+        if (occupied === 0) return null;
+        return {
+            totalDistance: formatDistance(totalMeters, useMiles),
+            maxDetour: formatDuration(maxDetour),
+            averageDetour: formatDuration(sumDetour / occupied),
+        };
+    }
+
+    function refreshRouteTotals(root) {
+        const container = root && root.querySelector ? (root.matches && root.matches('.routes-container') ? root : root.querySelector('.routes-container')) : null;
+        if (!container || container.dataset.outOfBalance === 'true') return false;
+        const cards = [...container.querySelectorAll('.route-card')].map(card => ({
+            timings: card.dataset.timings,
+            hasStops: card.querySelectorAll('.stop-item').length > 0,
+            totalMeters: card.dataset.totalDistanceMeters ?? '',
+            detourSecs: card.dataset.detourSecs ?? '',
+        }));
+        const summary = summarizeMeasuredCards(cards, container.dataset.useMiles === 'true');
+        if (!summary) return false;
+        const write = (key, value) => {
+            const element = container.querySelector(`[data-summary="${key}"]`);
+            if (element) element.textContent = value;
+        };
+        write('total-distance', summary.totalDistance);
+        write('max-detour', summary.maxDetour);
+        write('average-detour', summary.averageDetour);
+        return true;
+    }
+
     function installRouteResults({ target, html, htmx, afterRender }) {
         const savedFields = snapshotSaveFields(target);
         target.innerHTML = preserveTimings(target, html, target.ownerDocument);
+        refreshRouteTotals(target);
         htmx.process(target);
         restoreSaveFields(target, savedFields);
         applyLocalEventDate(target);
@@ -2094,6 +2158,8 @@
         installRouteResults,
         localISODate,
         preserveTimings,
+        refreshRouteTotals,
         sanitizeVanAssignments,
+        summarizeMeasuredCards,
     };
 });

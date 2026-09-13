@@ -48,3 +48,34 @@ document.getElementById('evidence').textContent=JSON.stringify(cards);
         fs.rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test('refreshRouteTotals fills the plan totals once every occupied car on screen is measured', { skip: !browser }, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-totals-'));
+    try {
+        const card = (index, timings, stops, meters, detour) => `<section class="route-card" data-route-index="${index}" data-timings="${timings}" data-total-distance-meters="${meters}" data-detour-secs="${detour}"><div class="route-stops">${'<div class="stop-item"></div>'.repeat(stops)}</div></section>`;
+        const summary = `<div class="route-summary"><div class="value" data-summary="total-distance">—</div><div class="value" data-summary="max-detour">—</div><div class="value" data-summary="average-detour">—</div></div>`;
+        const page = (cards, outOfBalance) => `<div class="routes-container" data-use-miles="true" data-out-of-balance="${outOfBalance}">${cards}${summary}</div>`;
+        const fixture = `<!doctype html><html><body><div id="results-section"></div><pre id="evidence">pending</pre>
+<script>${fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8')}</script><script>
+const target=document.getElementById('results-section');
+const read=()=>[...target.querySelectorAll('[data-summary]')].map(e=>e.textContent);
+const out={};
+target.innerHTML=${JSON.stringify(page(card(0, 'measured', 2, 8000, 300) + card(1, 'stale', 1, '', '') + card(2, 'empty', 0, '', ''), false))};
+out.partial=[window.RideHomeRouterPlanner.refreshRouteTotals(target), read()];
+target.innerHTML=${JSON.stringify(page(card(0, 'measured', 2, 8000, 300) + card(1, 'measured', 1, 2000, 90) + card(2, 'empty', 0, '', ''), false))};
+out.complete=[window.RideHomeRouterPlanner.refreshRouteTotals(target), read()];
+target.innerHTML=${JSON.stringify(page(card(0, 'measured', 2, 8000, 300) + card(1, 'measured', 1, 2000, 90), true))};
+out.paused=[window.RideHomeRouterPlanner.refreshRouteTotals(target), read()];
+document.getElementById('evidence').textContent=JSON.stringify(out);
+</script></body></html>`;
+        const file = path.join(directory, 'fixture.html');
+        fs.writeFileSync(file, fixture);
+        const output = execFileSync(browser, ['--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', `--user-data-dir=${directory}/profile`, '--dump-dom', '--virtual-time-budget=1000', pathToFileURL(file).href], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 2 * 1024 * 1024 });
+        const out = JSON.parse(output.match(/<pre id="evidence">(.*?)<\/pre>/s)?.[1] || 'null');
+        assert.deepEqual(out.partial, [false, ['—', '—', '—']], 'a stale car leaves the totals alone');
+        assert.deepEqual(out.complete, [true, ['6.21 mi', '5m', '3m 15s']]);
+        assert.deepEqual(out.paused, [false, ['—', '—', '—']], 'an out-of-balance plan never gets totals');
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});

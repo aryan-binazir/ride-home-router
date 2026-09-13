@@ -8,7 +8,9 @@
      data-route-time="{{.RouteTime}}"
      data-session-id="{{.SessionID}}"
      data-route-count="{{len .Routes}}"
-     data-route-mode="{{.Mode}}">
+     data-route-mode="{{.Mode}}"
+     data-use-miles="{{.UseMiles}}"
+     data-out-of-balance="{{.IsOutOfBalance}}">
     <div class="results-header routes-header">
         <div>
             <h2 class="routes-title">Calculated Routes</h2>
@@ -46,6 +48,8 @@
                      data-driver-lat="{{printf "%.6f" .Driver.Lat}}"
                      data-driver-lng="{{printf "%.6f" .Driver.Lng}}"
                      data-route-duration-secs="{{if $measured}}{{printf "%.0f" $measured.RouteDurationSecs}}{{end}}"
+                     data-total-distance-meters="{{if $measured}}{{printf "%.0f" $measured.TotalDistanceMeters}}{{end}}"
+                     data-detour-secs="{{if $measured}}{{printf "%.0f" $measured.DetourSecs}}{{end}}"
                      data-timings="{{$timing.Status}}"
                      data-itinerary="{{$.SessionID}}:{{.Driver.ID}}:{{range .Stops}}{{.Participant.ID}},{{end}}"
                      data-route-index="{{$routeIndex}}"
@@ -177,21 +181,19 @@
                     <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
                     <div class="summary-item">
                         <div class="label">Total Distance</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
+                        <div class="value" data-summary="total-distance">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
                     </div>
                     {{if gt .Summary.OrgVehiclesUsed 0}}
                     <div class="summary-item"><div class="label">Vans</div><div class="value">{{.Summary.OrgVehiclesUsed}} used</div></div>
                     {{end}}
-                    {{if and .ShowAggregates (gt .Summary.MaxDetourSecs 0.0)}}
                     <div class="summary-item">
                         <div class="label">Max Detour</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDuration .Summary.MaxDetourSecs}}{{end}}</div>
+                        <div class="value" data-summary="max-detour">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDuration .Summary.MaxDetourSecs}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
                     </div>
                     <div class="summary-item">
                         <div class="label">Average Detour</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDuration .Summary.AverageDetourSecs}}{{end}}</div>
+                        <div class="value" data-summary="average-detour">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDuration .Summary.AverageDetourSecs}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
                     </div>
-                    {{end}}
                 </div>
                 {{if .Attribution}}<p class="text-muted route-attribution-note">Current estimates for this itinerary</p>{{end}}
             </div>

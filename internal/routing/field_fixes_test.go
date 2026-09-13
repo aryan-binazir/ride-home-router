@@ -36,7 +36,7 @@ func TestCalculateRoutesReportsSeatShortageBeforeSearching(t *testing.T) {
 }
 
 // Two drivers who each hold the other's neighbourhood must end up swapped:
-// the search has to be able to exchange whole cars, not just households.
+// the driver phase exchanges whole cars, not households.
 func TestAssignmentSearchSwapsDriversWhoseHomesAreCrossed(t *testing.T) {
 	institute := models.Coordinates{Lat: 0, Lng: 0}
 	north := &models.Driver{ID: 1, Name: "North Driver", Lat: 0.10, Lng: 0, VehicleCapacity: 2}
@@ -61,7 +61,7 @@ func TestAssignmentSearchSwapsDriversWhoseHomesAreCrossed(t *testing.T) {
 		north.ID: {driver: north, stops: []*models.Participant{riders[2], riders[3]}},
 		south.ID: {driver: south, stops: []*models.Participant{riders[0], riders[1]}},
 	}
-	if _, err := optimizeAssignments(context.Background(), rc, routes, []int64{north.ID, south.ID}); err != nil {
+	if _, err := optimizeDriverAssignments(context.Background(), rc, routes, []int64{north.ID, south.ID}); err != nil {
 		t.Fatal(err)
 	}
 	for _, stop := range routes[north.ID].stops {

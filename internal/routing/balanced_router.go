@@ -146,6 +146,14 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	}
 	log.Printf("[TIMING] Phase 3 (assignment search): %v (iterations=%d)", time.Since(phase3Start), iterations)
 
+	// Phase 4 exchanges whole cars between drivers who live near each other's riders.
+	phase4Start := time.Now()
+	swaps, err := optimizeDriverAssignments(ctx, rc, routes, driverIDs)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[TIMING] Phase 4 (driver swaps): %v (swaps=%d)", time.Since(phase4Start), swaps)
+
 	if len(unassigned) > 0 {
 		totalCapacity := 0
 		for _, d := range req.Drivers {
@@ -1243,40 +1251,6 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			return iteration, err
 		}
 
-		// Last resort: exchange two drivers' whole cars, so a driver who lives
-		// near another car's riders takes that car. Only accepted when it does
-		// not add driving overall.
-		if !best.found && !budgetExhausted {
-		driverSwapSearch:
-			for firstIndex, firstDriverID := range driverIDs {
-				if budgetExhausted {
-					break
-				}
-				firstRoute := routes[firstDriverID]
-				for _, secondDriverID := range driverIDs[firstIndex+1:] {
-					select {
-					case <-ctx.Done():
-						return iteration, ctx.Err()
-					default:
-					}
-					secondRoute := routes[secondDriverID]
-					if len(firstRoute.stops) == 0 && len(secondRoute.stops) == 0 {
-						continue
-					}
-					if len(secondRoute.stops) > firstRoute.driver.VehicleCapacity || len(firstRoute.stops) > secondRoute.driver.VehicleCapacity {
-						continue
-					}
-					// The two cars exchange their existing slices; neither is shared afterwards.
-					if err := considerCandidate(assignmentCandidate{firstDriverID: firstDriverID, secondDriverID: secondDriverID, firstStops: secondRoute.stops, secondStops: firstRoute.stops, noExtraDriving: true}); err != nil {
-						return iteration, err
-					}
-					if budgetExhausted {
-						break driverSwapSearch
-					}
-				}
-			}
-		}
-
 		if err := flush(); err != nil {
 			return iteration, err
 		}
@@ -1307,6 +1281,93 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 	}
 
 	return maxIterations, nil
+}
+
+// optimizeDriverAssignments keeps every car's riders and stop order and lets two
+// drivers exchange cars when the comparator prefers it and total driving does
+// not grow. It runs after the household search with its own bounds, so a large
+// roster that exhausts the household budget still gets its drivers matched.
+// Stop order is settled once at the end, with the planner's usual ordering.
+func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
+	const (
+		maxPairEvaluations = 100000
+		softBudget         = 2 * time.Second
+	)
+	maxPasses := max(20, len(driverIDs))
+	deadline := time.Now().Add(softBudget)
+	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
+	for _, driverID := range driverIDs {
+		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
+		if err != nil {
+			return 0, err
+		}
+		routeMetrics[driverID] = metrics
+	}
+	evaluations := 0
+	swaps := 0
+	for range maxPasses {
+		currentScore := scoreSolution(routeMetrics, driverIDs)
+		var best struct {
+			first, second   int64
+			firstM, secondM routeObjectiveMetrics
+			score           solutionScore
+			found           bool
+		}
+		for firstIndex, firstDriverID := range driverIDs {
+			firstRoute := routes[firstDriverID]
+			for _, secondDriverID := range driverIDs[firstIndex+1:] {
+				if err := ctx.Err(); err != nil {
+					return swaps, err
+				}
+				if evaluations >= maxPairEvaluations || time.Now().After(deadline) {
+					break
+				}
+				secondRoute := routes[secondDriverID]
+				if len(firstRoute.stops) == 0 && len(secondRoute.stops) == 0 {
+					continue
+				}
+				if len(secondRoute.stops) > firstRoute.driver.VehicleCapacity || len(firstRoute.stops) > secondRoute.driver.VehicleCapacity {
+					continue
+				}
+				evaluations++
+				firstM, err := rc.evaluateRouteObjective(ctx, firstRoute.driver, secondRoute.stops)
+				if err != nil {
+					return swaps, err
+				}
+				secondM, err := rc.evaluateRouteObjective(ctx, secondRoute.driver, firstRoute.stops)
+				if err != nil {
+					return swaps, err
+				}
+				previousFirst, previousSecond := routeMetrics[firstDriverID], routeMetrics[secondDriverID]
+				routeMetrics[firstDriverID], routeMetrics[secondDriverID] = firstM, secondM
+				score := scoreSolution(routeMetrics, driverIDs)
+				routeMetrics[firstDriverID], routeMetrics[secondDriverID] = previousFirst, previousSecond
+				if !score.betterThan(currentScore) || score.aggregateDriveDuration > currentScore.aggregateDriveDuration+scoreImprovementEpsilon {
+					continue
+				}
+				if best.found && !score.betterThan(best.score) {
+					continue
+				}
+				best.first, best.second, best.firstM, best.secondM, best.score, best.found = firstDriverID, secondDriverID, firstM, secondM, score, true
+			}
+		}
+		if !best.found {
+			break
+		}
+		// The two cars exchange their existing slices; neither is shared afterwards.
+		routes[best.first].stops, routes[best.second].stops = routes[best.second].stops, routes[best.first].stops
+		routeMetrics[best.first], routeMetrics[best.second] = best.firstM, best.secondM
+		swaps++
+		if evaluations >= maxPairEvaluations || time.Now().After(deadline) {
+			break
+		}
+	}
+	if swaps > 0 {
+		if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
+			return swaps, err
+		}
+	}
+	return swaps, nil
 }
 
 func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *participantGroup) []*models.Participant {
