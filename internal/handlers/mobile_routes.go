@@ -70,6 +70,10 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 // HandleMobileRouteTimings measures one car on demand and re-renders the routes screen.
 func (h *Handler) HandleMobileRouteTimings(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
+	if h.isHTMX(r) {
+		// The form swaps only its own car, so a redirect must move the whole page.
+		w = &htmxRedirectWriter{ResponseWriter: w}
+	}
 	_, sessionID, ok := h.mobileRouteSession(w, r)
 	if !ok {
 		return
@@ -432,4 +436,31 @@ func (h *Handler) redirectSavedMobileEvent(w http.ResponseWriter, r *http.Reques
 	//nolint:gosec // The target contains only a fixed local prefix and a numeric database ID.
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", event.ID), http.StatusSeeOther)
 	return true
+}
+
+// htmxRedirectWriter turns a plain redirect into an HX-Redirect so htmx
+// navigates instead of swapping the redirected page into a fragment target.
+type htmxRedirectWriter struct {
+	http.ResponseWriter
+	redirected bool
+}
+
+func (w *htmxRedirectWriter) WriteHeader(code int) {
+	if code == http.StatusSeeOther || code == http.StatusFound {
+		if location := w.Header().Get("Location"); location != "" {
+			w.Header().Del("Location")
+			w.Header().Set("HX-Redirect", location)
+			w.redirected = true
+			w.ResponseWriter.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *htmxRedirectWriter) Write(body []byte) (int, error) {
+	if w.redirected {
+		return len(body), nil
+	}
+	return w.ResponseWriter.Write(body)
 }

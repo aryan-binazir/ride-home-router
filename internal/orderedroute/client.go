@@ -35,9 +35,12 @@ const (
 // ErrNotConfigured means no Google Maps key is available.
 var ErrNotConfigured = errors.New("orderedroute: Google Maps API key is not configured")
 
-// Request is one ordered route: origin, stops in order, destination.
+// Request is one ordered route: origin, stops in order, destination. Requests
+// sharing a Group (for example a car's route and its baseline) are reserved
+// together so a car is never half paid for.
 type Request struct {
 	ID     string
+	Group  string
 	Points []models.Coordinates
 }
 
@@ -113,20 +116,43 @@ func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 		}
 	}
 
-	// Each car reserves its own attempts, so a nearly exhausted month still
-	// measures as many whole cars as the allowance permits.
+	// Each group (a car) reserves its attempts together, so a nearly exhausted
+	// month still measures as many whole cars as the allowance permits.
+	groups := make(map[string][]int)
+	var order []string
+	for i, request := range requests {
+		group := request.Group
+		if group == "" {
+			group = request.ID
+		}
+		if _, seen := groups[group]; !seen {
+			order = append(order, group)
+		}
+		groups[group] = append(groups[group], i)
+	}
 	var wg sync.WaitGroup
-	for i := range requests {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			if err := c.reserve(ctx, RequestsFor(len(requests[index].Points))); err != nil {
-				results[index].Err = fmt.Errorf("orderedroute: %w", err)
+	for _, group := range order {
+		indexes := groups[group]
+		wg.Go(func() {
+			attempts := 0
+			for _, index := range indexes {
+				attempts += RequestsFor(len(requests[index].Points))
+			}
+			if err := c.reserve(ctx, attempts); err != nil {
+				for _, index := range indexes {
+					results[index].Err = fmt.Errorf("orderedroute: %w", err)
+				}
 				return
 			}
-			legs, err := c.measureRoute(ctx, key, requests[index].Points)
-			results[index].Legs, results[index].Err = legs, err
-		}(i)
+			var inner sync.WaitGroup
+			for _, index := range indexes {
+				inner.Go(func() {
+					legs, err := c.measureRoute(ctx, key, requests[index].Points)
+					results[index].Legs, results[index].Err = legs, err
+				})
+			}
+			inner.Wait()
+		})
 	}
 	wg.Wait()
 	return results

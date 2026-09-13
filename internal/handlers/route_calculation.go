@@ -199,6 +199,9 @@ func (c *routeCalculation) loadAssignedOrgVehicles(ctx context.Context, assignme
 	return vehicleMap, nil
 }
 
+// refreshBudget bounds the best-effort coordinate refresh inside the solve budget.
+const refreshBudget = 5 * time.Second
+
 // refreshCoordinates re-geocodes stale coordinates before planning, once per
 // distinct address. It is best effort: any failure keeps the existing
 // coordinates, logs counts only, and never blocks the calculation.
@@ -213,6 +216,7 @@ func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants 
 		persist  func(context.Context, models.Coordinates, time.Time) error
 	}
 	byAddress := make(map[string][]target)
+	addressFor := make(map[string]string)
 	var order []string
 	add := func(address string, at *time.Time, lat, lng *float64, persist func(context.Context, models.Coordinates, time.Time) error) {
 		if at.After(cutoff) {
@@ -221,6 +225,7 @@ func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants 
 		key := strings.ToLower(strings.Join(strings.Fields(address), " "))
 		if _, seen := byAddress[key]; !seen {
 			order = append(order, key)
+			addressFor[key] = address
 		}
 		byAddress[key] = append(byAddress[key], target{lat: lat, lng: lng, at: at, persist: persist})
 	}
@@ -244,16 +249,9 @@ func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants 
 	if len(order) == 0 {
 		return
 	}
-	addressFor := make(map[string]string, len(order))
-	for i := range participants {
-		addressFor[strings.ToLower(strings.Join(strings.Fields(participants[i].Address), " "))] = participants[i].Address
-	}
-	for i := range drivers {
-		addressFor[strings.ToLower(strings.Join(strings.Fields(drivers[i].Address), " "))] = drivers[i].Address
-	}
-	if location != nil {
-		addressFor[strings.ToLower(strings.Join(strings.Fields(location.Address), " "))] = location.Address
-	}
+	// Refresh must never eat the calculation budget: give it a short deadline.
+	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
+	defer cancel()
 	var refreshed, failed atomic.Int32
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, 4)

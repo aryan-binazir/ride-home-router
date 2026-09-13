@@ -55,7 +55,7 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 			// An empty car has nothing to measure; its planning numbers must not
 			// pass as a measurement either.
 			route.Mode = mode
-			zeroRouteMetrics(&route)
+			ZeroRouteMetrics(&route)
 			results[i].Route = route
 			continue
 		}
@@ -78,12 +78,13 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 			continue
 		}
 		points = append(points, rc.destination(route.Driver))
+		group := fmt.Sprintf("car-%d", index)
 		plans[i] = plan{waypointOfStop: waypointOfStop, routeID: fmt.Sprintf("route-%d", index)}
-		requests = append(requests, orderedroute.Request{ID: plans[i].routeID, Points: points})
+		requests = append(requests, orderedroute.Request{ID: plans[i].routeID, Group: group, Points: points})
 		// A driver who lives at the activity location has a zero baseline; skip the call.
 		if origin, destination := rc.origin(route.Driver), rc.destination(route.Driver); !distance.SamePoint(origin, destination) {
 			plans[i].baselineID = fmt.Sprintf("baseline-%d", index)
-			requests = append(requests, orderedroute.Request{ID: plans[i].baselineID, Points: []models.Coordinates{origin, destination}})
+			requests = append(requests, orderedroute.Request{ID: plans[i].baselineID, Group: group, Points: []models.Coordinates{origin, destination}})
 		}
 	}
 	if len(requests) == 0 {
@@ -165,7 +166,9 @@ func assembleMeasuredMetrics(legs []orderedroute.Leg, baseline orderedroute.Leg,
 	return metrics, nil
 }
 
-func zeroRouteMetrics(route *models.CalculatedRoute) {
+// ZeroRouteMetrics strips every distance and duration from a route in place so
+// planning estimates can never be mistaken for measurements.
+func ZeroRouteMetrics(route *models.CalculatedRoute) {
 	route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters, route.TotalDistanceMeters = 0, 0, 0
 	route.BaselineDurationSecs, route.RouteDurationSecs, route.DetourSecs = 0, 0, 0
 	for i := range route.Stops {

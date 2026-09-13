@@ -218,7 +218,13 @@ func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
 			log.Printf("[INFO] GOOGLE_USAGE_SEED entry for %s ignored in %s", strings.TrimSpace(seedMonth), month)
 			continue
 		}
-		seeds[database.UsageSKU(strings.ToLower(strings.TrimSpace(sku)))] = n
+		name := database.UsageSKU(strings.ToLower(strings.TrimSpace(sku)))
+		switch name {
+		case database.UsageSKURoutes, database.UsageSKUGeocoding, database.UsageSKUAutocomplete:
+			seeds[name] = n
+		default:
+			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: unknown sku")
+		}
 	}
 	return seeds
 }

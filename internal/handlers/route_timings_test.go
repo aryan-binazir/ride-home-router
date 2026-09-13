@@ -9,6 +9,7 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/orderedroute"
+	"ride-home-router/internal/plandraft"
 	"strings"
 	"sync"
 	"testing"
@@ -216,5 +217,22 @@ func TestRouteSessionTimingsMeasureOnlyTheRequestedCar(t *testing.T) {
 	handler.HandleRouteTimings(rr, bad)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("out-of-range route index: status=%d", rr.Code)
+	}
+}
+
+func TestMobileRouteTimingsRedirectsWholePageOnExpiredPlan(t *testing.T) {
+	handler, _, _ := measuredCalculateFixture(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	id := handler.PlanDraft.NewID()
+	handler.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = "gone" })
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/m/routes/timings", strings.NewReader(url.Values{"session_id": {"gone"}, "route_index": {"0"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.AddCookie(mobileTestCookie(id))
+	rr := httptest.NewRecorder()
+	handler.HandleMobileRouteTimings(rr, req)
+	if rr.Code != http.StatusOK || rr.Header().Get("HX-Redirect") == "" || rr.Header().Get("Location") != "" {
+		t.Fatalf("htmx expiry must navigate via HX-Redirect: status=%d headers=%v", rr.Code, rr.Header())
 	}
 }

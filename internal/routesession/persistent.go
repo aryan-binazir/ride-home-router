@@ -46,7 +46,7 @@ func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, err
 			for i := range routes {
 				if state.activityLocation == nil || routes[i].Driver == nil || routing.PopulateRouteMetrics(ctx, s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]) != nil {
 					// Unestimable routes lose their numbers rather than keeping provider values.
-					zeroRouteMetrics(&routes[i])
+					routing.ZeroRouteMetrics(&routes[i])
 				}
 			}
 		}
@@ -166,13 +166,4 @@ func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context
 		return ErrNotFound
 	}
 	return err
-}
-
-func zeroRouteMetrics(route *models.CalculatedRoute) {
-	route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters, route.TotalDistanceMeters = 0, 0, 0
-	route.BaselineDurationSecs, route.RouteDurationSecs, route.DetourSecs = 0, 0, 0
-	for i := range route.Stops {
-		route.Stops[i].DistanceFromPrevMeters, route.Stops[i].CumulativeDistanceMeters = 0, 0
-		route.Stops[i].DurationFromPrevSecs, route.Stops[i].CumulativeDurationSecs = 0, 0
-	}
 }

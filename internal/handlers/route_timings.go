@@ -147,16 +147,13 @@ func timingFailure(err error) RouteTiming {
 	}
 }
 
-// zeroMetrics strips planning numbers so they can never be mistaken for measurements.
+// zeroMetrics returns the route with every planning number stripped; the stops
+// slice is copied so shared snapshot data is untouched.
 func zeroMetrics(route *models.CalculatedRoute) {
-	route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters, route.TotalDistanceMeters = 0, 0, 0
-	route.BaselineDurationSecs, route.RouteDurationSecs, route.DetourSecs = 0, 0, 0
 	stops := make([]models.RouteStop, len(route.Stops))
-	for i, stop := range route.Stops {
-		stop.DistanceFromPrevMeters, stop.CumulativeDistanceMeters, stop.DurationFromPrevSecs, stop.CumulativeDurationSecs = 0, 0, 0, 0
-		stops[i] = stop
-	}
+	copy(stops, route.Stops)
 	route.Stops = stops
+	routing.ZeroRouteMetrics(route)
 }
 
 // itineraryRoutes returns the snapshot routes without any metric values.
@@ -179,7 +176,6 @@ func (h *Handler) itinerarySummary(summary models.RoutingSummary, timings []Rout
 		return summary, true
 	}
 	out := models.RoutingSummary{TotalParticipants: summary.TotalParticipants, TotalDriversUsed: summary.TotalDriversUsed, OrgVehiclesUsed: summary.OrgVehiclesUsed, UnassignedParticipants: summary.UnassignedParticipants}
-	complete := true
 	used := 0
 	for _, timing := range timings {
 		if timing.Status != timingMeasured {
@@ -194,9 +190,6 @@ func (h *Handler) itinerarySummary(summary models.RoutingSummary, timings []Rout
 		out.TotalDistanceMeters += timing.Route.TotalDistanceMeters
 		out.SumDetourSecs += timing.Route.DetourSecs
 		out.MaxDetourSecs = max(out.MaxDetourSecs, timing.Route.DetourSecs)
-	}
-	if !complete {
-		return out, false
 	}
 	if used > 0 {
 		out.AverageDetourSecs = out.SumDetourSecs / float64(used)
