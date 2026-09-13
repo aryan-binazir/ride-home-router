@@ -1,10 +1,7 @@
 // Package importer parses and validates participant and driver roster files.
 package importer
 
-import (
-	"ride-home-router/internal/models"
-	"time"
-)
+import "ride-home-router/internal/models"
 
 // Import limits shared with the HTTP layer.
 const (
@@ -88,8 +85,7 @@ type Existing struct {
 
 // Row is validated; HasCoordinates distinguishes (0,0) from missing values.
 type Row struct {
-	GeocodedAt time.Time
-	SourceRow  int
+	SourceRow int
 
 	Name        string
 	Address     string

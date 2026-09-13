@@ -15,11 +15,9 @@ import (
 )
 
 const (
-	MaxConcurrentSessions = 256
-	MaxCommittedSessions  = 256
-	// DefaultTTL is the eight-hour idle timeout. Independently, plans must be
-	// recalculated before editing or saving once their coordinates reach 30 days of age.
-	DefaultTTL             = 8 * time.Hour
+	MaxConcurrentSessions  = 256
+	MaxCommittedSessions   = 256
+	defaultTTL             = 8 * time.Hour
 	defaultCleanupInterval = 15 * time.Minute
 )
 
@@ -48,29 +46,27 @@ type ApplyMovesOptions struct {
 }
 
 type CreateInput struct {
-	CoordinatesFreshUntil time.Time
-	Routes                []models.CalculatedRoute
-	SelectedDrivers       []models.Driver
-	ActivityLocation      *models.ActivityLocation
-	UseMiles              bool
-	RouteTime             string
-	Mode                  models.RouteMode
-	DriverOrgVehicles     map[int64]*models.OrganizationVehicle
+	Routes            []models.CalculatedRoute
+	SelectedDrivers   []models.Driver
+	ActivityLocation  *models.ActivityLocation
+	UseMiles          bool
+	RouteTime         string
+	Mode              models.RouteMode
+	DriverOrgVehicles map[int64]*models.OrganizationVehicle
 }
 
 type Snapshot struct {
-	CoordinatesFreshUntil time.Time
-	ID                    string
-	Routes                []models.CalculatedRoute
-	Summary               models.RoutingSummary
-	ActivityLocation      *models.ActivityLocation
-	UseMiles              bool
-	RouteTime             string
-	Mode                  models.RouteMode
-	UnusedDrivers         []models.Driver
-	IsEditing             bool
-	OverCapacity          []bool
-	IsOutOfBalance        bool
+	ID               string
+	Routes           []models.CalculatedRoute
+	Summary          models.RoutingSummary
+	ActivityLocation *models.ActivityLocation
+	UseMiles         bool
+	RouteTime        string
+	Mode             models.RouteMode
+	UnusedDrivers    []models.Driver
+	IsEditing        bool
+	OverCapacity     []bool
+	IsOutOfBalance   bool
 }
 
 // CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
@@ -96,20 +92,19 @@ func (s CommitSnapshot) RoutingResult() models.RoutingResult {
 }
 
 type session struct {
-	coordinatesFreshUntil time.Time
-	id                    string
-	originalRoutes        []models.CalculatedRoute
-	currentRoutes         []models.CalculatedRoute
-	dirtyRouteIndexes     map[int]struct{}
-	selectedDrivers       []models.Driver
-	driverOrgVehicles     map[int64]*models.OrganizationVehicle
-	activityLocation      *models.ActivityLocation
-	useMiles              bool
-	routeTime             string
-	mode                  models.RouteMode
-	lastAccessedAt        time.Time
-	deleted               bool
-	mu                    sync.Mutex
+	id                string
+	originalRoutes    []models.CalculatedRoute
+	currentRoutes     []models.CalculatedRoute
+	dirtyRouteIndexes map[int]struct{}
+	selectedDrivers   []models.Driver
+	driverOrgVehicles map[int64]*models.OrganizationVehicle
+	activityLocation  *models.ActivityLocation
+	useMiles          bool
+	routeTime         string
+	mode              models.RouteMode
+	lastAccessedAt    time.Time
+	deleted           bool
+	mu                sync.Mutex
 }
 
 type Store struct {
@@ -127,7 +122,7 @@ type Store struct {
 }
 
 func NewStore(distanceCalc distance.Lookup) *Store {
-	return newStore(distanceCalc, DefaultTTL, defaultCleanupInterval, time.Now)
+	return newStore(distanceCalc, defaultTTL, defaultCleanupInterval, time.Now)
 }
 
 func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
@@ -141,23 +136,18 @@ func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, 
 }
 
 func (s *Store) Create(input CreateInput) Snapshot {
-	// Callers without coordinate metadata get a bounded session, never an unlimited plan.
-	if input.CoordinatesFreshUntil.IsZero() {
-		input.CoordinatesFreshUntil = s.now().Add(DefaultTTL)
-	}
 	state := &session{
-		coordinatesFreshUntil: input.CoordinatesFreshUntil,
-		id:                    generateID(),
-		originalRoutes:        copyRoutes(input.Routes),
-		currentRoutes:         copyRoutes(input.Routes),
-		dirtyRouteIndexes:     make(map[int]struct{}),
-		selectedDrivers:       append([]models.Driver(nil), input.SelectedDrivers...),
-		driverOrgVehicles:     copyVehicles(input.DriverOrgVehicles),
-		activityLocation:      copyLocation(input.ActivityLocation),
-		useMiles:              input.UseMiles,
-		routeTime:             input.RouteTime,
-		mode:                  input.Mode,
-		lastAccessedAt:        s.now(),
+		id:                generateID(),
+		originalRoutes:    copyRoutes(input.Routes),
+		currentRoutes:     copyRoutes(input.Routes),
+		dirtyRouteIndexes: make(map[int]struct{}),
+		selectedDrivers:   append([]models.Driver(nil), input.SelectedDrivers...),
+		driverOrgVehicles: copyVehicles(input.DriverOrgVehicles),
+		activityLocation:  copyLocation(input.ActivityLocation),
+		useMiles:          input.UseMiles,
+		routeTime:         input.RouteTime,
+		mode:              input.Mode,
+		lastAccessedAt:    s.now(),
 	}
 	s.mu.Lock()
 	evictedID := ""
@@ -298,14 +288,8 @@ func (s *Store) Reset(id string) (Snapshot, error) {
 }
 
 func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snapshot, error) {
-	return s.AddDriverWithRefresh(ctx, id, driverID, nil)
-}
-
-// AddDriverWithRefresh validates eligibility before refreshing the captured driver.
-// The callback must not call Store methods while the session is locked.
-func (s *Store) AddDriverWithRefresh(ctx context.Context, id string, driverID int64, refresh func(context.Context, *models.Driver) error) (Snapshot, error) {
 	if s.records != nil {
-		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.AddDriverWithRefresh(ctx, id, driverID, refresh) })
+		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.AddDriver(ctx, id, driverID) })
 	}
 	state, err := s.lockSession(id)
 	if err != nil {
@@ -327,33 +311,12 @@ func (s *Store) AddDriverWithRefresh(ctx context.Context, id string, driverID in
 			return Snapshot{}, ErrDriverAlreadyInRoutes
 		}
 	}
-	deadline := state.coordinatesFreshUntil
-	if refresh != nil {
-		if err := refresh(ctx, driver); err != nil {
-			return Snapshot{}, err
-		}
-	}
-	if refresh != nil || !driver.GeocodedAt.IsZero() {
-		if driverDeadline := driver.GeocodedAt.Add(models.CoordinateMaxAge); driverDeadline.Before(deadline) {
-			deadline = driverDeadline
-		}
-	}
-	if !s.now().Before(deadline) {
-		return Snapshot{}, ErrNotFound
-	}
 	newRoute := models.CalculatedRoute{Driver: driver, Stops: []models.RouteStop{}, EffectiveCapacity: driver.VehicleCapacity, Mode: state.mode}
 	if vehicle := state.driverOrgVehicles[driverID]; vehicle != nil {
 		newRoute.OrgVehicleID, newRoute.OrgVehicleName, newRoute.EffectiveCapacity = vehicle.ID, vehicle.Name, vehicle.Capacity
 	}
 	if err := s.recalculateRoute(ctx, state, &newRoute); err != nil {
 		return Snapshot{}, err
-	}
-	state.coordinatesFreshUntil = deadline
-	for i := range state.selectedDrivers {
-		if state.selectedDrivers[i].ID == driverID {
-			state.selectedDrivers[i] = *driver
-			break
-		}
 	}
 	state.currentRoutes = append(state.currentRoutes, newRoute)
 	return snapshotOf(state), nil
@@ -468,7 +431,7 @@ func (s *Store) lockSession(id string) (*session, error) {
 		state.mu.Unlock()
 		return nil, ErrNotFound
 	}
-	if now.Sub(state.lastAccessedAt) > s.ttl || !now.Before(state.coordinatesFreshUntil) {
+	if now.Sub(state.lastAccessedAt) > s.ttl {
 		state.deleted = true
 		delete(s.sessions, id)
 		s.mu.Unlock()
@@ -600,8 +563,7 @@ func snapshotOf(state *session) Snapshot {
 	routes := copyRoutes(state.currentRoutes)
 	over, out := capacityState(routes)
 	return Snapshot{
-		CoordinatesFreshUntil: state.coordinatesFreshUntil,
-		ID:                    state.id, Routes: routes, Summary: calculateSummary(routes), ActivityLocation: copyLocation(state.activityLocation),
+		ID: state.id, Routes: routes, Summary: calculateSummary(routes), ActivityLocation: copyLocation(state.activityLocation),
 		UseMiles: state.useMiles, RouteTime: state.routeTime, Mode: state.mode, UnusedDrivers: unusedDrivers(routes, state.selectedDrivers),
 		IsEditing: !routesEqual(state.originalRoutes, state.currentRoutes), OverCapacity: over, IsOutOfBalance: out,
 	}
