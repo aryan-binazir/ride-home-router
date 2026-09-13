@@ -53,6 +53,7 @@ func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *t
 		name           string
 		participantIDs []string
 		driverIDs      []string
+		message        string
 	}{
 		{name: "mixed valid and malformed participant IDs", participantIDs: []string{"12", "garbage"}, driverIDs: []string{"1"}},
 		{name: "malformed driver ID", participantIDs: []string{"1"}, driverIDs: []string{"garbage"}},
@@ -60,8 +61,8 @@ func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *t
 		{name: "duplicate driver ID", participantIDs: []string{"1"}, driverIDs: []string{"9", "9"}},
 		{name: "zero participant ID", participantIDs: []string{"0"}, driverIDs: []string{"1"}},
 		{name: "negative driver ID", participantIDs: []string{"1"}, driverIDs: []string{"-1"}},
-		{name: "too many participant IDs", participantIDs: tooMany, driverIDs: []string{"1"}},
-		{name: "too many driver IDs", participantIDs: []string{"1"}, driverIDs: tooMany},
+		{name: "too many participant IDs", participantIDs: tooMany, driverIDs: []string{"1"}, message: routeSelectionLimitMessage("participants")},
+		{name: "too many driver IDs", participantIDs: []string{"1"}, driverIDs: tooMany, message: routeSelectionLimitMessage("drivers")},
 	}
 	endpoints := []struct {
 		name   string
@@ -94,8 +95,12 @@ func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *t
 				if rr.Code != http.StatusBadRequest {
 					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
 				}
-				if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageInvalidFormData) {
-					t.Fatalf("HX-Trigger = %q, want %q", got, messageInvalidFormData)
+				want := test.message
+				if want == "" {
+					want = messageInvalidFormData
+				}
+				if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, want) {
+					t.Fatalf("HX-Trigger = %q, want %q", got, want)
 				}
 				if router.lastRequest != nil {
 					t.Fatalf("router received request %#v", router.lastRequest)

@@ -20,12 +20,14 @@ const (
 	timingUnavailable = "unavailable"
 	timingFailed      = "failed"
 	timingPaused      = "paused"
+	timingEmpty       = "empty"
 
 	messageTimingsExhausted   = "Timings unavailable this month."
 	messageTimingsUnavailable = "Timings need the Google Maps key. Ask an administrator."
 	messageTimingsFailed      = "Could not get timings."
 	messageTimingsStale       = "Timings not fetched for this view."
 	messageTimingsPaused      = "Unavailable until within capacity."
+	messageTimingsEmpty       = "No riders assigned."
 
 	// measurementReserve keeps time to persist and render after measuring;
 	// measurementFloor is the least budget worth spending a request on.
@@ -74,6 +76,8 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 		// so no car is measured (or billed) until it is balanced again.
 		if snapshot.IsOutOfBalance {
 			timings[i] = RouteTiming{Status: timingPaused, Message: messageTimingsPaused}
+		} else if len(snapshot.Routes[i].Stops) == 0 {
+			timings[i] = RouteTiming{Status: timingEmpty, Message: messageTimingsEmpty}
 		}
 	}
 	if snapshot.IsOutOfBalance {
@@ -90,13 +94,7 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 	}
 	wanted := make([]int, 0, len(indexes))
 	for _, index := range indexes {
-		if index < 0 || index >= len(snapshot.Routes) || timings[index].Status == timingPaused {
-			continue
-		}
-		if len(snapshot.Routes[index].Stops) == 0 {
-			route := snapshot.Routes[index]
-			zeroMetrics(&route)
-			timings[index] = RouteTiming{Status: timingMeasured, Route: &route}
+		if index < 0 || index >= len(snapshot.Routes) || timings[index].Status != timingStale {
 			continue
 		}
 		wanted = append(wanted, index)
@@ -178,12 +176,12 @@ func (h *Handler) itinerarySummary(summary models.RoutingSummary, timings []Rout
 	out := models.RoutingSummary{TotalParticipants: summary.TotalParticipants, TotalDriversUsed: summary.TotalDriversUsed, OrgVehiclesUsed: summary.OrgVehiclesUsed, UnassignedParticipants: summary.UnassignedParticipants}
 	used := 0
 	for _, timing := range timings {
+		if timing.Status == timingEmpty {
+			continue
+		}
 		if timing.Status != timingMeasured {
 			// Aggregates over a subset of cars would mislead: keep counts only.
 			return out, false
-		}
-		if len(timing.Route.Stops) == 0 {
-			continue
 		}
 		used++
 		out.TotalDropoffDistanceMeters += timing.Route.TotalDropoffDistanceMeters

@@ -13,6 +13,9 @@ import (
 
 // This resource budget protects the public warm-cache calculation, independently
 // of its memo representation. Wall-clock performance belongs in benchmarks.
+// Budgets were raised on 2026-09-13 when the assignment search gained whole-car
+// driver swaps: on this fixture a swap is accepted, which costs one more search
+// iteration (about 2,100 objects).
 func TestWarmCalculationAllocationBudget(t *testing.T) {
 	discardRoutingLogs(t)
 	req, source := performanceFixture(8, 3, false)
@@ -23,8 +26,8 @@ func TestWarmCalculationAllocationBudget(t *testing.T) {
 		}
 	})
 	t.Logf("warm allocations: %.0f", allocations)
-	if allocations > 10000 {
-		t.Fatalf("warm calculation allocated %.0f objects; budget is 10000", allocations)
+	if allocations > 12500 {
+		t.Fatalf("warm calculation allocated %.0f objects; budget is 12500", allocations)
 	}
 }
 
@@ -66,7 +69,7 @@ func TestWarmProviderCalculationAllocationBudget(t *testing.T) {
 		}
 	})
 	t.Logf("warm provider allocations: %.0f", allocations)
-	if allocations > 10400 {
-		t.Fatalf("warm provider calculation allocated %.0f objects; budget is 10400", allocations)
+	if allocations > 13800 {
+		t.Fatalf("warm provider calculation allocated %.0f objects; budget is 13800", allocations)
 	}
 }

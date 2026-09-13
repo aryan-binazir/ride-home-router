@@ -61,6 +61,21 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}
 	}
 
+	// A roster that cannot fit is answered at once; searching would only find
+	// the same shortage after burning the calculation budget.
+	totalCapacity := 0
+	for _, d := range req.Drivers {
+		totalCapacity += d.VehicleCapacity
+	}
+	if totalCapacity < len(req.Participants) {
+		return nil, &ErrRoutingFailed{
+			Reason:            "Cannot assign all participants",
+			UnassignedCount:   len(req.Participants) - totalCapacity,
+			TotalCapacity:     totalCapacity,
+			TotalParticipants: len(req.Participants),
+		}
+	}
+
 	prewarmStart := time.Now()
 	distanceLookup, err := prepareSolveDistances(ctx, r.distanceCalc, req)
 	if err != nil {
@@ -1048,6 +1063,9 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			if !result.score.betterThan(currentScore) || best.found && !result.score.betterThan(best.score) {
 				return nil
 			}
+			if candidate.noExtraDriving && result.score.aggregateDriveDuration > currentScore.aggregateDriveDuration+scoreImprovementEpsilon {
+				return nil
+			}
 			best = assignmentChange{
 				firstDriverID: candidate.firstDriverID, secondDriverID: candidate.secondDriverID,
 				firstStops: result.stops[candidate.firstDriverID], secondStops: result.stops[candidate.secondDriverID], score: result.score, found: true,
@@ -1077,7 +1095,7 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			pending = pending[:0]
 			return nil
 		}
-		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
+		considerCandidate := func(candidate assignmentCandidate) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -1086,7 +1104,6 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 				return nil
 			}
 			candidateEvaluations++
-			candidate := assignmentCandidate{firstDriverID: firstDriverID, secondDriverID: secondDriverID, firstStops: firstStops, secondStops: secondStops}
 			if !parallel {
 				return accept(candidate, candidate.evaluate(ctx, rc, routes, routeMetrics, driverIDs))
 			}
@@ -1095,6 +1112,9 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 				return flush()
 			}
 			return nil
+		}
+		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
+			return considerCandidate(assignmentCandidate{firstDriverID: firstDriverID, secondDriverID: secondDriverID, firstStops: firstStops, secondStops: secondStops})
 		}
 
 		// Check route-activating moves first, within the shared candidate budget.
@@ -1215,6 +1235,44 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 						}
 					}
 					firstPosition += firstSize
+				}
+			}
+		}
+
+		if err := flush(); err != nil {
+			return iteration, err
+		}
+
+		// Last resort: exchange two drivers' whole cars, so a driver who lives
+		// near another car's riders takes that car. Only accepted when it does
+		// not add driving overall.
+		if !best.found && !budgetExhausted {
+		driverSwapSearch:
+			for firstIndex, firstDriverID := range driverIDs {
+				if budgetExhausted {
+					break
+				}
+				firstRoute := routes[firstDriverID]
+				for _, secondDriverID := range driverIDs[firstIndex+1:] {
+					select {
+					case <-ctx.Done():
+						return iteration, ctx.Err()
+					default:
+					}
+					secondRoute := routes[secondDriverID]
+					if len(firstRoute.stops) == 0 && len(secondRoute.stops) == 0 {
+						continue
+					}
+					if len(secondRoute.stops) > firstRoute.driver.VehicleCapacity || len(firstRoute.stops) > secondRoute.driver.VehicleCapacity {
+						continue
+					}
+					// The two cars exchange their existing slices; neither is shared afterwards.
+					if err := considerCandidate(assignmentCandidate{firstDriverID: firstDriverID, secondDriverID: secondDriverID, firstStops: secondRoute.stops, secondStops: firstRoute.stops, noExtraDriving: true}); err != nil {
+						return iteration, err
+					}
+					if budgetExhausted {
+						break driverSwapSearch
+					}
 				}
 			}
 		}
@@ -1417,6 +1475,9 @@ func normalizeAddress(address string) string {
 	}
 	return strings.Join(normalized, " ")
 }
+
+// HouseholdKey identifies riders who share a home and therefore ride together.
+func HouseholdKey(participant *models.Participant) string { return householdKey(participant) }
 
 func householdKey(participant *models.Participant) string {
 	if participant == nil {

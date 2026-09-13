@@ -177,7 +177,7 @@
                     <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
                     <div class="summary-item">
                         <div class="label">Total Distance</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted">—</span>{{end}}</div>
+                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
                     </div>
                     {{if gt .Summary.OrgVehiclesUsed 0}}
                     <div class="summary-item"><div class="label">Vans</div><div class="value">{{.Summary.OrgVehiclesUsed}} used</div></div>

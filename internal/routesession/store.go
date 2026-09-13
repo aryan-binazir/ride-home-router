@@ -555,13 +555,23 @@ func applyMove(state *session, move Move, from int) error {
 	if stopIndex < 0 {
 		return ErrParticipantNotFound
 	}
-	participant := fromRoute.Stops[stopIndex].Participant
-	fromRoute.Stops = append(fromRoute.Stops[:stopIndex], fromRoute.Stops[stopIndex+1:]...)
-	newStop := models.RouteStop{Participant: participant}
+	// Everyone at the moved rider's address travels with them, in their
+	// current order, so an edit never splits a household.
+	household := routing.HouseholdKey(fromRoute.Stops[stopIndex].Participant)
+	moving := make([]models.RouteStop, 0, 1)
+	remaining := make([]models.RouteStop, 0, len(fromRoute.Stops))
+	for _, stop := range fromRoute.Stops {
+		if stop.Participant != nil && routing.HouseholdKey(stop.Participant) == household {
+			moving = append(moving, models.RouteStop{Participant: stop.Participant})
+		} else {
+			remaining = append(remaining, stop)
+		}
+	}
+	fromRoute.Stops = remaining
 	if move.InsertAtPosition < 0 || move.InsertAtPosition >= len(toRoute.Stops) {
-		toRoute.Stops = append(toRoute.Stops, newStop)
+		toRoute.Stops = append(toRoute.Stops, moving...)
 	} else {
-		toRoute.Stops = append(toRoute.Stops[:move.InsertAtPosition], append([]models.RouteStop{newStop}, toRoute.Stops[move.InsertAtPosition:]...)...)
+		toRoute.Stops = append(toRoute.Stops[:move.InsertAtPosition], append(moving, toRoute.Stops[move.InsertAtPosition:]...)...)
 	}
 	state.dirtyRouteIndexes[from] = struct{}{}
 	state.dirtyRouteIndexes[move.ToRouteIndex] = struct{}{}
