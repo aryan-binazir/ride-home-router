@@ -3,6 +3,8 @@ package routing
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand/v2"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"testing"
@@ -127,4 +129,64 @@ func mustMetrics(t *testing.T, rc routeContext, routes map[int64]*balancedRoute)
 		out[id] = metrics
 	}
 	return out
+}
+
+// Whatever the driver phase does, including its final stop-ordering pass, the
+// plan it returns never drives more in total than the plan it was given.
+func TestDriverPhaseNeverAddsDriving(t *testing.T) {
+	rng := rand.New(rand.NewPCG(20260913, 4)) //nolint:gosec // Seeded test data, not security material.
+	institute := models.Coordinates{Lat: 0, Lng: 0}
+	swapped := 0
+	for instance := range 400 {
+		drivers := make([]*models.Driver, 0, 3)
+		for i := range 3 {
+			drivers = append(drivers, &models.Driver{ID: int64(i + 1), Name: fmt.Sprintf("D%d", i+1), Lat: rng.Float64()*0.2 - 0.1, Lng: rng.Float64()*0.2 - 0.1, VehicleCapacity: 2 + rng.IntN(2)})
+		}
+		riders := make([]*models.Participant, 0, 6)
+		for i := range 6 {
+			riders = append(riders, &models.Participant{ID: int64(100 + i), Name: fmt.Sprintf("R%d", i), Address: fmt.Sprintf("%d Random Rd", i), Lat: rng.Float64()*0.2 - 0.1, Lng: rng.Float64()*0.2 - 0.1})
+		}
+		req := &RoutingRequest{InstituteCoords: institute, Mode: "dropoff"}
+		for _, d := range drivers {
+			req.Drivers = append(req.Drivers, *d)
+		}
+		for _, r := range riders {
+			req.Participants = append(req.Participants, *r)
+		}
+		lookup, err := prepareSolveDistances(context.Background(), distance.NewEstimator(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc := newRouteContext(lookup, institute, normalizeRouteMode("dropoff"))
+		rc.prepareParticipants(riders)
+		// Deal riders round-robin in a random order so drivers often hold the wrong car.
+		rng.Shuffle(len(riders), func(i, j int) { riders[i], riders[j] = riders[j], riders[i] })
+		routes := map[int64]*balancedRoute{}
+		ids := []int64{}
+		for _, d := range drivers {
+			routes[d.ID] = &balancedRoute{driver: d}
+			ids = append(ids, d.ID)
+		}
+		for i, r := range riders {
+			d := drivers[i%len(drivers)]
+			if len(routes[d.ID].stops) < d.VehicleCapacity {
+				routes[d.ID].stops = append(routes[d.ID].stops, r)
+			}
+		}
+		before := scoreSolution(mustMetrics(t, rc, routes), ids)
+		swaps, err := optimizeDriverAssignments(context.Background(), rc, routes, ids)
+		if err != nil {
+			t.Fatal(err)
+		}
+		after := scoreSolution(mustMetrics(t, rc, routes), ids)
+		if after.aggregateDriveDuration > before.aggregateDriveDuration+scoreImprovementEpsilon {
+			t.Fatalf("instance %d: driver phase added driving %.1f -> %.1f s (swaps=%d)", instance, before.aggregateDriveDuration, after.aggregateDriveDuration, swaps)
+		}
+		if swaps > 0 {
+			swapped++
+		}
+	}
+	if swapped < 50 {
+		t.Fatalf("only %d of 400 random instances swapped drivers; the property was barely exercised", swapped)
+	}
 }
