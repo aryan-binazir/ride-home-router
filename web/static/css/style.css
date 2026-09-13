@@ -2511,3 +2511,14 @@ tfoot td {
 }
 
 button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; cursor: progress; }
+
+/* Google Maps Platform attribution for address suggestions shown without a map. */
+.address-attribution {
+  display: flex;
+  justify-content: flex-end;
+  padding: 5px 10px 5px 10px;
+}
+.address-attribution img {
+  height: 18px;
+  width: auto;
+}

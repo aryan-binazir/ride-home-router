@@ -33,7 +33,7 @@ func TestWorkflowCapacityEvictsLeastRecentlyUsedDraft(t *testing.T) {
 	}
 }
 
-func TestSharedNominatimGateHonorsOtherInstance(t *testing.T) {
+func TestSharedGeocodingCooldownHonorsOtherInstance(t *testing.T) {
 	url := postgrestest.DatabaseURL(t)
 	a, err := postgres.New(t.Context(), url)
 	if err != nil {
@@ -45,19 +45,25 @@ func TestSharedNominatimGateHonorsOtherInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = b.Close() }()
-	if err = a.NominatimGate().Wait(t.Context()); err != nil {
+	// Google imposes no per-second pacing: consecutive waits pass immediately.
+	for range 3 {
+		if err = a.GeocodingGate().Wait(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = a.GeocodingGate().Defer(t.Context(), 300*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	if err = b.NominatimGate().Wait(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("second instance skipped shared throttle: %v", err)
+	if err = b.GeocodingGate().Wait(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second instance ignored the shared cooldown: %v", err)
 	}
 }
 
 func TestProviderCooldownExpiresWithoutRestart(t *testing.T) {
 	db := postgrestest.Open(t)
-	gate := db.NominatimGate()
+	gate := db.GeocodingGate()
 	if err := gate.Defer(t.Context(), 150*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +111,7 @@ func TestImportClaimsPauseDuringProviderCooldown(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.NominatimGate().Defer(t.Context(), 200*time.Millisecond); err != nil {
+	if err := db.GeocodingGate().Defer(t.Context(), 200*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, err := db.ImportJobs().Claim(t.Context(), "early", time.Minute); err != nil || ok {

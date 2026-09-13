@@ -7,17 +7,18 @@ import (
 	"net/http"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
+	"strings"
 )
 
 // HandleAddressSearch handles GET /api/v1/address-search
 func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
-	// Require HTMX so another site cannot exhaust the shared Nominatim limit.
+	// Require HTMX so another site cannot spend the Google Places quota through this endpoint.
 	if !h.isHTMX(r) {
 		http.Error(w, messageForbidden, http.StatusForbidden)
 		return
 	}
 
-	query := r.URL.Query().Get("address")
+	query := strings.TrimSpace(r.URL.Query().Get("address"))
 	//nolint:gosec // G706: the query is logged only as a numeric length.
 	log.Printf("[HTTP] GET /api/v1/address-search: outcome=started query_len=%d", len(query))
 

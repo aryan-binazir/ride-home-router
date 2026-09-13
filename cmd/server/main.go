@@ -62,10 +62,9 @@ func run(args []string) error {
 			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
 			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
 		},
-		Addr:             opts.Addr,
-		AllowedHosts:     opts.AllowedHosts,
-		DatabaseURL:      opts.DatabaseURL,
-		NominatimBaseURL: os.Getenv("NOMINATIM_BASE_URL"),
+		Addr:         opts.Addr,
+		AllowedHosts: opts.AllowedHosts,
+		DatabaseURL:  opts.DatabaseURL,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

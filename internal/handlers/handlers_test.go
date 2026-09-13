@@ -198,3 +198,16 @@ func TestNoSwapConflictIncludesReadableMessage(t *testing.T) {
 		t.Fatalf("response: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestGeocodingErrorMessageTellsAdminsWhenGoogleIsNotConfigured(t *testing.T) {
+	err := &geocoding.ErrGeocodingFailed{Reason: "provider not configured", Cause: geocoding.ErrNotConfigured}
+	if got := geocodingErrorMessage(err); got != messageAddressLookupNotConfigured {
+		t.Fatalf("geocodingErrorMessage() = %q, want %q", got, messageAddressLookupNotConfigured)
+	}
+	if got := geocodingErrorMessage(geocoding.ErrNoGeocodingResults); got != messageMobileAddressLookupFailed {
+		t.Fatalf("no results message = %q", got)
+	}
+	if got := geocodingErrorMessage(&geocoding.ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: 503}); got != messageAddressLookupUnavailable {
+		t.Fatalf("transient message = %q", got)
+	}
+}

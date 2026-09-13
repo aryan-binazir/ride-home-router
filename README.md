@@ -11,7 +11,7 @@ Self-hosted pickup and dropoff route planning for events.
 
 The browser is the client. A Go server provides the UI and API. Postgres stores rosters, settings, cached distances, and saved events. There is no Wails app or offline client.
 
-The server sends address searches to Nominatim and coordinates to Google Routes. Settings are shared per deployment. Postgres also stores active route edits, mobile plan drafts, and spreadsheet imports. Any application instance can continue them after a restart; no sticky sessions or application volume are needed. The browser retains desktop selections and UI preferences.
+The server uses Google Maps Platform for everything location related: Places Autocomplete for address suggestions, the Geocoding API for coordinates, and the Routes API for distances. One Google Maps key, configured by an admin in Settings, covers all three. Settings are shared per deployment. Postgres also stores active route edits, mobile plan drafts, and spreadsheet imports. Any application instance can continue them after a restart; no sticky sessions or application volume are needed. The browser retains desktop selections and UI preferences.
 
 Clerk authenticates every application page, fragment, API, import, export, and mutation on the server. Only verified emails listed in `ADMIN_EMAILS` or approved in Postgres have access. All approved users share the same functionality and data; only access management is admin-only. Host checks are additional request validation.
 
@@ -47,7 +47,6 @@ Open <http://127.0.0.1:8080>.
 | `CLERK_AUTHORIZED_PARTIES` | Required comma-separated exact browser origins, e.g. `https://router.example.com`. No trailing slash. HTTP allowed only for loopback development. |
 | `ADMIN_EMAILS` | Required comma-separated admin emails. Whitespace trimmed, case normalized. At least one valid email required. |
 | `DATABASE_URL` | Postgres connection string. The Makefile supplies a local default. |
-| `NOMINATIM_BASE_URL` | Address lookup base URL; defaults to `https://nominatim.openstreetmap.org`. Use a self-hosted or commercial instance for autocomplete and personal addresses, which the public endpoint's policy forbids. |
 | `TRUST_CF_ACCESS_HEADER` | Set to `true` only behind a trusted Cloudflare Access proxy to use its email header for route feedback attribution. Default: off. |
 | `PORT` | Loopback port when `--addr` is absent. Default: `8080`. |
 | `--addr` | Listen address. |
@@ -60,7 +59,7 @@ Allowed hosts omit schemes, ports, and paths. Unlisted hosts get `403`; add the 
 
 The Docker image contains the server and `migrate` binaries, supports `amd64` and `arm64`, runs the server as a non-root user, and checks `/api/v1/ready`. The readiness endpoint requires the applied database migration version to exactly match the image's latest embedded migration. `/api/v1/health` remains a database connectivity check for liveness.
 
-Set `DATABASE_URL`, `ALLOWED_HOSTS`, and all five Clerk/access variables above. After signing in as an admin, configure the Google Maps API key in Settings for routing. The platform normally supplies `PORT`.
+Set `DATABASE_URL`, `ALLOWED_HOSTS`, and all five Clerk/access variables above. After signing in as an admin, configure the Google Maps API key in Settings. The key's Google Cloud project must have the Routes API, Geocoding API, and Places API (New) enabled, and any API restriction on the key must allow all three; without them address suggestions and saves report that address lookup is not configured. Address suggestions display the Google Maps logo as Google's terms require. The platform normally supplies `PORT`.
 
 Configure the platform's pre-deploy command as exactly `migrate` before deploying a revision that depends on a new schema. A non-zero migration exit must stop the deployment before the new server revision starts. The direct `ride-home-router` binary does not apply migrations or gate startup on them; against an unprepared schema it can start successfully but remains unready and returns database errors from application requests.
 
@@ -98,7 +97,7 @@ Each mobile browser cookie and desktop route-session ID identifies a separate pl
 
 Idle mobile drafts expire after eight hours, route sessions after eight hours, and imports after thirty minutes. Restarts preserve work within those limits. A bounded cleanup sweep removes expired records. The deployment permits 256 live mobile drafts, 256 live route sessions, and four live import sessions; new drafts and routes replace the least recently used unfinished plan of the same kind when full; imports keep their hard capacity limit. Completed session markers survive until expiry to reject duplicate saves.
 
-Import rows and address jobs are separate database records. Workers claim one address for up to one minute and geocode outside transactions. Shutdown releases a claim; after an abrupt failure, another instance retries it when the lease expires. Imports continue without an open browser tab while at least one instance is running. All instances share Nominatim's one-request-per-second budget, including autocomplete and retries; concurrent address work may wait. Google Routes distance caching remains in Postgres.
+Import rows and address jobs are separate database records. Workers claim one address for up to one minute and geocode outside transactions. Shutdown releases a claim; after an abrupt failure, another instance retries it when the lease expires. Imports continue without an open browser tab while at least one instance is running. All instances share one Google cooldown: when Google answers with a quota or availability error, every instance pauses address lookup until the cooldown passes. Google Routes distance caching remains in Postgres.
 
 ## Database migrations
 

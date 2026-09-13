@@ -106,6 +106,7 @@ func messageSettingsSavedUsing(name string) string {
 
 const (
 	messageAddressLookupUnavailable      = "Address lookup is temporarily unavailable. Try again shortly."
+	messageAddressLookupNotConfigured    = "Address lookup is not configured. Ask an administrator to add the Google Maps key in Settings."
 	messageRouteCalculationNotConfigured = "Google Maps API key is not configured. Ask an administrator to configure it in Settings."
 	messageRouteCalculationUnavailable   = "Route calculation is temporarily unavailable. Try again shortly."
 	messageStaleRiders                   = "Some riders are no longer available. Refresh the page and select them again."
@@ -113,6 +114,9 @@ const (
 )
 
 func geocodingErrorMessage(err error) string {
+	if errors.Is(err, geocoding.ErrNotConfigured) {
+		return messageAddressLookupNotConfigured
+	}
 	if errors.Is(err, geocoding.ErrNoGeocodingResults) {
 		return messageFailedToGeocodeAddress()
 	}

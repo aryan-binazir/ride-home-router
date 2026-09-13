@@ -163,3 +163,14 @@ button.htmx-request { opacity: .6; cursor: progress; }
 
 .confirm-dialog-actions .btn { border: 1px solid var(--m-line); border-radius: 8px; background: var(--m-card); color: var(--m-ink); }
 .confirm-dialog-actions .btn-danger { background: var(--m-danger); color: var(--m-card); }
+
+/* Google Maps Platform attribution for address suggestions shown without a map. */
+.address-attribution {
+  display: flex;
+  justify-content: flex-end;
+  padding: 5px 10px 5px 10px;
+}
+.address-attribution img {
+  height: 18px;
+  width: auto;
+}
