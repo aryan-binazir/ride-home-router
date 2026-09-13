@@ -26,10 +26,10 @@
     "drivers": 14,
     "metrics": {
       "cars_used": 14,
-      "total_distance_km": 415.5,
+      "total_distance_km": 417.8,
       "max_detour_min": 56,
-      "average_detour_min": 13.8,
-      "longest_rider_min": 42.6,
+      "average_detour_min": 14,
+      "longest_rider_min": 41.8,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -62,9 +62,9 @@
     "drivers": 14,
     "metrics": {
       "cars_used": 14,
-      "total_distance_km": 389.8,
-      "max_detour_min": 18.8,
-      "average_detour_min": 6.1,
+      "total_distance_km": 392.1,
+      "max_detour_min": 18.3,
+      "average_detour_min": 6.4,
       "longest_rider_min": 43.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -98,10 +98,10 @@
     "drivers": 14,
     "metrics": {
       "cars_used": 14,
-      "total_distance_km": 393,
-      "max_detour_min": 21.7,
-      "average_detour_min": 6.7,
-      "longest_rider_min": 45.4,
+      "total_distance_km": 397.2,
+      "max_detour_min": 22.5,
+      "average_detour_min": 7.2,
+      "longest_rider_min": 43.8,
       "far_drivers": 1,
       "backtracking_cars": 0,
       "split_households": 0
@@ -134,9 +134,9 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 751.4,
-      "max_detour_min": 27.9,
-      "average_detour_min": 8.5,
+      "total_distance_km": 759,
+      "max_detour_min": 24.3,
+      "average_detour_min": 8.9,
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -170,10 +170,10 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 729.8,
-      "max_detour_min": 26.5,
+      "total_distance_km": 730.5,
+      "max_detour_min": 24.3,
       "average_detour_min": 6.6,
-      "longest_rider_min": 45,
+      "longest_rider_min": 43.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -206,7 +206,7 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 678.4,
+      "total_distance_km": 678.1,
       "max_detour_min": 23.9,
       "average_detour_min": 4.7,
       "longest_rider_min": 43.6,
@@ -224,7 +224,7 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2164.8,
+      "total_distance_km": 2164.7,
       "max_detour_min": 38.4,
       "average_detour_min": 8.1,
       "longest_rider_min": 43.1,
@@ -242,9 +242,9 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2165.8,
-      "max_detour_min": 38.7,
-      "average_detour_min": 8.2,
+      "total_distance_km": 2164.7,
+      "max_detour_min": 38.4,
+      "average_detour_min": 8.1,
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -278,11 +278,11 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2156.2,
-      "max_detour_min": 23.5,
-      "average_detour_min": 4.5,
+      "total_distance_km": 2161.6,
+      "max_detour_min": 11.6,
+      "average_detour_min": 4.6,
       "longest_rider_min": 45,
-      "far_drivers": 2,
+      "far_drivers": 3,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -314,11 +314,11 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2138.3,
+      "total_distance_km": 2137,
       "max_detour_min": 24.7,
       "average_detour_min": 6.7,
       "longest_rider_min": 43.7,
-      "far_drivers": 0,
+      "far_drivers": 1,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -332,7 +332,7 @@
     "drivers": 141,
     "metrics": {
       "cars_used": 141,
-      "total_distance_km": 3470,
+      "total_distance_km": 3464.4,
       "max_detour_min": 23.9,
       "average_detour_min": 5.4,
       "longest_rider_min": 43.2,
@@ -350,11 +350,11 @@
     "drivers": 141,
     "metrics": {
       "cars_used": 141,
-      "total_distance_km": 3500.8,
-      "max_detour_min": 26.8,
-      "average_detour_min": 5.7,
-      "longest_rider_min": 45,
-      "far_drivers": 4,
+      "total_distance_km": 3470.2,
+      "max_detour_min": 23.9,
+      "average_detour_min": 5.4,
+      "longest_rider_min": 43.2,
+      "far_drivers": 3,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -368,9 +368,9 @@
     "drivers": 139,
     "metrics": {
       "cars_used": 139,
-      "total_distance_km": 3536.6,
-      "max_detour_min": 24.8,
-      "average_detour_min": 6.3,
+      "total_distance_km": 3523.6,
+      "max_detour_min": 25.4,
+      "average_detour_min": 6.1,
       "longest_rider_min": 43.1,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -386,8 +386,8 @@
     "drivers": 139,
     "metrics": {
       "cars_used": 139,
-      "total_distance_km": 3526.8,
-      "max_detour_min": 28.6,
+      "total_distance_km": 3529.3,
+      "max_detour_min": 23.7,
       "average_detour_min": 6.2,
       "longest_rider_min": 43.1,
       "far_drivers": 0,
@@ -404,7 +404,7 @@
     "drivers": 142,
     "metrics": {
       "cars_used": 142,
-      "total_distance_km": 3556,
+      "total_distance_km": 3552.4,
       "max_detour_min": 24.5,
       "average_detour_min": 5.4,
       "longest_rider_min": 42.9,
@@ -422,10 +422,10 @@
     "drivers": 142,
     "metrics": {
       "cars_used": 142,
-      "total_distance_km": 3584.8,
+      "total_distance_km": 3561.5,
       "max_detour_min": 24.5,
-      "average_detour_min": 5.7,
-      "longest_rider_min": 44.2,
+      "average_detour_min": 5.5,
+      "longest_rider_min": 42.9,
       "far_drivers": 2,
       "backtracking_cars": 0,
       "split_households": 0
@@ -440,7 +440,7 @@
     "drivers": 63,
     "metrics": {
       "cars_used": 63,
-      "total_distance_km": 1694.3,
+      "total_distance_km": 1693.8,
       "max_detour_min": 24.7,
       "average_detour_min": 7.8,
       "longest_rider_min": 44.1,
@@ -458,9 +458,9 @@
     "drivers": 63,
     "metrics": {
       "cars_used": 63,
-      "total_distance_km": 1699.7,
-      "max_detour_min": 29.9,
-      "average_detour_min": 8,
+      "total_distance_km": 1692.7,
+      "max_detour_min": 26.8,
+      "average_detour_min": 7.8,
       "longest_rider_min": 44.1,
       "far_drivers": 4,
       "backtracking_cars": 0,
@@ -494,8 +494,8 @@
     "drivers": 66,
     "metrics": {
       "cars_used": 66,
-      "total_distance_km": 1740.7,
-      "max_detour_min": 45.9,
+      "total_distance_km": 1741.5,
+      "max_detour_min": 47,
       "average_detour_min": 7.7,
       "longest_rider_min": 43.2,
       "far_drivers": 1,
@@ -512,7 +512,7 @@
     "drivers": 57,
     "metrics": {
       "cars_used": 57,
-      "total_distance_km": 1457.7,
+      "total_distance_km": 1457.6,
       "max_detour_min": 20.2,
       "average_detour_min": 6.7,
       "longest_rider_min": 44.2,
@@ -530,10 +530,10 @@
     "drivers": 57,
     "metrics": {
       "cars_used": 57,
-      "total_distance_km": 1461.9,
+      "total_distance_km": 1456.9,
       "max_detour_min": 20.2,
-      "average_detour_min": 6.8,
-      "longest_rider_min": 47.1,
+      "average_detour_min": 6.6,
+      "longest_rider_min": 44.2,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -566,10 +566,10 @@
     "drivers": 15,
     "metrics": {
       "cars_used": 15,
-      "total_distance_km": 322.2,
+      "total_distance_km": 317.2,
       "max_detour_min": 7.8,
-      "average_detour_min": 3.5,
-      "longest_rider_min": 39.5,
+      "average_detour_min": 3,
+      "longest_rider_min": 38.4,
       "far_drivers": 2,
       "backtracking_cars": 0,
       "split_households": 0
@@ -602,10 +602,10 @@
     "drivers": 15,
     "metrics": {
       "cars_used": 15,
-      "total_distance_km": 277.1,
-      "max_detour_min": 17.4,
-      "average_detour_min": 6.1,
-      "longest_rider_min": 40.4,
+      "total_distance_km": 276.3,
+      "max_detour_min": 13.6,
+      "average_detour_min": 6,
+      "longest_rider_min": 39.9,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -638,10 +638,10 @@
     "drivers": 14,
     "metrics": {
       "cars_used": 14,
-      "total_distance_km": 287.5,
-      "max_detour_min": 9.5,
+      "total_distance_km": 286.8,
+      "max_detour_min": 10.9,
       "average_detour_min": 4.9,
-      "longest_rider_min": 42.5,
+      "longest_rider_min": 39.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -674,11 +674,11 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 582.1,
-      "max_detour_min": 69.2,
+      "total_distance_km": 582.8,
+      "max_detour_min": 69,
       "average_detour_min": 13.9,
-      "longest_rider_min": 41.4,
-      "far_drivers": 3,
+      "longest_rider_min": 39.7,
+      "far_drivers": 4,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -710,11 +710,11 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 505.2,
-      "max_detour_min": 16.3,
-      "average_detour_min": 3.6,
-      "longest_rider_min": 39.2,
-      "far_drivers": 2,
+      "total_distance_km": 509.3,
+      "max_detour_min": 11.2,
+      "average_detour_min": 3.8,
+      "longest_rider_min": 39.1,
+      "far_drivers": 1,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -764,7 +764,7 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 1396.8,
+      "total_distance_km": 1396,
       "max_detour_min": 11.8,
       "average_detour_min": 4.1,
       "longest_rider_min": 39.3,
@@ -782,9 +782,9 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 1399.8,
+      "total_distance_km": 1396,
       "max_detour_min": 11.8,
-      "average_detour_min": 4.2,
+      "average_detour_min": 4.1,
       "longest_rider_min": 39.3,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -800,7 +800,7 @@
     "drivers": 86,
     "metrics": {
       "cars_used": 86,
-      "total_distance_km": 1546.8,
+      "total_distance_km": 1546.6,
       "max_detour_min": 66,
       "average_detour_min": 6.3,
       "longest_rider_min": 39.5,
@@ -818,9 +818,9 @@
     "drivers": 86,
     "metrics": {
       "cars_used": 86,
-      "total_distance_km": 1547.9,
+      "total_distance_km": 1546.6,
       "max_detour_min": 66,
-      "average_detour_min": 6.4,
+      "average_detour_min": 6.3,
       "longest_rider_min": 39.5,
       "far_drivers": 3,
       "backtracking_cars": 0,
@@ -836,7 +836,7 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 1468.4,
+      "total_distance_km": 1467.9,
       "max_detour_min": 9,
       "average_detour_min": 3.8,
       "longest_rider_min": 39.9,
@@ -854,7 +854,7 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 1467.6,
+      "total_distance_km": 1467.9,
       "max_detour_min": 9,
       "average_detour_min": 3.8,
       "longest_rider_min": 39.9,
@@ -872,9 +872,9 @@
     "drivers": 143,
     "metrics": {
       "cars_used": 143,
-      "total_distance_km": 2558.1,
-      "max_detour_min": 40.2,
-      "average_detour_min": 5.1,
+      "total_distance_km": 2554.6,
+      "max_detour_min": 40.4,
+      "average_detour_min": 5,
       "longest_rider_min": 39.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -890,7 +890,7 @@
     "drivers": 143,
     "metrics": {
       "cars_used": 143,
-      "total_distance_km": 2553.8,
+      "total_distance_km": 2549.6,
       "max_detour_min": 43.1,
       "average_detour_min": 5,
       "longest_rider_min": 39.6,
@@ -908,7 +908,7 @@
     "drivers": 142,
     "metrics": {
       "cars_used": 142,
-      "total_distance_km": 2620.4,
+      "total_distance_km": 2619.9,
       "max_detour_min": 11.9,
       "average_detour_min": 4.9,
       "longest_rider_min": 39.6,
@@ -926,11 +926,11 @@
     "drivers": 142,
     "metrics": {
       "cars_used": 142,
-      "total_distance_km": 2617.8,
-      "max_detour_min": 15.8,
+      "total_distance_km": 2622.1,
+      "max_detour_min": 11.9,
       "average_detour_min": 4.9,
-      "longest_rider_min": 39.7,
-      "far_drivers": 6,
+      "longest_rider_min": 39.6,
+      "far_drivers": 10,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -944,8 +944,8 @@
     "drivers": 138,
     "metrics": {
       "cars_used": 138,
-      "total_distance_km": 2459.9,
-      "max_detour_min": 11,
+      "total_distance_km": 2455.3,
+      "max_detour_min": 10.9,
       "average_detour_min": 4.3,
       "longest_rider_min": 39.4,
       "far_drivers": 1,
@@ -962,10 +962,10 @@
     "drivers": 138,
     "metrics": {
       "cars_used": 138,
-      "total_distance_km": 2464.2,
-      "max_detour_min": 10.9,
+      "total_distance_km": 2461.5,
+      "max_detour_min": 10.4,
       "average_detour_min": 4.4,
-      "longest_rider_min": 41.3,
+      "longest_rider_min": 39.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
       "split_households": 0
@@ -1034,10 +1034,10 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 537.3,
-      "max_detour_min": 62.7,
-      "average_detour_min": 14.6,
-      "longest_rider_min": 45.3,
+      "total_distance_km": 567.9,
+      "max_detour_min": 66.3,
+      "average_detour_min": 16.2,
+      "longest_rider_min": 42.6,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -1106,12 +1106,12 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 1299.4,
-      "max_detour_min": 44.9,
-      "average_detour_min": 8.3,
-      "longest_rider_min": 60.3,
+      "total_distance_km": 1295.8,
+      "max_detour_min": 45.3,
+      "average_detour_min": 8.2,
+      "longest_rider_min": 42.9,
       "far_drivers": 0,
-      "backtracking_cars": 1,
+      "backtracking_cars": 0,
       "split_households": 0
     }
   },
@@ -1124,7 +1124,7 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 1328.7,
+      "total_distance_km": 1328.9,
       "max_detour_min": 23.3,
       "average_detour_min": 6,
       "longest_rider_min": 41.7,
@@ -1142,10 +1142,10 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 1324.6,
-      "max_detour_min": 51.3,
-      "average_detour_min": 5.9,
-      "longest_rider_min": 44.7,
+      "total_distance_km": 1328.3,
+      "max_detour_min": 23.3,
+      "average_detour_min": 6,
+      "longest_rider_min": 41.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0
@@ -1178,8 +1178,8 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 1288.7,
-      "max_detour_min": 43.5,
+      "total_distance_km": 1283.7,
+      "max_detour_min": 47.1,
       "average_detour_min": 7.8,
       "longest_rider_min": 42.8,
       "far_drivers": 0,
@@ -1214,11 +1214,11 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 900.3,
-      "max_detour_min": 67.7,
-      "average_detour_min": 17.8,
-      "longest_rider_min": 62.4,
-      "far_drivers": 1,
+      "total_distance_km": 910.4,
+      "max_detour_min": 56.1,
+      "average_detour_min": 18.4,
+      "longest_rider_min": 62.2,
+      "far_drivers": 3,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1286,11 +1286,11 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 816,
-      "max_detour_min": 70.1,
+      "total_distance_km": 816.1,
+      "max_detour_min": 48.4,
       "average_detour_min": 15.4,
       "longest_rider_min": 78.9,
-      "far_drivers": 6,
+      "far_drivers": 5,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1322,9 +1322,9 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 2151.8,
-      "max_detour_min": 48,
-      "average_detour_min": 9.5,
+      "total_distance_km": 2134.4,
+      "max_detour_min": 45.7,
+      "average_detour_min": 9.2,
       "longest_rider_min": 62.9,
       "far_drivers": 4,
       "backtracking_cars": 0,
@@ -1340,7 +1340,7 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 2062.5,
+      "total_distance_km": 2062.1,
       "max_detour_min": 52.3,
       "average_detour_min": 9.6,
       "longest_rider_min": 63.3,
@@ -1358,11 +1358,11 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 2062.3,
-      "max_detour_min": 53.6,
+      "total_distance_km": 2062,
+      "max_detour_min": 52.3,
       "average_detour_min": 9.6,
       "longest_rider_min": 63.3,
-      "far_drivers": 1,
+      "far_drivers": 2,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1394,11 +1394,11 @@
     "drivers": 84,
     "metrics": {
       "cars_used": 84,
-      "total_distance_km": 2239.4,
-      "max_detour_min": 68.5,
-      "average_detour_min": 13.5,
+      "total_distance_km": 2231.5,
+      "max_detour_min": 62.1,
+      "average_detour_min": 13.4,
       "longest_rider_min": 63.3,
-      "far_drivers": 4,
+      "far_drivers": 2,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1412,7 +1412,7 @@
     "drivers": 141,
     "metrics": {
       "cars_used": 141,
-      "total_distance_km": 3511.6,
+      "total_distance_km": 3511.7,
       "max_detour_min": 51.9,
       "average_detour_min": 9.5,
       "longest_rider_min": 62.7,
@@ -1430,12 +1430,12 @@
     "drivers": 141,
     "metrics": {
       "cars_used": 141,
-      "total_distance_km": 3466.3,
-      "max_detour_min": 68.9,
-      "average_detour_min": 9,
-      "longest_rider_min": 62.9,
-      "far_drivers": 8,
-      "backtracking_cars": 1,
+      "total_distance_km": 3471.8,
+      "max_detour_min": 56.8,
+      "average_detour_min": 9.1,
+      "longest_rider_min": 62.7,
+      "far_drivers": 4,
+      "backtracking_cars": 0,
       "split_households": 0
     }
   },
@@ -1448,9 +1448,9 @@
     "drivers": 138,
     "metrics": {
       "cars_used": 138,
-      "total_distance_km": 3394.6,
+      "total_distance_km": 3389.8,
       "max_detour_min": 60.8,
-      "average_detour_min": 10.8,
+      "average_detour_min": 10.7,
       "longest_rider_min": 61.5,
       "far_drivers": 0,
       "backtracking_cars": 0,
@@ -1466,12 +1466,12 @@
     "drivers": 138,
     "metrics": {
       "cars_used": 138,
-      "total_distance_km": 3380.7,
-      "max_detour_min": 60.6,
+      "total_distance_km": 3375.4,
+      "max_detour_min": 60.7,
       "average_detour_min": 10.6,
-      "longest_rider_min": 86.7,
+      "longest_rider_min": 61.5,
       "far_drivers": 0,
-      "backtracking_cars": 1,
+      "backtracking_cars": 0,
       "split_households": 0
     }
   },
@@ -1484,9 +1484,9 @@
     "drivers": 140,
     "metrics": {
       "cars_used": 140,
-      "total_distance_km": 3742.5,
+      "total_distance_km": 3732.8,
       "max_detour_min": 62.1,
-      "average_detour_min": 11.5,
+      "average_detour_min": 11.4,
       "longest_rider_min": 62.9,
       "far_drivers": 6,
       "backtracking_cars": 0,
@@ -1502,11 +1502,11 @@
     "drivers": 140,
     "metrics": {
       "cars_used": 140,
-      "total_distance_km": 3725.7,
-      "max_detour_min": 65.9,
-      "average_detour_min": 11.3,
+      "total_distance_km": 3770.4,
+      "max_detour_min": 61.7,
+      "average_detour_min": 11.8,
       "longest_rider_min": 62.9,
-      "far_drivers": 7,
+      "far_drivers": 6,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1538,11 +1538,11 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 927.7,
-      "max_detour_min": 62.5,
-      "average_detour_min": 9.3,
+      "total_distance_km": 922.2,
+      "max_detour_min": 39.4,
+      "average_detour_min": 9,
       "longest_rider_min": 63.4,
-      "far_drivers": 2,
+      "far_drivers": 1,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1610,9 +1610,9 @@
     "drivers": 29,
     "metrics": {
       "cars_used": 29,
-      "total_distance_km": 960.7,
+      "total_distance_km": 959.9,
       "max_detour_min": 33.9,
-      "average_detour_min": 10.4,
+      "average_detour_min": 10.3,
       "longest_rider_min": 63.4,
       "far_drivers": 1,
       "backtracking_cars": 0,
@@ -1647,7 +1647,7 @@
     "metrics": {
       "cars_used": 28,
       "total_distance_km": 1002.9,
-      "max_detour_min": 72.4,
+      "max_detour_min": 72,
       "average_detour_min": 38,
       "longest_rider_min": 43.5,
       "far_drivers": 9,
@@ -1682,9 +1682,9 @@
     "drivers": 29,
     "metrics": {
       "cars_used": 29,
-      "total_distance_km": 1029.3,
-      "max_detour_min": 72.4,
-      "average_detour_min": 39.4,
+      "total_distance_km": 1027.5,
+      "max_detour_min": 71,
+      "average_detour_min": 39.3,
       "longest_rider_min": 43.1,
       "far_drivers": 8,
       "backtracking_cars": 0,
@@ -1718,9 +1718,9 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 929,
-      "max_detour_min": 73.8,
-      "average_detour_min": 33.2,
+      "total_distance_km": 932.2,
+      "max_detour_min": 74.7,
+      "average_detour_min": 33.3,
       "longest_rider_min": 44.2,
       "far_drivers": 7,
       "backtracking_cars": 0,
@@ -1754,12 +1754,12 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2664.4,
-      "max_detour_min": 70,
+      "total_distance_km": 2664.2,
+      "max_detour_min": 70.5,
       "average_detour_min": 28.8,
-      "longest_rider_min": 71.9,
+      "longest_rider_min": 43.7,
       "far_drivers": 15,
-      "backtracking_cars": 1,
+      "backtracking_cars": 0,
       "split_households": 0
     }
   },
@@ -1772,7 +1772,7 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2832,
+      "total_distance_km": 2831.1,
       "max_detour_min": 72.4,
       "average_detour_min": 33.8,
       "longest_rider_min": 43,
@@ -1790,8 +1790,8 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2832.6,
-      "max_detour_min": 72.5,
+      "total_distance_km": 2831.1,
+      "max_detour_min": 72.4,
       "average_detour_min": 33.8,
       "longest_rider_min": 43,
       "far_drivers": 19,
@@ -1808,11 +1808,11 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2792.1,
+      "total_distance_km": 2792.3,
       "max_detour_min": 71.3,
       "average_detour_min": 32.8,
       "longest_rider_min": 43.5,
-      "far_drivers": 19,
+      "far_drivers": 18,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -1826,8 +1826,8 @@
     "drivers": 85,
     "metrics": {
       "cars_used": 85,
-      "total_distance_km": 2793.5,
-      "max_detour_min": 73.5,
+      "total_distance_km": 2792.3,
+      "max_detour_min": 71.3,
       "average_detour_min": 32.8,
       "longest_rider_min": 43.5,
       "far_drivers": 18,
@@ -1844,7 +1844,7 @@
     "drivers": 62,
     "metrics": {
       "cars_used": 62,
-      "total_distance_km": 1565.6,
+      "total_distance_km": 1565.7,
       "max_detour_min": 76.1,
       "average_detour_min": 12.3,
       "longest_rider_min": 63.6,
@@ -1862,10 +1862,10 @@
     "drivers": 62,
     "metrics": {
       "cars_used": 62,
-      "total_distance_km": 1565,
-      "max_detour_min": 76,
+      "total_distance_km": 1565.1,
+      "max_detour_min": 76.1,
       "average_detour_min": 12.3,
-      "longest_rider_min": 65.8,
+      "longest_rider_min": 63.6,
       "far_drivers": 3,
       "backtracking_cars": 0,
       "split_households": 0
@@ -1880,7 +1880,7 @@
     "drivers": 64,
     "metrics": {
       "cars_used": 64,
-      "total_distance_km": 1839.7,
+      "total_distance_km": 1839.1,
       "max_detour_min": 72.9,
       "average_detour_min": 17.4,
       "longest_rider_min": 62,
@@ -1898,12 +1898,12 @@
     "drivers": 64,
     "metrics": {
       "cars_used": 64,
-      "total_distance_km": 1835.4,
-      "max_detour_min": 77.5,
-      "average_detour_min": 17.3,
-      "longest_rider_min": 96.2,
-      "far_drivers": 3,
-      "backtracking_cars": 2,
+      "total_distance_km": 1840.4,
+      "max_detour_min": 72.9,
+      "average_detour_min": 17.5,
+      "longest_rider_min": 62,
+      "far_drivers": 2,
+      "backtracking_cars": 0,
       "split_households": 0
     }
   },
@@ -1934,10 +1934,10 @@
     "drivers": 63,
     "metrics": {
       "cars_used": 63,
-      "total_distance_km": 1767.6,
+      "total_distance_km": 1767.4,
       "max_detour_min": 80.3,
       "average_detour_min": 18.8,
-      "longest_rider_min": 64.9,
+      "longest_rider_min": 64.7,
       "far_drivers": 5,
       "backtracking_cars": 1,
       "split_households": 0
@@ -1952,9 +1952,9 @@
     "drivers": 112,
     "metrics": {
       "cars_used": 112,
-      "total_distance_km": 2912.4,
+      "total_distance_km": 2906.9,
       "max_detour_min": 66.9,
-      "average_detour_min": 9.1,
+      "average_detour_min": 9,
       "longest_rider_min": 61.9,
       "far_drivers": 2,
       "backtracking_cars": 2,
@@ -1970,11 +1970,11 @@
     "drivers": 112,
     "metrics": {
       "cars_used": 112,
-      "total_distance_km": 2898.4,
-      "max_detour_min": 56.4,
-      "average_detour_min": 8.9,
-      "longest_rider_min": 66.7,
-      "far_drivers": 0,
+      "total_distance_km": 2909.4,
+      "max_detour_min": 66.9,
+      "average_detour_min": 9.1,
+      "longest_rider_min": 61.9,
+      "far_drivers": 2,
       "backtracking_cars": 4,
       "split_households": 0
     }
@@ -1988,7 +1988,7 @@
     "drivers": 105,
     "metrics": {
       "cars_used": 105,
-      "total_distance_km": 2976.1,
+      "total_distance_km": 2974.1,
       "max_detour_min": 61.4,
       "average_detour_min": 14.4,
       "longest_rider_min": 64.3,
@@ -2006,11 +2006,11 @@
     "drivers": 105,
     "metrics": {
       "cars_used": 105,
-      "total_distance_km": 2970.7,
-      "max_detour_min": 74.7,
-      "average_detour_min": 14.3,
-      "longest_rider_min": 64.7,
-      "far_drivers": 4,
+      "total_distance_km": 2983.5,
+      "max_detour_min": 59.6,
+      "average_detour_min": 14.5,
+      "longest_rider_min": 64.3,
+      "far_drivers": 6,
       "backtracking_cars": 3,
       "split_households": 0
     }
@@ -2024,9 +2024,9 @@
     "drivers": 113,
     "metrics": {
       "cars_used": 113,
-      "total_distance_km": 3445.5,
+      "total_distance_km": 3448.9,
       "max_detour_min": 85.1,
-      "average_detour_min": 22.5,
+      "average_detour_min": 22.6,
       "longest_rider_min": 63.4,
       "far_drivers": 12,
       "backtracking_cars": 3,
@@ -2042,12 +2042,12 @@
     "drivers": 113,
     "metrics": {
       "cars_used": 113,
-      "total_distance_km": 3443.6,
-      "max_detour_min": 80.2,
-      "average_detour_min": 22.5,
-      "longest_rider_min": 94.4,
+      "total_distance_km": 3432.3,
+      "max_detour_min": 85.1,
+      "average_detour_min": 22.4,
+      "longest_rider_min": 63.4,
       "far_drivers": 10,
-      "backtracking_cars": 4,
+      "backtracking_cars": 1,
       "split_households": 0
     }
   },
@@ -2060,9 +2060,9 @@
     "drivers": 134,
     "metrics": {
       "cars_used": 134,
-      "total_distance_km": 3763.7,
+      "total_distance_km": 3758,
       "max_detour_min": 67.2,
-      "average_detour_min": 14.4,
+      "average_detour_min": 14.3,
       "longest_rider_min": 63,
       "far_drivers": 4,
       "backtracking_cars": 0,
@@ -2078,11 +2078,11 @@
     "drivers": 134,
     "metrics": {
       "cars_used": 134,
-      "total_distance_km": 3744.8,
-      "max_detour_min": 72.1,
-      "average_detour_min": 14.2,
+      "total_distance_km": 3752.9,
+      "max_detour_min": 67.2,
+      "average_detour_min": 14.3,
       "longest_rider_min": 63,
-      "far_drivers": 6,
+      "far_drivers": 4,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -2096,9 +2096,9 @@
     "drivers": 135,
     "metrics": {
       "cars_used": 135,
-      "total_distance_km": 3965.2,
-      "max_detour_min": 67.2,
-      "average_detour_min": 18.7,
+      "total_distance_km": 3976.4,
+      "max_detour_min": 69.4,
+      "average_detour_min": 18.8,
       "longest_rider_min": 62.8,
       "far_drivers": 12,
       "backtracking_cars": 0,
@@ -2114,10 +2114,10 @@
     "drivers": 135,
     "metrics": {
       "cars_used": 135,
-      "total_distance_km": 3919,
-      "max_detour_min": 73,
-      "average_detour_min": 18.1,
-      "longest_rider_min": 62.9,
+      "total_distance_km": 3962.1,
+      "max_detour_min": 68.4,
+      "average_detour_min": 18.6,
+      "longest_rider_min": 62.8,
       "far_drivers": 13,
       "backtracking_cars": 0,
       "split_households": 0
@@ -2132,11 +2132,11 @@
     "drivers": 131,
     "metrics": {
       "cars_used": 131,
-      "total_distance_km": 3911.8,
-      "max_detour_min": 67.3,
-      "average_detour_min": 17.8,
+      "total_distance_km": 3845.6,
+      "max_detour_min": 73.2,
+      "average_detour_min": 17.1,
       "longest_rider_min": 66.1,
-      "far_drivers": 7,
+      "far_drivers": 10,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -2150,11 +2150,11 @@
     "drivers": 131,
     "metrics": {
       "cars_used": 131,
-      "total_distance_km": 3882.4,
+      "total_distance_km": 3842,
       "max_detour_min": 73.2,
-      "average_detour_min": 17.5,
+      "average_detour_min": 17,
       "longest_rider_min": 66.1,
-      "far_drivers": 10,
+      "far_drivers": 9,
       "backtracking_cars": 0,
       "split_households": 0
     }
@@ -2186,12 +2186,12 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 356.1,
-      "max_detour_min": 14.8,
+      "total_distance_km": 356,
+      "max_detour_min": 17.3,
       "average_detour_min": 6.1,
-      "longest_rider_min": 42.1,
+      "longest_rider_min": 40.7,
       "far_drivers": 1,
-      "backtracking_cars": 0,
+      "backtracking_cars": 1,
       "split_households": 0
     }
   },
@@ -2222,10 +2222,10 @@
     "drivers": 28,
     "metrics": {
       "cars_used": 28,
-      "total_distance_km": 412.7,
-      "max_detour_min": 59.6,
+      "total_distance_km": 411.4,
+      "max_detour_min": 58.1,
       "average_detour_min": 8.5,
-      "longest_rider_min": 41.4,
+      "longest_rider_min": 40.7,
       "far_drivers": 0,
       "backtracking_cars": 0,
       "split_households": 0

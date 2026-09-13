@@ -222,7 +222,7 @@ func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute mo
 			// The arcs stopped at households that did not fit, leaving seats the
 			// feasibility check was counting on (and sometimes a driver with no
 			// arc at all). Place the remainder into those seats.
-			repaired, err := repairSweep(ctx, institute, workingRoutes, orderedDriverIDs, groups, splittableHouseholds)
+			repaired, err := repairSweep(ctx, institute, workingRoutes, orderedDriverIDs, groups, splittableHouseholds, reserveEveryDriver)
 			if err != nil || !repaired {
 				log.Printf("[BALANCED] Phase 1 sweep repair failed with %d groups left", len(groups))
 				return false, err
@@ -296,16 +296,17 @@ func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute mo
 	return true, nil
 }
 
-// repairSweep places the groups a sweep could not. Drivers left without an
-// arc first get the nearest remaining group by bearing, so every selected
-// driver is still used; then the rest go, largest first, into the car with
-// spare seats whose driver's bearing is nearest. Every placement keeps the
-// packing feasible for the groups still to come. It commits nothing partial.
-func repairSweep(ctx context.Context, institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, groups []*participantGroup, splittableHouseholds map[string]struct{}) (bool, error) {
+// repairSweep places the groups a sweep could not. When every driver must be
+// used, drivers left without an arc first get the nearest remaining group by
+// bearing; then the rest go, largest first, into the car with spare seats
+// whose driver's bearing is nearest. Every placement keeps the packing
+// feasible for the groups still to come. It works on the caller's working
+// copies, so a failed repair is simply discarded with them.
+func repairSweep(ctx context.Context, institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, groups []*participantGroup, splittableHouseholds map[string]struct{}, reserveEveryDriver bool) (bool, error) {
 	remaining := slices.Clone(groups)
 	for _, driverID := range driverIDs {
 		route := routes[driverID]
-		if len(route.stops) > 0 {
+		if len(route.stops) > 0 || !reserveEveryDriver {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -871,7 +872,8 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 	result := routeObjectiveMetrics{used: true}
 	prev := rc.origin(driver)
 	cumulative := 0.0
-	pickedUpAt := 0.0 // sum of pickup times, for time aboard in pickup mode
+	pickedUpAt := 0.0   // sum of pickup times, for time aboard in pickup mode
+	firstPickup := -1.0 // when the first rider boards, in pickup mode
 	for i, stop := range stops {
 		if stop == nil {
 			return routeObjectiveMetrics{}, fmt.Errorf("route stop %d is missing participant data", i)
@@ -885,7 +887,12 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 			result.latestParticipantCompletion = max(result.latestParticipantCompletion, cumulative)
 			result.aggregateParticipantCompletion += cumulative
 		}
-		pickedUpAt += cumulative
+		if rc.mode == RouteModePickup {
+			pickedUpAt += cumulative
+			if firstPickup < 0 {
+				firstPickup = cumulative
+			}
+		}
 		prev = stop.GetCoords()
 	}
 	// Preserve the original source lookup sequence, including the baseline leg.
@@ -905,10 +912,11 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 		result.corridorSpread = int(math.Round(rc.routeCorridorSpread(stops) / 10.0))
 	}
 	if rc.mode == RouteModePickup {
-		result.latestParticipantCompletion = result.driveDuration
-		// Riders' time aboard: from each pickup to the activity. Counting the
-		// whole drive per rider hid orders that collect a rider early and carry
-		// them far out and back.
+		// Rider time aboard, from pickup to the activity, mirrors dropoff where
+		// the driver's own leg home does not count. The longest is the first
+		// rider's; counting the whole drive per rider hid orders that collect a
+		// rider early and carry them far out and back.
+		result.latestParticipantCompletion = result.driveDuration - firstPickup
 		result.aggregateParticipantCompletion = result.driveDuration*float64(len(stops)) - pickedUpAt
 	}
 	return result, nil
@@ -988,10 +996,11 @@ func (rc routeContext) optimizeRouteOrders(ctx context.Context, routes map[int64
 	return err
 }
 
-// optimizeRouteOrdersWith settles every car's stop order. The top-level pass
-// also tries moving one household block elsewhere in its car (relocations);
-// the ordering inside assignment candidates tries reversals only, so Phase 3
-// stays within its budget.
+// optimizeRouteOrdersWith settles every car's stop order. Whole-plan passes
+// (after seeding, after each accepted assignment move, after driver swaps,
+// and for an edited car) also try moving one household block elsewhere in
+// its car (relocations); scoring an assignment candidate tries reversals
+// only, so Phase 3 stays within its budget.
 func (rc routeContext) optimizeRouteOrdersWith(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64, relocations bool) (solutionScore, error) {
 	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
 	candidateStops := make(map[int64][]*models.Participant, len(driverIDs))
@@ -1156,7 +1165,9 @@ func (rc routeContext) optimizeStopsForSolution(
 			// cannot express without also reversing everything in between.
 			for from := range blocks {
 				for to := 0; to <= len(blocks); to++ {
-					if to == from || to == from+1 || relocationEvaluations >= maxRelocationEvaluations {
+					// Moving a block one place either way is a swap of two
+					// neighbours, which the reversal loop already tried.
+					if to == from || to == from+1 || to == from+2 || to == from-1 || relocationEvaluations >= maxRelocationEvaluations {
 						continue
 					}
 					relocationEvaluations++
@@ -1177,7 +1188,6 @@ func (rc routeContext) optimizeStopsForSolution(
 					}
 				}
 			}
-			candidateBlocks = candidateBlocks[:len(blocks)]
 		}
 
 		if !found {

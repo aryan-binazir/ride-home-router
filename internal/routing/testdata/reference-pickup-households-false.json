@@ -56,74 +56,6 @@
         {
           "order": 0,
           "participant": {
-            "id": 6,
-            "name": "P6",
-            "address": "6 Test Lane",
-            "address_name": "",
-            "lat": 35.98092,
-            "lng": -79.02859,
-            "created_at": "0001-01-01T00:00:00Z",
-            "updated_at": "0001-01-01T00:00:00Z"
-          },
-          "distance_from_prev_meters": 2777,
-          "cumulative_distance_meters": 2777,
-          "duration_from_prev_secs": 237,
-          "cumulative_duration_secs": 237
-        },
-        {
-          "order": 1,
-          "participant": {
-            "id": 2,
-            "name": "P2",
-            "address": "2 Test Lane",
-            "address_name": "",
-            "lat": 35.96645,
-            "lng": -79.03032,
-            "created_at": "0001-01-01T00:00:00Z",
-            "updated_at": "0001-01-01T00:00:00Z"
-          },
-          "distance_from_prev_meters": 1614,
-          "cumulative_distance_meters": 4391,
-          "duration_from_prev_secs": 139,
-          "cumulative_duration_secs": 376
-        },
-        {
-          "order": 2,
-          "participant": {
-            "id": 4,
-            "name": "P4",
-            "address": "4 Test Lane",
-            "address_name": "",
-            "lat": 35.98942,
-            "lng": -78.99696,
-            "created_at": "0001-01-01T00:00:00Z",
-            "updated_at": "0001-01-01T00:00:00Z"
-          },
-          "distance_from_prev_meters": 3939,
-          "cumulative_distance_meters": 8330,
-          "duration_from_prev_secs": 332,
-          "cumulative_duration_secs": 708
-        },
-        {
-          "order": 3,
-          "participant": {
-            "id": 8,
-            "name": "P8",
-            "address": "8 Test Lane",
-            "address_name": "",
-            "lat": 35.97304,
-            "lng": -78.98142,
-            "created_at": "0001-01-01T00:00:00Z",
-            "updated_at": "0001-01-01T00:00:00Z"
-          },
-          "distance_from_prev_meters": 2294,
-          "cumulative_distance_meters": 10624,
-          "duration_from_prev_secs": 199,
-          "cumulative_duration_secs": 907
-        },
-        {
-          "order": 4,
-          "participant": {
             "id": 10,
             "name": "P10",
             "address": "10 Test Lane",
@@ -133,13 +65,13 @@
             "created_at": "0001-01-01T00:00:00Z",
             "updated_at": "0001-01-01T00:00:00Z"
           },
-          "distance_from_prev_meters": 9270,
-          "cumulative_distance_meters": 19894,
-          "duration_from_prev_secs": 782,
-          "cumulative_duration_secs": 1689
+          "distance_from_prev_meters": 14380,
+          "cumulative_distance_meters": 14380,
+          "duration_from_prev_secs": 1205,
+          "cumulative_duration_secs": 1205
         },
         {
-          "order": 5,
+          "order": 1,
           "participant": {
             "id": 9,
             "name": "P9",
@@ -151,18 +83,86 @@
             "updated_at": "0001-01-01T00:00:00Z"
           },
           "distance_from_prev_meters": 5180,
-          "cumulative_distance_meters": 25074,
+          "cumulative_distance_meters": 19560,
           "duration_from_prev_secs": 441,
-          "cumulative_duration_secs": 2130
+          "cumulative_duration_secs": 1646
+        },
+        {
+          "order": 2,
+          "participant": {
+            "id": 8,
+            "name": "P8",
+            "address": "8 Test Lane",
+            "address_name": "",
+            "lat": 35.97304,
+            "lng": -78.98142,
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          },
+          "distance_from_prev_meters": 4310,
+          "cumulative_distance_meters": 23870,
+          "duration_from_prev_secs": 369,
+          "cumulative_duration_secs": 2015
+        },
+        {
+          "order": 3,
+          "participant": {
+            "id": 4,
+            "name": "P4",
+            "address": "4 Test Lane",
+            "address_name": "",
+            "lat": 35.98942,
+            "lng": -78.99696,
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          },
+          "distance_from_prev_meters": 2294,
+          "cumulative_distance_meters": 26164,
+          "duration_from_prev_secs": 193,
+          "cumulative_duration_secs": 2208
+        },
+        {
+          "order": 4,
+          "participant": {
+            "id": 6,
+            "name": "P6",
+            "address": "6 Test Lane",
+            "address_name": "",
+            "lat": 35.98092,
+            "lng": -79.02859,
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          },
+          "distance_from_prev_meters": 2999,
+          "cumulative_distance_meters": 29163,
+          "duration_from_prev_secs": 252,
+          "cumulative_duration_secs": 2460
+        },
+        {
+          "order": 5,
+          "participant": {
+            "id": 2,
+            "name": "P2",
+            "address": "2 Test Lane",
+            "address_name": "",
+            "lat": 35.96645,
+            "lng": -79.03032,
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          },
+          "distance_from_prev_meters": 1614,
+          "cumulative_distance_meters": 30777,
+          "duration_from_prev_secs": 139,
+          "cumulative_duration_secs": 2599
         }
       ],
-      "total_dropoff_distance_meters": 25074,
-      "distance_to_driver_home_meters": 4763,
-      "total_distance_meters": 29837,
+      "total_dropoff_distance_meters": 30777,
+      "distance_to_driver_home_meters": 4989,
+      "total_distance_meters": 35766,
       "effective_capacity": 6,
       "baseline_duration_secs": 689,
-      "route_duration_secs": 2535,
-      "detour_secs": 1846,
+      "route_duration_secs": 3018,
+      "detour_secs": 2329,
       "mode": "pickup"
     },
     {
@@ -277,12 +277,12 @@
   "summary": {
     "total_participants": 12,
     "total_drivers_used": 3,
-    "total_dropoff_distance_meters": 42976,
-    "total_distance_meters": 56431,
+    "total_dropoff_distance_meters": 48679,
+    "total_distance_meters": 62360,
     "unassigned_participants": [],
-    "max_detour_secs": 1846,
-    "sum_detour_secs": 3057,
-    "average_detour_secs": 1019
+    "max_detour_secs": 2329,
+    "sum_detour_secs": 3540,
+    "average_detour_secs": 1180
   },
   "mode": "pickup"
 }
