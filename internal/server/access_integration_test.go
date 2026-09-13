@@ -384,7 +384,7 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 			for _, path := range paths {
 				for _, method := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
 					// These exact read-only paths are deliberately public. Their writes are tested.
-					if (method == "GET" || method == "HEAD") && (path == "/sign-in" || path == "/auth/config" || path == "/api/v1/health" || path == "/api/v1/ready" || (strings.HasPrefix(path, "/static/") && !strings.Contains(path, "..") && !strings.Contains(path, "%2e"))) {
+					if (method == "GET" || method == "HEAD") && (path == "/healthz" || path == "/sign-in" || path == "/auth/config" || path == "/api/v1/health" || path == "/api/v1/ready" || (strings.HasPrefix(path, "/static/") && !strings.Contains(path, "..") && !strings.Contains(path, "%2e"))) {
 						continue
 					}
 					t.Run(method+path, func(t *testing.T) {

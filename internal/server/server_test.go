@@ -76,6 +76,7 @@ func TestSetupRoutesSeparatesLivenessFromReadiness(t *testing.T) {
 	}{
 		{path: "/api/v1/health", wantStatus: http.StatusOK},
 		{path: "/api/v1/ready", wantStatus: http.StatusServiceUnavailable},
+		{path: "/healthz", wantStatus: http.StatusServiceUnavailable},
 	} {
 		t.Run(tt.path, func(t *testing.T) {
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
@@ -772,4 +773,24 @@ func newMiddlewareImportRequest(t *testing.T, paddingBytes int) *http.Request {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("HX-Request", "true")
 	return req
+}
+
+func TestHealthzAllowsUnauthenticatedReadinessProbe(t *testing.T) {
+	store := postgrestest.Open(t)
+	_, base := startAccessServer(t, postgrestest.DatabaseURL(t), accesstest.New(t))
+	h := accessHTTP{t: t, client: &http.Client{Timeout: 5 * time.Second}}
+	status, body, _ := h.request(base, http.MethodGet, "/healthz", "", "", "", nil)
+	if status != http.StatusOK || strings.TrimSpace(body) != `{"status":"ready"}` {
+		t.Fatalf("healthz = %d %s, want 200 ready", status, body)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mux := setupRoutes(&handlers.Handler{DB: store}, web.Static)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("healthz with closed database = %d, want 503", w.Code)
+	}
 }

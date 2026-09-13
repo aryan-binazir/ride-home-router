@@ -283,6 +283,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS))))
 
+	mux.HandleFunc("/healthz", requireMethod(http.MethodGet, handler.HandleReadinessCheck))
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
 	mux.HandleFunc("/api/v1/ready", requireMethod(http.MethodGet, handler.HandleReadinessCheck))
 

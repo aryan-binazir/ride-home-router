@@ -173,7 +173,7 @@ func public(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/sign-in", "/auth/config", "/api/v1/health", "/api/v1/ready":
+	case "/healthz", "/sign-in", "/auth/config", "/api/v1/health", "/api/v1/ready":
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/static/") && !strings.Contains(r.URL.Path, "..")

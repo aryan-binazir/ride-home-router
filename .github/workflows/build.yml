@@ -129,7 +129,7 @@ jobs:
             exit 1
           fi
 
-          if readiness_output=$(docker exec "$app_container" wget -O- http://127.0.0.1:8080/api/v1/ready 2>&1); then
+          if readiness_output=$(docker exec "$app_container" wget -O- http://127.0.0.1:8080/healthz 2>&1); then
             echo "readiness succeeded before migrations" >&2
             exit 1
           fi
