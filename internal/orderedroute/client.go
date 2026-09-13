@@ -299,10 +299,9 @@ func unwrapURLError(err error) error {
 // IsTemporary reports provider conditions worth retrying later: transport
 // faults, rate limits, server errors, and exhausted usage.
 func IsTemporary(err error) bool {
-	var status *StatusError
-	if errors.As(err, &status) {
+	if status, ok := errors.AsType[*StatusError](err); ok {
 		return status.Temporary()
 	}
-	var transport *transportError
-	return errors.As(err, &transport) || errors.Is(err, database.ErrUsageExhausted) || errors.Is(err, context.DeadlineExceeded)
+	_, transport := errors.AsType[*transportError](err)
+	return transport || errors.Is(err, database.ErrUsageExhausted) || errors.Is(err, context.DeadlineExceeded)
 }

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"ride-home-router/internal/database"
-	"ride-home-router/internal/distance"
 	"testing"
 )
 
@@ -29,5 +28,5 @@ func TestRoutingEngineSelection(t *testing.T) {
 	if _, ok := matrix.(interface{ NoPrewarm() bool }); ok {
 		t.Fatalf("matrix engine = %T, want the Google calculator", matrix)
 	}
-	var _ distance.SolveSource = matrix
+	_ = matrix
 }

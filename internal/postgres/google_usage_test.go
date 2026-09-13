@@ -68,15 +68,13 @@ func TestGoogleUsageConcurrentReplicasNeverExceedTheCeiling(t *testing.T) {
 		if i%2 == 1 {
 			ledger = b.GoogleUsage()
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := ledger.Reserve(context.Background(), database.UsageSKURoutes, 1); err == nil {
 				mu.Lock()
 				granted++
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if granted != 10 {

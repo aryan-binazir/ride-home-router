@@ -41,7 +41,8 @@ func (m *stubMeasurer) Measure(_ context.Context, requests []orderedroute.Reques
 
 func (m *stubMeasurer) count() int { m.mu.Lock(); defer m.mu.Unlock(); return len(m.requests) }
 
-const estimatorSentinel = "4242"
+// A digit run that random hex session ids are astronomically unlikely to contain.
+const estimatorSentinel = "424242"
 
 func measuredCalculateFixture(t *testing.T) (*Handler, *stubMeasurer, url.Values) {
 	t.Helper()
@@ -61,10 +62,10 @@ func measuredCalculateFixture(t *testing.T) (*Handler, *stubMeasurer, url.Values
 	// The planner's result carries estimator numbers that must never reach a user.
 	handler.Router = &captureRouter{result: &models.RoutingResult{
 		Routes: []models.CalculatedRoute{{
-			Driver: driver, EffectiveCapacity: 4, Mode: "dropoff", RouteDurationSecs: 4242, TotalDistanceMeters: 4242, DetourSecs: 4242,
-			Stops: []models.RouteStop{{Participant: participant, DistanceFromPrevMeters: 4242, DurationFromPrevSecs: 4242, CumulativeDurationSecs: 4242}},
+			Driver: driver, EffectiveCapacity: 4, Mode: "dropoff", RouteDurationSecs: 424242.75, TotalDistanceMeters: 424242.75, DetourSecs: 424242.75,
+			Stops: []models.RouteStop{{Participant: participant, DistanceFromPrevMeters: 424242.75, DurationFromPrevSecs: 424242.75, CumulativeDurationSecs: 424242.75}},
 		}},
-		Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1, TotalDistanceMeters: 4242, MaxDetourSecs: 4242},
+		Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1, TotalDistanceMeters: 424242.75, MaxDetourSecs: 424242.75},
 	}}
 	measurer := &stubMeasurer{}
 	handler.Measurer = measurer

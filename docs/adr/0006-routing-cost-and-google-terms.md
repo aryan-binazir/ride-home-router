@@ -1,6 +1,6 @@
 # Routing cost and Google Maps Platform terms
 
-Status: decided 2026-09-13, not yet implemented.
+Status: decided 2026-09-13; implemented in the estimate-then-measure routing change (see README "How it runs"). The distance cache table remains for the legacy matrix engine and is removed in a follow-up.
 
 ## Context
 

@@ -14,11 +14,11 @@ type participantRepository struct {
 	db *sql.DB
 }
 
-const participantColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at, deleted_at`
+const participantColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz)`
 
 func scanParticipant(scanner interface{ Scan(dest ...any) error }) (models.Participant, error) {
 	var p models.Participant
-	err := scanner.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt)
+	err := scanner.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt, &p.GeocodedAt)
 	return p, err
 }
 
@@ -85,8 +85,8 @@ func collectParticipants(rows *sql.Rows) ([]models.Participant, error) {
 }
 
 const insertParticipant = `
-	INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at)
-	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7)
+	INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at, geocoded_at)
+	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8)
 	RETURNING id`
 
 func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
@@ -100,17 +100,20 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 		},
 		insert: func(ctx context.Context, tx *sql.Tx, p *models.Participant, now time.Time) (int64, error) {
 			var id int64
+			if p.GeocodedAt.IsZero() {
+				p.GeocodedAt = now
+			}
 			err := tx.QueryRowContext(ctx, insertParticipant,
-				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, now,
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, now, p.GeocodedAt,
 			).Scan(&id)
 			return id, err
 		},
 		updateRow: func(ctx context.Context, tx *sql.Tx, p *models.Participant, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE participants
-				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6, geocoded_at = $8
 				WHERE id = $7 AND deleted_at IS NULL`,
-				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID)
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID, p.GeocodedAt)
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, p *models.Participant, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
@@ -151,4 +154,13 @@ func (r *participantRepository) Delete(ctx context.Context, id int64) error {
 
 func (r *participantRepository) Restore(ctx context.Context, id int64) error {
 	return r.writes().restore(ctx, id)
+}
+
+// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
+func (r *participantRepository) UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE participants SET lat = $1, lng = $2, geocoded_at = $3 WHERE id = $4 AND address = $5 AND deleted_at IS NULL`, coords.Lat, coords.Lng, geocodedAt, id, address)
+	if err != nil {
+		return fmt.Errorf("failed to update coordinates: %w", err)
+	}
+	return rowsAffectedOrNotFound(result)
 }

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"ride-home-router/internal/database"
 	"strings"
 	"testing"
 	"time"
@@ -433,5 +434,38 @@ func TestGoogleGeocodeWithRetryStopsWhenContextCancelsDuringBackoff(t *testing.T
 	_, err := geocoder.GeocodeWithRetry(ctx, "1 Test Way", 3)
 	if !errors.Is(err, context.DeadlineExceeded) || calls != 1 {
 		t.Fatalf("cancelled backoff: err=%v calls=%d, want DeadlineExceeded after one call", err, calls)
+	}
+}
+
+type recordingUsage struct{ reserved map[database.UsageSKU]int }
+
+func (u *recordingUsage) Reserve(_ context.Context, sku database.UsageSKU, n int) error {
+	if u.reserved == nil {
+		u.reserved = map[database.UsageSKU]int{}
+	}
+	if u.reserved[sku]+n > 1 {
+		return database.ErrUsageExhausted
+	}
+	u.reserved[sku] += n
+	return nil
+}
+
+func TestGoogleGeocoderReservesEveryAttemptAndStopsAtTheCeiling(t *testing.T) {
+	ok := googleStatusServer(t, http.StatusOK, `{"status":"OK","results":[{"formatted_address":"1 Test Way, Boston, MA, USA","geometry":{"location":{"lat":42,"lng":-71}}}]}`)
+	usage := &recordingUsage{}
+	geocoder := WithUsage(newGoogleGeocoder(staticKey("k"), &recordingGate{}, ok.Client(), ok.URL, ok.URL), usage)
+	if _, err := geocoder.Geocode(context.Background(), "1 Test Way"); err != nil {
+		t.Fatalf("first geocode: %v", err)
+	}
+	_, err := geocoder.Geocode(context.Background(), "1 Test Way")
+	failure, isFailure := errors.AsType[*ErrGeocodingFailed](err)
+	if !isFailure || !errors.Is(err, database.ErrUsageExhausted) || !failure.Retryable() {
+		t.Fatalf("second geocode = %v, want a retryable ceiling error", err)
+	}
+	if usage.reserved[database.UsageSKUGeocoding] != 1 {
+		t.Fatalf("geocoding reservations = %d, want 1", usage.reserved[database.UsageSKUGeocoding])
+	}
+	if _, err := geocoder.Search(context.Background(), "1 Test", 5); err != nil {
+		t.Fatalf("autocomplete has its own allowance: %v", err)
 	}
 }

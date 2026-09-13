@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"strings"
 	"time"
@@ -26,9 +27,37 @@ type KeyFunc func(context.Context) (string, error)
 type googleGeocoder struct {
 	apiKey          KeyFunc
 	gate            RateGate
+	usage           UsageReserver
 	httpClient      *http.Client
 	geocodeURL      string
 	autocompleteURL string
+}
+
+// UsageReserver records one provider attempt before it is dispatched so the
+// month stays inside the free tier; see database.GoogleUsageLedger.
+type UsageReserver interface {
+	Reserve(ctx context.Context, sku database.UsageSKU, attempts int) error
+}
+
+// WithUsage returns a geocoder that reserves every Geocoding and Autocomplete
+// attempt with the ledger. A nil ledger leaves the geocoder unmetered (tests).
+func WithUsage(geocoder Geocoder, usage UsageReserver) Geocoder {
+	if g, ok := geocoder.(*googleGeocoder); ok && usage != nil {
+		copied := *g
+		copied.usage = usage
+		return &copied
+	}
+	return geocoder
+}
+
+func (g *googleGeocoder) reserve(ctx context.Context, sku database.UsageSKU) error {
+	if g.usage == nil {
+		return nil
+	}
+	if err := g.usage.Reserve(ctx, sku, 1); err != nil {
+		return &ErrGeocodingFailed{Reason: "provider usage ceiling reached", Cause: err, Configuration: true}
+	}
+	return nil
 }
 
 // NewGoogleGeocoder geocodes with the Google Geocoding API and suggests
@@ -65,6 +94,9 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		return nil, err
 	}
 	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.reserve(ctx, database.UsageSKUGeocoding); err != nil {
 		return nil, err
 	}
 	query := url.Values{"address": {address}, "region": {googleRegion}, "key": {key}}
@@ -222,6 +254,9 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 		return nil, err
 	}
 	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.reserve(ctx, database.UsageSKUAutocomplete); err != nil {
 		return nil, err
 	}
 	body, _ := json.Marshal(map[string]string{"input": query, "regionCode": googleRegion, "languageCode": "en"})

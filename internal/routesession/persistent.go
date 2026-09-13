@@ -29,7 +29,7 @@ func encodeState(state *session) ([]byte, error) {
 	return json.Marshal(persistedState{state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode})
 }
 
-func (s *Store) engine(id string, data []byte) (*Store, error) {
+func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, error) {
 	var p persistedState
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (s *Store) engine(id string, data []byte) (*Store, error) {
 				if routes[i].Driver == nil {
 					continue
 				}
-				if err := routing.PopulateRouteMetrics(context.Background(), s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]); err != nil {
+				if err := routing.PopulateRouteMetrics(ctx, s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]); err != nil {
 					return nil, err
 				}
 			}
@@ -91,7 +91,7 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	engine, err := s.engine(id, record.Data)
+	engine, err := s.engine(ctx, id, record.Data)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
@@ -106,7 +106,7 @@ func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snap
 	if err != nil {
 		return Snapshot{}, err
 	}
-	engine, err := s.engine(id, record.Data)
+	engine, err := s.engine(ctx, id, record.Data)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -152,7 +152,7 @@ func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context
 		if record.Consumed {
 			return ErrAlreadyCommitted
 		}
-		engine, err := s.engine(id, record.Data)
+		engine, err := s.engine(ctx, id, record.Data)
 		if err != nil {
 			return err
 		}

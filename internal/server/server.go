@@ -95,7 +95,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
-	geocoder := geocoding.NewGoogleGeocoder(db.Settings().GoogleMapsKey, db.GeocodingGate())
+	geocoder := geocoding.WithUsage(geocoding.NewGoogleGeocoder(db.Settings().GoogleMapsKey, db.GeocodingGate()), db.GoogleUsage())
 	distanceCalc, err := routingDistanceSource(cfg.RoutingEngine, db.DistanceCache(), db.Settings().GoogleMapsKey)
 	if err != nil {
 		_ = db.Close()
