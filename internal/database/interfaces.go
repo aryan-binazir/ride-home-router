@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"ride-home-router/internal/models"
-	"time"
 )
 
 // BatchUpsertResult reports the outcome of an atomic import batch.
@@ -35,7 +34,6 @@ type RouteFeedbackRepository interface {
 
 // ParticipantRepository stores participants.
 type ParticipantRepository interface {
-	UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error
 	List(ctx context.Context, search string) ([]models.Participant, error)
 	ListDeleted(ctx context.Context) ([]models.Participant, error)
 	GetByID(ctx context.Context, id int64) (*models.Participant, error)
@@ -53,7 +51,6 @@ type ParticipantRepository interface {
 
 // DriverRepository stores drivers.
 type DriverRepository interface {
-	UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error
 	List(ctx context.Context, search string) ([]models.Driver, error)
 	ListDeleted(ctx context.Context) ([]models.Driver, error)
 	GetByID(ctx context.Context, id int64) (*models.Driver, error)
@@ -102,7 +99,6 @@ type SettingsRepository interface {
 
 // ActivityLocationRepository stores activity locations.
 type ActivityLocationRepository interface {
-	UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error
 	List(ctx context.Context) ([]models.ActivityLocation, error)
 	ListDeleted(ctx context.Context) ([]models.ActivityLocation, error)
 	GetByID(ctx context.Context, id int64) (*models.ActivityLocation, error)
