@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 	"time"
 )
 
@@ -128,5 +129,12 @@ func (s *Store) CleanupWorkflows(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.cleanupDeletedRoster(ctx)
+	if err := s.cleanupDeletedRoster(ctx); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM distance_cache WHERE (origin_lat, origin_lng, dest_lat, dest_lng) IN (
+		SELECT origin_lat, origin_lng, dest_lat, dest_lng FROM distance_cache
+		WHERE cached_at <= $1 ORDER BY cached_at FOR UPDATE SKIP LOCKED LIMIT 1000
+	) AND cached_at <= $1`, time.Now().Add(-models.CoordinateMaxAge))
+	return err
 }

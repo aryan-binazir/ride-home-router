@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"time"
 )
 
 type distanceCacheRepository struct {
@@ -34,9 +35,9 @@ func scanCacheEntry(scanner interface{ Scan(dest ...any) error }) (models.Distan
 func (r *distanceCacheRepository) Get(ctx context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error) {
 	entry, err := scanCacheEntry(r.db.QueryRowContext(ctx, `
 		SELECT `+cacheColumns+` FROM distance_cache
-		WHERE origin_lat = $1 AND origin_lng = $2 AND dest_lat = $3 AND dest_lng = $4`,
+		WHERE origin_lat = $1 AND origin_lng = $2 AND dest_lat = $3 AND dest_lng = $4 AND cached_at > $5`,
 		models.RoundCoordinate(origin.Lat), models.RoundCoordinate(origin.Lng),
-		models.RoundCoordinate(dest.Lat), models.RoundCoordinate(dest.Lng)))
+		models.RoundCoordinate(dest.Lat), models.RoundCoordinate(dest.Lng), time.Now().Add(-models.CoordinateMaxAge)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, database.ErrCacheMiss
 	}
@@ -73,8 +74,9 @@ func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ 
 		  ON dc.origin_lat = requested.origin_lat
 		 AND dc.origin_lng = requested.origin_lng
 		 AND dc.dest_lat = requested.dest_lat
-		 AND dc.dest_lng = requested.dest_lng`,
-		originLats, originLngs, destLats, destLngs)
+		 AND dc.dest_lng = requested.dest_lng
+		WHERE dc.cached_at > $5`,
+		originLats, originLngs, destLats, destLngs, time.Now().Add(-models.CoordinateMaxAge))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query batch entries: %w", err)
 	}
@@ -97,7 +99,7 @@ const upsertCacheEntry = `
 	INSERT INTO distance_cache (` + cacheColumns + `)
 	VALUES ($1, $2, $3, $4, $5, $6)
 	ON CONFLICT (origin_lat, origin_lng, dest_lat, dest_lng)
-	DO UPDATE SET distance_meters = EXCLUDED.distance_meters, duration_secs = EXCLUDED.duration_secs`
+	DO UPDATE SET distance_meters = EXCLUDED.distance_meters, duration_secs = EXCLUDED.duration_secs, cached_at = clock_timestamp()`
 
 func (r *distanceCacheRepository) Set(ctx context.Context, entry *models.DistanceCacheEntry) error {
 	if _, err := r.db.ExecContext(ctx, upsertCacheEntry,
@@ -137,7 +139,7 @@ func (r *distanceCacheRepository) SetBatch(ctx context.Context, entries []models
 		     WITH ORDINALITY AS e(origin_lat, origin_lng, dest_lat, dest_lng, distance_meters, duration_secs, ord)
 		ORDER BY origin_lat, origin_lng, dest_lat, dest_lng, ord DESC
 		ON CONFLICT (origin_lat, origin_lng, dest_lat, dest_lng)
-		DO UPDATE SET distance_meters = EXCLUDED.distance_meters, duration_secs = EXCLUDED.duration_secs`,
+		DO UPDATE SET distance_meters = EXCLUDED.distance_meters, duration_secs = EXCLUDED.duration_secs, cached_at = clock_timestamp()`,
 		originLats, originLngs, destLats, destLngs, distances, durations); err != nil {
 		return fmt.Errorf("failed to insert batch entries: %w", err)
 	}

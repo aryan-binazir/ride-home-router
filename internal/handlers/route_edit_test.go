@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
 	"testing"
 )
@@ -87,6 +88,13 @@ func TestHandleResetRoutesReturnsOriginalJSON(t *testing.T) {
 
 func TestHandleAddDriverReturnsJSON(t *testing.T) {
 	h, created := newRouteEditHandler(t)
+	db := postgrestest.Open(t)
+	h.DB = db
+	for _, name := range []string{"One", "Two", "Three"} {
+		if _, err := db.Drivers().Create(t.Context(), &models.Driver{Name: name, Address: name + " Road", Lat: 1, Lng: 2, VehicleCapacity: 2}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	body := `{"session_id":"` + created.ID + `","driver_id":3}`
 	w := httptest.NewRecorder()
 	h.HandleAddDriver(w, newRouteEditJSONRequest("/api/v1/routes/edit/add-driver", []byte(body)))

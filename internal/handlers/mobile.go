@@ -183,6 +183,12 @@ func (h *Handler) mobileRedirectError(w http.ResponseWriter, r *http.Request, pa
 }
 
 func mobileRouteErrorMessage(err error) string {
+	if _, ok := errors.AsType[*refreshAddressNotFound](err); ok {
+		return routeCalculationValidationMessage(err)
+	}
+	if _, ok := errors.AsType[*refreshProviderError](err); ok {
+		return routeCalculationValidationMessage(err)
+	}
 	switch {
 	case errors.Is(err, database.ErrWorkflowConflict):
 		return "This route plan changed. Review the current routes and try again."

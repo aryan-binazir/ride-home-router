@@ -8,6 +8,7 @@ import (
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (h *Handler) HandleMobilePlaces(w http.ResponseWriter, r *http.Request) {
@@ -150,10 +151,12 @@ func (h *Handler) saveMobilePlace(r *http.Request, kind string, id int64) error 
 			return err
 		}
 		location.Lat, location.Lng = existing.Lat, existing.Lng
+		location.GeocodedAt = existing.GeocodedAt
 		if existing.Address != address {
 			if err := h.geocodeMobile(r.Context(), address, &location.Lat, &location.Lng); err != nil {
 				return err
 			}
+			location.GeocodedAt = time.Now()
 		}
 		_, err = h.DB.ActivityLocations().Update(r.Context(), location)
 		return err
@@ -161,6 +164,7 @@ func (h *Handler) saveMobilePlace(r *http.Request, kind string, id int64) error 
 	if err := h.geocodeMobile(r.Context(), address, &location.Lat, &location.Lng); err != nil {
 		return err
 	}
+	location.GeocodedAt = time.Now()
 	_, err := h.DB.ActivityLocations().Create(r.Context(), location)
 	return err
 }

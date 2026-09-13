@@ -7,17 +7,18 @@ import (
 	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"time"
 )
 
 type activityLocationRepository struct {
 	db *sql.DB
 }
 
-const activityLocationColumns = `id, name, address, lat, lng, deleted_at`
+const activityLocationColumns = `id, name, address, lat, lng, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz)`
 
 func scanActivityLocation(scanner interface{ Scan(dest ...any) error }) (models.ActivityLocation, error) {
 	var loc models.ActivityLocation
-	err := scanner.Scan(&loc.ID, &loc.Name, &loc.Address, &loc.Lat, &loc.Lng, &loc.DeletedAt)
+	err := scanner.Scan(&loc.ID, &loc.Name, &loc.Address, &loc.Lat, &loc.Lng, &loc.DeletedAt, &loc.GeocodedAt)
 	return loc, err
 }
 
@@ -65,9 +66,12 @@ func (r *activityLocationRepository) GetByID(ctx context.Context, id int64) (*mo
 }
 
 func (r *activityLocationRepository) Create(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
+	if loc.GeocodedAt.IsZero() {
+		loc.GeocodedAt = time.Now()
+	}
 	if err := r.db.QueryRowContext(ctx, `
-		INSERT INTO activity_locations (name, address, lat, lng) VALUES ($1, $2, $3, $4) RETURNING id`,
-		loc.Name, loc.Address, loc.Lat, loc.Lng).Scan(&loc.ID); err != nil {
+		INSERT INTO activity_locations (name, address, lat, lng, geocoded_at) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		loc.Name, loc.Address, loc.Lat, loc.Lng, loc.GeocodedAt).Scan(&loc.ID); err != nil {
 		return nil, fmt.Errorf("failed to create activity location: %w", err)
 	}
 	return loc, nil
@@ -75,8 +79,8 @@ func (r *activityLocationRepository) Create(ctx context.Context, loc *models.Act
 
 func (r *activityLocationRepository) Update(ctx context.Context, loc *models.ActivityLocation) (*models.ActivityLocation, error) {
 	result, err := r.db.ExecContext(ctx, `
-		UPDATE activity_locations SET name = $1, address = $2, lat = $3, lng = $4 WHERE id = $5 AND deleted_at IS NULL`,
-		loc.Name, loc.Address, loc.Lat, loc.Lng, loc.ID)
+		UPDATE activity_locations SET name = $1, address = $2, lat = $3, lng = $4, geocoded_at = $6 WHERE id = $5 AND deleted_at IS NULL`,
+		loc.Name, loc.Address, loc.Lat, loc.Lng, loc.ID, loc.GeocodedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update activity location: %w", err)
 	}
@@ -113,6 +117,15 @@ func (r *activityLocationRepository) Restore(ctx context.Context, id int64) erro
 	result, err := r.db.ExecContext(ctx, `UPDATE activity_locations SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL`, id)
 	if err != nil {
 		return fmt.Errorf("failed to restore activity location: %w", err)
+	}
+	return rowsAffectedOrNotFound(result)
+}
+
+// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
+func (r *activityLocationRepository) UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE activity_locations SET lat = $1, lng = $2, geocoded_at = $3 WHERE id = $4 AND address = $5 AND deleted_at IS NULL`, coords.Lat, coords.Lng, geocodedAt, id, address)
+	if err != nil {
+		return fmt.Errorf("failed to update coordinates: %w", err)
 	}
 	return rowsAffectedOrNotFound(result)
 }
