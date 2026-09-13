@@ -6,7 +6,18 @@ the CPU changes, and regenerated on 2026-09-13 when the assignment search gained
 whole-car driver swaps (a deliberate route-selection change: a driver who lives
 near another car's riders now takes that car). In that regeneration one
 plan changed: the household-free dropoff total drive fell 5515 → 5290 s with
-the maximum detour unchanged. The other three plans were unchanged. Regenerate only for a decided
+the maximum detour unchanged. The other three plans were unchanged.
+Regenerated again on 2026-09-13 when pickup routes began to mirror dropoff
+(a car's latest completion is the first rider's time aboard and the aggregate
+is every rider's time aboard, instead of the whole drive per rider) and the
+ordering pass gained single-block relocations: both pickup plans changed
+(household-free total distance 59,007 → 62,360 m with maximum detour 1,846 →
+2,329 s, the same plan as its dropoff twin; households 39,887 → 40,505 m,
+same maximum detour and longest rider); the two dropoff fixtures happened not
+to change, although relocations apply to dropoff too. The `edited-*.json`
+summaries are rebuilt from their routes, and with this scoring the single-car
+edit flow leaves every reference car's order unchanged.
+Regenerate only for a decided
 solver change, with `UPDATE_ROUTING_REFERENCES=1 go test ./internal/routing -run
 TestRoutingPreservesReferenceResults`.
 The `edited-*.json` files capture the same results after calling

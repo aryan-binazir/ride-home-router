@@ -219,7 +219,22 @@ func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute mo
 	for len(groups) > 0 {
 		driverID, ok := closestUnusedDriverByBearing(institute, groups[0], workingRoutes, orderedDriverIDs, usedDrivers, rejectedForGroup)
 		if !ok {
-			return false, nil
+			// The arcs stopped at households that did not fit, leaving seats the
+			// feasibility check was counting on (and sometimes a driver with no
+			// arc at all). Place the remainder into those seats.
+			repaired, err := repairSweep(ctx, institute, workingRoutes, orderedDriverIDs, groups, splittableHouseholds, reserveEveryDriver)
+			if err != nil || !repaired {
+				log.Printf("[BALANCED] Phase 1 sweep repair failed with %d groups left", len(groups))
+				return false, err
+			}
+			log.Printf("[BALANCED] Phase 1 sweep repair placed %d groups into spare seats", len(groups))
+			for _, id := range orderedDriverIDs {
+				if len(workingRoutes[id].stops) > 0 {
+					driversWithGroups[id] = struct{}{}
+				}
+			}
+			groups = nil
+			break
 		}
 		route := workingRoutes[driverID]
 		arcHasGroup := false
@@ -277,6 +292,117 @@ func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute mo
 	}
 	for _, driverID := range orderedDriverIDs {
 		routes[driverID].stops = workingRoutes[driverID].stops
+	}
+	return true, nil
+}
+
+// repairSweep places the groups a sweep could not. When every driver must be
+// used, drivers left without an arc first get the nearest remaining group by
+// bearing; then the rest go, largest first, into the car with spare seats
+// whose driver's bearing is nearest. Every placement keeps the packing
+// feasible for the groups still to come. It works on the caller's working
+// copies, so a failed repair is simply discarded with them.
+func repairSweep(ctx context.Context, institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, groups []*participantGroup, splittableHouseholds map[string]struct{}, reserveEveryDriver bool) (bool, error) {
+	remaining := slices.Clone(groups)
+	for _, driverID := range driverIDs {
+		route := routes[driverID]
+		if len(route.stops) > 0 || !reserveEveryDriver {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		driverBearing := bearingFromInstitute(institute, route.driver.GetCoords())
+		order := make([]int, 0, len(remaining))
+		for i, group := range remaining {
+			if len(group.members) <= route.driver.VehicleCapacity {
+				order = append(order, i)
+			}
+		}
+		sort.Slice(order, func(a, b int) bool {
+			da, db := angularDistance(remaining[order[a]].bearing, driverBearing), angularDistance(remaining[order[b]].bearing, driverBearing)
+			if da != db {
+				return da < db
+			}
+			return participantGroupKey(remaining[order[a]]) < participantGroupKey(remaining[order[b]])
+		})
+		placed := false
+		for _, i := range order {
+			feasible, err := assignmentPreservesCapacityFeasibility(ctx, routes, driverID, remaining, i, len(remaining[i].members), splittableHouseholds)
+			if err != nil {
+				return false, err
+			}
+			if !feasible {
+				continue
+			}
+			route.stops = append(route.stops, remaining[i].members...)
+			remaining = slices.Delete(remaining, i, i+1)
+			placed = true
+			break
+		}
+		if !placed {
+			log.Printf("[BALANCED] Phase 1 sweep repair: no remaining group fits empty driver %d", driverID)
+			return false, nil
+		}
+	}
+	sort.SliceStable(remaining, func(i, j int) bool {
+		if len(remaining[i].members) != len(remaining[j].members) {
+			return len(remaining[i].members) > len(remaining[j].members)
+		}
+		if remaining[i].bearing != remaining[j].bearing {
+			return remaining[i].bearing < remaining[j].bearing
+		}
+		return participantGroupKey(remaining[i]) < participantGroupKey(remaining[j])
+	})
+	for len(remaining) > 0 {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		group := remaining[0]
+		assignedCount := len(group.members)
+		if _, splittable := splittableHouseholds[participantGroupKey(group)]; splittable {
+			assignedCount = 1
+		}
+		type candidate struct {
+			driverID int64
+			distance float64
+		}
+		var candidates []candidate
+		for _, driverID := range driverIDs {
+			route := routes[driverID]
+			if route.driver.VehicleCapacity-len(route.stops) < assignedCount {
+				continue
+			}
+			candidates = append(candidates, candidate{driverID, angularDistance(group.bearing, bearingFromInstitute(institute, route.driver.GetCoords()))})
+		}
+		sort.Slice(candidates, func(i, j int) bool {
+			if candidates[i].distance != candidates[j].distance {
+				return candidates[i].distance < candidates[j].distance
+			}
+			return candidates[i].driverID < candidates[j].driverID
+		})
+		placed := false
+		for _, c := range candidates {
+			feasible, err := assignmentPreservesCapacityFeasibility(ctx, routes, c.driverID, remaining, 0, assignedCount, splittableHouseholds)
+			if err != nil {
+				return false, err
+			}
+			if !feasible {
+				continue
+			}
+			routes[c.driverID].stops = append(routes[c.driverID].stops, group.members[:assignedCount]...)
+			placed = true
+			break
+		}
+		if !placed {
+			log.Printf("[BALANCED] Phase 1 sweep repair: no car with %d seats can take group %s (%d candidates by seats)", assignedCount, participantGroupKey(group), len(candidates))
+			return false, nil
+		}
+		if assignedCount == len(group.members) {
+			remaining = remaining[1:]
+		} else {
+			group.members = group.members[assignedCount:]
+		}
 	}
 	return true, nil
 }
@@ -746,6 +872,8 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 	result := routeObjectiveMetrics{used: true}
 	prev := rc.origin(driver)
 	cumulative := 0.0
+	pickedUpAt := 0.0   // sum of pickup times, for time aboard in pickup mode
+	firstPickup := -1.0 // when the first rider boards, in pickup mode
 	for i, stop := range stops {
 		if stop == nil {
 			return routeObjectiveMetrics{}, fmt.Errorf("route stop %d is missing participant data", i)
@@ -758,6 +886,12 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 		if rc.mode != RouteModePickup {
 			result.latestParticipantCompletion = max(result.latestParticipantCompletion, cumulative)
 			result.aggregateParticipantCompletion += cumulative
+		}
+		if rc.mode == RouteModePickup {
+			pickedUpAt += cumulative
+			if firstPickup < 0 {
+				firstPickup = cumulative
+			}
 		}
 		prev = stop.GetCoords()
 	}
@@ -778,8 +912,12 @@ func (rc routeContext) evaluateRouteObjective(ctx context.Context, driver *model
 		result.corridorSpread = int(math.Round(rc.routeCorridorSpread(stops) / 10.0))
 	}
 	if rc.mode == RouteModePickup {
-		result.latestParticipantCompletion = result.driveDuration
-		result.aggregateParticipantCompletion = result.driveDuration * float64(len(stops))
+		// Rider time aboard, from pickup to the activity, mirrors dropoff where
+		// the driver's own leg home does not count. The longest is the first
+		// rider's; counting the whole drive per rider hid orders that collect a
+		// rider early and carry them far out and back.
+		result.latestParticipantCompletion = result.driveDuration - firstPickup
+		result.aggregateParticipantCompletion = result.driveDuration*float64(len(stops)) - pickedUpAt
 	}
 	return result, nil
 }
@@ -854,6 +992,16 @@ func (rc routeContext) routeCorridorSpread(stops []*models.Participant) float64 
 }
 
 func (rc routeContext) optimizeRouteOrders(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) error {
+	_, err := rc.optimizeRouteOrdersWith(ctx, routes, driverIDs, true)
+	return err
+}
+
+// optimizeRouteOrdersWith settles every car's stop order. Whole-plan passes
+// (after seeding, after each accepted assignment move, after driver swaps,
+// and for an edited car) also try moving one household block elsewhere in
+// its car (relocations); scoring an assignment candidate tries reversals
+// only, so Phase 3 stays within its budget.
+func (rc routeContext) optimizeRouteOrdersWith(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64, relocations bool) (solutionScore, error) {
 	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
 	candidateStops := make(map[int64][]*models.Participant, len(driverIDs))
 	for _, driverID := range driverIDs {
@@ -861,30 +1009,36 @@ func (rc routeContext) optimizeRouteOrders(ctx context.Context, routes map[int64
 		stops := rc.coalesceHouseholdStops(route.stops)
 		metrics, err := rc.evaluateRouteObjective(ctx, route.driver, stops)
 		if err != nil {
-			return err
+			return solutionScore{}, err
 		}
 		routeMetrics[driverID] = metrics
 		candidateStops[driverID] = stops
 	}
 
-	optimizedStops, _, err := rc.optimizeStopsForSolution(ctx, routes, routeMetrics, candidateStops, driverIDs)
+	optimizedStops, score, err := rc.optimizeStopsForSolution(ctx, routes, routeMetrics, candidateStops, driverIDs, relocations)
 	if err != nil {
-		return err
+		return solutionScore{}, err
 	}
 	for _, driverID := range driverIDs {
 		routes[driverID].stops = optimizedStops[driverID]
 	}
-	return nil
+	return score, nil
 }
 
-// optimizeStopsForSolution scores each reversal against every route.
+// maxRelocationEvaluations bounds the block relocations tried in one ordering pass.
+const maxRelocationEvaluations = 10000
+
+// optimizeStopsForSolution scores each block reversal, and with relocations
+// each single-block move, against every route.
 func (rc routeContext) optimizeStopsForSolution(
 	ctx context.Context,
 	routes map[int64]*balancedRoute,
 	baseMetrics map[int64]routeObjectiveMetrics,
 	changedStops map[int64][]*models.Participant,
 	driverIDs []int64,
+	relocations bool,
 ) (map[int64][]*models.Participant, solutionScore, error) {
+	relocationEvaluations := 0
 	currentStops := make(map[int64][]*models.Participant, len(changedStops))
 	currentMetrics := make([]routeObjectiveMetrics, len(driverIDs))
 	for i, id := range driverIDs {
@@ -942,59 +1096,96 @@ func (rc routeContext) optimizeStopsForSolution(
 					otherDetour = max(otherDetour, metrics.driverDetour)
 				}
 			}
+			// consider scores the candidate block order for this car against
+			// the whole solution and keeps it when it is the best so far.
+			consider := func() error {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+				candidateStops = candidateStops[:0]
+				for _, block := range candidateBlocks {
+					candidateStops = append(candidateStops, block.members...)
+				}
+				candidateMetrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, candidateStops, currentMetrics[driverIndex].corridorSpread)
+				if err != nil {
+					return err
+				}
+
+				prefix := currentScore
+				prefix.latestParticipantCompletion = max(otherLatest, candidateMetrics.latestParticipantCompletion)
+				prefix.maxDriverDetour = max(otherDetour, candidateMetrics.driverDetour)
+				if better, decided := prefix.comparePrefix(currentScore); decided && !better {
+					return nil
+				}
+				if found {
+					if better, decided := prefix.comparePrefix(bestScore); decided && !better {
+						return nil
+					}
+				}
+				previousMetrics := currentMetrics[driverIndex]
+				currentMetrics[driverIndex] = candidateMetrics
+				// Membership and maxima are already known. Sum only the two
+				// remaining fields, retaining the original driver/float order.
+				candidateScore := prefix
+				candidateScore.aggregateParticipantCompletion = prefixCompletion
+				candidateScore.aggregateDriveDuration = prefixDuration
+				for _, metrics := range currentMetrics[driverIndex:] {
+					if metrics.used {
+						candidateScore.aggregateParticipantCompletion += metrics.aggregateParticipantCompletion
+						candidateScore.aggregateDriveDuration += metrics.driveDuration
+					}
+				}
+				currentMetrics[driverIndex] = previousMetrics
+				if !candidateScore.betterThan(currentScore) || found && !candidateScore.betterThan(bestScore) {
+					return nil
+				}
+				bestDriverID = driverID
+				bestDriverIndex = driverIndex
+				bestStops = slices.Clone(candidateStops)
+				bestMetrics = candidateMetrics
+				bestScore = candidateScore
+				found = true
+				return nil
+			}
 			for i := 0; i < len(blocks)-1; i++ {
 				for j := i + 2; j <= len(blocks); j++ {
-					select {
-					case <-ctx.Done():
-						return nil, solutionScore{}, ctx.Err()
-					default:
-					}
-
 					copy(candidateBlocks, blocks)
 					reverseParticipantGroups(candidateBlocks, i, j-1)
-					candidateStops = candidateStops[:0]
-					for _, block := range candidateBlocks {
-						candidateStops = append(candidateStops, block.members...)
-					}
-					candidateMetrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, candidateStops, currentMetrics[driverIndex].corridorSpread)
-					if err != nil {
+					if err := consider(); err != nil {
 						return nil, solutionScore{}, err
 					}
-
-					prefix := currentScore
-					prefix.latestParticipantCompletion = max(otherLatest, candidateMetrics.latestParticipantCompletion)
-					prefix.maxDriverDetour = max(otherDetour, candidateMetrics.driverDetour)
-					if better, decided := prefix.comparePrefix(currentScore); decided && !better {
+				}
+			}
+			if !relocations {
+				continue
+			}
+			// Move one block to another position (or-opt), which a reversal
+			// cannot express without also reversing everything in between.
+			for from := range blocks {
+				for to := 0; to <= len(blocks); to++ {
+					// Moving a block one place either way is a swap of two
+					// neighbours, which the reversal loop already tried.
+					if to == from || to == from+1 || to == from+2 || to == from-1 || relocationEvaluations >= maxRelocationEvaluations {
 						continue
 					}
-					if found {
-						if better, decided := prefix.comparePrefix(bestScore); decided && !better {
-							continue
+					relocationEvaluations++
+					candidateBlocks = candidateBlocks[:0]
+					for k, block := range blocks {
+						if k == to {
+							candidateBlocks = append(candidateBlocks, blocks[from])
+						}
+						if k != from {
+							candidateBlocks = append(candidateBlocks, block)
 						}
 					}
-					previousMetrics := currentMetrics[driverIndex]
-					currentMetrics[driverIndex] = candidateMetrics
-					// Membership and maxima are already known. Sum only the two
-					// remaining fields, retaining the original driver/float order.
-					candidateScore := prefix
-					candidateScore.aggregateParticipantCompletion = prefixCompletion
-					candidateScore.aggregateDriveDuration = prefixDuration
-					for _, metrics := range currentMetrics[driverIndex:] {
-						if metrics.used {
-							candidateScore.aggregateParticipantCompletion += metrics.aggregateParticipantCompletion
-							candidateScore.aggregateDriveDuration += metrics.driveDuration
-						}
+					if to == len(blocks) {
+						candidateBlocks = append(candidateBlocks, blocks[from])
 					}
-					currentMetrics[driverIndex] = previousMetrics
-					if !candidateScore.betterThan(currentScore) || found && !candidateScore.betterThan(bestScore) {
-						continue
+					if err := consider(); err != nil {
+						return nil, solutionScore{}, err
 					}
-					bestDriverID = driverID
-					bestDriverIndex = driverIndex
-					bestStops = slices.Clone(candidateStops)
-					bestMetrics = candidateMetrics
-					bestScore = candidateScore
-					found = true
 				}
 			}
 		}

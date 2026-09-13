@@ -91,6 +91,34 @@ func performanceFixture(n, drivers int, households bool) (routing.RoutingRequest
 	return req, source
 }
 
+func stopOrders(result *models.RoutingResult) [][]int64 {
+	orders := make([][]int64, len(result.Routes))
+	for i, route := range result.Routes {
+		for _, stop := range route.Stops {
+			orders[i] = append(orders[i], stop.Participant.ID)
+		}
+	}
+	return orders
+}
+
+func summarize(result *models.RoutingResult) models.RoutingSummary {
+	summary := models.RoutingSummary{TotalParticipants: result.Summary.TotalParticipants, UnassignedParticipants: []int64{}}
+	for _, route := range result.Routes {
+		if len(route.Stops) == 0 {
+			continue
+		}
+		summary.TotalDriversUsed++
+		summary.TotalDropoffDistanceMeters += route.TotalDropoffDistanceMeters
+		summary.TotalDistanceMeters += route.TotalDistanceMeters
+		summary.MaxDetourSecs = max(summary.MaxDetourSecs, route.DetourSecs)
+		summary.SumDetourSecs += route.DetourSecs
+	}
+	if summary.TotalDriversUsed > 0 {
+		summary.AverageDetourSecs = summary.SumDetourSecs / float64(summary.TotalDriversUsed)
+	}
+	return summary
+}
+
 func discardRoutingLogs(t testing.TB) {
 	t.Helper()
 	previous := log.Writer()
@@ -129,11 +157,22 @@ func TestRoutingPreservesReferenceResults(t *testing.T) {
 				if string(actual) != string(expected) {
 					t.Fatalf("route assignments or exact metrics differ from the reference: got %s", actual)
 				}
+				plannerOrder := stopOrders(result)
 				for i := range result.Routes {
 					if err := routing.OptimizeRouteOrder(t.Context(), source, req.InstituteCoords, mode, &result.Routes[i]); err != nil {
 						t.Fatal(err)
 					}
 				}
+				// Re-ordering a car on its own may differ from the whole-plan order
+				// in general; these fixtures are known to agree, and a divergence
+				// should be a decision, not a silent regeneration.
+				if edited := stopOrders(result); fmt.Sprint(edited) != fmt.Sprint(plannerOrder) {
+					t.Fatalf("edit flow re-ordered a reference car: planner %v, edited %v", plannerOrder, edited)
+				}
+				// The edit flow re-orders one car at a time; the plan summary is
+				// rebuilt here the way the planner builds it, so the fixture stays
+				// self-consistent.
+				result.Summary = summarize(result)
 				actual, err = json.MarshalIndent(result, "", "  ")
 				if err != nil {
 					t.Fatal(err)
