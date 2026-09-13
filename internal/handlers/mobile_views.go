@@ -78,6 +78,8 @@ type mobileRoute struct {
 	DriverText string
 	ParentText string
 	ETAs       []string
+	// Timing is this response's measurement for the car; nil Route means no numbers.
+	Timing RouteTiming
 }
 
 type mobileRoutesView struct {
@@ -86,6 +88,9 @@ type mobileRoutesView struct {
 	EventDate string
 	Notes     string
 	Routes    []mobileRoute
+	// ShowAggregates is true only when every occupied car was measured in this response.
+	ShowAggregates bool
+	Attribution    bool
 }
 
 type mobilePeopleView struct {

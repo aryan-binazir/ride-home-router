@@ -70,7 +70,7 @@ func TestFormatMobileHandoffNumbersRenderedStopsAndOmitsEmptyAddress(t *testing.
 		},
 	}
 
-	got := formatMobileHandoff(snapshot, route, false)
+	got := formatMobileHandoff(snapshot, route, false, mobileETAs(snapshot, route))
 
 	if !strings.Contains(got, "1. 12:22 PM - Taylor Rider\n") {
 		t.Fatalf("handoff should number emitted stops from one:\n%s", got)

@@ -306,17 +306,13 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 	log.Printf("[HTTP] POST %s: routes calculated: drivers=%d org_vehicles=%d total_distance=%.0f",
 		logutil.SafeString(r.URL.Path), result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
+	timings := h.routeTimings(calculationCtx, session, allRouteIndexes(session))
 	if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-		h.renderTemplate(w, "route_results", buildRouteResultsView(session))
+		h.renderTemplate(w, "route_results", h.buildTimedRouteResultsView(session, timings))
 		return
 	}
-	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
-		Routes:    result.Routes,
-		Summary:   result.Summary,
-		SessionID: session.ID,
-		Mode:      mode,
-	})
+	h.writeJSON(w, http.StatusOK, h.routeCalculationResponse(session, timings))
 }
 
 func routeCalculationValidationMessage(err error) string {

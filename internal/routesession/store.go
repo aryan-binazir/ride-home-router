@@ -5,11 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,17 +58,20 @@ type CreateInput struct {
 }
 
 type Snapshot struct {
-	ID               string
-	Routes           []models.CalculatedRoute
-	Summary          models.RoutingSummary
-	ActivityLocation *models.ActivityLocation
-	UseMiles         bool
-	RouteTime        string
-	Mode             models.RouteMode
-	UnusedDrivers    []models.Driver
-	IsEditing        bool
-	OverCapacity     []bool
-	IsOutOfBalance   bool
+	// ChangedRouteIndexes lists routes whose driver or ordered stops differ
+	// from before the last mutation; a fresh calculation lists every route.
+	ChangedRouteIndexes []int
+	ID                  string
+	Routes              []models.CalculatedRoute
+	Summary             models.RoutingSummary
+	ActivityLocation    *models.ActivityLocation
+	UseMiles            bool
+	RouteTime           string
+	Mode                models.RouteMode
+	UnusedDrivers       []models.Driver
+	IsEditing           bool
+	OverCapacity        []bool
+	IsOutOfBalance      bool
 }
 
 // CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
@@ -160,7 +165,7 @@ func (s *Store) Create(input CreateInput) Snapshot {
 		log.Printf("[SESSION] Evicted route session at capacity: id=%s", evictedID)
 	}
 	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
-	return snapshotOf(state)
+	return snapshotWithChanges(state, changedRoutes(nil, state.currentRoutes))
 }
 
 func (s *Store) evictOldestSessionLocked() string {
@@ -197,6 +202,7 @@ func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options
 		return Snapshot{}, err
 	}
 	defer state.mu.Unlock()
+	before := routeKeys(state.currentRoutes)
 
 	backupRoutes := copyRoutes(state.currentRoutes)
 	backupDirty := copyDirty(state.dirtyRouteIndexes)
@@ -223,7 +229,7 @@ func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options
 			}
 		}
 	}
-	return snapshotOf(state), nil
+	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
 }
 
 func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (Snapshot, error) {
@@ -235,6 +241,7 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 		return Snapshot{}, err
 	}
 	defer state.mu.Unlock()
+	before := routeKeys(state.currentRoutes)
 	if first < 0 || first >= len(state.currentRoutes) || second < 0 || second >= len(state.currentRoutes) {
 		return Snapshot{}, ErrInvalidRouteIndex
 	}
@@ -273,7 +280,7 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 			return Snapshot{}, err
 		}
 	}
-	return snapshotOf(state), nil
+	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
 }
 
 func (s *Store) Reset(id string) (Snapshot, error) {
@@ -282,9 +289,10 @@ func (s *Store) Reset(id string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	defer state.mu.Unlock()
+	before := routeKeys(state.currentRoutes)
 	state.currentRoutes = copyRoutes(state.originalRoutes)
 	state.dirtyRouteIndexes = make(map[int]struct{})
-	return snapshotOf(state), nil
+	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
 }
 
 func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snapshot, error) {
@@ -296,6 +304,7 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 		return Snapshot{}, err
 	}
 	defer state.mu.Unlock()
+	before := routeKeys(state.currentRoutes)
 	var driver *models.Driver
 	for i := range state.selectedDrivers {
 		if state.selectedDrivers[i].ID == driverID {
@@ -319,7 +328,7 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 		return Snapshot{}, err
 	}
 	state.currentRoutes = append(state.currentRoutes, newRoute)
-	return snapshotOf(state), nil
+	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
 }
 
 // Commit persists under the session lock, then removes the session.
@@ -557,6 +566,38 @@ func applyMove(state *session, move Move, from int) error {
 	state.dirtyRouteIndexes[from] = struct{}{}
 	state.dirtyRouteIndexes[move.ToRouteIndex] = struct{}{}
 	return nil
+}
+
+// routeKeys identifies each car by driver and ordered riders, so a mutation can
+// report exactly which cars need fresh timings.
+func routeKeys(routes []models.CalculatedRoute) []string {
+	keys := make([]string, len(routes))
+	for i, route := range routes {
+		var b strings.Builder
+		fmt.Fprintf(&b, "%d:", driverID(route.Driver))
+		for _, stop := range route.Stops {
+			fmt.Fprintf(&b, "%d,", participantID(stop.Participant))
+		}
+		keys[i] = b.String()
+	}
+	return keys
+}
+
+func changedRoutes(before []string, routes []models.CalculatedRoute) []int {
+	after := routeKeys(routes)
+	changed := make([]int, 0)
+	for i, key := range after {
+		if i >= len(before) || before[i] != key {
+			changed = append(changed, i)
+		}
+	}
+	return changed
+}
+
+func snapshotWithChanges(state *session, changed []int) Snapshot {
+	snapshot := snapshotOf(state)
+	snapshot.ChangedRouteIndexes = changed
+	return snapshot
 }
 
 func snapshotOf(state *session) Snapshot {

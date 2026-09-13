@@ -13,6 +13,7 @@ import (
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/server"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -62,9 +63,11 @@ func run(args []string) error {
 			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
 			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
 		},
-		Addr:         opts.Addr,
-		AllowedHosts: opts.AllowedHosts,
-		DatabaseURL:  opts.DatabaseURL,
+		Addr:                  opts.Addr,
+		AllowedHosts:          opts.AllowedHosts,
+		DatabaseURL:           opts.DatabaseURL,
+		RoutingEngine:         os.Getenv("ROUTING_ENGINE"),
+		GoogleUsageRoutesUsed: googleUsageSeed(os.Getenv("GOOGLE_USAGE_ROUTES_USED")),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -186,4 +189,13 @@ func validAllowedHost(host string) bool {
 		return ok && net.ParseIP(inner) != nil && strings.Contains(inner, ":")
 	}
 	return net.ParseIP(host) != nil && !strings.Contains(host, ":")
+}
+
+// googleUsageSeed parses the optional mid-month starting count; anything unparseable is zero.
+func googleUsageSeed(value string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }

@@ -123,10 +123,17 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			id := h.PlanDraft.NewID()
 			h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = snapshot.ID })
 			page := mobileRoutePage(t, h, id)
-			driverText := handoffTextarea(t, page, "driver-copy-1")
-			parentText := handoffTextarea(t, page, "parent-copy-1")
-			if !strings.Contains(driverText, "Maps:") || !strings.Contains(driverText, "Grace Center") {
+			liveDriverText := handoffTextarea(t, page, "driver-copy-1")
+			if !strings.Contains(liveDriverText, "Maps:") || !strings.Contains(liveDriverText, "Grace Center") {
 				t.Fatal("live handoff setup missing route details")
+			}
+			// Saved handoffs keep names, stops, addresses and Maps links but never travel
+			// times, which are provider content the app may not store.
+			live, _ := h.RouteSession.Snapshot(snapshot.ID)
+			driverText := formatMobileHandoff(live, live.Routes[1], false, nil)
+			parentText := formatMobileHandoff(live, live.Routes[1], true, nil)
+			if strings.Contains(driverText, " PM - ") || strings.Contains(driverText, " AM - ") {
+				t.Fatalf("saved handoff must not carry ETAs: %s", driverText)
 			}
 			response := postMobileForm(t, mobileTestCookie(id), "/m/routes/save", url.Values{"session_id": {snapshot.ID}, "event_date": {"2026-09-08"}}, h.HandleMobileSave)
 			target := response.Header().Get("Location")

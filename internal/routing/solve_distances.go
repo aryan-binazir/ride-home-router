@@ -15,13 +15,16 @@ var ErrTooManyDistancePairs = distance.ErrTooManyDistancePairs
 
 // prepareSolveDistances prewarms and memoizes one solve's directed pairs.
 func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {
-	pairs, err := collectSolveDistancePairs(ctx, normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
-	if err != nil {
-		return nil, err
-	}
-	if len(pairs) > 0 {
-		if err := source.PrewarmPairs(ctx, pairs); err != nil {
+	// Provider-free sources skip the quadratic pair enumeration entirely.
+	if local, ok := source.(interface{ NoPrewarm() bool }); !ok || !local.NoPrewarm() {
+		pairs, err := collectSolveDistancePairs(ctx, normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
+		if err != nil {
 			return nil, err
+		}
+		if len(pairs) > 0 {
+			if err := source.PrewarmPairs(ctx, pairs); err != nil {
+				return nil, err
+			}
 		}
 	}
 

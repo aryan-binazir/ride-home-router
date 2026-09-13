@@ -42,6 +42,21 @@ func Open(t testing.TB) *postgres.Store {
 	return store
 }
 
+// OpenURL opens a second store on an existing test schema, emulating another replica.
+func OpenURL(t testing.TB, databaseURL string) *postgres.Store {
+	t.Helper()
+	store, err := postgres.New(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatalf("open replica store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close replica store: %v", err)
+		}
+	})
+	return store
+}
+
 // DatabaseURL returns a migrated test schema that is dropped after the test.
 func DatabaseURL(t testing.TB) string {
 	t.Helper()

@@ -12,7 +12,7 @@
         <span class="mobile-avatar">{{initials .Route.DriverName}}</span>
         <span>
           <b>{{.Route.DriverName}}</b>
-          <small>{{len .Route.Stops}} {{pluralize (len .Route.Stops) "passenger"}} · {{formatDistance .Route.TotalDistanceMeters $.UseMiles}}{{if .Route.OrgVehicleName}} · {{.Route.OrgVehicleName}}{{end}}</small>
+          <small>{{len .Route.Stops}} {{pluralize (len .Route.Stops) "passenger"}}{{if .Route.MetricsComplete}} · {{formatDistance .Route.TotalDistanceMeters $.UseMiles}}{{end}}{{if .Route.OrgVehicleName}} · {{.Route.OrgVehicleName}}{{end}}</small>
         </span>
       </summary>
       <ol class="mobile-stops">

@@ -4,6 +4,8 @@
     const planner = factory(root);
     if (typeof module === 'object' && module.exports) {
         module.exports = planner;
+    } else {
+        root.RideHomeRouterPlanner = planner;
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
     'use strict';
@@ -261,9 +263,53 @@
     // events, so those paths must carry the entered save fields, apply the local
     // date and refresh the pane explicitly. The native HTMX calculate swap does
     // the same work from its own beforeSwap/afterSwap/afterSettle listeners.
+    // Measured timings exist only in the response that fetched them. When an
+    // edit re-renders the pane, cars whose driver and ordered riders did not
+    // change keep the timing block already on screen; this copies markup within
+    // the page and never sends those values anywhere.
+    function preserveTimings(previous, html, doc) {
+        if (!previous || !doc || typeof doc.createElement !== 'function') return html;
+        const template = doc.createElement('template');
+        template.innerHTML = html;
+        const measured = new Map();
+        previous.querySelectorAll('.route-card[data-timings="measured"]').forEach(card => {
+            if (card.dataset.itinerary) measured.set(card.dataset.itinerary, card);
+        });
+        if (measured.size === 0) return html;
+        let preserved = 0;
+        template.content.querySelectorAll('.route-card[data-timings="stale"]').forEach(card => {
+            const old = measured.get(card.dataset.itinerary);
+            const oldStats = old && old.querySelector('.route-timings');
+            const newStats = card.querySelector('.route-timings');
+            if (!oldStats || !newStats) return;
+            const oldStops = old.querySelectorAll('.stop-item');
+            const newStops = card.querySelectorAll('.stop-item');
+            if (oldStops.length !== newStops.length) return;
+            newStats.innerHTML = oldStats.innerHTML;
+            card.dataset.routeDurationSecs = old.dataset.routeDurationSecs || '';
+            card.dataset.timings = 'measured';
+            newStops.forEach((stop, index) => {
+                stop.dataset.stopCumulativeDurationSecs = oldStops[index].dataset.stopCumulativeDurationSecs || '';
+                const distance = oldStops[index].querySelector('.stop-distance');
+                if (distance && !stop.querySelector('.stop-distance')) {
+                    const details = stop.querySelector('.stop-details');
+                    if (details) details.insertAdjacentElement('afterend', distance.cloneNode(true));
+                    else stop.appendChild(distance.cloneNode(true));
+                }
+            });
+            const attribution = old.querySelector('.route-attribution');
+            const footer = card.querySelector('.route-footer');
+            if (attribution && footer && !card.querySelector('.route-attribution')) {
+                footer.insertAdjacentElement('afterbegin', attribution.cloneNode(true));
+            }
+            preserved += 1;
+        });
+        return preserved > 0 ? template.innerHTML : html;
+    }
+
     function installRouteResults({ target, html, htmx, afterRender }) {
         const savedFields = snapshotSaveFields(target);
-        target.innerHTML = html;
+        target.innerHTML = preserveTimings(target, html, target.ownerDocument);
         htmx.process(target);
         restoreSaveFields(target, savedFields);
         applyLocalEventDate(target);
@@ -1095,6 +1141,18 @@
             }
             if (!await root.showConfirmDialog('Reset changes? Your edits will be lost.')) return false;
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
+        }
+
+        // Fetches Google timings for one car of a restored or edited plan.
+        async function showRouteTimings(button) {
+            const sessionId = getSessionId();
+            const card = button && button.closest ? button.closest('.route-card') : null;
+            if (!sessionId || !card) {
+                showToast('That route plan is no longer available. Calculate it again.', 'error');
+                return false;
+            }
+            button.disabled = true;
+            return enqueueRouteEdit(sessionId, '/api/v1/routes/session/timings', { session_id: sessionId, route_index: parseInt(card.dataset.routeIndex, 10) });
         }
 
         async function addUnusedDriver(driverId) {
@@ -1977,6 +2035,7 @@
         root.swapDrivers = swapDrivers;
         root.resetRoutes = resetRoutes;
         root.addUnusedDriver = addUnusedDriver;
+        root.showRouteTimings = showRouteTimings;
         root.copyRoute = copyRoute;
         root.copyAllRoutes = copyAllRoutes;
         root.previewRoute = previewRoute;
@@ -2027,6 +2086,7 @@
         createRouteSessionOrchestrator,
         installRouteResults,
         localISODate,
+        preserveTimings,
         sanitizeVanAssignments,
     };
 });

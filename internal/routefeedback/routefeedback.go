@@ -97,10 +97,9 @@ func routesFrom(routes []models.CalculatedRoute) []Route {
 		if route.Driver == nil || len(route.Stops) == 0 {
 			continue
 		}
-		feedbackRoute := Route{
-			DriverID: route.Driver.ID, ParticipantIDs: make([]int64, 0, len(route.Stops)),
-			TotalDistanceMeters: route.TotalDistanceMeters, RouteDurationSecs: route.RouteDurationSecs, DetourSecs: route.DetourSecs,
-		}
+		// Feedback records the itinerary only; provider distances and durations
+		// are never stored.
+		feedbackRoute := Route{DriverID: route.Driver.ID, ParticipantIDs: make([]int64, 0, len(route.Stops))}
 		if route.OrgVehicleID != 0 {
 			feedbackRoute.OrgVehicleID = new(route.OrgVehicleID)
 		}

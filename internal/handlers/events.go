@@ -90,12 +90,14 @@ type EventDetailResponse struct {
 
 // AssignmentGroupedByDriver groups stops by driver for legacy-compatible responses.
 type AssignmentGroupedByDriver struct {
-	DriverName        string           `json:"driver_name"`
-	DriverAddress     string           `json:"driver_address"`
-	DriverAddressName string           `json:"driver_address_name,omitempty"`
-	OrgVehicleID      int64            `json:"org_vehicle_id,omitempty"`
-	OrgVehicleName    string           `json:"org_vehicle_name,omitempty"`
-	Stops             []AssignmentStop `json:"stops"`
+	DriverName        string `json:"driver_name"`
+	DriverAddress     string `json:"driver_address"`
+	DriverAddressName string `json:"driver_address_name,omitempty"`
+	OrgVehicleID      int64  `json:"org_vehicle_id,omitempty"`
+	OrgVehicleName    string `json:"org_vehicle_name,omitempty"`
+	// MetricsComplete is false for itinerary-only snapshots, which have no distances to show.
+	MetricsComplete bool             `json:"metrics_complete"`
+	Stops           []AssignmentStop `json:"stops"`
 }
 
 // AssignmentStop represents a single saved stop in legacy-compatible responses.
@@ -344,8 +346,9 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 		if len(route.Stops) == 0 {
 			continue
 		}
-		snapshot.Routes[savedIndex].DriverHandoff = formatMobileHandoff(live, route, false)
-		snapshot.Routes[savedIndex].ParentHandoff = formatMobileHandoff(live, route, true)
+		// Saved handoff text carries no travel times: those are Google content we may not store.
+		snapshot.Routes[savedIndex].DriverHandoff = formatMobileHandoff(live, route, false, nil)
+		snapshot.Routes[savedIndex].ParentHandoff = formatMobileHandoff(live, route, true, nil)
 		savedIndex++
 	}
 
@@ -469,6 +472,7 @@ func groupRoutesByDriver(routes []models.EventRoute) []AssignmentGroupedByDriver
 			DriverAddressName: route.DriverAddressName,
 			OrgVehicleID:      route.OrgVehicleID,
 			OrgVehicleName:    route.OrgVehicleName,
+			MetricsComplete:   route.MetricsComplete,
 			Stops:             make([]AssignmentStop, 0, len(route.Stops)),
 		}
 

@@ -93,6 +93,7 @@ test('planner exports its browser-independent test seams', () => {
         'createRouteSessionOrchestrator',
         'installRouteResults',
         'localISODate',
+        'preserveTimings',
         'sanitizeVanAssignments',
     ]);
 });

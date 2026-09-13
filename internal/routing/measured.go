@@ -1,0 +1,162 @@
+package routing
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"ride-home-router/internal/models"
+	"ride-home-router/internal/orderedroute"
+)
+
+// Measurer measures ordered routes with the provider; see orderedroute.Client.
+type Measurer interface {
+	Measure(ctx context.Context, requests []orderedroute.Request) []orderedroute.Result
+}
+
+// RouteMeasurement is one car's route with provider-measured metrics, or the
+// reason it could not be measured. Values are meant for the current response
+// only and must never be persisted.
+type RouteMeasurement struct {
+	Index int
+	Route models.CalculatedRoute
+	Err   error
+}
+
+// MeasureRoutes measures the selected routes once: contiguous household stops
+// share one waypoint, every car also gets a direct origin→destination baseline
+// for its detour, and legs are folded into the existing metric fields. Input
+// routes are not modified.
+func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coordinates, mode RouteMode, routes []models.CalculatedRoute, indexes []int) []RouteMeasurement {
+	mode = normalizeRouteMode(mode)
+	rc := newRouteContext(nil, institute, mode)
+	results := make([]RouteMeasurement, len(indexes))
+	requests := make([]orderedroute.Request, 0, 2*len(indexes))
+	type plan struct {
+		waypointOfStop []int // stop index → waypoint index (0-based among household stops)
+		routeID        string
+		baselineID     string
+	}
+	plans := make([]plan, len(indexes))
+
+	for i, index := range indexes {
+		results[i].Index = index
+		if index < 0 || index >= len(routes) {
+			results[i].Err = fmt.Errorf("route index %d out of range", index)
+			continue
+		}
+		route := cloneRoute(routes[index])
+		results[i].Route = route
+		if route.Driver == nil {
+			results[i].Err = errors.New("route driver is required")
+			continue
+		}
+		if len(route.Stops) == 0 {
+			route.Mode = mode
+			results[i].Route = route
+			continue
+		}
+		points := []models.Coordinates{rc.origin(route.Driver)}
+		waypointOfStop := make([]int, len(route.Stops))
+		var previousKey string
+		for s, stop := range route.Stops {
+			if stop.Participant == nil {
+				results[i].Err = fmt.Errorf("route stop %d is missing participant data", s)
+				break
+			}
+			key := householdKey(stop.Participant)
+			if s == 0 || key != previousKey {
+				points = append(points, stop.Participant.GetCoords())
+			}
+			waypointOfStop[s] = len(points) - 2
+			previousKey = key
+		}
+		if results[i].Err != nil {
+			continue
+		}
+		points = append(points, rc.destination(route.Driver))
+		plans[i] = plan{waypointOfStop: waypointOfStop, routeID: fmt.Sprintf("route-%d", index), baselineID: fmt.Sprintf("baseline-%d", index)}
+		requests = append(requests,
+			orderedroute.Request{ID: plans[i].routeID, Points: points},
+			orderedroute.Request{ID: plans[i].baselineID, Points: []models.Coordinates{rc.origin(route.Driver), rc.destination(route.Driver)}},
+		)
+	}
+	if len(requests) == 0 {
+		return results
+	}
+
+	measured := make(map[string]orderedroute.Result, len(requests))
+	for _, result := range measurer.Measure(ctx, requests) {
+		measured[result.ID] = result
+	}
+	for i := range indexes {
+		if results[i].Err != nil || plans[i].routeID == "" {
+			continue
+		}
+		routeResult, baselineResult := measured[plans[i].routeID], measured[plans[i].baselineID]
+		if routeResult.Err != nil {
+			results[i].Err = routeResult.Err
+			continue
+		}
+		if baselineResult.Err != nil {
+			results[i].Err = baselineResult.Err
+			continue
+		}
+		if len(baselineResult.Legs) != 1 {
+			results[i].Err = errors.New("baseline measurement returned an unexpected number of legs")
+			continue
+		}
+		route := &results[i].Route
+		metrics, err := assembleMeasuredMetrics(routeResult.Legs, baselineResult.Legs[0], plans[i].waypointOfStop, len(route.Stops))
+		if err != nil {
+			results[i].Err = err
+			continue
+		}
+		rc.applyMetrics(route, metrics)
+	}
+	return results
+}
+
+// assembleMeasuredMetrics folds waypoint legs back onto stops. Household
+// siblings after the first receive zero incremental distance and identical
+// cumulative values.
+func assembleMeasuredMetrics(legs []orderedroute.Leg, baseline orderedroute.Leg, waypointOfStop []int, stopCount int) (*routeMetrics, error) {
+	waypoints := 0
+	if stopCount > 0 {
+		waypoints = waypointOfStop[stopCount-1] + 1
+	}
+	if len(legs) != waypoints+1 {
+		return nil, errors.New("measured legs do not match the route's stops")
+	}
+	metrics := &routeMetrics{Stops: make([]routeStopMetric, stopCount)}
+	consumed := -1
+	for s := range stopCount {
+		wp := waypointOfStop[s]
+		if wp != consumed {
+			leg := legs[wp]
+			metrics.TotalStopDistanceMeters += leg.DistanceMeters
+			metrics.TotalStopDurationSecs += leg.DurationSecs
+			metrics.Stops[s] = routeStopMetric{
+				DistanceFromPrevMeters: leg.DistanceMeters,
+				DurationFromPrevSecs:   leg.DurationSecs,
+			}
+			consumed = wp
+		}
+		metrics.Stops[s].CumulativeDistanceMeters = metrics.TotalStopDistanceMeters
+		metrics.Stops[s].CumulativeDurationSecs = metrics.TotalStopDurationSecs
+	}
+	final := legs[len(legs)-1]
+	metrics.FinalLegDistanceMeters = final.DistanceMeters
+	metrics.FinalLegDurationSecs = final.DurationSecs
+	metrics.TotalDistanceMeters = metrics.TotalStopDistanceMeters + final.DistanceMeters
+	metrics.RouteDurationSecs = metrics.TotalStopDurationSecs + final.DurationSecs
+	metrics.BaselineDurationSecs = baseline.DurationSecs
+	metrics.DetourSecs = metrics.RouteDurationSecs - baseline.DurationSecs
+	return metrics, nil
+}
+
+func cloneRoute(route models.CalculatedRoute) models.CalculatedRoute {
+	copied := route
+	copied.Stops = make([]models.RouteStop, len(route.Stops))
+	copy(copied.Stops, route.Stops)
+	return copied
+}

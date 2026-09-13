@@ -71,7 +71,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	} else {
 		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), logutil.SafeString(req.SessionID))
 	}
-	h.writeRouteSession(w, r, snapshot)
+	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
 func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +90,7 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[EDIT] Swapped drivers between routes %d and %d", req.RouteIndex1, req.RouteIndex2)
-	h.writeRouteSession(w, r, snapshot)
+	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
 func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
@@ -106,12 +106,12 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[EDIT] Reset routes for session %s", logutil.SafeString(id))
 	if h.isHTMX(r) {
-		view := buildRouteResultsView(snapshot)
+		view := h.buildTimedRouteResultsView(snapshot, h.routeTimings(r.Context(), snapshot, snapshot.ChangedRouteIndexes))
 		view.IsEditing = true
 		h.renderTemplate(w, "route_results", view)
 		return
 	}
-	h.writeRouteSession(w, r, snapshot)
+	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
 func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +129,7 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[EDIT] Added unused driver %d to routes", req.DriverID)
-	h.writeRouteSession(w, r, snapshot)
+	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
 func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) {
@@ -147,15 +147,18 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	h.writeRouteSession(w, r, snapshot)
+	// A restored session shows its itinerary; timings are fetched per car on demand.
+	h.writeRouteSession(w, r, snapshot, nil)
 }
 
-func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot) {
+// writeRouteSession renders a snapshot, measuring only the cars in indexes.
+func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, indexes []int) {
+	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", buildRouteResultsView(snapshot))
+		h.renderTemplate(w, "route_results", h.buildTimedRouteResultsView(snapshot, timings))
 		return
 	}
-	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{Routes: snapshot.Routes, Summary: snapshot.Summary, SessionID: snapshot.ID, Mode: snapshot.Mode})
+	h.writeJSON(w, http.StatusOK, h.routeCalculationResponse(snapshot, timings))
 }
 
 func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request, err error) {
@@ -181,4 +184,31 @@ func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request
 	default:
 		h.handleInternalError(w, r, err)
 	}
+}
+
+// HandleRouteTimings measures one car of an existing session on demand, for
+// restored sessions and cars whose timings were not refreshed after an edit.
+func (h *Handler) HandleRouteTimings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID  string `json:"session_id"`
+		RouteIndex int    `json:"route_index"`
+	}
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
+		return
+	}
+	snapshot, ok, err := h.RouteSession.Load(r.Context(), req.SessionID)
+	if err != nil {
+		h.handleInternalError(w, r, err)
+		return
+	}
+	if !ok {
+		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
+		return
+	}
+	if req.RouteIndex < 0 || req.RouteIndex >= len(snapshot.Routes) {
+		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
+		return
+	}
+	h.writeRouteSession(w, r, snapshot, []int{req.RouteIndex})
 }

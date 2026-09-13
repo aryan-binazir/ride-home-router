@@ -43,11 +43,52 @@ func (h *Handler) HandleMobileRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) renderMobileRoutes(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string) {
+	h.renderMobileRoutesTimed(w, r, snapshot, status, message, date, notes, nil)
+}
+
+// renderMobileRoutesTimed measures only the cars in indexes for this response;
+// every other car shows its itinerary with a "Show timings" action.
+func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string, indexes []int) {
+	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
+	view.Snapshot.Routes = h.itineraryRoutes(snapshot.Routes)
+	view.Snapshot.Summary, view.ShowAggregates = h.itinerarySummary(snapshot.Summary, timings)
 	for index, route := range snapshot.Routes {
-		view.Routes = append(view.Routes, mobileRoute{Index: index, Route: route, DriverText: formatMobileHandoff(snapshot, route, false), ParentText: formatMobileHandoff(snapshot, route, true), ETAs: mobileETAs(snapshot, route)})
+		timing := timings[index]
+		var etas []string
+		if timing.Route != nil {
+			etas = mobileETAs(snapshot, *timing.Route)
+			if len(timing.Route.Stops) > 0 && h.Measurer != nil {
+				view.Attribution = true
+			}
+		}
+		view.Routes = append(view.Routes, mobileRoute{Index: index, Route: view.Snapshot.Routes[index], DriverText: formatMobileHandoff(snapshot, route, false, etas), ParentText: formatMobileHandoff(snapshot, route, true, etas), ETAs: etas, Timing: timing})
 	}
 	h.renderMobileTemplateStatus(w, r, status, "mobile/routes.html", view)
+}
+
+// HandleMobileRouteTimings measures one car on demand and re-renders the routes screen.
+func (h *Handler) HandleMobileRouteTimings(w http.ResponseWriter, r *http.Request) {
+	logMobileRequest(r)
+	_, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
+		return
+	}
+	index, err := strconv.Atoi(r.FormValue("route_index"))
+	if err != nil || index < 0 {
+		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+		return
+	}
+	snapshot, found, loadErr := h.RouteSession.Load(r.Context(), sessionID)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, messageRoutePlanExpired)
+		return
+	}
+	if !found || index >= len(snapshot.Routes) {
+		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)
+		return
+	}
+	h.renderMobileRoutesTimed(w, r, snapshot, http.StatusOK, "", "", "", []int{index})
 }
 
 func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
@@ -227,7 +268,9 @@ func mobileETAs(snapshot routesession.Snapshot, route models.CalculatedRoute) []
 	return values
 }
 
-func formatMobileHandoff(snapshot routesession.Snapshot, route models.CalculatedRoute, parents bool) string {
+// formatMobileHandoff builds the shareable text. etas are only present when
+// this response measured the car; saved events never include them.
+func formatMobileHandoff(snapshot routesession.Snapshot, route models.CalculatedRoute, parents bool, etas []string) string {
 	var b strings.Builder
 	locationName, locationAddress := "Activity location", ""
 	if snapshot.ActivityLocation != nil {
@@ -248,7 +291,6 @@ func formatMobileHandoff(snapshot routesession.Snapshot, route models.Calculated
 	if !parents {
 		fmt.Fprintf(&b, "%s\n", displayMobileAddress(route.Driver.AddressName, route.Driver.Address))
 	}
-	etas := mobileETAs(snapshot, route)
 	emitted := 0
 	for i, stop := range route.Stops {
 		if stop.Participant == nil {

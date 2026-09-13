@@ -25,7 +25,7 @@
     <div class="event-meta">
         <span>{{.Summary.TotalParticipants}} {{pluralize .Summary.TotalParticipants "participant"}}</span>
         <span>{{.Summary.TotalDrivers}} {{pluralize .Summary.TotalDrivers "driver"}}</span>
-        <span>{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</span>
+        {{if gt .Summary.TotalDistanceMeters 0.0}}<span>{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</span>{{end}}
         {{if gt .Summary.OrgVehiclesUsed 0}}
         <span class="badge badge-warning">Van used</span>
         {{end}}

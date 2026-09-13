@@ -6,6 +6,7 @@
     <h4>Route Details</h4>
 
     {{range .Assignments}}
+    {{$route := .}}
     <div class="route-card {{if .OrgVehicleName}}org-vehicle{{end}} mt-3">
         <div class="route-header">
             <div class="driver-info">
@@ -30,9 +31,9 @@
                     <h4>{{.ParticipantName}}</h4>
                     <p>{{displayAddress .ParticipantAddressName .ParticipantAddress}}</p>
                 </div>
-                <div class="stop-distance">
+                {{if $route.MetricsComplete}}<div class="stop-distance">
                     {{formatDistance .DistanceFromPrevMeters $useMiles}}
-                </div>
+                </div>{{end}}
             </div>
             {{end}}
         </div>
@@ -51,10 +52,12 @@
                 <div class="label">{{pluralize .Summary.TotalDrivers "Driver"}}</div>
                 <div class="value">{{.Summary.TotalDrivers}}</div>
             </div>
+            {{if gt .Summary.TotalDistanceMeters 0.0}}
             <div class="summary-item">
                 <div class="label">Total Distance</div>
                 <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
             </div>
+            {{end}}
             {{if gt .Summary.OrgVehiclesUsed 0}}
             <div class="summary-item">
                 <div class="label">Vans</div>
@@ -88,7 +91,7 @@
                         {{end}}
                     </h4>
                     <p>{{displayAddress .DriverAddressName .DriverAddress}}</p>
-                    <p class="text-muted">
+                    {{if .MetricsComplete}}<p class="text-muted">
                         {{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}} Distance:
                         {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
                         | Final Leg:
@@ -98,7 +101,7 @@
                         {{if gt .DetourSecs 0.0}}
                         | Detour: {{formatDuration .DetourSecs}}
                         {{end}}
-                    </p>
+                    </p>{{end}}
                 </div>
             </div>
         </div>
@@ -126,9 +129,9 @@
                         {{end}}
                     </p>
                 </div>
-                <div class="stop-distance">
+                {{if $route.MetricsComplete}}<div class="stop-distance">
                     {{formatDistance .DistanceFromPrevMeters $useMiles}}
-                </div>
+                </div>{{end}}
             </div>
             {{end}}
 
@@ -138,9 +141,9 @@
                     <h4>{{if eq .Mode "pickup"}}Activity location{{else}}Driver home{{end}}</h4>
                     <p>Final leg after the last stop</p>
                 </div>
-                <div class="stop-distance">
+                {{if .MetricsComplete}}<div class="stop-distance">
                     {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
-                </div>
+                </div>{{end}}
             </div>
         </div>
     </div>
@@ -158,10 +161,12 @@
                 <div class="label">{{pluralize .Summary.TotalDrivers "Driver"}}</div>
                 <div class="value">{{.Summary.TotalDrivers}}</div>
             </div>
+            {{if gt .Summary.TotalDistanceMeters 0.0}}
             <div class="summary-item">
                 <div class="label">Total Distance</div>
                 <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
             </div>
+            {{end}}
             {{if gt .Summary.OrgVehiclesUsed 0}}
             <div class="summary-item">
                 <div class="label">Vans</div>

@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routing"
 	"time"
 )
 
@@ -37,7 +38,22 @@ func (s *Store) engine(id string, data []byte) (*Store, error) {
 		p.Dirty = make(map[int]struct{})
 	}
 	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, lastAccessedAt: s.now()}
-	return &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}, nil
+	engine := &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}
+	// Sessions written before provider-free planning may carry Google metrics.
+	// Re-estimate both route sets so nothing provider-derived is kept or rewritten.
+	if local, ok := s.distanceCalc.(interface{ NoPrewarm() bool }); ok && local.NoPrewarm() && state.activityLocation != nil {
+		for _, routes := range [][]models.CalculatedRoute{state.originalRoutes, state.currentRoutes} {
+			for i := range routes {
+				if routes[i].Driver == nil {
+					continue
+				}
+				if err := routing.PopulateRouteMetrics(context.Background(), s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return engine, nil
 }
 
 func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepository) *Store {

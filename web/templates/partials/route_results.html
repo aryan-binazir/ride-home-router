@@ -36,6 +36,8 @@
             {{$activityLocation := .ActivityLocation}}
             {{$routeCount := len .Routes}}
             {{range $routeIndex, $route := .Routes}}
+            {{$timing := index $.Timings $routeIndex}}
+            {{$measured := $timing.Route}}
             <section class="route-card {{if .OrgVehicleID}}org-vehicle{{end}} {{if and (lt $routeIndex (len $.OverCapacity)) (index $.OverCapacity $routeIndex)}}route-card-over-capacity{{end}}"
                      data-activity-location-address="{{$activityLocation.Address}}"
                      data-driver-name="{{.Driver.Name}}"
@@ -43,7 +45,9 @@
                      data-driver-address-name="{{.Driver.AddressName}}"
                      data-driver-lat="{{printf "%.6f" .Driver.Lat}}"
                      data-driver-lng="{{printf "%.6f" .Driver.Lng}}"
-                     data-route-duration-secs="{{printf "%.0f" .RouteDurationSecs}}"
+                     data-route-duration-secs="{{if $measured}}{{printf "%.0f" $measured.RouteDurationSecs}}{{end}}"
+                     data-timings="{{$timing.Status}}"
+                     data-itinerary="{{$.SessionID}}:{{.Driver.ID}}:{{range .Stops}}{{.Participant.ID}},{{end}}"
                      data-route-index="{{$routeIndex}}"
                      data-driver-id="{{.Driver.ID}}">
                 <div class="route-header">
@@ -70,45 +74,49 @@
                     {{end}}
                 </div>
 
-                <dl class="route-stats statgrid">
+                <dl class="route-stats statgrid route-timings">
                     <div class="stat"><dt>Capacity</dt><dd>{{.EffectiveCapacity}}</dd></div>
                     <div class="stat"><dt>{{pluralize (len .Stops) "Passenger"}}</dt><dd>{{len .Stops}}</dd></div>
                     {{if $.IsOutOfBalance}}
                     <div class="stat stat-paused text-danger"><dt>Route totals</dt><dd>Unavailable until within capacity</dd></div>
+                    {{else if $measured}}
+                    <div class="stat"><dt>{{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</dt><dd>{{formatDistance $measured.TotalDropoffDistanceMeters $useMiles}}</dd></div>
+                    <div class="stat"><dt>{{if eq .Mode "pickup"}}To Activity{{else}}To Home{{end}}</dt><dd>{{formatDistance $measured.DistanceToDriverHomeMeters $useMiles}}</dd></div>
+                    <div class="stat"><dt>Total</dt><dd>{{formatDistance $measured.TotalDistanceMeters $useMiles}}</dd></div>
+                    <div class="stat"><dt>Detour</dt><dd>{{formatDuration $measured.DetourSecs}}</dd></div>
                     {{else}}
-                    <div class="stat"><dt>{{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</dt><dd>{{formatDistance .TotalDropoffDistanceMeters $useMiles}}</dd></div>
-                    <div class="stat"><dt>{{if eq .Mode "pickup"}}To Activity{{else}}To Home{{end}}</dt><dd>{{formatDistance .DistanceToDriverHomeMeters $useMiles}}</dd></div>
-                    <div class="stat"><dt>Total</dt><dd>{{formatDistance .TotalDistanceMeters $useMiles}}</dd></div>
-                    <div class="stat"><dt>Detour</dt><dd>{{formatDuration .DetourSecs}}</dd></div>
+                    <div class="stat stat-paused route-timings-status"><dt>Timings</dt><dd>{{$timing.Message}}{{if eq $timing.Status "stale" "failed"}} <button type="button" class="btn btn-sm btn-outline" data-session-action="timings" onclick="showRouteTimings(this)">Show timings</button>{{end}}</dd></div>
                     {{end}}
                 </dl>
 
                 <div class="route-stops">
                     {{if .Stops}}
                     {{range $stopIndex, $stop := .Stops}}
+                    {{$measuredStop := 0.0}}{{$measuredCumulative := ""}}
+                    {{if $measured}}{{with index $measured.Stops $stopIndex}}{{$measuredStop = .DistanceFromPrevMeters}}{{$measuredCumulative = printf "%.0f" .CumulativeDurationSecs}}{{end}}{{end}}
                     <div class="stop-item"
                          data-participant-name="{{.Participant.Name}}"
                          data-participant-address="{{.Participant.Address}}"
                          data-participant-address-name="{{.Participant.AddressName}}"
                          data-participant-lat="{{printf "%.6f" .Participant.Lat}}"
                          data-participant-lng="{{printf "%.6f" .Participant.Lng}}"
-                         data-stop-cumulative-duration-secs="{{printf "%.0f" .CumulativeDurationSecs}}"
+                         data-stop-cumulative-duration-secs="{{$measuredCumulative}}"
                          data-participant-id="{{.Participant.ID}}">
                         <div class="stop-number">{{add $stopIndex 1}}</div>
                         <div class="stop-details">
                             <h4>{{.Participant.Name}}</h4>
                             <p>{{displayAddress .Participant.AddressName .Participant.Address}}</p>
                         </div>
-                        {{if not $.IsOutOfBalance}}<div class="stop-distance">
+                        {{if and (not $.IsOutOfBalance) $measured}}<div class="stop-distance">
                             <strong class="stop-eta"></strong>
                             {{if eq $stopIndex 0}}
                                 {{if eq $route.Mode "pickup"}}
-                                    {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$route.Driver.Name}}'s home
+                                    {{formatDistance $measuredStop $useMiles}} from {{$route.Driver.Name}}'s home
                                 {{else}}
-                                    {{formatDistance .DistanceFromPrevMeters $useMiles}} from {{$activityLocation.Name}}
+                                    {{formatDistance $measuredStop $useMiles}} from {{$activityLocation.Name}}
                                 {{end}}
                             {{else}}
-                                {{formatDistance .DistanceFromPrevMeters $useMiles}}
+                                {{formatDistance $measuredStop $useMiles}}
                             {{end}}
                         </div>
                         {{end}}
@@ -136,6 +144,7 @@
 
                 <div class="route-footer">
                     <span>Route</span>
+                    {{if and $measured $.Attribution}}<span class="route-attribution" title="{{"Current estimates for this itinerary"}}"><picture><source srcset="/static/img/google-maps-attribution-dark.svg" media="(prefers-color-scheme: dark)"><img src="/static/img/google-maps-attribution.svg" alt="Google Maps" width="98" height="18"></picture></span>{{end}}
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for parents</button>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="preview" onclick="previewRoute(this)">Preview</button>
@@ -168,12 +177,12 @@
                     <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
                     <div class="summary-item">
                         <div class="label">Total Distance</div>
-                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{end}}</div>
+                        <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted">—</span>{{end}}</div>
                     </div>
                     {{if gt .Summary.OrgVehiclesUsed 0}}
                     <div class="summary-item"><div class="label">Vans</div><div class="value">{{.Summary.OrgVehiclesUsed}} used</div></div>
                     {{end}}
-                    {{if gt .Summary.MaxDetourSecs 0.0}}
+                    {{if and .ShowAggregates (gt .Summary.MaxDetourSecs 0.0)}}
                     <div class="summary-item">
                         <div class="label">Max Detour</div>
                         <div class="value">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else}}{{formatDuration .Summary.MaxDetourSecs}}{{end}}</div>
@@ -184,6 +193,7 @@
                     </div>
                     {{end}}
                 </div>
+                {{if .Attribution}}<p class="text-muted route-attribution-note">Current estimates for this itinerary</p>{{end}}
             </div>
 
             <div class="card save-event-card" id="save-event-panel">
