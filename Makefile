@@ -9,7 +9,7 @@ DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
 
-.PHONY: help check check-unit lint verify vet test test-unit build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
+.PHONY: help check check-unit lint verify vet test test-unit eval build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
 
 help:
 	@echo "Ride Home Router"
@@ -49,6 +49,14 @@ test:
 test-unit:
 	node --test web/static/js/*.test.js
 	TEST_DATABASE_URL= go test -race -count=1 ./...
+
+# eval runs the planner evaluation suite: every synthetic roster shape, three
+# seeds, both modes, against internal/routing/planeval/testdata/baseline.json.
+# It takes several minutes. UPDATE_PLANNER_BASELINE=1 rewrites the baseline
+# after a deliberate planner change.
+eval:
+	@mkdir -p _scratch
+	PLANNER_EVAL=1 PLANNER_EVAL_REPORT=$(CURDIR)/_scratch/planner-eval-report.md go test -count=1 ./internal/routing/planeval -run TestPlannerEvaluation -v -timeout 45m
 
 build:
 	@mkdir -p bin
