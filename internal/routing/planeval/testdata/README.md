@@ -39,7 +39,11 @@ those intermediate runs, not from the committed 80cdf24 file):
    worst detour (largest vans-500 seed 1, 56 → 67 min). The owner accepted
    these trade-offs as a policy change after reviewing them. With this
    definition the planner and the single-car edit flow agree on stop order
-   in every reference fixture.
+   in every reference fixture. The final regeneration also carried small
+   dropoff drift from skipping neighbour-swap relocations: 27 dropoff rows
+   moved by fractions of a kilometre, and two tight-seats-500 dropoff rows
+   got worse on a metric (seed 2 max detour 67.2 → 69.4 min; seed 3 max
+   detour 67.3 → 73.2 min and far drivers 7 → 10, while driving fell 66 km).
 
 Known remaining
 defect: `drivers-in-durham-*` has many far drivers because every selected
