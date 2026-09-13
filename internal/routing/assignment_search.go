@@ -55,7 +55,7 @@ func (candidate assignmentCandidate) evaluate(ctx context.Context, rc routeConte
 	stops, score, err := rc.optimizeStopsForSolution(ctx, routes, metrics, map[int64][]*models.Participant{
 		candidate.firstDriverID:  candidate.firstStops,
 		candidate.secondDriverID: candidate.secondStops,
-	}, driverIDs)
+	}, driverIDs, false)
 	return assignmentEvaluation{stops: stops, score: score, err: err}
 }
 

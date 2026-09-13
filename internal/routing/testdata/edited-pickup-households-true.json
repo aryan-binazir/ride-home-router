@@ -277,12 +277,12 @@
   "summary": {
     "total_participants": 12,
     "total_drivers_used": 3,
-    "total_dropoff_distance_meters": 24732,
-    "total_distance_meters": 39887,
+    "total_dropoff_distance_meters": 25898,
+    "total_distance_meters": 40505,
     "unassigned_participants": [],
     "max_detour_secs": 797,
-    "sum_detour_secs": 1626,
-    "average_detour_secs": 542
+    "sum_detour_secs": 1688,
+    "average_detour_secs": 562.6666666666666
   },
   "mode": "pickup"
 }

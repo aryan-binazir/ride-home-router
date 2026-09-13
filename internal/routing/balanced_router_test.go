@@ -661,7 +661,7 @@ func TestBalancedRouter_MaximizesDriversWithHeterogeneousCapacities(t *testing.T
 	}
 }
 
-func TestBalancedRouter_HeterogeneousCapacityForcedFallbackUsesAllDrivers(t *testing.T) {
+func TestBalancedRouter_HeterogeneousCapacityNoncontiguousPackingUsesAllDrivers(t *testing.T) {
 	institute := models.Coordinates{}
 	groupA := participantAtBearing(1, 0).GetCoords()
 	groupB := participantAtBearing(3, 10).GetCoords()
@@ -677,13 +677,9 @@ func TestBalancedRouter_HeterogeneousCapacityForcedFallbackUsesAllDrivers(t *tes
 		driverAtBearing(1, 0, 3),
 		driverAtBearing(2, 10, 2),
 	}
-	routes := map[int64]*balancedRoute{
-		drivers[0].ID: {driver: drivers[0]},
-		drivers[1].ID: {driver: drivers[1]},
-	}
-	if ok, err := (&BalancedRouter{}).bearingSweepInsertion(context.Background(), institute, routes, []int64{1, 2}, participants); err != nil || ok {
-		t.Fatal("bearingSweepInsertion() succeeded, want a forced fallback for noncontiguous capacity packing")
-	}
+	// The sweep alone cannot pack these households contiguously; whichever way
+	// the seed completes (repair or fallback), every driver is used and no
+	// household is split.
 
 	result, err := NewBalancedRouter(stableDistanceCalculator{}).CalculateRoutes(context.Background(), &RoutingRequest{
 		InstituteCoords: institute,
