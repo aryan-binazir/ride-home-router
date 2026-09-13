@@ -474,7 +474,7 @@ func (s *Store) createBatchWithWriter(ctx context.Context, kind Kind, rows []Row
 		batch := make([]*models.Participant, len(indices))
 		for i, rowIndex := range indices {
 			row := rows[rowIndex]
-			batch[i] = &models.Participant{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng}
+			batch[i] = &models.Participant{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt}
 		}
 		var batchResult database.BatchUpsertResult
 		var err error
@@ -496,7 +496,7 @@ func (s *Store) createBatchWithWriter(ctx context.Context, kind Kind, rows []Row
 			if row.CapacityDefaulted {
 				capacity = 0 // UpsertBatch keeps an existing driver's capacity and defaults new ones.
 			}
-			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, VehicleCapacity: capacity}
+			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt, VehicleCapacity: capacity}
 		}
 		var batchResult database.BatchUpsertResult
 		var err error
@@ -582,6 +582,7 @@ func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
 			for _, rowIndex := range group.rows {
 				state.rows[rowIndex].Lat = result.Coords.Lat
 				state.rows[rowIndex].Lng = result.Coords.Lng
+				state.rows[rowIndex].GeocodedAt = time.Now()
 				state.rows[rowIndex].HasCoordinates = true
 				state.rows[rowIndex].NeedsGeocoding = false
 			}

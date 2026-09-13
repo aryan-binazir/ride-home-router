@@ -9,6 +9,9 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// CoordinateMaxAge bounds reuse of Google-derived coordinates and distances.
+const CoordinateMaxAge = 30 * 24 * time.Hour
+
 const (
 	MaxNameLength        = 200
 	MaxAddressLength     = 500
@@ -104,6 +107,7 @@ func RoundCoordinate(coord float64) float64 {
 
 // Participant represents a person to be driven home
 type Participant struct {
+	GeocodedAt  time.Time  `json:"-"`
 	ID          int64      `json:"id"`
 	Name        string     `json:"name"`
 	Address     string     `json:"address"`
@@ -122,6 +126,7 @@ func (p *Participant) GetCoords() Coordinates {
 
 // Driver represents a person who can drive participants home
 type Driver struct {
+	GeocodedAt      time.Time  `json:"-"`
 	ID              int64      `json:"id"`
 	Name            string     `json:"name"`
 	Address         string     `json:"address"`
@@ -151,12 +156,13 @@ type Label struct {
 
 // ActivityLocation represents a location where activities take place
 type ActivityLocation struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Address   string     `json:"address"`
-	Lat       float64    `json:"lat"`
-	Lng       float64    `json:"lng"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	GeocodedAt time.Time  `json:"-"`
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Address    string     `json:"address"`
+	Lat        float64    `json:"lat"`
+	Lng        float64    `json:"lng"`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
 }
 
 // GetCoords returns the coordinates of the activity location

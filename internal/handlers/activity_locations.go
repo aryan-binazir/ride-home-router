@@ -11,6 +11,7 @@ import (
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func parseActivityLocationID(path string) (int64, error) {
@@ -114,10 +115,11 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	}
 
 	location := &models.ActivityLocation{
-		Name:    req.Name,
-		Address: req.Address,
-		Lat:     geocodeResult.Coords.Lat,
-		Lng:     geocodeResult.Coords.Lng,
+		Name:       req.Name,
+		Address:    req.Address,
+		Lat:        geocodeResult.Coords.Lat,
+		Lng:        geocodeResult.Coords.Lng,
+		GeocodedAt: time.Now(),
 	}
 
 	createdLocation, err := h.DB.ActivityLocations().Create(r.Context(), location)
@@ -252,11 +254,12 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	}
 
 	location := &models.ActivityLocation{
-		ID:      id,
-		Name:    req.Name,
-		Address: req.Address,
-		Lat:     existing.Lat,
-		Lng:     existing.Lng,
+		ID:         id,
+		Name:       req.Name,
+		Address:    req.Address,
+		Lat:        existing.Lat,
+		Lng:        existing.Lng,
+		GeocodedAt: existing.GeocodedAt,
 	}
 
 	if req.Address != existing.Address {
@@ -269,6 +272,7 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 		}
 		location.Lat = geocodeResult.Coords.Lat
 		location.Lng = geocodeResult.Coords.Lng
+		location.GeocodedAt = time.Now()
 	}
 
 	updatedLocation, err := h.DB.ActivityLocations().Update(r.Context(), location)

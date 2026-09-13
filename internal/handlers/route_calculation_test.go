@@ -36,7 +36,7 @@ func TestRouteCalculation_AssignedVehicleSuccessCreatesRestorableSession(t *test
 		}},
 		Summary: models.RoutingSummary{TotalDriversUsed: 1},
 	}}
-	calculation := newRouteCalculation(store, router, handler.RouteSession)
+	calculation := newRouteCalculation(store, router, handler.RouteSession, handler.Geocoder)
 
 	outcome := calculation.calculate(ctx, routeCalculationInput{
 		ParticipantIDs:        []int64{participant.ID},
@@ -104,7 +104,7 @@ func TestRouteCalculation_CanceledAfterSolveDoesNotReturnSession(t *testing.T) {
 	calculation := newRouteCalculation(store, &captureRouter{
 		result:     &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: driver}}},
 		afterSolve: cancel,
-	}, handler.RouteSession)
+	}, handler.RouteSession, handler.Geocoder)
 	outcome := calculation.calculate(ctx, routeCalculationInput{
 		ParticipantIDs:     []int64{participant.ID},
 		DriverIDs:          []int64{driver.ID},
@@ -151,7 +151,7 @@ func TestRouteCalculation_CapacityShortageReturnsAssignmentsAndAvailableVehicles
 		TotalCapacity:     2,
 		TotalParticipants: 3,
 	}
-	calculation := newRouteCalculation(store, &captureRouter{err: routingFailure}, handler.RouteSession)
+	calculation := newRouteCalculation(store, &captureRouter{err: routingFailure}, handler.RouteSession, handler.Geocoder)
 	assignments := map[int64]int64{driver.ID: van.ID}
 
 	outcome := calculation.calculate(ctx, routeCalculationInput{

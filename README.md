@@ -150,6 +150,8 @@ Set `BROWSER_TEST_BINARY` to a Chrome/Chromium executable to include the actual-
 
 Postgres stores names, addresses, coordinates, settings, cached distances, and event history. Spreadsheet parsing happens on the server, and imported addresses are geocoded automatically. Ride Home Router has no analytics or tracking.
 
+Google-derived coordinates and cached distances are refreshed after 30 days under Google Maps Platform terms. Expired distances are removed from the cache. The first calculation after a long gap may take a few seconds longer. Existing data is not re-geocoded on upgrade.
+
 Deleted people and places are removed permanently after 30 days. Saved event snapshots survive roster cleanup.
 
 Address lookups share a one-request-per-second budget and honor cooldowns up to 15 minutes. Google Routes billing and quotas apply; each route calculation permits at most 60,000 uncached distance elements, with at most four calculations preparing distances concurrently.

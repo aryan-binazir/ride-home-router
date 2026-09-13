@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"testing"
+	"time"
 )
 
 func TestRosterEditorParticipantRetainsCoordinatesAndLabelIntent(t *testing.T) {
@@ -211,5 +212,73 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestRosterEditorGeocodeFreshness(t *testing.T) {
+	h, s := newTestManagementHandler(t)
+	ctx := t.Context()
+	editor := rosterEditor{db: s, geocoder: h.Geocoder}
+	p, err := editor.createParticipant(ctx, participantEdit{Name: "Rider", Address: "Old address"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-31 * 24 * time.Hour).UTC().Truncate(time.Microsecond)
+	if err := s.Participants().UpdateCoordinates(ctx, p.ID, p.Address, p.GetCoords(), old); err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.Participants().GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = editor.updateParticipant(ctx, p, participantEdit{Name: "New name", Address: p.Address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.Participants().GetByID(ctx, p.ID)
+	if err != nil || !p.GeocodedAt.Equal(old) {
+		t.Fatalf("unchanged address: %#v %v", p, err)
+	}
+	p, err = editor.updateParticipant(ctx, p, participantEdit{Name: p.Name, Address: "New address"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.Participants().GetByID(ctx, p.ID)
+	if err != nil || time.Since(p.GeocodedAt) > time.Minute {
+		t.Fatalf("new geocode: %#v %v", p, err)
+	}
+}
+
+func TestRosterEditorDriverGeocodeFreshness(t *testing.T) {
+	h, s := newTestManagementHandler(t)
+	ctx := t.Context()
+	editor := rosterEditor{db: s, geocoder: h.Geocoder}
+	d, err := editor.createDriver(ctx, driverEdit{Name: "Driver", Address: "Home", VehicleCapacity: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-31 * 24 * time.Hour).UTC().Truncate(time.Microsecond)
+	if err := s.Drivers().UpdateCoordinates(ctx, d.ID, d.Address, d.GetCoords(), old); err != nil {
+		t.Fatal(err)
+	}
+	d, err = s.Drivers().GetByID(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err = editor.updateDriver(ctx, d, driverEdit{Name: "Renamed", Address: d.Address, VehicleCapacity: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err = s.Drivers().GetByID(ctx, d.ID)
+	if err != nil || !d.GeocodedAt.Equal(old) {
+		t.Fatalf("unchanged=%#v %v", d, err)
+	}
+	d, err = editor.updateDriver(ctx, d, driverEdit{Name: d.Name, Address: "New address", VehicleCapacity: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err = s.Drivers().GetByID(ctx, d.ID)
+	if err != nil || time.Since(d.GeocodedAt) > time.Minute {
+		t.Fatalf("changed=%#v %v", d, err)
 	}
 }

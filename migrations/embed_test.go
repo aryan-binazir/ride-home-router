@@ -31,8 +31,8 @@ func TestLatestVersionMatchesNewestEmbeddedMigration(t *testing.T) {
 	}
 	// Keep this literal independent of LatestVersion so every new migration
 	// requires an explicit readiness expectation update.
-	if version != 20260912233107 {
-		t.Fatalf("LatestVersion() = %d, want 20260912233107", version)
+	if version != 20260913003022 {
+		t.Fatalf("LatestVersion() = %d, want 20260913003022", version)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestVersionReportsLatestCleanMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() error = %v", err)
 	}
-	if version != 20260912233107 || dirty {
-		t.Fatalf("Version() = (%d, %t), want (20260912233107, false)", version, dirty)
+	if version != 20260913003022 || dirty {
+		t.Fatalf("Version() = (%d, %t), want (20260913003022, false)", version, dirty)
 	}
 }
 
@@ -189,8 +189,8 @@ func TestVersionSupportsQuotedSchemaNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() in quoted schema error = %v", err)
 	}
-	if version != 20260912233107 || dirty {
-		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260912233107, false)", version, dirty)
+	if version != 20260913003022 || dirty {
+		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260913003022, false)", version, dirty)
 	}
 }
 
@@ -204,8 +204,8 @@ func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() after Down error = %v", err)
 	}
-	if version != 20260912211512 || dirty {
-		t.Fatalf("Version() after Down = (%d, %t), want (20260912211512, false)", version, dirty)
+	if version != 20260912233107 || dirty {
+		t.Fatalf("Version() after Down = (%d, %t), want (20260912233107, false)", version, dirty)
 	}
 
 	if err := migrations.Run(t.Context(), databaseURL); err != nil {
@@ -215,14 +215,14 @@ func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() after Run error = %v", err)
 	}
-	if version != 20260912233107 || dirty {
-		t.Fatalf("Version() after Run = (%d, %t), want (20260912233107, false)", version, dirty)
+	if version != 20260913003022 || dirty {
+		t.Fatalf("Version() after Run = (%d, %t), want (20260913003022, false)", version, dirty)
 	}
 }
 
 func TestDownRefusesDisabledMigrationWithoutChangingVersion(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
-	for range 8 {
+	for range 9 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatalf("Down() to baseline error = %v", err)
 		}
@@ -343,7 +343,7 @@ func TestRunRefusesDirtyStateWithRecoveryGuidance(t *testing.T) {
 	}
 
 	err = migrations.Run(t.Context(), databaseURL)
-	for _, want := range []string{"dirty at version 20260912233107", "repair or restore"} {
+	for _, want := range []string{"dirty at version 20260913003022", "repair or restore"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("Run() dirty-state error = %v, want containing %q", err, want)
 		}
@@ -567,7 +567,7 @@ func assertSoftDeleteColumns(t *testing.T, db *sql.DB, want bool) {
 
 func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
-	for range 2 {
+	for range 3 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatalf("Down() to Google Maps key migration: %v", err)
 		}
@@ -599,5 +599,47 @@ func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	var count int
 	if err := connection.QueryRow(t.Context(), `SELECT count(*) FROM google_maps_credentials`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("credential count=%d err=%v", count, err)
+	}
+}
+
+func TestGeocodeFreshnessMigrationBackfillsAndRollsBack(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	if err := migrations.Down(t.Context(), databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	for _, statement := range []string{
+		`INSERT INTO participants(name,address,lat,lng) VALUES ('Rider','Home',1,2)`,
+		`INSERT INTO drivers(name,address,lat,lng,vehicle_capacity) VALUES ('Driver','Home',1,2,4)`,
+		`INSERT INTO activity_locations(name,address,lat,lng) VALUES ('Gym','Gym',1,2)`,
+		`INSERT INTO distance_cache(origin_lat,origin_lng,dest_lat,dest_lng,distance_meters,duration_secs) VALUES (1,2,3,4,100,10)`,
+	} {
+		if _, err := conn.Exec(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := migrations.Run(t.Context(), databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"participants", "drivers", "activity_locations"} {
+		var fresh bool
+		if err := conn.QueryRow(t.Context(), `SELECT geocoded_at > now()-interval '1 minute' AND lat=1 AND lng=2 FROM `+table).Scan(&fresh); err != nil || !fresh {
+			t.Fatalf("%s backfill=%v %v", table, fresh, err)
+		}
+	}
+	var fresh bool
+	if err := conn.QueryRow(t.Context(), `SELECT cached_at > now()-interval '1 minute' FROM distance_cache`).Scan(&fresh); err != nil || !fresh {
+		t.Fatalf("cache backfill=%v %v", fresh, err)
+	}
+	if err := migrations.Down(t.Context(), databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := conn.QueryRow(t.Context(), `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name IN ('geocoded_at','cached_at')`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("columns after rollback=%d %v", count, err)
 	}
 }

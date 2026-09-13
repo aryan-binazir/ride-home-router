@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"sync"
+	"time"
 )
 
 // rosterEditor accepts validated, normalized edits. Adapters own validation and
@@ -54,7 +55,7 @@ func (e rosterEditor) createParticipant(ctx context.Context, edit participantEdi
 	}
 	participant := &models.Participant{
 		Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
-		Lat: coords.Lat, Lng: coords.Lng,
+		Lat: coords.Lat, Lng: coords.Lng, GeocodedAt: time.Now(),
 	}
 	rosterCreateMu.Lock()
 	defer rosterCreateMu.Unlock()
@@ -74,7 +75,7 @@ func (e rosterEditor) createParticipant(ctx context.Context, edit participantEdi
 func (e rosterEditor) updateParticipant(ctx context.Context, existing *models.Participant, edit participantEdit) (*models.Participant, error) {
 	participant := &models.Participant{
 		ID: existing.ID, Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
-		Lat: existing.Lat, Lng: existing.Lng, CreatedAt: existing.CreatedAt,
+		Lat: existing.Lat, Lng: existing.Lng, CreatedAt: existing.CreatedAt, GeocodedAt: existing.GeocodedAt,
 	}
 	if edit.Address != existing.Address {
 		coords, err := e.geocode(ctx, edit.Address)
@@ -82,6 +83,7 @@ func (e rosterEditor) updateParticipant(ctx context.Context, existing *models.Pa
 			return nil, err
 		}
 		participant.Lat, participant.Lng = coords.Lat, coords.Lng
+		participant.GeocodedAt = time.Now()
 	}
 	if edit.SetLabels {
 		return e.db.Participants().UpdateWithLabels(ctx, participant, edit.LabelIDs)
@@ -101,7 +103,7 @@ func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*model
 	}
 	driver := &models.Driver{
 		Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
-		VehicleCapacity: edit.VehicleCapacity, Lat: coords.Lat, Lng: coords.Lng,
+		VehicleCapacity: edit.VehicleCapacity, Lat: coords.Lat, Lng: coords.Lng, GeocodedAt: time.Now(),
 	}
 	rosterCreateMu.Lock()
 	defer rosterCreateMu.Unlock()
@@ -122,7 +124,7 @@ func (e rosterEditor) updateDriver(ctx context.Context, existing *models.Driver,
 	driver := &models.Driver{
 		ID: existing.ID, Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
 		VehicleCapacity: edit.VehicleCapacity, Lat: existing.Lat, Lng: existing.Lng,
-		CreatedAt: existing.CreatedAt,
+		CreatedAt: existing.CreatedAt, GeocodedAt: existing.GeocodedAt,
 	}
 	if edit.Address != existing.Address {
 		coords, err := e.geocode(ctx, edit.Address)
@@ -130,6 +132,7 @@ func (e rosterEditor) updateDriver(ctx context.Context, existing *models.Driver,
 			return nil, err
 		}
 		driver.Lat, driver.Lng = coords.Lat, coords.Lng
+		driver.GeocodedAt = time.Now()
 	}
 	if edit.SetLabels {
 		return e.db.Drivers().UpdateWithLabels(ctx, driver, edit.LabelIDs)

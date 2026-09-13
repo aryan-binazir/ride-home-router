@@ -235,7 +235,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 
 	calculationCtx, cancel := context.WithTimeout(r.Context(), routeSolveTimeout)
 	defer cancel()
-	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession, h.Geocoder).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs:        req.ParticipantIDs,
 		DriverIDs:             req.DriverIDs,
 		ActivityLocationID:    req.ActivityLocationID,
@@ -320,6 +320,13 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 }
 
 func routeCalculationValidationMessage(err error) string {
+	if missing, ok := errors.AsType[*refreshAddressNotFound](err); ok {
+		return fmt.Sprintf("The address for %s could not be found. Update it and try again.", missing.name)
+	}
+	if failure, ok := errors.AsType[*refreshProviderError](err); ok {
+		return geocodingErrorMessage(failure.cause)
+	}
+
 	switch {
 	case errors.Is(err, errActivityLocationNotFound):
 		return messageSelectedActivityLocationNotFoundChooseAnother
@@ -353,7 +360,9 @@ func (h *Handler) handleRouteCalculationError(w http.ResponseWriter, r *http.Req
 	status := http.StatusServiceUnavailable
 	code := "DISTANCE_PROVIDER_FAILED"
 
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if _, ok := errors.AsType[*refreshProviderError](err); ok {
+		code = "GEOCODING_PROVIDER_FAILED"
+	} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		message = messageCalculationTimedOut
 		code = "CALCULATION_TIMED_OUT"
 	} else if errors.Is(err, distance.ErrTooManyDistancePairs) {

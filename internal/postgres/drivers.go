@@ -14,11 +14,11 @@ type driverRepository struct {
 	db *sql.DB
 }
 
-const driverColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at, deleted_at`
+const driverColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz)`
 
 func scanDriver(scanner interface{ Scan(dest ...any) error }) (models.Driver, error) {
 	var d models.Driver
-	err := scanner.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
+	err := scanner.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt, &d.GeocodedAt)
 	return d, err
 }
 
@@ -85,8 +85,8 @@ func collectDrivers(rows *sql.Rows) ([]models.Driver, error) {
 }
 
 const insertDriver = `
-	INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at)
-	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8)
+	INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at, geocoded_at)
+	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9)
 	RETURNING id`
 
 func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
@@ -100,12 +100,15 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 		},
 		insert: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (int64, error) {
 			var id int64
+			if d.GeocodedAt.IsZero() {
+				d.GeocodedAt = now
+			}
 			capacity := d.VehicleCapacity
 			if capacity == 0 {
 				capacity = models.DefaultVehicleCapacity
 			}
 			err := tx.QueryRowContext(ctx, insertDriver,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now, d.GeocodedAt,
 			).Scan(&id)
 			if err == nil {
 				d.VehicleCapacity = capacity
@@ -115,9 +118,9 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 		updateRow: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE drivers
-				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7, geocoded_at = $9
 				WHERE id = $8 AND deleted_at IS NULL`,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID)
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID, d.GeocodedAt)
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
@@ -160,4 +163,13 @@ func (r *driverRepository) Delete(ctx context.Context, id int64) error {
 
 func (r *driverRepository) Restore(ctx context.Context, id int64) error {
 	return r.writes().restore(ctx, id)
+}
+
+// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
+func (r *driverRepository) UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE drivers SET lat = $1, lng = $2, geocoded_at = $3 WHERE id = $4 AND address = $5 AND deleted_at IS NULL`, coords.Lat, coords.Lng, geocodedAt, id, address)
+	if err != nil {
+		return fmt.Errorf("failed to update coordinates: %w", err)
+	}
+	return rowsAffectedOrNotFound(result)
 }
