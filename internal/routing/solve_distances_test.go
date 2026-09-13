@@ -204,8 +204,8 @@ func TestSolveDistanceLookup_CanceledContextOverridesMemoizedResult(t *testing.T
 	origin := models.Coordinates{Lat: 1, Lng: 2}
 	destination := models.Coordinates{Lat: 3, Lng: 4}
 	lookup := &solveDistanceLookup{
-		values: map[string]distance.DistanceResult{
-			distance.PairCacheKey(origin, destination): {DistanceMeters: 100},
+		values: map[solvePairKey]distance.DistanceResult{
+			makeSolvePairKey(origin, destination): {DistanceMeters: 100},
 		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())

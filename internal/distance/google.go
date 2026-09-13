@@ -251,6 +251,9 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		return nil
 	}
 	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
+	// Reuse the persistent keys during hydration, including the retry after
+	// waiting for another provider calculation to fill the cache.
+	cacheKeys := make([]string, 0, len(pairs))
 	seen := make(map[string]bool, len(pairs))
 	for _, pair := range pairs {
 		if err := ctx.Err(); err != nil {
@@ -261,6 +264,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 			continue
 		}
 		seen[key] = true
+		cacheKeys = append(cacheKeys, key)
 		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{pair.Origin, pair.Destination})
 	}
 	var missing map[string]bool
@@ -274,8 +278,11 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		missing = make(map[string]bool)
 		byOrigin = make(map[string][]models.Coordinates)
 		origins = make(map[string]models.Coordinates)
-		for _, pair := range cachePairs {
-			key := PairCacheKey(pair.Origin, pair.Dest)
+		for i, pair := range cachePairs {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			key := cacheKeys[i]
 			if cached[key] != nil {
 				continue
 			}

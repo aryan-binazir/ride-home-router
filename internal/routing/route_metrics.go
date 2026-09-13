@@ -11,6 +11,29 @@ type routeContext struct {
 	distanceCalc    distance.Lookup
 	instituteCoords models.Coordinates
 	mode            RouteMode
+	participants    map[*models.Participant]participantFacts
+}
+
+type participantFacts struct {
+	household string
+	bearing   float64
+}
+
+// Metadata is populated before search and read-only for its entire lifetime.
+func (rc *routeContext) prepareParticipants(participants []*models.Participant) {
+	rc.participants = make(map[*models.Participant]participantFacts, len(participants))
+	for _, p := range participants {
+		if p != nil {
+			rc.participants[p] = participantFacts{household: householdKey(p), bearing: bearingFromInstitute(rc.instituteCoords, p.GetCoords())}
+		}
+	}
+}
+
+func (rc routeContext) householdKey(p *models.Participant) string {
+	if facts, ok := rc.participants[p]; ok {
+		return facts.household
+	}
+	return householdKey(p)
 }
 
 type routeStopMetric struct {
@@ -38,6 +61,21 @@ func newRouteContext(distanceCalc distance.Lookup, instituteCoords models.Coordi
 		instituteCoords: instituteCoords,
 		mode:            normalizeRouteMode(mode),
 	}
+}
+
+// The solve memo returns values without allocating a pointer for every edge.
+// Direct route editing retains its original provider lookup sequence.
+func (rc routeContext) distanceValue(ctx context.Context, origin, destination models.Coordinates) (distance.DistanceResult, error) {
+	if lookup, ok := rc.distanceCalc.(interface {
+		distanceValue(context.Context, models.Coordinates, models.Coordinates) (distance.DistanceResult, error)
+	}); ok {
+		return lookup.distanceValue(ctx, origin, destination)
+	}
+	result, err := rc.distanceCalc.GetDistance(ctx, origin, destination)
+	if err != nil {
+		return distance.DistanceResult{}, err
+	}
+	return *result, nil
 }
 
 func (rc routeContext) origin(driver *models.Driver) models.Coordinates {
@@ -70,7 +108,7 @@ func (rc routeContext) riderScore(ctx context.Context, driver *models.Driver, st
 			return 0, fmt.Errorf("route stop %d is missing participant data", i)
 		}
 
-		dist, err := rc.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
+		dist, err := rc.distanceValue(ctx, prev, stop.GetCoords())
 		if err != nil {
 			return 0, err
 		}
@@ -104,7 +142,7 @@ func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.
 			return nil, fmt.Errorf("route stop %d is missing participant data", i)
 		}
 
-		dist, err := rc.distanceCalc.GetDistance(ctx, prev, stop.GetCoords())
+		dist, err := rc.distanceValue(ctx, prev, stop.GetCoords())
 		if err != nil {
 			return nil, err
 		}
@@ -120,11 +158,11 @@ func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.
 		prev = stop.GetCoords()
 	}
 
-	finalLeg, err := rc.distanceCalc.GetDistance(ctx, prev, destination)
+	finalLeg, err := rc.distanceValue(ctx, prev, destination)
 	if err != nil {
 		return nil, err
 	}
-	baseline, err := rc.distanceCalc.GetDistance(ctx, origin, destination)
+	baseline, err := rc.distanceValue(ctx, origin, destination)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +260,8 @@ func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.Lookup, insti
 	for i := range route.Stops {
 		participants[i] = route.Stops[i].Participant
 	}
+
+	rc.prepareParticipants(participants)
 
 	driverID := route.Driver.ID
 	routes := map[int64]*balancedRoute{

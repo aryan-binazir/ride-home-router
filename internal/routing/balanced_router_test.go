@@ -1001,7 +1001,7 @@ func TestRouteCorridorSpread(t *testing.T) {
 				stops = append(stops, participantAtBearing(int64(i+1), bearing))
 			}
 
-			got := routeCorridorSpread(institute, stops)
+			got := (routeContext{instituteCoords: institute}).routeCorridorSpread(stops)
 			if math.Abs(got-tt.want) > 1e-9 {
 				t.Fatalf("routeCorridorSpread() = %.12f, want %.12f", got, tt.want)
 			}
@@ -1027,7 +1027,7 @@ func TestRouteCorridorSpread_StraddlesAntimeridian(t *testing.T) {
 		{ID: 2, Address: "East", Lat: 1, Lng: -179.5},
 	}
 
-	got := routeCorridorSpread(institute, stops)
+	got := (routeContext{instituteCoords: institute}).routeCorridorSpread(stops)
 	const want = 82.8749836510982
 	if math.Abs(got-want) > 1e-9 {
 		t.Fatalf("routeCorridorSpread() = %.12f, want %.12f", got, want)
@@ -1099,7 +1099,7 @@ func TestSolutionObjective_SameCorridorBucketFallsThroughToTime(t *testing.T) {
 	slower := objectiveScoreForTest(t, rc, objectiveTestRoute{driver: driver, stops: slowerStops})
 	faster := objectiveScoreForTest(t, rc, objectiveTestRoute{driver: driver, stops: fasterStops})
 
-	spreadDifference := routeCorridorSpread(institute, fasterStops) - routeCorridorSpread(institute, slowerStops)
+	spreadDifference := (routeContext{instituteCoords: institute}).routeCorridorSpread(fasterStops) - (routeContext{instituteCoords: institute}).routeCorridorSpread(slowerStops)
 	if spreadDifference <= 0 || spreadDifference >= 10 {
 		t.Fatalf("raw spread difference = %.2f, want between 0 and 10 degrees", spreadDifference)
 	}
