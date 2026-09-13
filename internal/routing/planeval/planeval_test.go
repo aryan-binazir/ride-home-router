@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"ride-home-router/internal/distance"
@@ -36,18 +38,21 @@ func TestGenerateHonoursMixSeatsAndHouseholds(t *testing.T) {
 	if seats < 216 || seats > 216+9 {
 		t.Fatalf("seats = %d for 200 riders at factor 1.08, want just over 216", seats)
 	}
-	households := map[string][]int64{}
-	for _, p := range roster.Participants {
-		households[p.Address] = append(households[p.Address], p.ID)
-	}
+	// About 10% of riders share a home, averaged over seeds to smooth chance.
 	shared := 0
-	for _, ids := range households {
-		if len(ids) > 1 {
-			shared += len(ids)
+	for seed := uint64(1); seed <= 10; seed++ {
+		households := map[string]int{}
+		for _, p := range Generate(scenario, seed).Participants {
+			households[p.Address]++
+		}
+		for _, n := range households {
+			if n > 1 {
+				shared += n
+			}
 		}
 	}
-	if shared < 14 || shared > 26 {
-		t.Fatalf("riders in shared households = %d, want about 20", shared)
+	if shared < 150 || shared > 250 {
+		t.Fatalf("riders in shared households over 10 seeds = %d, want about 200", shared)
 	}
 	again := Generate(scenario, 1)
 	if fmt.Sprint(again.Participants[7]) != fmt.Sprint(roster.Participants[7]) {
@@ -117,37 +122,148 @@ func TestCompareFlagsOnlyMaterialRegressions(t *testing.T) {
 	}
 }
 
+func TestReportListsWorstCarsInPlainLanguage(t *testing.T) {
+	scenario := Scenario{Name: "tiny", Riders: 6, SeatFactor: 1.5, RiderMix: Mix{Carrboro: 1}, DriverMix: Mix{Durham: 1}}
+	results, err := Run(context.Background(), func() routing.Router { return routing.NewBalancedRouter(distance.NewEstimator()) }, []Scenario{scenario}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := Report(results, results)
+	for _, want := range []string{"## Compared with the baseline", "tiny/dropoff/1", "lives in Durham", "Carrboro"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report missing %q:\n%s", want, report)
+		}
+	}
+}
+
+func TestCompareCoversCountsRostersAndTimeouts(t *testing.T) {
+	base := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 20, BacktrackingCars: 3, CarsUsed: 27}}}
+	ok := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 22, BacktrackingCars: 4, CarsUsed: 27}}}
+	if got := Compare(base, ok); len(got) != 0 {
+		t.Fatalf("10%% more far drivers and one more backtracking car should pass: %v", got)
+	}
+	bad := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 23, BacktrackingCars: 5, CarsUsed: 26}}}
+	joined := strings.Join(Compare(base, bad), "\n")
+	for _, want := range []string{"far drivers 20 -> 23", "backtracking cars 3 -> 5", "cars used 27 -> 26"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in %s", want, joined)
+		}
+	}
+	roster := []Result{{Key: "b/pickup/1", Riders: 101, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, CarsUsed: 27}}}
+	if got := Compare(base, roster); len(got) != 1 || !strings.Contains(got[0], "roster changed") {
+		t.Fatalf("generator change = %v", got)
+	}
+	timedOut := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TimedOut: true}}}
+	if got := Compare(base, timedOut); len(got) != 1 || !strings.Contains(got[0], "timed out") {
+		t.Fatalf("timeout = %v", got)
+	}
+	// Planning a run the baseline could not is never a regression.
+	slowBase := []Result{{Key: "b/pickup/1", Riders: 100, Drivers: 27, Metrics: Metrics{TimedOut: true}}}
+	if got := Compare(slowBase, bad); len(got) != 0 {
+		t.Fatalf("improvement over a timeout flagged: %v", got)
+	}
+	if !strings.Contains(Table(timedOut), "TIMEOUT") || !strings.Contains(Summary(base, ok), "b/pickup/1"[:1]) {
+		t.Fatal("table or summary missing content")
+	}
+}
+
+func TestCompareRefusesDroppedOrDuplicateRuns(t *testing.T) {
+	base := []Result{{Key: "a/dropoff/1"}, {Key: "a/pickup/1"}}
+	if got := Compare(base, nil); len(got) != 1 || !strings.Contains(got[0], "no runs") {
+		t.Fatalf("empty run = %v", got)
+	}
+	dropped := Compare(base, []Result{{Key: "a/dropoff/1"}})
+	if len(dropped) != 1 || !strings.Contains(dropped[0], "missing") {
+		t.Fatalf("dropped seed = %v", dropped)
+	}
+	duplicate := Compare(base, []Result{{Key: "a/dropoff/1"}, {Key: "a/dropoff/1"}, {Key: "a/pickup/1"}})
+	if len(duplicate) != 1 || !strings.Contains(duplicate[0], "duplicate") {
+		t.Fatalf("duplicate run = %v", duplicate)
+	}
+}
+
+func TestRunRejectsPlansThatLoseOrOverloadRiders(t *testing.T) {
+	scenario := Scenario{Name: "tiny", Riders: 4, SeatFactor: 1.5, RiderMix: Mix{Durham: 1}}
+	lossy := func() routing.Router {
+		return routerFunc(func(req *routing.RoutingRequest) *models.RoutingResult {
+			// Drops the last rider and reports a cheap plan.
+			stops := []models.RouteStop{}
+			for i := range req.Participants[:len(req.Participants)-1] {
+				stops = append(stops, models.RouteStop{Participant: &req.Participants[i]})
+			}
+			return &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: &req.Drivers[0], EffectiveCapacity: 9, Stops: stops}}}
+		})
+	}
+	if _, err := Run(context.Background(), lossy, []Scenario{scenario}, 1); err == nil || !strings.Contains(err.Error(), "assigned 0 times") {
+		t.Fatalf("lost rider not rejected: %v", err)
+	}
+	overloaded := func() routing.Router {
+		return routerFunc(func(req *routing.RoutingRequest) *models.RoutingResult {
+			stops := []models.RouteStop{}
+			for i := range req.Participants {
+				stops = append(stops, models.RouteStop{Participant: &req.Participants[i]})
+			}
+			return &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: &req.Drivers[0], EffectiveCapacity: 1, Stops: stops}}}
+		})
+	}
+	if _, err := Run(context.Background(), overloaded, []Scenario{scenario}, 1); err == nil || !strings.Contains(err.Error(), "seats") {
+		t.Fatalf("overloaded car not rejected: %v", err)
+	}
+}
+
+type routerFunc func(*routing.RoutingRequest) *models.RoutingResult
+
+func (f routerFunc) CalculateRoutes(_ context.Context, req *routing.RoutingRequest) (*models.RoutingResult, error) {
+	return f(req), nil
+}
+
 // TestPlannerEvaluation is the gate: every scenario, seed and mode against the
-// committed baseline. It takes a couple of minutes, so it runs only when asked.
+// committed baseline. Each solve is capped at the production timeout, so the
+// whole suite takes a few minutes; it runs only when asked (make eval).
+//
+// UPDATE_PLANNER_BASELINE=1 compares and reports against the OLD baseline
+// first, so the before/after numbers are on record, then writes the new one.
 func TestPlannerEvaluation(t *testing.T) {
 	if os.Getenv("PLANNER_EVAL") != "1" {
 		t.Skip("set PLANNER_EVAL=1 (make eval) to run the planner evaluation suite")
 	}
+	previous := log.Writer()
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(previous) })
 	results, err := Run(context.Background(), func() routing.Router { return routing.NewBalancedRouter(distance.NewEstimator()) }, Scenarios(), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log("\n" + Table(results))
 	path := filepath.Join("testdata", "baseline.json")
+	var baseline []Result
+	if data, err := os.ReadFile(path); err == nil { //nolint:gosec // Fixed testdata path.
+		if err := json.Unmarshal(data, &baseline); err != nil {
+			t.Fatal(err)
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	t.Log("\n" + Summary(baseline, results))
+	if out := os.Getenv("PLANNER_EVAL_REPORT"); out != "" {
+		if err := os.WriteFile(out, []byte(Report(baseline, results)), 0o600); err != nil { //nolint:gosec // Operator-chosen report path from the environment.
+			t.Fatal(err)
+		}
+		t.Logf("report written to %s", out)
+	}
+	regressions := Compare(baseline, results)
 	if os.Getenv("UPDATE_PLANNER_BASELINE") == "1" {
 		data, err := json.MarshalIndent(results, "", "  ")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, data, 0o600); err != nil {
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 			t.Fatal(err)
 		}
+		t.Logf("baseline rewritten; %d run(s) differed from the old baseline (listed above if any)", len(regressions))
+		return
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // Fixed testdata path.
-	if err != nil {
-		t.Fatal(err)
-	}
-	var baseline []Result
-	if err := json.Unmarshal(data, &baseline); err != nil {
-		t.Fatal(err)
-	}
-	if regressions := Compare(baseline, results); len(regressions) > 0 {
+	if len(regressions) > 0 {
 		t.Fatalf("planner regressed against the baseline:\n%s", strings.Join(regressions, "\n"))
 	}
-	t.Log("\n" + Summary(baseline, results))
 }

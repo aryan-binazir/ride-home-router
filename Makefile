@@ -55,7 +55,8 @@ test-unit:
 # It takes several minutes. UPDATE_PLANNER_BASELINE=1 rewrites the baseline
 # after a deliberate planner change.
 eval:
-	PLANNER_EVAL=1 go test ./internal/routing/planeval -run TestPlannerEvaluation -v -timeout 30m
+	@mkdir -p _scratch
+	PLANNER_EVAL=1 PLANNER_EVAL_REPORT=$(CURDIR)/_scratch/planner-eval-report.md go test -count=1 ./internal/routing/planeval -run TestPlannerEvaluation -v -timeout 45m
 
 build:
 	@mkdir -p bin

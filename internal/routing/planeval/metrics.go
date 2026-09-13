@@ -3,6 +3,7 @@ package planeval
 import (
 	"math"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routing"
 )
 
 // Metrics is what a coordinator would care about in a plan, in plain units.
@@ -15,7 +16,8 @@ type Metrics struct {
 	FarDrivers       int     `json:"far_drivers"`       // driver home over 15 km from their riders' centre
 	BacktrackingCars int     `json:"backtracking_cars"` // a later stop undoes over 2 km of progress
 	SplitHouseholds  int     `json:"split_households"`
-	SolveMs          int64   `json:"solve_ms"`
+	TimedOut         bool    `json:"timed_out,omitempty"` // no plan within the production calculation timeout
+	SolveMs          int64   `json:"-"`                   // reported, never part of the committed baseline
 }
 
 // Measure summarises a plan. Distances and times are the planner's own
@@ -45,7 +47,7 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 			lat += stop.Participant.Lat
 			lng += stop.Participant.Lng
 			radii = append(radii, haversineKm(venue, stop.Participant.GetCoords()))
-			key := stop.Participant.Address
+			key := routing.HouseholdKey(stop.Participant)
 			if homes[key] == nil {
 				homes[key] = map[int64]struct{}{}
 			}
