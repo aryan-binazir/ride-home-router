@@ -2220,7 +2220,9 @@ test('summarizeMeasuredCards adds up occupied cars only once every one of them h
         totalDistance: '1.50 km', maxDetour: '45s', averageDetour: '45s',
     });
     assert.deepEqual(summarizeMeasuredCards([measured(8125, 0)], false).totalDistance, '8.12 km', 'exact ties round to even like Go');
-    assert.deepEqual(summarizeMeasuredCards([measured(2635, 0)], false).totalDistance, '2.64 km');
+    assert.deepEqual(summarizeMeasuredCards([measured(8375, 0)], false).totalDistance, '8.38 km', 'odd eighths round up to even');
+    assert.deepEqual(summarizeMeasuredCards([measured(2635, 0)], false).totalDistance, '2.63 km', '2.635 is below the tie in binary, as in Go');
+    assert.deepEqual(summarizeMeasuredCards([measured(2645, 0)], false).totalDistance, '2.65 km');
     assert.deepEqual(summarizeMeasuredCards([measured('1000.400', '59.600')], false), {
         totalDistance: '1.00 km', maxDetour: '59s', averageDetour: '59s',
     }, 'fractional seconds truncate like the Go helper');

@@ -311,18 +311,22 @@
 
     // The formatters mirror the Go template helpers so browser-computed totals
     // read exactly like server-rendered ones.
-    // Go's %.2f rounds an exact tie to even (8.125 → 8.12); toFixed rounds it up.
-    function toFixedHalfEven(value, digits) {
-        const scale = 10 ** digits;
-        const scaled = value * scale;
-        const floor = Math.floor(scaled);
-        let rounded = Math.round(scaled);
-        if (scaled - floor === 0.5 && floor % 2 === 0) rounded = floor;
-        return (rounded / scale).toFixed(digits);
+    // Go's %.2f rounds an exact tie to even (8.125 → 8.12) where toFixed rounds
+    // it up. A double is an exact two-decimal tie only when it is an odd
+    // multiple of 1/8 (x.125, x.375, x.625, x.875); anything else, like 2.635,
+    // is not exactly a tie in binary and toFixed already matches Go.
+    function toFixedLikeGo(value) {
+        const eighths = value * 8;
+        if (Number.isInteger(eighths) && eighths % 2 !== 0) {
+            const scaled = value * 100;
+            const floor = Math.floor(scaled);
+            return ((floor % 2 === 0 ? floor : floor + 1) / 100).toFixed(2);
+        }
+        return value.toFixed(2);
     }
 
     function formatDistance(meters, useMiles) {
-        return useMiles ? `${toFixedHalfEven(meters / 1609.344, 2)} mi` : `${toFixedHalfEven(meters / 1000, 2)} km`;
+        return useMiles ? `${toFixedLikeGo(meters / 1609.344)} mi` : `${toFixedLikeGo(meters / 1000)} km`;
     }
 
     function formatDuration(seconds) {
