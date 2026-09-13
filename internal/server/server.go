@@ -57,7 +57,7 @@ type Config struct {
 	// measured afterwards) or "matrix" (legacy Google distance matrix, kept only
 	// to compare route quality).
 	RoutingEngine string
-	// GoogleUsageSeed records requests already spent this UTC month before the
+	// GoogleUsageSeed records requests already spent this Pacific-time month before the
 	// ledger existed, per SKU, so a mid-month cutover starts conservative.
 	GoogleUsageSeed map[database.UsageSKU]int
 }

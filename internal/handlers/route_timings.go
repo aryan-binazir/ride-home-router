@@ -145,7 +145,7 @@ func timingFailure(err error) RouteTiming {
 	}
 }
 
-// zeroMetrics returns the route with every planning number stripped; the stops
+// zeroMetrics strips every planning number from the route in place; the stops
 // slice is copied so shared snapshot data is untouched.
 func zeroMetrics(route *models.CalculatedRoute) {
 	stops := make([]models.RouteStop, len(route.Stops))

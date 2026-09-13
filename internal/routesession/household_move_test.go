@@ -42,7 +42,7 @@ func TestApplyMovesMovesTheWholeHousehold(t *testing.T) {
 		t.Fatalf("destination stops = %v, want the household together at the front", got)
 	}
 
-	// A household that would overflow the destination is refused as a unit.
+	// A household that overflows the destination still moves as a unit; the plan is flagged out of balance, as a single overflowing rider is.
 	full := store.Create(routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &models.Driver{ID: 1, Name: "From", VehicleCapacity: 4}, EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: sibling1}, {Participant: sibling2}}},
