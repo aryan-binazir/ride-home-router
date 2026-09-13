@@ -79,8 +79,8 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 	}
 	if len(burdens) > 0 {
 		sort.Float64s(burdens)
-		m.BurdenP95Min = math.Round(burdens[int(math.Ceil(0.95*float64(len(burdens))))-1]*100) / 100
-		m.BurdenMaxMin = math.Round(burdens[len(burdens)-1]*100) / 100
+		m.BurdenP95Min = burdens[int(math.Ceil(0.95*float64(len(burdens))))-1]
+		m.BurdenMaxMin = burdens[len(burdens)-1]
 	}
 	if m.CarsUsed > 0 {
 		m.AverageDetourMin /= float64(m.CarsUsed)
@@ -124,20 +124,25 @@ func passesHome(venue, home models.Coordinates, riders []models.Coordinates, pic
 	return false
 }
 
-// segmentDistanceKm is the distance from p to the shortest path between a and b,
-// in a local flat approximation good to a few metres at these scales.
+// segmentDistanceKm measures distance to the shortest great-circle segment.
 func segmentDistanceKm(p, a, b models.Coordinates) float64 {
-	if a == b {
+	const radiusKm = 6371.0088
+	length := haversineKm(a, b) / radiusKm
+	if length < 1e-12 {
 		return haversineKm(p, a)
 	}
-	kx := 111.195 * math.Cos(a.Lat*math.Pi/180)
-	ax, ay := 0.0, 0.0
-	bx, by := (b.Lng-a.Lng)*kx, (b.Lat-a.Lat)*111.195
-	px, py := (p.Lng-a.Lng)*kx, (p.Lat-a.Lat)*111.195
-	t := ((px-ax)*(bx-ax) + (py-ay)*(by-ay)) / ((bx-ax)*(bx-ax) + (by-ay)*(by-ay))
-	t = math.Max(0, math.Min(1, t))
-	cx, cy := ax+t*(bx-ax), ay+t*(by-ay)
-	return math.Hypot(px-cx, py-cy)
+	bearing := func(from, to models.Coordinates) float64 {
+		lat1, lat2, delta := from.Lat*math.Pi/180, to.Lat*math.Pi/180, (to.Lng-from.Lng)*math.Pi/180
+		return math.Atan2(math.Sin(delta)*math.Cos(lat2), math.Cos(lat1)*math.Sin(lat2)-math.Sin(lat1)*math.Cos(lat2)*math.Cos(delta))
+	}
+	distance := haversineKm(a, p) / radiusKm
+	angle := bearing(a, p) - bearing(a, b)
+	along := math.Atan2(math.Sin(distance)*math.Cos(angle), math.Cos(distance))
+	if along < 0 || along > length {
+		return math.Min(haversineKm(p, a), haversineKm(p, b))
+	}
+	cross := math.Sin(distance) * math.Sin(angle)
+	return radiusKm * math.Abs(math.Asin(math.Max(-1, math.Min(1, cross))))
 }
 
 // backtracks reports whether the stop sequence gives back more than 2 km of

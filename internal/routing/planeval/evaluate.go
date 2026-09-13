@@ -132,9 +132,10 @@ func validPlan(plan *models.RoutingResult, roster Roster) error {
 			return fmt.Errorf("car %d carries %d riders with %d seats", route.Driver.ID, len(route.Stops), route.EffectiveCapacity)
 		}
 		for _, stop := range route.Stops {
-			if stop.Participant != nil {
-				seen[stop.Participant.ID]++
+			if stop.Participant == nil {
+				return fmt.Errorf("route contains a stop with missing participant data")
 			}
+			seen[stop.Participant.ID]++
 		}
 	}
 	for _, p := range roster.Participants {
