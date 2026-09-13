@@ -103,6 +103,46 @@ func TestMeasureReadsPlanQuality(t *testing.T) {
 	}
 }
 
+func TestBurdenAndHomePassMetrics(t *testing.T) {
+	venue := models.Coordinates{Lat: 0, Lng: 0}
+	rider := func(id int64, lat, lng float64) *models.Participant {
+		return &models.Participant{ID: id, Address: fmt.Sprintf("%d Any St", id), Lat: lat, Lng: lng}
+	}
+	// Car 1: driver lives at 0.05N; the route goes venue -> 0.05N (within 2 km
+	// of home) -> 0.20N (17 km beyond home): a home-pass excursion. Detour
+	// 20 min for 2 riders = 10 min/rider.
+	// Car 2: driver at 0.30E, riders at 0.10E and 0.20E on the way: no pass.
+	// Detour 6 min for 3 riders = 2 min/rider.
+	result := &models.RoutingResult{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{
+		{Driver: &models.Driver{ID: 1, Lat: 0.05, Lng: 0}, DetourSecs: 1200, Stops: []models.RouteStop{{Participant: rider(1, 0.05, 0.001)}, {Participant: rider(2, 0.20, 0)}}},
+		{Driver: &models.Driver{ID: 2, Lat: 0, Lng: 0.30}, DetourSecs: 360, Stops: []models.RouteStop{{Participant: rider(3, 0, 0.10)}, {Participant: rider(4, 0, 0.20)}, {Participant: rider(5, 0, 0.21)}}},
+	}}
+	m := Measure(result, venue, 0)
+	if m.HomePassCars != 1 || m.BurdenMaxMin != 10 || m.BurdenP95Min != 10 {
+		t.Fatalf("metrics = %+v, want 1 home-pass car and 10 min/rider burden", m)
+	}
+	// In pickup the same coordinates are read venue-to-riders in reverse.
+	pickup := &models.RoutingResult{Mode: models.RouteModePickup, Routes: []models.CalculatedRoute{
+		{Driver: &models.Driver{ID: 1, Lat: 0.05, Lng: 0}, DetourSecs: 1200, Stops: []models.RouteStop{{Participant: rider(2, 0.20, 0)}, {Participant: rider(1, 0.05, 0.001)}}},
+	}}
+	if got := Measure(pickup, venue, 0).HomePassCars; got != 1 {
+		t.Fatalf("pickup home-pass cars = %d, want 1", got)
+	}
+	base := []Result{{Key: "drivers-in-durham-100/dropoff/1", Scenario: "drivers-in-durham-100", Riders: 100, Drivers: 28, Metrics: Metrics{CarsUsed: 28, BurdenP95Min: 20, BurdenMaxMin: 30, HomePassCars: 5}}}
+	worse := []Result{{Key: "drivers-in-durham-100/dropoff/1", Scenario: "drivers-in-durham-100", Riders: 100, Drivers: 28, Metrics: Metrics{CarsUsed: 28, BurdenP95Min: 21.5, BurdenMaxMin: 32.5, HomePassCars: 6}}}
+	joined := strings.Join(Compare(base, worse), "\n")
+	for _, want := range []string{"burden p95 20.00 -> 21.50", "burden max 30.00 -> 32.50", "home-pass cars 5 -> 6"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in %s", want, joined)
+		}
+	}
+	other := []Result{{Key: "vans-300/dropoff/1", Scenario: "vans-300", Riders: 300, Drivers: 60, Metrics: Metrics{CarsUsed: 60, HomePassCars: 5}}}
+	okOther := []Result{{Key: "vans-300/dropoff/1", Scenario: "vans-300", Riders: 300, Drivers: 60, Metrics: Metrics{CarsUsed: 60, HomePassCars: 6}}}
+	if got := Compare(other, okOther); len(got) != 0 {
+		t.Fatalf("one more home-pass car outside the Durham shapes should pass: %v", got)
+	}
+}
+
 func TestCompareFlagsOnlyMaterialRegressions(t *testing.T) {
 	base := []Result{{Key: "a/dropoff/1", Metrics: Metrics{TotalDistanceKm: 100, MaxDetourMin: 20, LongestRiderMin: 40, CarsUsed: 10}}}
 	same := []Result{{Key: "a/dropoff/1", Metrics: Metrics{TotalDistanceKm: 100.9, MaxDetourMin: 21.5, LongestRiderMin: 41, CarsUsed: 10}}}

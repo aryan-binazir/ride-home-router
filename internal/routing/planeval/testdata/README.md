@@ -6,6 +6,16 @@ and mode (see `../scenario.go`), captured with `make eval` and
 than this file (`Compare` in `../evaluate.go`). Solve times are not stored;
 timeouts are.
 
+Two metrics describe whether a plan reads as sensible to a coordinator, beyond
+distance and detour: driver burden per rider (detour minutes divided by riders
+served; the 95th percentile by nearest rank and the worst car; gates +1 and
++2 min/rider), and home-pass cars (the car's straight-line path in
+venue-to-riders order comes within 2 km of the driver's home on a leg while a
+rider more than 5 km from that home is still to be served; gate +1 car, or
++0 in the drivers-in-durham shapes). They are straight-line geometry, not road
+evidence. Baseline regenerated on 2026-09-13 to add them; the planner was
+unchanged at that point.
+
 Rules:
 - Never regenerate the baseline to make a change pass. Regenerate only after a
   deliberate planner change whose before/after numbers have been reviewed; the

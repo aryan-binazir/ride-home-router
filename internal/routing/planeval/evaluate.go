@@ -155,6 +155,9 @@ const (
 	distanceTolerance  = 0.01 // relative
 	detourToleranceMin = 2.0
 	riderToleranceMin  = 2.0
+	burdenP95Tolerance = 1.0 // minutes per rider
+	burdenMaxTolerance = 2.0
+	homePassTolerance  = 1    // cars; 0 for the Durham-driver shapes
 	countTolerance     = 0.10 // relative, at least one: far drivers, backtracking cars
 )
 
@@ -239,6 +242,19 @@ func Compare(baseline, current []Result) []string {
 		if c.SplitHouseholds > 0 {
 			add("split households %d", c.SplitHouseholds)
 		}
+		if c.BurdenP95Min > b.BurdenP95Min+burdenP95Tolerance {
+			add("burden p95 %.2f -> %.2f min/rider", b.BurdenP95Min, c.BurdenP95Min)
+		}
+		if c.BurdenMaxMin > b.BurdenMaxMin+burdenMaxTolerance {
+			add("burden max %.2f -> %.2f min/rider", b.BurdenMaxMin, c.BurdenMaxMin)
+		}
+		allowed := homePassTolerance
+		if strings.HasPrefix(r.Scenario, "drivers-in-durham") {
+			allowed = 0
+		}
+		if c.HomePassCars > b.HomePassCars+allowed {
+			add("home-pass cars %d -> %d", b.HomePassCars, c.HomePassCars)
+		}
 		if c.CarsUsed != b.CarsUsed {
 			add("cars used %d -> %d", b.CarsUsed, c.CarsUsed)
 		}
@@ -249,14 +265,14 @@ func Compare(baseline, current []Result) []string {
 // Table renders the results for a human: one line per run.
 func Table(results []Result) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-32s %-7s %4s %5s %5s %9s %8s %8s %8s %4s %4s %4s %7s\n", "scenario", "mode", "seed", "rider", "drvr", "km", "maxdet", "avgdet", "rider", "far", "back", "hh", "ms")
+	fmt.Fprintf(&b, "%-32s %-7s %4s %5s %5s %9s %8s %8s %8s %4s %4s %4s %7s %7s %5s %7s\n", "scenario", "mode", "seed", "rider", "drvr", "km", "maxdet", "avgdet", "rider", "far", "back", "hh", "b95", "bmax", "home", "ms")
 	for _, r := range results {
 		m := r.Metrics
 		if m.TimedOut {
-			fmt.Fprintf(&b, "%-32s %-7s %4d %5d %5d %9s %8s %8s %8s %4s %4s %4s %7d\n", r.Scenario, r.Mode, r.Seed, r.Riders, r.Drivers, "TIMEOUT", "", "", "", "", "", "", m.SolveMs)
+			fmt.Fprintf(&b, "%-32s %-7s %4d %5d %5d %9s %8s %8s %8s %4s %4s %4s %7s %7s %5s %7d\n", r.Scenario, r.Mode, r.Seed, r.Riders, r.Drivers, "TIMEOUT", "", "", "", "", "", "", "", "", "", m.SolveMs)
 			continue
 		}
-		fmt.Fprintf(&b, "%-32s %-7s %4d %5d %5d %9.1f %8.1f %8.1f %8.1f %4d %4d %4d %7d\n", r.Scenario, r.Mode, r.Seed, r.Riders, r.Drivers, m.TotalDistanceKm, m.MaxDetourMin, m.AverageDetourMin, m.LongestRiderMin, m.FarDrivers, m.BacktrackingCars, m.SplitHouseholds, m.SolveMs)
+		fmt.Fprintf(&b, "%-32s %-7s %4d %5d %5d %9.1f %8.1f %8.1f %8.1f %4d %4d %4d %7.2f %7.2f %5d %7d\n", r.Scenario, r.Mode, r.Seed, r.Riders, r.Drivers, m.TotalDistanceKm, m.MaxDetourMin, m.AverageDetourMin, m.LongestRiderMin, m.FarDrivers, m.BacktrackingCars, m.SplitHouseholds, m.BurdenP95Min, m.BurdenMaxMin, m.HomePassCars, m.SolveMs)
 	}
 	return b.String()
 }
@@ -270,6 +286,8 @@ func Summary(baseline, current []Result) string {
 		baseFar, curFar           int
 		baseBack, curBack         int
 		baseTimeouts, curTimeouts int
+		baseHome, curHome         int
+		baseB95, curB95           float64
 		runs                      int
 		maxSolve                  int64
 		baseLongest, curLongest   float64
@@ -304,6 +322,10 @@ func Summary(baseline, current []Result) string {
 		a.curFar += c.FarDrivers
 		a.baseBack += b.BacktrackingCars
 		a.curBack += c.BacktrackingCars
+		a.baseHome += b.HomePassCars
+		a.curHome += c.HomePassCars
+		a.baseB95 = max(a.baseB95, b.BurdenP95Min)
+		a.curB95 = max(a.curB95, c.BurdenP95Min)
 		a.baseLongest = max(a.baseLongest, b.LongestRiderMin)
 		a.curLongest = max(a.curLongest, c.LongestRiderMin)
 		a.baseMaxDet = max(a.baseMaxDet, b.MaxDetourMin)
@@ -316,14 +338,14 @@ func Summary(baseline, current []Result) string {
 	}
 	sort.Strings(order)
 	var out strings.Builder
-	fmt.Fprintf(&out, "%-32s %5s %10s %8s %8s %9s %9s %8s %8s\n", "scenario", "runs", "km change", "far", "back", "maxdet", "rider", "timeout", "max ms")
+	fmt.Fprintf(&out, "%-32s %5s %10s %8s %8s %9s %9s %8s %11s %8s %8s\n", "scenario", "runs", "km change", "far", "back", "maxdet", "rider", "home", "b95", "timeout", "max ms")
 	for _, name := range order {
 		a := byScenario[name]
 		change := 0.0
 		if a.baseKm > 0 {
 			change = (a.curKm - a.baseKm) / a.baseKm * 100
 		}
-		fmt.Fprintf(&out, "%-32s %5d %+9.2f%% %3d->%-3d %3d->%-3d %4.0f->%-4.0f %4.0f->%-4.0f %3d->%-3d %8d\n", name, a.runs, change, a.baseFar, a.curFar, a.baseBack, a.curBack, a.baseMaxDet, a.curMaxDet, a.baseLongest, a.curLongest, a.baseTimeouts, a.curTimeouts, a.maxSolve)
+		fmt.Fprintf(&out, "%-32s %5d %+9.2f%% %3d->%-3d %3d->%-3d %4.0f->%-4.0f %4.0f->%-4.0f %3d->%-3d %5.1f->%-5.1f %3d->%-3d %8d\n", name, a.runs, change, a.baseFar, a.curFar, a.baseBack, a.curBack, a.baseMaxDet, a.curMaxDet, a.baseLongest, a.curLongest, a.baseHome, a.curHome, a.baseB95, a.curB95, a.baseTimeouts, a.curTimeouts, a.maxSolve)
 	}
 	return out.String()
 }
