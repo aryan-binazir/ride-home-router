@@ -61,6 +61,21 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 		}
 	}
 
+	// A roster that cannot fit is answered at once; searching would only find
+	// the same shortage after burning the calculation budget.
+	totalCapacity := 0
+	for _, d := range req.Drivers {
+		totalCapacity += d.VehicleCapacity
+	}
+	if totalCapacity < len(req.Participants) {
+		return nil, &ErrRoutingFailed{
+			Reason:            "Cannot assign all participants",
+			UnassignedCount:   len(req.Participants) - totalCapacity,
+			TotalCapacity:     totalCapacity,
+			TotalParticipants: len(req.Participants),
+		}
+	}
+
 	prewarmStart := time.Now()
 	distanceLookup, err := prepareSolveDistances(ctx, r.distanceCalc, req)
 	if err != nil {
@@ -143,6 +158,14 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 			TotalParticipants: len(req.Participants),
 		}
 	}
+
+	// Phase 4 exchanges whole cars between drivers who live near each other's riders.
+	phase4Start := time.Now()
+	swaps, err := optimizeDriverAssignments(ctx, rc, routes, driverIDs)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[TIMING] Phase 4 (driver swaps): %v (swaps=%d)", time.Since(phase4Start), swaps)
 
 	result, err := buildResult(ctx, rc, routes, len(req.Participants))
 	if err != nil {
@@ -1077,7 +1100,7 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			pending = pending[:0]
 			return nil
 		}
-		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
+		considerCandidate := func(candidate assignmentCandidate) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -1086,7 +1109,6 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 				return nil
 			}
 			candidateEvaluations++
-			candidate := assignmentCandidate{firstDriverID: firstDriverID, secondDriverID: secondDriverID, firstStops: firstStops, secondStops: secondStops}
 			if !parallel {
 				return accept(candidate, candidate.evaluate(ctx, rc, routes, routeMetrics, driverIDs))
 			}
@@ -1095,6 +1117,9 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 				return flush()
 			}
 			return nil
+		}
+		consider := func(firstDriverID, secondDriverID int64, firstStops, secondStops []*models.Participant) error {
+			return considerCandidate(assignmentCandidate{firstDriverID: firstDriverID, secondDriverID: secondDriverID, firstStops: firstStops, secondStops: secondStops})
 		}
 
 		// Check route-activating moves first, within the shared candidate budget.
@@ -1223,6 +1248,10 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			return iteration, err
 		}
 
+		if err := flush(); err != nil {
+			return iteration, err
+		}
+
 		if !best.found {
 			return iteration, nil
 		}
@@ -1249,6 +1278,117 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 	}
 
 	return maxIterations, nil
+}
+
+// optimizeDriverAssignments keeps every car's riders and lets two drivers
+// exchange cars when the comparator prefers it and total driving does not grow.
+// It runs after the household search with its own bounds, so a large roster
+// that exhausts the household budget still gets its drivers matched. Pairs are
+// scored at fixed stop order; the order is settled once at the end, and the
+// phase as a whole never returns a plan that drives more than it was given.
+// The soft time budget is the router's only wall-clock bound: a very slow host
+// may stop swapping early and keep what was accepted so far.
+func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {
+	const (
+		maxPairEvaluations = 100000
+		softBudget         = 2 * time.Second
+	)
+	maxPasses := max(20, len(driverIDs))
+	deadline := time.Now().Add(softBudget)
+	routeMetrics := make(map[int64]routeObjectiveMetrics, len(driverIDs))
+	for _, driverID := range driverIDs {
+		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
+		if err != nil {
+			return 0, err
+		}
+		routeMetrics[driverID] = metrics
+	}
+	baseline := scoreSolution(routeMetrics, driverIDs)
+	evaluations := 0
+	swaps := 0
+	for range maxPasses {
+		currentScore := scoreSolution(routeMetrics, driverIDs)
+		var best struct {
+			first, second   int64
+			firstM, secondM routeObjectiveMetrics
+			score           solutionScore
+			found           bool
+		}
+		for firstIndex, firstDriverID := range driverIDs {
+			firstRoute := routes[firstDriverID]
+			for _, secondDriverID := range driverIDs[firstIndex+1:] {
+				if err := ctx.Err(); err != nil {
+					return swaps, err
+				}
+				if evaluations >= maxPairEvaluations || time.Now().After(deadline) {
+					break
+				}
+				secondRoute := routes[secondDriverID]
+				if len(firstRoute.stops) == 0 && len(secondRoute.stops) == 0 {
+					continue
+				}
+				if len(secondRoute.stops) > firstRoute.driver.VehicleCapacity || len(firstRoute.stops) > secondRoute.driver.VehicleCapacity {
+					continue
+				}
+				evaluations++
+				firstM, err := rc.evaluateRouteObjective(ctx, firstRoute.driver, secondRoute.stops)
+				if err != nil {
+					return swaps, err
+				}
+				secondM, err := rc.evaluateRouteObjective(ctx, secondRoute.driver, firstRoute.stops)
+				if err != nil {
+					return swaps, err
+				}
+				previousFirst, previousSecond := routeMetrics[firstDriverID], routeMetrics[secondDriverID]
+				routeMetrics[firstDriverID], routeMetrics[secondDriverID] = firstM, secondM
+				score := scoreSolution(routeMetrics, driverIDs)
+				routeMetrics[firstDriverID], routeMetrics[secondDriverID] = previousFirst, previousSecond
+				if !score.betterThan(currentScore) || score.aggregateDriveDuration > currentScore.aggregateDriveDuration+scoreImprovementEpsilon {
+					continue
+				}
+				if best.found && !score.betterThan(best.score) {
+					continue
+				}
+				best.first, best.second, best.firstM, best.secondM, best.score, best.found = firstDriverID, secondDriverID, firstM, secondM, score, true
+			}
+		}
+		if !best.found {
+			break
+		}
+		// The two cars exchange their existing slices; neither is shared afterwards.
+		routes[best.first].stops, routes[best.second].stops = routes[best.second].stops, routes[best.first].stops
+		routeMetrics[best.first], routeMetrics[best.second] = best.firstM, best.secondM
+		swaps++
+		if evaluations >= maxPairEvaluations || time.Now().After(deadline) {
+			break
+		}
+	}
+	if swaps == 0 {
+		return 0, nil
+	}
+	// Settle stop order for the new drivers, but never let that ordering pass
+	// (which ranks rider time above driving) undo the phase's promise of no
+	// extra driving: if it does, keep the fixed-order swapped routes.
+	fixedOrder := make(map[int64][]*models.Participant, len(driverIDs))
+	for _, driverID := range driverIDs {
+		fixedOrder[driverID] = slices.Clone(routes[driverID].stops)
+	}
+	if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
+		return swaps, err
+	}
+	for _, driverID := range driverIDs {
+		metrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, routes[driverID].stops)
+		if err != nil {
+			return swaps, err
+		}
+		routeMetrics[driverID] = metrics
+	}
+	if scoreSolution(routeMetrics, driverIDs).aggregateDriveDuration > baseline.aggregateDriveDuration+scoreImprovementEpsilon {
+		for _, driverID := range driverIDs {
+			routes[driverID].stops = fixedOrder[driverID]
+		}
+	}
+	return swaps, nil
 }
 
 func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *participantGroup) []*models.Participant {
@@ -1417,6 +1557,9 @@ func normalizeAddress(address string) string {
 	}
 	return strings.Join(normalized, " ")
 }
+
+// HouseholdKey identifies riders who share a home and therefore ride together.
+func HouseholdKey(participant *models.Participant) string { return householdKey(participant) }
 
 func householdKey(participant *models.Participant) string {
 	if participant == nil {

@@ -7,6 +7,7 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/routing"
 	"time"
 )
 
@@ -28,7 +29,7 @@ func encodeState(state *session) ([]byte, error) {
 	return json.Marshal(persistedState{state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode})
 }
 
-func (s *Store) engine(id string, data []byte) (*Store, error) {
+func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, error) {
 	var p persistedState
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, err
@@ -37,7 +38,20 @@ func (s *Store) engine(id string, data []byte) (*Store, error) {
 		p.Dirty = make(map[int]struct{})
 	}
 	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, lastAccessedAt: s.now()}
-	return &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}, nil
+	engine := &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}
+	// Sessions written before provider-free planning may carry Google metrics.
+	// Re-estimate both route sets so nothing provider-derived is kept or rewritten.
+	if local, ok := s.distanceCalc.(interface{ NoPrewarm() bool }); ok && local.NoPrewarm() {
+		for _, routes := range [][]models.CalculatedRoute{state.originalRoutes, state.currentRoutes} {
+			for i := range routes {
+				if state.activityLocation == nil || routes[i].Driver == nil || routing.PopulateRouteMetrics(ctx, s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]) != nil {
+					// Unestimable routes lose their numbers rather than keeping provider values.
+					routing.ZeroRouteMetrics(&routes[i])
+				}
+			}
+		}
+	}
+	return engine, nil
 }
 
 func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepository) *Store {
@@ -75,7 +89,7 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	engine, err := s.engine(id, record.Data)
+	engine, err := s.engine(ctx, id, record.Data)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
@@ -90,7 +104,7 @@ func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snap
 	if err != nil {
 		return Snapshot{}, err
 	}
-	engine, err := s.engine(id, record.Data)
+	engine, err := s.engine(ctx, id, record.Data)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -136,7 +150,7 @@ func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context
 		if record.Consumed {
 			return ErrAlreadyCommitted
 		}
-		engine, err := s.engine(id, record.Data)
+		engine, err := s.engine(ctx, id, record.Data)
 		if err != nil {
 			return err
 		}

@@ -172,7 +172,7 @@ func TestMobileHandoffIncludesModeAndTime(t *testing.T) {
 			expected = "Dropoff: leave Grace Center at 6:15 PM\n\n"
 		}
 		for _, parents := range []bool{true, false} {
-			if text := formatMobileHandoff(snapshot, models.CalculatedRoute{}, parents); !strings.HasPrefix(text, expected) {
+			if text := formatMobileHandoff(snapshot, models.CalculatedRoute{}, parents, nil); !strings.HasPrefix(text, expected) {
 				t.Fatalf("handoff: %q", text)
 			}
 		}

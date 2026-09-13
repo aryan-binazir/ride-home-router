@@ -248,7 +248,7 @@ func createEventTx(ctx context.Context, tx *sql.Tx, event *models.Event, routes 
 		if snapshotVersion == 0 {
 			snapshotVersion = 2
 		}
-		metricsComplete := route.MetricsComplete || snapshotVersion >= 2
+		metricsComplete := route.MetricsComplete || snapshotVersion == 2
 		if route.OrgVehicleID != 0 {
 			orgVehicleID = &route.OrgVehicleID
 			orgVehicleName = &route.OrgVehicleName

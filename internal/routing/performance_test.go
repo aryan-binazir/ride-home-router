@@ -116,12 +116,18 @@ func TestRoutingPreservesReferenceResults(t *testing.T) {
 				}
 				path := filepath.Join("testdata", "reference-"+name+".json")
 
+				if os.Getenv("UPDATE_ROUTING_REFERENCES") == "1" {
+					// A deliberate solver change: rewrite the references (see testdata/README.md).
+					if err := os.WriteFile(path, actual, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
 				expected, err := os.ReadFile(path) //nolint:gosec // Path uses only fixed test-case names.
 				if err != nil {
 					t.Fatal(err)
 				}
 				if string(actual) != string(expected) {
-					t.Fatalf("route assignments or exact metrics differ from 82c6384: got %s", actual)
+					t.Fatalf("route assignments or exact metrics differ from the reference: got %s", actual)
 				}
 				for i := range result.Routes {
 					if err := routing.OptimizeRouteOrder(t.Context(), source, req.InstituteCoords, mode, &result.Routes[i]); err != nil {
@@ -134,12 +140,17 @@ func TestRoutingPreservesReferenceResults(t *testing.T) {
 				}
 				path = filepath.Join("testdata", "edited-"+name+".json")
 
+				if os.Getenv("UPDATE_ROUTING_REFERENCES") == "1" {
+					if err := os.WriteFile(path, actual, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
 				expected, err = os.ReadFile(path) //nolint:gosec // Path uses only fixed test-case names.
 				if err != nil {
 					t.Fatal(err)
 				}
 				if string(actual) != string(expected) {
-					t.Fatalf("edited route metrics differ from 82c6384: got %s", actual)
+					t.Fatalf("edited route metrics differ from the reference: got %s", actual)
 				}
 			})
 		}

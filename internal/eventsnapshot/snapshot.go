@@ -17,6 +17,9 @@ var (
 	ErrMixedModes = errors.New("all routes must use the same mode")
 )
 
+// SnapshotVersion 3 stores itineraries without provider metrics.
+const SnapshotVersion = 3
+
 // Snapshot contains the immutable routes and summary persisted for an event.
 type Snapshot struct {
 	Mode    models.RouteMode
@@ -49,25 +52,21 @@ func Build(result models.RoutingResult) (Snapshot, error) {
 		if routeMode != mode {
 			return Snapshot{}, ErrMixedModes
 		}
+		// Version 3 snapshots are itineraries only: provider distances and
+		// durations are not stored, so history shows who rides with whom.
 		eventRoute := models.EventRoute{
-			RouteOrder:                 len(snapshot.Routes),
-			DriverID:                   route.Driver.ID,
-			DriverName:                 route.Driver.Name,
-			DriverAddress:              route.Driver.Address,
-			DriverAddressName:          route.Driver.AddressName,
-			EffectiveCapacity:          route.EffectiveCapacity,
-			OrgVehicleID:               route.OrgVehicleID,
-			OrgVehicleName:             route.OrgVehicleName,
-			TotalDropoffDistanceMeters: route.TotalDropoffDistanceMeters,
-			DistanceToDriverHomeMeters: route.DistanceToDriverHomeMeters,
-			TotalDistanceMeters:        route.TotalDistanceMeters,
-			BaselineDurationSecs:       route.BaselineDurationSecs,
-			RouteDurationSecs:          route.RouteDurationSecs,
-			DetourSecs:                 route.DetourSecs,
-			Mode:                       routeMode,
-			SnapshotVersion:            2,
-			MetricsComplete:            true,
-			Stops:                      make([]models.EventRouteStop, 0, len(route.Stops)),
+			RouteOrder:        len(snapshot.Routes),
+			DriverID:          route.Driver.ID,
+			DriverName:        route.Driver.Name,
+			DriverAddress:     route.Driver.Address,
+			DriverAddressName: route.Driver.AddressName,
+			EffectiveCapacity: route.EffectiveCapacity,
+			OrgVehicleID:      route.OrgVehicleID,
+			OrgVehicleName:    route.OrgVehicleName,
+			Mode:              routeMode,
+			SnapshotVersion:   SnapshotVersion,
+			MetricsComplete:   false,
+			Stops:             make([]models.EventRouteStop, 0, len(route.Stops)),
 		}
 		if eventRoute.EffectiveCapacity == 0 {
 			eventRoute.EffectiveCapacity = route.Driver.VehicleCapacity
@@ -77,20 +76,15 @@ func Build(result models.RoutingResult) (Snapshot, error) {
 				return Snapshot{}, ErrParticipantRequired
 			}
 			eventRoute.Stops = append(eventRoute.Stops, models.EventRouteStop{
-				Order:                    stopIndex,
-				ParticipantID:            stop.Participant.ID,
-				ParticipantName:          stop.Participant.Name,
-				ParticipantAddress:       stop.Participant.Address,
-				ParticipantAddressName:   stop.Participant.AddressName,
-				DistanceFromPrevMeters:   stop.DistanceFromPrevMeters,
-				CumulativeDistanceMeters: stop.CumulativeDistanceMeters,
-				DurationFromPrevSecs:     stop.DurationFromPrevSecs,
-				CumulativeDurationSecs:   stop.CumulativeDurationSecs,
+				Order:                  stopIndex,
+				ParticipantID:          stop.Participant.ID,
+				ParticipantName:        stop.Participant.Name,
+				ParticipantAddress:     stop.Participant.Address,
+				ParticipantAddressName: stop.Participant.AddressName,
 			})
 			snapshot.Summary.TotalParticipants++
 		}
 		snapshot.Summary.TotalDrivers++
-		snapshot.Summary.TotalDistanceMeters += route.TotalDistanceMeters
 		if route.OrgVehicleID > 0 {
 			snapshot.Summary.OrgVehiclesUsed++
 		}

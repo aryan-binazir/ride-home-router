@@ -93,7 +93,10 @@ test('planner exports its browser-independent test seams', () => {
         'createRouteSessionOrchestrator',
         'installRouteResults',
         'localISODate',
+        'preserveTimings',
+        'refreshRouteTotals',
         'sanitizeVanAssignments',
+        'summarizeMeasuredCards',
     ]);
 });
 
@@ -2202,4 +2205,28 @@ test('a failed save restores the current planner lock after htmx enables its but
  app.document.body.dispatchEvent(fakeEvent('htmx:afterRequest',{elt:app.saveForm,successful:false}));
  assert.equal(app.saveButton.disabled,true);
  assert.equal(app.submitSave().defaultPrevented,true);
+});
+
+test('summarizeMeasuredCards adds up occupied cars only once every one of them has timings', () => {
+    const { summarizeMeasuredCards } = planner;
+    const measured = (totalMeters, detourSecs) => ({ timings: 'measured', hasStops: true, totalMeters: String(totalMeters), detourSecs: String(detourSecs) });
+    const empty = { timings: 'empty', hasStops: false, totalMeters: '', detourSecs: '' };
+    const stale = { timings: 'stale', hasStops: true, totalMeters: '', detourSecs: '' };
+
+    assert.deepEqual(summarizeMeasuredCards([measured(8000, 300), measured(2000, 90), empty], true), {
+        totalDistance: '6.21 mi', maxDetour: '5m', averageDetour: '3m 15s',
+    });
+    assert.deepEqual(summarizeMeasuredCards([measured(1500, 45)], false), {
+        totalDistance: '1.50 km', maxDetour: '45s', averageDetour: '45s',
+    });
+    assert.deepEqual(summarizeMeasuredCards([measured(8125, 0)], false).totalDistance, '8.12 km', 'exact ties round to even like Go');
+    assert.deepEqual(summarizeMeasuredCards([measured(8375, 0)], false).totalDistance, '8.38 km', 'odd eighths round up to even');
+    assert.deepEqual(summarizeMeasuredCards([measured(2635, 0)], false).totalDistance, '2.63 km', '2.635 is below the tie in binary, as in Go');
+    assert.deepEqual(summarizeMeasuredCards([measured(2645, 0)], false).totalDistance, '2.65 km');
+    assert.deepEqual(summarizeMeasuredCards([measured('1000.400', '59.600')], false), {
+        totalDistance: '1.00 km', maxDetour: '59s', averageDetour: '59s',
+    }, 'fractional seconds truncate like the Go helper');
+    assert.equal(summarizeMeasuredCards([measured(8000, 300), stale], true), null, 'one unmeasured car means no total');
+    assert.equal(summarizeMeasuredCards([empty], true), null, 'nothing to add up');
+    assert.equal(summarizeMeasuredCards([{ timings: 'measured', hasStops: true, totalMeters: 'x', detourSecs: '1' }], true), null, 'bad numbers never produce a total');
 });

@@ -4,6 +4,8 @@
     const planner = factory(root);
     if (typeof module === 'object' && module.exports) {
         module.exports = planner;
+    } else {
+        root.RideHomeRouterPlanner = planner;
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
     'use strict';
@@ -261,9 +263,132 @@
     // events, so those paths must carry the entered save fields, apply the local
     // date and refresh the pane explicitly. The native HTMX calculate swap does
     // the same work from its own beforeSwap/afterSwap/afterSettle listeners.
+    // Measured timings exist only in the response that fetched them. When an
+    // edit re-renders the pane, cars whose driver and ordered riders did not
+    // change keep the timing block already on screen; this copies markup within
+    // the page and never sends those values anywhere.
+    function preserveTimings(previous, html, doc) {
+        if (!previous || !doc || typeof doc.createElement !== 'function') return html;
+        const template = doc.createElement('template');
+        template.innerHTML = html;
+        const measured = new Map();
+        previous.querySelectorAll('.route-card[data-timings="measured"]').forEach(card => {
+            if (card.dataset.itinerary) measured.set(card.dataset.itinerary, card);
+        });
+        if (measured.size === 0) return html;
+        let preserved = 0;
+        template.content.querySelectorAll('.route-card[data-timings="stale"]').forEach(card => {
+            const old = measured.get(card.dataset.itinerary);
+            const oldStats = old && old.querySelector('.route-timings');
+            const newStats = card.querySelector('.route-timings');
+            if (!oldStats || !newStats) return;
+            const oldStops = old.querySelectorAll('.stop-item');
+            const newStops = card.querySelectorAll('.stop-item');
+            if (oldStops.length !== newStops.length) return;
+            newStats.innerHTML = oldStats.innerHTML;
+            card.dataset.routeDurationSecs = old.dataset.routeDurationSecs || '';
+            card.dataset.totalDistanceMeters = old.dataset.totalDistanceMeters || '';
+            card.dataset.detourSecs = old.dataset.detourSecs || '';
+            card.dataset.timings = 'measured';
+            newStops.forEach((stop, index) => {
+                stop.dataset.stopCumulativeDurationSecs = oldStops[index].dataset.stopCumulativeDurationSecs || '';
+                const distance = oldStops[index].querySelector('.stop-distance');
+                if (distance && !stop.querySelector('.stop-distance')) {
+                    const details = stop.querySelector('.stop-details');
+                    if (details) details.insertAdjacentElement('afterend', distance.cloneNode(true));
+                    else stop.appendChild(distance.cloneNode(true));
+                }
+            });
+            const attribution = old.querySelector('.route-attribution');
+            const footer = card.querySelector('.route-footer');
+            if (attribution && footer && !card.querySelector('.route-attribution')) {
+                footer.insertAdjacentElement('afterbegin', attribution.cloneNode(true));
+            }
+            preserved += 1;
+        });
+        return preserved > 0 ? template.innerHTML : html;
+    }
+
+    // The formatters mirror the Go template helpers so browser-computed totals
+    // read exactly like server-rendered ones.
+    // Go's %.2f rounds an exact tie to even (8.125 → 8.12) where toFixed rounds
+    // it up. A double is an exact two-decimal tie only when it is an odd
+    // multiple of 1/8 (x.125, x.375, x.625, x.875); anything else, like 2.635,
+    // is not exactly a tie in binary and toFixed already matches Go.
+    function toFixedLikeGo(value) {
+        const eighths = value * 8;
+        if (Number.isInteger(eighths) && eighths % 2 !== 0) {
+            const scaled = value * 100;
+            const floor = Math.floor(scaled);
+            return ((floor % 2 === 0 ? floor : floor + 1) / 100).toFixed(2);
+        }
+        return value.toFixed(2);
+    }
+
+    function formatDistance(meters, useMiles) {
+        return useMiles ? `${toFixedLikeGo(meters / 1609.344)} mi` : `${toFixedLikeGo(meters / 1000)} km`;
+    }
+
+    function formatDuration(seconds) {
+        const mins = Math.trunc(seconds / 60);
+        const secs = Math.trunc(seconds) % 60;
+        if (mins === 0) return `${secs}s`;
+        if (secs === 0) return `${mins}m`;
+        return `${mins}m ${secs}s`;
+    }
+
+    // Plan totals exist only when every occupied car has timings. The server
+    // can only add up the cars it measured in one response, so once cars have
+    // been measured one at a time the page adds up what is already on screen.
+    function summarizeMeasuredCards(cards, useMiles) {
+        let occupied = 0;
+        let totalMeters = 0;
+        let maxDetour = 0;
+        let sumDetour = 0;
+        for (const card of cards) {
+            if (!card.hasStops) continue;
+            const meters = Number(card.totalMeters);
+            const detour = Number(card.detourSecs);
+            if (card.timings !== 'measured' || card.totalMeters === '' || card.detourSecs === '' || !Number.isFinite(meters) || !Number.isFinite(detour)) return null;
+            occupied += 1;
+            totalMeters += meters;
+            sumDetour += detour;
+            maxDetour = Math.max(maxDetour, detour);
+        }
+        if (occupied === 0) return null;
+        return {
+            totalDistance: formatDistance(totalMeters, useMiles),
+            maxDetour: formatDuration(maxDetour),
+            averageDetour: formatDuration(sumDetour / occupied),
+        };
+    }
+
+    function refreshRouteTotals(root) {
+        const container = root && root.querySelector ? (root.matches && root.matches('.routes-container') ? root : root.querySelector('.routes-container')) : null;
+        if (!container || container.dataset.outOfBalance === 'true') return false;
+        const cards = [...container.querySelectorAll('.route-card')].map(card => ({
+            timings: card.dataset.timings,
+            hasStops: card.querySelectorAll('.stop-item').length > 0,
+            totalMeters: card.dataset.totalDistanceMeters ?? '',
+            detourSecs: card.dataset.detourSecs ?? '',
+        }));
+        const summary = summarizeMeasuredCards(cards, container.dataset.useMiles === 'true');
+        if (!summary) return false;
+        // Only placeholders are filled; a total the server rendered stays as is.
+        const write = (key, value) => {
+            const element = container.querySelector(`[data-summary="${key}"]`);
+            if (element && element.textContent.trim() === '—') element.textContent = value;
+        };
+        write('total-distance', summary.totalDistance);
+        write('max-detour', summary.maxDetour);
+        write('average-detour', summary.averageDetour);
+        return true;
+    }
+
     function installRouteResults({ target, html, htmx, afterRender }) {
         const savedFields = snapshotSaveFields(target);
-        target.innerHTML = html;
+        target.innerHTML = preserveTimings(target, html, target.ownerDocument);
+        refreshRouteTotals(target);
         htmx.process(target);
         restoreSaveFields(target, savedFields);
         applyLocalEventDate(target);
@@ -1095,6 +1220,25 @@
             }
             if (!await root.showConfirmDialog('Reset changes? Your edits will be lost.')) return false;
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
+        }
+
+        // Fetches Google timings for one car of a restored or edited plan.
+        async function showRouteTimings(button) {
+            const sessionId = getSessionId();
+            const card = button && button.closest ? button.closest('.route-card') : null;
+            if (!sessionId || !card) {
+                showToast('That route plan is no longer available. Calculate it again.', 'error');
+                return false;
+            }
+            button.disabled = true;
+            try {
+                const rendered = await enqueueRouteEdit(sessionId, '/api/v1/routes/session/timings', { session_id: sessionId, route_index: parseInt(card.dataset.routeIndex, 10) });
+                if (!rendered && button.isConnected) button.disabled = false;
+                return rendered;
+            } catch (error) {
+                if (button.isConnected) button.disabled = false;
+                throw error;
+            }
         }
 
         async function addUnusedDriver(driverId) {
@@ -1977,6 +2121,7 @@
         root.swapDrivers = swapDrivers;
         root.resetRoutes = resetRoutes;
         root.addUnusedDriver = addUnusedDriver;
+        root.showRouteTimings = showRouteTimings;
         root.copyRoute = copyRoute;
         root.copyAllRoutes = copyAllRoutes;
         root.previewRoute = previewRoute;
@@ -2027,6 +2172,9 @@
         createRouteSessionOrchestrator,
         installRouteResults,
         localISODate,
+        preserveTimings,
+        refreshRouteTotals,
         sanitizeVanAssignments,
+        summarizeMeasuredCards,
     };
 });

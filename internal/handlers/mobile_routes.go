@@ -39,15 +39,103 @@ func (h *Handler) HandleMobileRoutes(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m", "That route plan expired. Calculate it again.")
 		return
 	}
-	h.renderMobileRoutes(w, r, snapshot, http.StatusOK, r.URL.Query().Get("error"), "", "")
+	h.renderMobileRoutesTimed(w, r, snapshot, http.StatusOK, r.URL.Query().Get("error"), "", "", h.takeQueuedTimings(w, r, snapshot))
+}
+
+// mobileTimingsCookie carries the cars a calculation or edit changed across
+// its redirect, so the routes page measures them once and a refresh spends nothing.
+const mobileTimingsCookie = "rhr_mobile_timings"
+
+// queueTimings remembers which cars the next routes page should measure.
+func (h *Handler) queueTimings(w http.ResponseWriter, r *http.Request, sessionID string, indexes []int) {
+	if len(indexes) == 0 {
+		return
+	}
+	parts := make([]string, len(indexes))
+	for i, index := range indexes {
+		parts[i] = strconv.Itoa(index)
+	}
+	//nolint:gosec // Secure is false only for a genuinely plaintext loopback request.
+	http.SetCookie(w, &http.Cookie{
+		Name: mobileTimingsCookie, Value: sessionID + "." + strings.Join(parts, "-"), Path: "/m/routes",
+		Secure: mobileDraftCookieSecure(r), HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 60,
+	})
+}
+
+// takeQueuedTimings consumes the queued cars for this session and clears the cookie.
+func (h *Handler) takeQueuedTimings(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot) []int {
+	cookie, err := r.Cookie(mobileTimingsCookie)
+	if err != nil {
+		return nil
+	}
+	//nolint:gosec // Secure is false only for a genuinely plaintext loopback request.
+	http.SetCookie(w, &http.Cookie{Name: mobileTimingsCookie, Value: "", Path: "/m/routes", MaxAge: -1, Secure: mobileDraftCookieSecure(r), HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	sessionID, rest, ok := strings.Cut(cookie.Value, ".")
+	if !ok || sessionID != snapshot.ID {
+		return nil
+	}
+	var indexes []int
+	for part := range strings.SplitSeq(rest, "-") {
+		index, err := strconv.Atoi(part)
+		if err == nil && index >= 0 && index < len(snapshot.Routes) {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
 }
 
 func (h *Handler) renderMobileRoutes(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string) {
+	h.renderMobileRoutesTimed(w, r, snapshot, status, message, date, notes, nil)
+}
+
+// renderMobileRoutesTimed measures only the cars in indexes for this response;
+// every other car shows its itinerary with a "Show timings" action.
+func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string, indexes []int) {
+	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
+	view.Snapshot.Routes = h.itineraryRoutes(snapshot.Routes)
+	view.Snapshot.Summary, view.ShowAggregates = h.itinerarySummary(snapshot.Summary, timings)
 	for index, route := range snapshot.Routes {
-		view.Routes = append(view.Routes, mobileRoute{Index: index, Route: route, DriverText: formatMobileHandoff(snapshot, route, false), ParentText: formatMobileHandoff(snapshot, route, true), ETAs: mobileETAs(snapshot, route)})
+		timing := timings[index]
+		// The template reads an ETA per stop, so unmeasured cars carry blanks.
+		etas := make([]string, len(route.Stops))
+		if timing.Route != nil {
+			etas = mobileETAs(snapshot, *timing.Route)
+			if len(timing.Route.Stops) > 0 && h.Measurer != nil {
+				view.Attribution = true
+			}
+		}
+		view.Routes = append(view.Routes, mobileRoute{Index: index, Route: view.Snapshot.Routes[index], DriverText: formatMobileHandoff(snapshot, route, false, etas), ParentText: formatMobileHandoff(snapshot, route, true, etas), ETAs: etas, Timing: timing})
 	}
 	h.renderMobileTemplateStatus(w, r, status, "mobile/routes.html", view)
+}
+
+// HandleMobileRouteTimings measures one car on demand and re-renders the routes screen.
+func (h *Handler) HandleMobileRouteTimings(w http.ResponseWriter, r *http.Request) {
+	logMobileRequest(r)
+	if h.isHTMX(r) {
+		// The form swaps only its own car, so a redirect must move the whole page.
+		w = &htmxRedirectWriter{ResponseWriter: w}
+	}
+	_, sessionID, ok := h.mobileRouteSession(w, r)
+	if !ok {
+		return
+	}
+	index, err := strconv.Atoi(r.FormValue("route_index"))
+	if err != nil || index < 0 {
+		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
+		return
+	}
+	snapshot, found, loadErr := h.RouteSession.Load(r.Context(), sessionID)
+	if loadErr != nil {
+		h.renderMobileStoreError(w, r, loadErr, messageRoutePlanExpired)
+		return
+	}
+	if !found || index >= len(snapshot.Routes) {
+		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)
+		return
+	}
+	h.renderMobileRoutesTimed(w, r, snapshot, http.StatusOK, "", "", "", []int{index})
 }
 
 func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
@@ -67,12 +155,13 @@ func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", "Choose a different route.")
 		return
 	}
-	_, err := h.RouteSession.ApplyMoves(r.Context(), sessionID, []routesession.Move{{ParticipantID: participantID, FromRouteIndex: from, ToRouteIndex: to, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{RequireClaimedSource: true})
+	snapshot, err := h.RouteSession.ApplyMoves(r.Context(), sessionID, []routesession.Move{{ParticipantID: participantID, FromRouteIndex: from, ToRouteIndex: to, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{RequireClaimedSource: true})
 	if err != nil {
 		log.Printf("[ERROR] Mobile move failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
+	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
 	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 }
 
@@ -88,11 +177,13 @@ func (h *Handler) HandleMobileSwap(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", messageInvalidRouteIndex)
 		return
 	}
-	if _, err := h.RouteSession.SwapDrivers(r.Context(), sessionID, first, second); err != nil {
+	snapshot, err := h.RouteSession.SwapDrivers(r.Context(), sessionID, first, second)
+	if err != nil {
 		log.Printf("[ERROR] Mobile driver swap failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
+	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
 	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 }
 
@@ -102,11 +193,13 @@ func (h *Handler) HandleMobileReset(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := h.RouteSession.ResetContext(r.Context(), sessionID); err != nil {
+	snapshot, err := h.RouteSession.ResetContext(r.Context(), sessionID)
+	if err != nil {
 		log.Printf("[ERROR] Mobile route reset failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
+	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
 	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 }
 
@@ -121,11 +214,13 @@ func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m/routes", messageInvalidDriverID)
 		return
 	}
-	if _, err := h.RouteSession.AddDriver(r.Context(), sessionID, driverID); err != nil {
+	snapshot, err := h.RouteSession.AddDriver(r.Context(), sessionID, driverID)
+	if err != nil {
 		log.Printf("[ERROR] Mobile add driver failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
+	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
 	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 }
 
@@ -227,7 +322,9 @@ func mobileETAs(snapshot routesession.Snapshot, route models.CalculatedRoute) []
 	return values
 }
 
-func formatMobileHandoff(snapshot routesession.Snapshot, route models.CalculatedRoute, parents bool) string {
+// formatMobileHandoff builds the shareable text. etas are only present when
+// this response measured the car; saved events never include them.
+func formatMobileHandoff(snapshot routesession.Snapshot, route models.CalculatedRoute, parents bool, etas []string) string {
 	var b strings.Builder
 	locationName, locationAddress := "Activity location", ""
 	if snapshot.ActivityLocation != nil {
@@ -248,7 +345,6 @@ func formatMobileHandoff(snapshot routesession.Snapshot, route models.Calculated
 	if !parents {
 		fmt.Fprintf(&b, "%s\n", displayMobileAddress(route.Driver.AddressName, route.Driver.Address))
 	}
-	etas := mobileETAs(snapshot, route)
 	emitted := 0
 	for i, stop := range route.Stops {
 		if stop.Participant == nil {
@@ -390,4 +486,31 @@ func (h *Handler) redirectSavedMobileEvent(w http.ResponseWriter, r *http.Reques
 	//nolint:gosec // The target contains only a fixed local prefix and a numeric database ID.
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", event.ID), http.StatusSeeOther)
 	return true
+}
+
+// htmxRedirectWriter turns a plain redirect into an HX-Redirect so htmx
+// navigates instead of swapping the redirected page into a fragment target.
+type htmxRedirectWriter struct {
+	http.ResponseWriter
+	redirected bool
+}
+
+func (w *htmxRedirectWriter) WriteHeader(code int) {
+	if code == http.StatusSeeOther || code == http.StatusFound {
+		if location := w.Header().Get("Location"); location != "" {
+			w.Header().Del("Location")
+			w.Header().Set("HX-Redirect", location)
+			w.redirected = true
+			w.ResponseWriter.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *htmxRedirectWriter) Write(body []byte) (int, error) {
+	if w.redirected {
+		return len(body), nil
+	}
+	return w.ResponseWriter.Write(body)
 }

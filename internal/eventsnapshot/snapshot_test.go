@@ -171,24 +171,20 @@ func TestBuildCreatesCompleteEventSnapshot(t *testing.T) {
 			{
 				RouteOrder: 0, DriverID: 1, DriverName: "Driver One", DriverAddress: "1 Driver Way",
 				EffectiveCapacity: 3, OrgVehicleID: 7, OrgVehicleName: "Shared Van",
-				TotalDropoffDistanceMeters: 1000, DistanceToDriverHomeMeters: 250, TotalDistanceMeters: 1250,
-				BaselineDurationSecs: 600, RouteDurationSecs: 900, DetourSecs: 300,
-				Mode: models.RouteModePickup, SnapshotVersion: 2, MetricsComplete: true,
+				Mode: models.RouteModePickup, SnapshotVersion: 3, MetricsComplete: false,
 				Stops: []models.EventRouteStop{
-					{Order: 0, ParticipantID: 10, ParticipantName: "Alice", ParticipantAddress: "10 Rider Road", DistanceFromPrevMeters: 400, CumulativeDistanceMeters: 400, DurationFromPrevSecs: 240, CumulativeDurationSecs: 240},
-					{Order: 1, ParticipantID: 11, ParticipantName: "Bob", ParticipantAddress: "11 Rider Road", DistanceFromPrevMeters: 600, CumulativeDistanceMeters: 1000, DurationFromPrevSecs: 360, CumulativeDurationSecs: 600},
+					{Order: 0, ParticipantID: 10, ParticipantName: "Alice", ParticipantAddress: "10 Rider Road"},
+					{Order: 1, ParticipantID: 11, ParticipantName: "Bob", ParticipantAddress: "11 Rider Road"},
 				},
 			},
 			{
 				RouteOrder: 1, DriverID: 2, DriverName: "Driver Two", DriverAddress: "2 Driver Way",
 				EffectiveCapacity: 5, OrgVehicleID: 7, OrgVehicleName: "Shared Van",
-				TotalDropoffDistanceMeters: 900, DistanceToDriverHomeMeters: 350, TotalDistanceMeters: 1250,
-				BaselineDurationSecs: 700, RouteDurationSecs: 1000, DetourSecs: 300,
-				Mode: models.RouteModePickup, SnapshotVersion: 2, MetricsComplete: true,
-				Stops: []models.EventRouteStop{{Order: 0, ParticipantID: 12, ParticipantName: "Casey", ParticipantAddress: "12 Rider Road", DistanceFromPrevMeters: 900, CumulativeDistanceMeters: 900, DurationFromPrevSecs: 540, CumulativeDurationSecs: 540}},
+				Mode: models.RouteModePickup, SnapshotVersion: 3, MetricsComplete: false,
+				Stops: []models.EventRouteStop{{Order: 0, ParticipantID: 12, ParticipantName: "Casey", ParticipantAddress: "12 Rider Road"}},
 			},
 		},
-		Summary: models.EventSummary{TotalParticipants: 3, TotalDrivers: 2, TotalDistanceMeters: 2500, OrgVehiclesUsed: 2, Mode: models.RouteModePickup},
+		Summary: models.EventSummary{TotalParticipants: 3, TotalDrivers: 2, OrgVehiclesUsed: 2, Mode: models.RouteModePickup},
 	}
 
 	got, err := eventsnapshot.Build(result)

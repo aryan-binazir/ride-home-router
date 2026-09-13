@@ -3,10 +3,15 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -61,13 +66,14 @@ type routeCalculationShortageContext struct {
 }
 
 type routeCalculation struct {
+	geocoder geocoding.Geocoder
 	db       database.DataStore
 	router   routing.Router
 	sessions *routesession.Store
 }
 
-func newRouteCalculation(db database.DataStore, router routing.Router, sessions *routesession.Store) *routeCalculation {
-	return &routeCalculation{db: db, router: router, sessions: sessions}
+func newRouteCalculation(db database.DataStore, router routing.Router, sessions *routesession.Store, geocoder geocoding.Geocoder) *routeCalculation {
+	return &routeCalculation{db: db, router: router, sessions: sessions, geocoder: geocoder}
 }
 
 func (c *routeCalculation) calculate(ctx context.Context, input routeCalculationInput) routeCalculationOutcome {
@@ -103,6 +109,7 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		}
 		return routeCalculationOutcome{Kind: routeCalculationInternalFailure, Err: err}
 	}
+	c.refreshCoordinates(ctx, participants, drivers, activityLocation)
 	modifiedDrivers, driverOrgVehicles := applyOrgVehicleAssignments(drivers, input.OrgVehicleAssignments, orgVehicleMap)
 
 	result, err := c.router.CalculateRoutes(ctx, &routing.RoutingRequest{
@@ -190,4 +197,86 @@ func (c *routeCalculation) loadAssignedOrgVehicles(ctx context.Context, assignme
 		vehicleMap[vehicles[i].ID] = &vehicles[i]
 	}
 	return vehicleMap, nil
+}
+
+// refreshBudget bounds the best-effort coordinate refresh inside the solve budget.
+const refreshBudget = 5 * time.Second
+
+// refreshCoordinates re-geocodes stale coordinates before planning, once per
+// distinct address. It is best effort: any failure keeps the existing
+// coordinates, logs counts only, and never blocks the calculation.
+func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants []models.Participant, drivers []models.Driver, location *models.ActivityLocation) {
+	if c.geocoder == nil {
+		return
+	}
+	cutoff := time.Now().Add(-models.CoordinateMaxAge)
+	type target struct {
+		lat, lng *float64
+		at       *time.Time
+		persist  func(context.Context, models.Coordinates, time.Time) error
+	}
+	byAddress := make(map[string][]target)
+	addressFor := make(map[string]string)
+	var order []string
+	add := func(address string, at *time.Time, lat, lng *float64, persist func(context.Context, models.Coordinates, time.Time) error) {
+		if at.After(cutoff) {
+			return
+		}
+		key := strings.ToLower(strings.Join(strings.Fields(address), " "))
+		if _, seen := byAddress[key]; !seen {
+			order = append(order, key)
+			addressFor[key] = address
+		}
+		byAddress[key] = append(byAddress[key], target{lat: lat, lng: lng, at: at, persist: persist})
+	}
+	for i := range participants {
+		p := &participants[i]
+		add(p.Address, &p.GeocodedAt, &p.Lat, &p.Lng, func(ctx context.Context, coords models.Coordinates, at time.Time) error {
+			return c.db.Participants().UpdateCoordinates(ctx, p.ID, p.Address, coords, at)
+		})
+	}
+	for i := range drivers {
+		d := &drivers[i]
+		add(d.Address, &d.GeocodedAt, &d.Lat, &d.Lng, func(ctx context.Context, coords models.Coordinates, at time.Time) error {
+			return c.db.Drivers().UpdateCoordinates(ctx, d.ID, d.Address, coords, at)
+		})
+	}
+	if location != nil {
+		add(location.Address, &location.GeocodedAt, &location.Lat, &location.Lng, func(ctx context.Context, coords models.Coordinates, at time.Time) error {
+			return c.db.ActivityLocations().UpdateCoordinates(ctx, location.ID, location.Address, coords, at)
+		})
+	}
+	if len(order) == 0 {
+		return
+	}
+	// Refresh must never eat the calculation budget: give it a short deadline.
+	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
+	defer cancel()
+	var refreshed, failed atomic.Int32
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 4)
+	for _, key := range order {
+		targets := byAddress[key]
+		address := addressFor[key]
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			result, err := c.geocoder.GeocodeWithRetry(ctx, address, 3)
+			if err != nil || result == nil {
+				failed.Add(1)
+				return
+			}
+			now := time.Now()
+			for _, t := range targets {
+				if err := t.persist(ctx, result.Coords, now); err != nil {
+					failed.Add(1)
+					continue
+				}
+				*t.lat, *t.lng, *t.at = result.Coords.Lat, result.Coords.Lng, now
+				refreshed.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	log.Printf("[GEOCODING] refresh addresses=%d refreshed=%d failed=%d", len(order), refreshed.Load(), failed.Load())
 }

@@ -19,6 +19,7 @@ import (
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/orderedroute"
 	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/routesession"
@@ -52,6 +53,13 @@ type Config struct {
 	AllowedHosts []string
 	// DatabaseURL points to the migrated Postgres database to serve.
 	DatabaseURL string
+	// RoutingEngine selects "estimate" (default: provider-free planning that is
+	// measured afterwards) or "matrix" (legacy Google distance matrix, kept only
+	// to compare route quality).
+	RoutingEngine string
+	// GoogleUsageSeed records requests already spent this Pacific-time month before the
+	// ledger existed, per SKU, so a mid-month cutover starts conservative.
+	GoogleUsageSeed map[database.UsageSKU]int
 }
 
 const (
@@ -87,10 +95,27 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to load templates: %w", err)
 	}
 
-	geocoder := geocoding.NewGoogleGeocoder(db.Settings().GoogleMapsKey, db.GeocodingGate())
-	distanceCalc := distance.NewGoogleCalculator(db.DistanceCache(), db.Settings().GoogleMapsKey)
+	usage := db.GoogleUsage()
+	geocoder := geocoding.NewGoogleGeocoder(db.Settings().GoogleMapsKey, db.GeocodingGate(), usage)
+	distanceCalc, providerFree, err := routingDistanceSource(cfg.RoutingEngine, db.DistanceCache(), db.Settings().GoogleMapsKey)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	router := routing.NewBalancedRouter(distanceCalc)
 	routeSession := routesession.NewPersistentStore(distanceCalc, db.Workflows())
+	for sku, used := range cfg.GoogleUsageSeed {
+		if err := usage.Seed(ctx, sku, used); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("seed google usage: %w", err)
+		}
+	}
+	var measurer routing.Measurer
+	if providerFree {
+		measurer = orderedroute.NewClient(db.Settings().GoogleMapsKey, func(ctx context.Context, attempts int) error {
+			return usage.Reserve(ctx, database.UsageSKURoutes, attempts)
+		})
+	}
 	importSession := importer.NewPersistentStore(ctx, geocoder, db, db.Workflows(), db.ImportJobs())
 	planDraft := plandraft.NewPersistentStore(db.Workflows())
 
@@ -98,6 +123,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		DB:            db,
 		Geocoder:      geocoder,
 		Router:        router,
+		Measurer:      measurer,
 		Renderer:      renderer,
 		RouteSession:  routeSession,
 		ImportSession: importSession,
@@ -315,6 +341,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/routes/edit/reset", requireMethod(http.MethodPost, handler.HandleResetRoutes))
 	mux.HandleFunc("/api/v1/routes/edit/add-driver", requireMethod(http.MethodPost, handler.HandleAddDriver))
 	mux.HandleFunc("/api/v1/routes/session", requireMethod(http.MethodGet, handler.HandleGetRouteSession))
+	mux.HandleFunc("/api/v1/routes/session/timings", requireMethod(http.MethodPost, handler.HandleRouteTimings))
 	mux.HandleFunc("/api/v1/address-search", requireMethod(http.MethodGet, handler.HandleAddressSearch))
 	mux.HandleFunc("/api/v1/activity-locations", handleMethods(handler.HandleListActivityLocations, handler.HandleCreateActivityLocation, nil, nil))
 	mux.HandleFunc("/api/v1/activity-locations/restore", requireMethod(http.MethodPost, handler.HandleRestoreActivityLocation))
@@ -336,6 +363,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/m/routes/move", requireMethod(http.MethodPost, handler.HandleMobileMove))
 	mux.HandleFunc("/m/routes/swap", requireMethod(http.MethodPost, handler.HandleMobileSwap))
 	mux.HandleFunc("/m/routes/reset", requireMethod(http.MethodPost, handler.HandleMobileReset))
+	mux.HandleFunc("/m/routes/timings", requireMethod(http.MethodPost, handler.HandleMobileRouteTimings))
 	mux.HandleFunc("/m/routes/add-driver", requireMethod(http.MethodPost, handler.HandleMobileAddDriver))
 	mux.HandleFunc("/m/routes/save", requireMethod(http.MethodPost, handler.HandleMobileSave))
 	mux.HandleFunc("/m/people", requireMethod(http.MethodGet, handler.HandleMobilePeople))
@@ -625,4 +653,18 @@ func requestError(w http.ResponseWriter, r *http.Request, message string, status
 		w.Header().Set("HX-Reswap", "none")
 	}
 	http.Error(w, message, status)
+}
+
+// routingDistanceSource picks the planner's distance source. The estimator is
+// the default; the Google matrix stays selectable only to compare route quality.
+// The boolean reports whether planning is provider-free and therefore measured afterwards.
+func routingDistanceSource(engine string, cache database.DistanceCacheRepository, key distance.APIKeyProvider) (distance.SolveSource, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "", "estimate":
+		return distance.NewEstimator(), true, nil
+	case "matrix":
+		return distance.NewGoogleCalculator(cache, key), false, nil
+	default:
+		return nil, false, fmt.Errorf("ROUTING_ENGINE must be \"estimate\" or \"matrix\"")
+	}
 }

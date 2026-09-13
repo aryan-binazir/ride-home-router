@@ -370,6 +370,7 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 		} else {
 			row.Lat = result.Coords.Lat
 			row.Lng = result.Coords.Lng
+			row.GeocodedAt = time.Now()
 			row.HasCoordinates = true
 		}
 		data, err := json.Marshal(row)

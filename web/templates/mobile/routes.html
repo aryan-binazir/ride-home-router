@@ -9,18 +9,18 @@
   <div class="mobile-stats">
     <span><b>{{.Snapshot.Summary.TotalParticipants}}</b>{{pluralize .Snapshot.Summary.TotalParticipants "Rider"}}</span>
     <span><b>{{.Snapshot.Summary.TotalDriversUsed}}</b>{{pluralize .Snapshot.Summary.TotalDriversUsed "Driver"}}</span>
-    <span><b>{{if .Snapshot.IsOutOfBalance}}Paused{{else}}{{formatDistance .Snapshot.Summary.TotalDistanceMeters .Snapshot.UseMiles}}{{end}}</b>Total</span>
+    <span><b>{{if .Snapshot.IsOutOfBalance}}Paused{{else if .ShowAggregates}}{{formatDistance .Snapshot.Summary.TotalDistanceMeters .Snapshot.UseMiles}}{{else}}—{{end}}</b>Total</span>
   </div>
   {{range .Routes}}
   {{$current := .}}
-  <article class="mobile-route-card{{if and (lt .Index (len $.Snapshot.OverCapacity)) (index $.Snapshot.OverCapacity .Index)}} mobile-route-card-over-capacity{{end}}">
+  <article id="mobile-route-{{.Index}}" class="mobile-route-card{{if and (lt .Index (len $.Snapshot.OverCapacity)) (index $.Snapshot.OverCapacity .Index)}} mobile-route-card-over-capacity{{end}}">
     <details open>
       <summary>
         {{with .Route.Driver}}
         <span class="mobile-avatar">{{initials .Name}}</span>
         <span>
           <b>{{.Name}}</b>
-          <small>{{len $current.Route.Stops}} {{pluralize (len $current.Route.Stops) "passenger"}} · {{if $.Snapshot.IsOutOfBalance}}Unavailable{{else}}{{formatDistance $current.Route.TotalDistanceMeters $.Snapshot.UseMiles}}{{end}}{{if $current.Route.OrgVehicleName}} · {{$current.Route.OrgVehicleName}}{{end}}</small>
+          <small>{{len $current.Route.Stops}} {{pluralize (len $current.Route.Stops) "passenger"}}{{if $.Snapshot.IsOutOfBalance}} · Unavailable{{else if $current.Timing.Route}} · {{formatDistance $current.Timing.Route.TotalDistanceMeters $.Snapshot.UseMiles}}{{end}}{{if $current.Route.OrgVehicleName}} · {{$current.Route.OrgVehicleName}}{{end}}</small>
         </span>
         {{else}}
         <span class="mobile-avatar">?</span>
@@ -59,6 +59,18 @@
         </li>
         {{end}}
       </ol>
+      {{if not $.Snapshot.IsOutOfBalance}}
+      {{if $current.Timing.Route}}
+      {{if $.Attribution}}<p class="mobile-route-attribution"><picture><source srcset="/static/img/google-maps-attribution-dark.svg" media="(prefers-color-scheme: dark)"><img src="/static/img/google-maps-attribution.svg" alt="Google Maps" width="98" height="18"></picture> <small>Current estimates for this itinerary</small></p>{{end}}
+      {{else if $current.Route.Stops}}
+      <form class="mobile-route-timings" method="post" action="/m/routes/timings" hx-post="/m/routes/timings" hx-target="#mobile-route-{{$current.Index}}" hx-swap="outerHTML" hx-select="#mobile-route-{{$current.Index}}" hx-disabled-elt="find button">
+        <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
+        <input type="hidden" name="route_index" value="{{$current.Index}}">
+        {{if ne $current.Timing.Status "stale"}}<small role="status">{{$current.Timing.Message}}</small>{{end}}
+        {{if eq $current.Timing.Status "stale" "failed"}}<button class="mobile-button mobile-button-secondary" type="submit">Show timings</button>{{end}}
+      </form>
+      {{end}}
+      {{end}}
       <div class="mobile-route-actions">
         <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="driver-copy-{{.Index}}" aria-live="polite" {{if $.Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
         <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="parent-copy-{{.Index}}" aria-live="polite" {{if $.Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for parents</button>

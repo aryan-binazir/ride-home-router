@@ -21,9 +21,12 @@ import (
 
 // Handler owns the HTTP layer's dependencies.
 type Handler struct {
-	DB            database.DataStore
-	Geocoder      geocoding.Geocoder
-	Router        routing.Router
+	DB       database.DataStore
+	Geocoder geocoding.Geocoder
+	Router   routing.Router
+	// Measurer measures finished routes with the provider after planning. Nil
+	// means the legacy matrix engine, whose planning metrics are shown directly.
+	Measurer      routing.Measurer
 	Renderer      *templates.Renderer
 	RouteSession  *routesession.Store
 	ImportSession *importer.Store

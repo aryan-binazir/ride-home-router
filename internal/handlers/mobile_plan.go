@@ -430,7 +430,7 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m", messageInvalidRouteMode)
 		return
 	}
-	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession, h.Geocoder).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs: draft.ParticipantIDs, DriverIDs: draft.DriverIDs, ActivityLocationID: draft.LocationID,
 		RouteTime: draft.RouteTime, Mode: mode, OrgVehicleAssignments: draft.DriverVehicleIDs,
 	})
@@ -455,7 +455,10 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	switch adoption {
-	case mobilePlanAdopted, mobilePlanSupersededLive:
+	case mobilePlanAdopted:
+		h.queueTimings(w, r, outcome.Session.ID, allRouteIndexes(outcome.Session))
+		http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+	case mobilePlanSupersededLive:
 		http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 	case mobilePlanExpired:
 		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)

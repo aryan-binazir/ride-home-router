@@ -141,6 +141,12 @@ type CapacityShortageView struct {
 }
 
 type RouteResultsView struct {
+	// Timings holds this response's measured copy of each route, or why it has none.
+	Timings []RouteTiming
+	// ShowAggregates is true only when every occupied car was measured in this response.
+	ShowAggregates bool
+	// Attribution is true when Google-measured values appear on the page.
+	Attribution      bool
 	Routes           []models.CalculatedRoute
 	OverCapacity     []bool
 	IsOutOfBalance   bool
@@ -165,4 +171,6 @@ type RouteCalculationResponse struct {
 	Summary   models.RoutingSummary    `json:"summary"`
 	SessionID string                   `json:"session_id"`
 	Mode      models.RouteMode         `json:"mode"`
+	// Timings carries provider-measured values for this response only.
+	Timings []RouteTimingJSON `json:"timings,omitempty"`
 }

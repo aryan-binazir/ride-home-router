@@ -11,11 +11,14 @@ import (
 	"os/signal"
 	"regexp"
 	"ride-home-router/internal/access"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/server"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // Pacific-time month boundaries must work on images without zoneinfo.
 
 	"github.com/jackc/pgx/v5"
 )
@@ -62,9 +65,11 @@ func run(args []string) error {
 			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
 			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
 		},
-		Addr:         opts.Addr,
-		AllowedHosts: opts.AllowedHosts,
-		DatabaseURL:  opts.DatabaseURL,
+		Addr:            opts.Addr,
+		AllowedHosts:    opts.AllowedHosts,
+		DatabaseURL:     opts.DatabaseURL,
+		RoutingEngine:   os.Getenv("ROUTING_ENGINE"),
+		GoogleUsageSeed: googleUsageSeed(os.Getenv("GOOGLE_USAGE_SEED"), time.Now()),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -186,4 +191,53 @@ func validAllowedHost(host string) bool {
 		return ok && net.ParseIP(inner) != nil && strings.Contains(inner, ":")
 	}
 	return net.ParseIP(host) != nil && !strings.Contains(host, ":")
+}
+
+// googleUsageSeed parses GOOGLE_USAGE_SEED, e.g. "routes=2026-09:7000,geocoding=2026-09:120".
+// Entries for any month other than the current Pacific-time month (Google's
+// billing calendar, matching the ledger) are ignored, so a seed left in the
+// environment cannot eat a later month's allowance.
+// usageLocation is Google's billing calendar for free monthly allowances.
+var usageLocation = mustLoadLocation("America/Los_Angeles")
+
+func mustLoadLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return loc
+}
+
+func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
+	seeds := map[database.UsageSKU]int{}
+	month := now.In(usageLocation).Format("2006-01")
+	for entry := range strings.SplitSeq(value, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		sku, rest, ok := strings.Cut(entry, "=")
+		if !ok {
+			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
+			continue
+		}
+		seedMonth, count, ok := strings.Cut(rest, ":")
+		n, err := strconv.Atoi(strings.TrimSpace(count))
+		if !ok || err != nil || n < 0 {
+			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
+			continue
+		}
+		if strings.TrimSpace(seedMonth) != month {
+			log.Printf("[INFO] GOOGLE_USAGE_SEED entry for %s ignored in %s", strings.TrimSpace(seedMonth), month)
+			continue
+		}
+		name := database.UsageSKU(strings.ToLower(strings.TrimSpace(sku)))
+		switch name {
+		case database.UsageSKURoutes, database.UsageSKUGeocoding, database.UsageSKUAutocomplete:
+			seeds[name] = n
+		default:
+			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: unknown sku")
+		}
+	}
+	return seeds
 }

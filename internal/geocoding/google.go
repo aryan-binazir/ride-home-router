@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"strings"
 	"time"
@@ -26,15 +27,36 @@ type KeyFunc func(context.Context) (string, error)
 type googleGeocoder struct {
 	apiKey          KeyFunc
 	gate            RateGate
+	usage           UsageReserver
 	httpClient      *http.Client
 	geocodeURL      string
 	autocompleteURL string
 }
 
+// UsageReserver records one provider attempt before it is dispatched so the
+// month stays inside the free tier; see database.GoogleUsageLedger.
+type UsageReserver interface {
+	Reserve(ctx context.Context, sku database.UsageSKU, attempts int) error
+}
+
+func (g *googleGeocoder) reserve(ctx context.Context, sku database.UsageSKU) error {
+	if g.usage == nil {
+		return nil
+	}
+	if err := g.usage.Reserve(ctx, sku, 1); err != nil {
+		return &ErrGeocodingFailed{Reason: "provider usage ceiling reached", Cause: err, Configuration: true}
+	}
+	return nil
+}
+
 // NewGoogleGeocoder geocodes with the Google Geocoding API and suggests
 // addresses with Places Autocomplete, sharing one cross-instance cooldown gate.
-func NewGoogleGeocoder(apiKey KeyFunc, gate RateGate) Geocoder {
-	return newGoogleGeocoder(apiKey, gate, &http.Client{Timeout: geocoderClientTimeout}, googleGeocodeURL, googleAutocompleteURL)
+// NewGoogleGeocoder builds the production geocoder. usage meters every attempt;
+// it may be nil only in tests.
+func NewGoogleGeocoder(apiKey KeyFunc, gate RateGate, usage UsageReserver) Geocoder {
+	g := newGoogleGeocoder(apiKey, gate, &http.Client{Timeout: geocoderClientTimeout}, googleGeocodeURL, googleAutocompleteURL)
+	g.usage = usage
+	return g
 }
 
 func newGoogleGeocoder(apiKey KeyFunc, gate RateGate, client *http.Client, geocodeURL, autocompleteURL string) *googleGeocoder {
@@ -65,6 +87,9 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		return nil, err
 	}
 	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.reserve(ctx, database.UsageSKUGeocoding); err != nil {
 		return nil, err
 	}
 	query := url.Values{"address": {address}, "region": {googleRegion}, "key": {key}}
@@ -222,6 +247,9 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 		return nil, err
 	}
 	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.reserve(ctx, database.UsageSKUAutocomplete); err != nil {
 		return nil, err
 	}
 	body, _ := json.Marshal(map[string]string{"input": query, "regionCode": googleRegion, "languageCode": "en"})

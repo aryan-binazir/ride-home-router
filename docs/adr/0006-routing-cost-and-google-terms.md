@@ -1,6 +1,6 @@
 # Routing cost and Google Maps Platform terms
 
-Status: decided 2026-09-13, not yet implemented.
+Status: decided 2026-09-13; implemented in the estimate-then-measure routing change (see README "How it runs"). Deferred to follow-ups: purging metrics from pre-existing saved events, dropping the distance cache table and the legacy matrix engine, timings on history pages, and a replay harness comparing old and new plans.
 
 ## Context
 
@@ -14,12 +14,12 @@ The operator is a nonprofit with a budget of a few dollars a month, so the desig
 
 Replace the distance matrix with "estimate, then measure once":
 
-1. Keep the balanced router as is: household grouping, capacity, seeds, local search, and the lexicographic comparator (occupied drivers, corridor spread, latest completion, maximum detour, aggregates). Feed it a fixed straight-line estimator instead of Google distances: `metres = haversine × 1.3`, `seconds = metres ÷ 11.18`. The constants are source constants and are never fitted to Google output.
+1. Keep the balanced router as is: household grouping, capacity, seeds, local search, and the lexicographic comparator (every selected driver is used, then corridor spread, latest completion, maximum detour, aggregates). The local search also exchanges whole cars between two drivers, so a driver who lives near another car's riders takes that car. Feed it a fixed straight-line estimator instead of Google distances: `metres = haversine × 1.3`, `seconds = metres ÷ 11.18`. The constants are source constants and are never fitted to Google output.
 2. Measure each occupied car's ordered route once with Compute Routes (TRAFFIC_UNAWARE, fixed order, Essentials fields, at most 10 intermediate waypoints per request, chunked at household stops for larger vans) plus one direct baseline per driver for detour display. That is at most 2·D + floor(N/11) requests per calculation: 47 at 80/20, 245 at 500/100, and zero matrix elements.
-3. Edits re-measure only the changed cars. Reopening a session or a saved event shows the itinerary without times and offers a per-car "Show timings" action.
+3. Edits re-measure only the changed cars. Reopening a live session shows the itinerary without times and offers a per-car "Show timings" action. Saved events show the itinerary only; timings on history pages are a possible follow-up.
 4. Persist only the itinerary: assignments, stop order, addresses, Maps links, user-entered times. No Google durations, distances or ETAs in sessions, saved events, handoff text or logs. Show Google Maps attribution with measured results. Refresh coordinates before 30 days.
 5. Enforce an application ceiling with an atomic Postgres reservation ledger per SKU: reserve before dispatch, count every attempt, fail closed at 8,000 Compute Routes requests a month.
-6. Gate release on a replay of saved events that measures the old and new plans identically and requires no comparator regression.
+6. Compare plan quality against the matrix planner with a replay of saved events (kept selectable as `ROUTING_ENGINE=matrix` for that purpose). The replay harness is a follow-up; the estimator ships first because the cost and terms problems are immediate.
 
 Estimated monthly usage: about 2,800 requests at 80/20 and 6,000 at 500/100, both free.
 
@@ -33,6 +33,6 @@ Estimated monthly usage: about 2,800 requests at 80/20 and 6,000 at 500/100, bot
 
 ## Consequences
 
-Google cost becomes linear in riders and stays inside the free tier at the scales planned. Compliance depends on never persisting measured values, which touches sessions, saved events, handoff text and route feedback. Users lose stored travel times in history and get them on demand instead. Route quality relative to the all-pairs solver is unproven until the replay runs; the estimator cannot see rivers or one-way streets. Until this lands, the app keeps the permanent distance cache knowingly outside the terms.
+Google cost becomes linear in riders and stays inside the free tier at the scales planned. Compliance depends on never persisting measured values, which touches sessions, saved events, handoff text and route feedback. Users lose stored travel times in history; saved events show the itinerary only, and on-demand timings for history pages are a deferred follow-up. Route quality relative to the all-pairs solver is unproven until the replay runs; the estimator cannot see rivers or one-way streets. The ledger month rolls over at midnight Pacific time to match Google's billing calendar.
 
 Consultation record: `_scratch/_reviews/algorithm/r1.out` through `r4.out` (local, not committed); `r4.out` holds the implementation specification.

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"ride-home-router/internal/database"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 type fakeApplicationServer struct {
@@ -145,5 +147,23 @@ func TestParseArgs(t *testing.T) {
 				t.Fatalf("parseArgs() = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGoogleUsageSeedFollowsThePacificMonth(t *testing.T) {
+	// 03:00 UTC on 1 October is still 30 September in Los Angeles, so Google's
+	// September allowance (and the ledger's September row) is still the live one.
+	now := time.Date(2026, time.October, 1, 3, 0, 0, 0, time.UTC)
+	seeds := googleUsageSeed("routes=2026-09:7000, geocoding=2026-10:5,route=2026-09:9,bad", now)
+	if len(seeds) != 1 || seeds[database.UsageSKURoutes] != 7000 {
+		t.Fatalf("seeds = %#v, want only routes=7000", seeds)
+	}
+	// Winter (PST, UTC-8): 07:59 UTC on 1 January is still 31 December in Los Angeles.
+	winter := time.Date(2027, time.January, 1, 7, 59, 0, 0, time.UTC)
+	if seeds := googleUsageSeed("routes=2026-12:10", winter); seeds[database.UsageSKURoutes] != 10 {
+		t.Fatalf("winter seeds = %#v", seeds)
+	}
+	if seeds := googleUsageSeed("routes=2026-12:10", winter.Add(time.Minute)); len(seeds) != 0 {
+		t.Fatalf("seed after rollover = %#v, want none", seeds)
 	}
 }

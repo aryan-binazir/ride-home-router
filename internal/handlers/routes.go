@@ -43,6 +43,8 @@ const (
 var (
 	errInvalidRouteActivityLocation = errors.New("invalid route activity location")
 	errInvalidRouteSelection        = errors.New("invalid route selection")
+	errParticipantSelectionTooLarge = errors.New("too many participants selected")
+	errDriverSelectionTooLarge      = errors.New("too many drivers selected")
 )
 
 func routeSelectionLimitMessage(selection string) string {
@@ -71,11 +73,11 @@ func parseRouteTime(value string) (string, error) {
 }
 
 func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
-	participantIDs, err := parseRouteIDs(form["participant_ids"])
+	participantIDs, err := parseRouteIDs(form["participant_ids"], errParticipantSelectionTooLarge)
 	if err != nil {
 		return CalculateRoutesRequest{}, err
 	}
-	driverIDs, err := parseRouteIDs(form["driver_ids"])
+	driverIDs, err := parseRouteIDs(form["driver_ids"], errDriverSelectionTooLarge)
 	if err != nil {
 		return CalculateRoutesRequest{}, err
 	}
@@ -93,9 +95,9 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 	return req, nil
 }
 
-func parseRouteIDs(values []string) ([]int64, error) {
+func parseRouteIDs(values []string, tooLarge error) ([]int64, error) {
 	if len(values) > plandraft.MaxSelectionSize {
-		return nil, errInvalidRouteSelection
+		return nil, tooLarge
 	}
 	ids := make([]int64, 0, len(values))
 	seen := make(map[int64]struct{}, len(values))
@@ -116,6 +118,12 @@ func parseRouteIDs(values []string) ([]int64, error) {
 func routeFormValidationMessage(err error) string {
 	if errors.Is(err, errInvalidRouteActivityLocation) {
 		return messageChooseValidActivityLocation
+	}
+	if errors.Is(err, errParticipantSelectionTooLarge) {
+		return routeSelectionLimitMessage("participants")
+	}
+	if errors.Is(err, errDriverSelectionTooLarge) {
+		return routeSelectionLimitMessage("drivers")
 	}
 	return messageInvalidFormData
 }
@@ -235,7 +243,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 
 	calculationCtx, cancel := context.WithTimeout(r.Context(), routeSolveTimeout)
 	defer cancel()
-	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession).calculate(calculationCtx, routeCalculationInput{
+	outcome := newRouteCalculation(h.DB, h.Router, h.RouteSession, h.Geocoder).calculate(calculationCtx, routeCalculationInput{
 		ParticipantIDs:        req.ParticipantIDs,
 		DriverIDs:             req.DriverIDs,
 		ActivityLocationID:    req.ActivityLocationID,
@@ -306,17 +314,13 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 	log.Printf("[HTTP] POST %s: routes calculated: drivers=%d org_vehicles=%d total_distance=%.0f",
 		logutil.SafeString(r.URL.Path), result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
 
+	timings := h.routeTimings(calculationCtx, session, allRouteIndexes(session))
 	if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-		h.renderTemplate(w, "route_results", buildRouteResultsView(session))
+		h.renderTemplate(w, "route_results", h.buildTimedRouteResultsView(session, timings))
 		return
 	}
-	h.writeJSON(w, http.StatusOK, RouteCalculationResponse{
-		Routes:    result.Routes,
-		Summary:   result.Summary,
-		SessionID: session.ID,
-		Mode:      mode,
-	})
+	h.writeJSON(w, http.StatusOK, h.routeCalculationResponse(session, timings))
 }
 
 func routeCalculationValidationMessage(err error) string {
