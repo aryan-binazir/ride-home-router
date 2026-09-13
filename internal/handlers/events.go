@@ -246,14 +246,17 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(sessionErr, routesession.ErrAlreadyCommitted):
+		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrNotFound):
+		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrUnbalanced):
+		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleValidationError(w, r, messageRoutesMustBeBalancedBeforeSaving)
 		return

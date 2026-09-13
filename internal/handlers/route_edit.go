@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 )
 
@@ -123,7 +125,7 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
-	snapshot, err := h.RouteSession.AddDriver(r.Context(), req.SessionID, req.DriverID)
+	snapshot, err := h.addRouteDriver(r.Context(), req.SessionID, req.DriverID)
 	if err != nil {
 		h.handleRouteSessionError(w, r, err)
 		return
@@ -159,11 +161,19 @@ func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snap
 }
 
 func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request, err error) {
+	if _, ok := errors.AsType[*refreshAddressNotFound](err); ok {
+		h.handleValidationErrorHTMX(w, r, routeCalculationValidationMessage(err))
+		return
+	}
+	if _, ok := errors.AsType[*refreshProviderError](err); ok {
+		h.handleRouteCalculationError(w, r, err)
+		return
+	}
 	switch {
 	case errors.Is(err, database.ErrWorkflowConflict):
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_CONFLICT", "This route plan changed. Reload it and try again.")
 	case errors.Is(err, routesession.ErrNotFound):
-		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
+		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 	case errors.Is(err, routesession.ErrInvalidRouteIndex):
 		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
 	case errors.Is(err, routesession.ErrParticipantNotFound):
@@ -181,4 +191,25 @@ func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request
 	default:
 		h.handleInternalError(w, r, err)
 	}
+}
+
+// Keep the plan's driver and vehicle choices; reload its address and coordinate metadata.
+func (h *Handler) addRouteDriver(ctx context.Context, sessionID string, driverID int64) (routesession.Snapshot, error) {
+	return h.RouteSession.AddDriverWithRefresh(ctx, sessionID, driverID, func(ctx context.Context, selected *models.Driver) error {
+		driver, err := h.DB.Drivers().GetByID(ctx, driverID)
+		if errors.Is(err, database.ErrNotFound) {
+			return routesession.ErrDriverNotSelected
+		}
+		if err != nil {
+			return err
+		}
+		drivers := []models.Driver{*driver}
+		calculation := newRouteCalculation(h.DB, nil, nil, h.Geocoder)
+		if err := calculation.refreshCoordinates(ctx, nil, drivers, nil); err != nil {
+			return err
+		}
+		selected.Address, selected.AddressName = drivers[0].Address, drivers[0].AddressName
+		selected.Lat, selected.Lng, selected.GeocodedAt = drivers[0].Lat, drivers[0].Lng, drivers[0].GeocodedAt
+		return nil
+	})
 }

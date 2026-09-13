@@ -13,19 +13,20 @@ import (
 // persistedState is versioned by the database migration that introduces it.
 // A request loads its own copy; no application instance owns a session.
 type persistedState struct {
-	Original []models.CalculatedRoute
-	Current  []models.CalculatedRoute
-	Dirty    map[int]struct{}
-	Drivers  []models.Driver
-	Vehicles map[int64]*models.OrganizationVehicle
-	Location *models.ActivityLocation
-	UseMiles bool
-	Time     string
-	Mode     models.RouteMode
+	CoordinatesFreshUntil time.Time
+	Original              []models.CalculatedRoute
+	Current               []models.CalculatedRoute
+	Dirty                 map[int]struct{}
+	Drivers               []models.Driver
+	Vehicles              map[int64]*models.OrganizationVehicle
+	Location              *models.ActivityLocation
+	UseMiles              bool
+	Time                  string
+	Mode                  models.RouteMode
 }
 
 func encodeState(state *session) ([]byte, error) {
-	return json.Marshal(persistedState{state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode})
+	return json.Marshal(persistedState{state.coordinatesFreshUntil, state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode})
 }
 
 func (s *Store) engine(id string, data []byte) (*Store, error) {
@@ -36,7 +37,7 @@ func (s *Store) engine(id string, data []byte) (*Store, error) {
 	if p.Dirty == nil {
 		p.Dirty = make(map[int]struct{})
 	}
-	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, lastAccessedAt: s.now()}
+	state := &session{coordinatesFreshUntil: p.CoordinatesFreshUntil, id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, lastAccessedAt: s.now()}
 	return &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}, nil
 }
 
@@ -79,7 +80,8 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	return snapshotOf(engine.sessions[id]), true, nil
+	snapshot, ok := engine.Snapshot(id)
+	return snapshot, ok, nil
 }
 
 func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snapshot, error)) (Snapshot, error) {

@@ -121,7 +121,7 @@ func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m/routes", messageInvalidDriverID)
 		return
 	}
-	if _, err := h.RouteSession.AddDriver(r.Context(), sessionID, driverID); err != nil {
+	if _, err := h.addRouteDriver(r.Context(), sessionID, driverID); err != nil {
 		log.Printf("[ERROR] Mobile add driver failed: err=%v", err)
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return

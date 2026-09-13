@@ -16,8 +16,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Reserve the calculation budget and full session lifetime so route edits keep
-// using coordinates younger than CoordinateMaxAge until the session expires.
+// Reserve calculation time plus eight hours of editing room. Sliding idle expiry
+// can extend a session, but its absolute coordinate deadline cannot be extended.
 const coordinateRefreshMargin = routesession.DefaultTTL + routeSolveTimeout
 
 type routeCalculationKind int
@@ -121,6 +121,17 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		}
 		return routeCalculationOutcome{Kind: kind, Err: err}
 	}
+	coordinatesFreshUntil := activityLocation.GeocodedAt.Add(models.CoordinateMaxAge)
+	for _, participant := range participants {
+		if deadline := participant.GeocodedAt.Add(models.CoordinateMaxAge); deadline.Before(coordinatesFreshUntil) {
+			coordinatesFreshUntil = deadline
+		}
+	}
+	for _, driver := range drivers {
+		if deadline := driver.GeocodedAt.Add(models.CoordinateMaxAge); deadline.Before(coordinatesFreshUntil) {
+			coordinatesFreshUntil = deadline
+		}
+	}
 	modifiedDrivers, driverOrgVehicles := applyOrgVehicleAssignments(drivers, input.OrgVehicleAssignments, orgVehicleMap)
 
 	result, err := c.router.CalculateRoutes(ctx, &routing.RoutingRequest{
@@ -158,7 +169,8 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 	applyAssignedOrgVehicleMetadata(result.Routes, driverOrgVehicles)
 	result.Summary.OrgVehiclesUsed = countUsedOrgVehicles(result.Routes)
 	session, err := c.sessions.CreateContext(ctx, routesession.CreateInput{
-		Routes: result.Routes, SelectedDrivers: modifiedDrivers, ActivityLocation: activityLocation,
+		CoordinatesFreshUntil: coordinatesFreshUntil,
+		Routes:                result.Routes, SelectedDrivers: modifiedDrivers, ActivityLocation: activityLocation,
 		UseMiles: settings.UseMiles, RouteTime: input.RouteTime, Mode: input.Mode, DriverOrgVehicles: driverOrgVehicles,
 	})
 	if err != nil {
@@ -263,7 +275,9 @@ func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants 
 		d := &drivers[i]
 		submit(d.ID, d.Name, d.Address, &d.Lat, &d.Lng, &d.GeocodedAt, c.db.Drivers().UpdateCoordinates)
 	}
-	submit(location.ID, location.Name, location.Address, &location.Lat, &location.Lng, &location.GeocodedAt, c.db.ActivityLocations().UpdateCoordinates)
+	if location != nil {
+		submit(location.ID, location.Name, location.Address, &location.Lat, &location.Lng, &location.GeocodedAt, c.db.ActivityLocations().UpdateCoordinates)
+	}
 	err := group.Wait()
 	if err != nil {
 		log.Printf("[GEOCODING] refresh outcome=failed refreshed=%d", refreshed.Load())
