@@ -16,16 +16,3 @@ func reverseParticipantGroups(groups []*participantGroup, i, j int) {
 		j--
 	}
 }
-
-func flattenParticipantGroups(groups []*participantGroup) []*models.Participant {
-	total := 0
-	for _, group := range groups {
-		total += len(group.members)
-	}
-
-	stops := make([]*models.Participant, 0, total)
-	for _, group := range groups {
-		stops = append(stops, group.members...)
-	}
-	return stops
-}
