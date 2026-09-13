@@ -455,7 +455,10 @@ func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	switch adoption {
-	case mobilePlanAdopted, mobilePlanSupersededLive:
+	case mobilePlanAdopted:
+		h.queueTimings(w, r, outcome.Session.ID, allRouteIndexes(outcome.Session))
+		http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+	case mobilePlanSupersededLive:
 		http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 	case mobilePlanExpired:
 		h.mobileRedirectError(w, r, "/m", messageRoutePlanExpired)

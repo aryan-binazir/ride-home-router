@@ -13,9 +13,10 @@ type googleUsageRepository struct{ db *sql.DB }
 // GoogleUsage returns the shared monthly reservation ledger.
 func (s *Store) GoogleUsage() database.GoogleUsageLedger { return &googleUsageRepository{db: s.db} }
 
-// Months follow the UTC calendar so every replica agrees on the boundary.
+// Months roll over at midnight Pacific time, when Google resets its free
+// allowances; a UTC boundary would open a fresh allowance seven or eight hours early.
 // now() is fixed for the whole transaction, so every statement agrees on the month.
-const usageMonth = `(date_trunc('month', now() AT TIME ZONE 'UTC'))::date`
+const usageMonth = `(date_trunc('month', now() AT TIME ZONE 'America/Los_Angeles'))::date`
 
 func (r *googleUsageRepository) ensureRow(ctx context.Context, tx *sql.Tx, sku database.UsageSKU) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO google_usage(month_start, sku, reserved, ceiling) VALUES (`+usageMonth+`, $1, 0, $2) ON CONFLICT (month_start, sku) DO NOTHING`, string(sku), database.UsageDefaultCeiling)

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // Pacific-time month boundaries must work on images without zoneinfo.
 
 	"github.com/jackc/pgx/v5"
 )
@@ -68,7 +69,7 @@ func run(args []string) error {
 		AllowedHosts:    opts.AllowedHosts,
 		DatabaseURL:     opts.DatabaseURL,
 		RoutingEngine:   os.Getenv("ROUTING_ENGINE"),
-		GoogleUsageSeed: googleUsageSeed(os.Getenv("GOOGLE_USAGE_SEED"), time.Now().UTC()),
+		GoogleUsageSeed: googleUsageSeed(os.Getenv("GOOGLE_USAGE_SEED"), time.Now()),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -193,11 +194,23 @@ func validAllowedHost(host string) bool {
 }
 
 // googleUsageSeed parses GOOGLE_USAGE_SEED, e.g. "routes=2026-09:7000,geocoding=2026-09:120".
-// Entries for any month other than the current UTC month are ignored, so a seed
-// left in the environment cannot eat a later month's allowance.
+// Entries for any month other than the current Pacific-time month (Google's
+// billing calendar, matching the ledger) are ignored, so a seed left in the
+// environment cannot eat a later month's allowance.
+// usageLocation is Google's billing calendar for free monthly allowances.
+var usageLocation = mustLoadLocation("America/Los_Angeles")
+
+func mustLoadLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return loc
+}
+
 func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
 	seeds := map[database.UsageSKU]int{}
-	month := now.Format("2006-01")
+	month := now.In(usageLocation).Format("2006-01")
 	for entry := range strings.SplitSeq(value, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
