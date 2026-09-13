@@ -39,17 +39,6 @@ type UsageReserver interface {
 	Reserve(ctx context.Context, sku database.UsageSKU, attempts int) error
 }
 
-// WithUsage returns a geocoder that reserves every Geocoding and Autocomplete
-// attempt with the ledger. A nil ledger leaves the geocoder unmetered (tests).
-func WithUsage(geocoder Geocoder, usage UsageReserver) Geocoder {
-	if g, ok := geocoder.(*googleGeocoder); ok && usage != nil {
-		copied := *g
-		copied.usage = usage
-		return &copied
-	}
-	return geocoder
-}
-
 func (g *googleGeocoder) reserve(ctx context.Context, sku database.UsageSKU) error {
 	if g.usage == nil {
 		return nil
@@ -62,8 +51,12 @@ func (g *googleGeocoder) reserve(ctx context.Context, sku database.UsageSKU) err
 
 // NewGoogleGeocoder geocodes with the Google Geocoding API and suggests
 // addresses with Places Autocomplete, sharing one cross-instance cooldown gate.
-func NewGoogleGeocoder(apiKey KeyFunc, gate RateGate) Geocoder {
-	return newGoogleGeocoder(apiKey, gate, &http.Client{Timeout: geocoderClientTimeout}, googleGeocodeURL, googleAutocompleteURL)
+// NewGoogleGeocoder builds the production geocoder. usage meters every attempt;
+// it may be nil only in tests.
+func NewGoogleGeocoder(apiKey KeyFunc, gate RateGate, usage UsageReserver) Geocoder {
+	g := newGoogleGeocoder(apiKey, gate, &http.Client{Timeout: geocoderClientTimeout}, googleGeocodeURL, googleAutocompleteURL)
+	g.usage = usage
+	return g
 }
 
 func newGoogleGeocoder(apiKey KeyFunc, gate RateGate, client *http.Client, geocodeURL, autocompleteURL string) *googleGeocoder {

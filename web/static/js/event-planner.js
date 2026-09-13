@@ -1152,7 +1152,14 @@
                 return false;
             }
             button.disabled = true;
-            return enqueueRouteEdit(sessionId, '/api/v1/routes/session/timings', { session_id: sessionId, route_index: parseInt(card.dataset.routeIndex, 10) });
+            try {
+                const rendered = await enqueueRouteEdit(sessionId, '/api/v1/routes/session/timings', { session_id: sessionId, route_index: parseInt(card.dataset.routeIndex, 10) });
+                if (!rendered && button.isConnected) button.disabled = false;
+                return rendered;
+            } catch (error) {
+                if (button.isConnected) button.disabled = false;
+                throw error;
+            }
         }
 
         async function addUnusedDriver(driverId) {

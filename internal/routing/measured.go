@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/orderedroute"
 )
@@ -51,7 +52,10 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 			continue
 		}
 		if len(route.Stops) == 0 {
+			// An empty car has nothing to measure; its planning numbers must not
+			// pass as a measurement either.
 			route.Mode = mode
+			zeroRouteMetrics(&route)
 			results[i].Route = route
 			continue
 		}
@@ -74,11 +78,13 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 			continue
 		}
 		points = append(points, rc.destination(route.Driver))
-		plans[i] = plan{waypointOfStop: waypointOfStop, routeID: fmt.Sprintf("route-%d", index), baselineID: fmt.Sprintf("baseline-%d", index)}
-		requests = append(requests,
-			orderedroute.Request{ID: plans[i].routeID, Points: points},
-			orderedroute.Request{ID: plans[i].baselineID, Points: []models.Coordinates{rc.origin(route.Driver), rc.destination(route.Driver)}},
-		)
+		plans[i] = plan{waypointOfStop: waypointOfStop, routeID: fmt.Sprintf("route-%d", index)}
+		requests = append(requests, orderedroute.Request{ID: plans[i].routeID, Points: points})
+		// A driver who lives at the activity location has a zero baseline; skip the call.
+		if origin, destination := rc.origin(route.Driver), rc.destination(route.Driver); !distance.SamePoint(origin, destination) {
+			plans[i].baselineID = fmt.Sprintf("baseline-%d", index)
+			requests = append(requests, orderedroute.Request{ID: plans[i].baselineID, Points: []models.Coordinates{origin, destination}})
+		}
 	}
 	if len(requests) == 0 {
 		return results
@@ -92,21 +98,26 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 		if results[i].Err != nil || plans[i].routeID == "" {
 			continue
 		}
-		routeResult, baselineResult := measured[plans[i].routeID], measured[plans[i].baselineID]
+		routeResult := measured[plans[i].routeID]
 		if routeResult.Err != nil {
 			results[i].Err = routeResult.Err
 			continue
 		}
-		if baselineResult.Err != nil {
-			results[i].Err = baselineResult.Err
-			continue
-		}
-		if len(baselineResult.Legs) != 1 {
-			results[i].Err = errors.New("baseline measurement returned an unexpected number of legs")
-			continue
+		var baseline orderedroute.Leg
+		if plans[i].baselineID != "" {
+			baselineResult := measured[plans[i].baselineID]
+			if baselineResult.Err != nil {
+				results[i].Err = baselineResult.Err
+				continue
+			}
+			if len(baselineResult.Legs) != 1 {
+				results[i].Err = errors.New("baseline measurement returned an unexpected number of legs")
+				continue
+			}
+			baseline = baselineResult.Legs[0]
 		}
 		route := &results[i].Route
-		metrics, err := assembleMeasuredMetrics(routeResult.Legs, baselineResult.Legs[0], plans[i].waypointOfStop, len(route.Stops))
+		metrics, err := assembleMeasuredMetrics(routeResult.Legs, baseline, plans[i].waypointOfStop, len(route.Stops))
 		if err != nil {
 			results[i].Err = err
 			continue
@@ -152,6 +163,15 @@ func assembleMeasuredMetrics(legs []orderedroute.Leg, baseline orderedroute.Leg,
 	metrics.BaselineDurationSecs = baseline.DurationSecs
 	metrics.DetourSecs = metrics.RouteDurationSecs - baseline.DurationSecs
 	return metrics, nil
+}
+
+func zeroRouteMetrics(route *models.CalculatedRoute) {
+	route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters, route.TotalDistanceMeters = 0, 0, 0
+	route.BaselineDurationSecs, route.RouteDurationSecs, route.DetourSecs = 0, 0, 0
+	for i := range route.Stops {
+		route.Stops[i].DistanceFromPrevMeters, route.Stops[i].CumulativeDistanceMeters = 0, 0
+		route.Stops[i].DurationFromPrevSecs, route.Stops[i].CumulativeDurationSecs = 0, 0
+	}
 }
 
 func cloneRoute(route models.CalculatedRoute) models.CalculatedRoute {

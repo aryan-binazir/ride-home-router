@@ -107,16 +107,15 @@ func TestCalculateRefreshesExpiredCoordinates(t *testing.T) {
 	}
 }
 
-func TestCalculateRefreshErrorMessages(t *testing.T) {
+func TestCalculateRefreshFailuresKeepPreviousCoordinatesAndStillPlan(t *testing.T) {
+	// Refresh is best effort: a failed lookup never blocks planning or changes the row.
 	for _, tc := range []struct {
-		name    string
-		err     error
-		message string
-		status  int
+		name string
+		err  error
 	}{
-		{"no results", geocoding.ErrNoGeocodingResults, "The address for Rider could not be found. Update it and try again.", 400},
-		{"not configured", geocoding.ErrNotConfigured, messageAddressLookupNotConfigured, 503},
-		{"temporary", &geocoding.ErrGeocodingFailed{Temporary: true}, messageAddressLookupUnavailable, 503},
+		{"no results", geocoding.ErrNoGeocodingResults},
+		{"not configured", geocoding.ErrNotConfigured},
+		{"temporary", &geocoding.ErrGeocodingFailed{Temporary: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, s := newTestRouteHandler(t)
@@ -139,13 +138,17 @@ func TestCalculateRefreshErrorMessages(t *testing.T) {
 			if err := s.Participants().UpdateCoordinates(ctx, p.ID, p.Address, p.GetCoords(), time.Now().Add(-31*24*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
+			h.Router = &captureRouter{result: &models.RoutingResult{
+				Routes:  []models.CalculatedRoute{{Driver: d, EffectiveCapacity: 4, Mode: "dropoff", Stops: []models.RouteStop{{Participant: p}}}},
+				Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1},
+			}}
 			form := url.Values{"participant_ids": {fmt.Sprint(p.ID)}, "driver_ids": {fmt.Sprint(d.ID)}, "activity_location_id": {fmt.Sprint(loc.ID)}, "route_time": {"18:30"}, "mode": {"dropoff"}}
 			response := postMobileForm(t, nil, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				r.Header.Set("HX-Request", "true")
 				h.HandleCalculateRoutes(w, r)
 			}))
-			if response.Code != tc.status || !strings.Contains(response.Header().Get("HX-Trigger"), tc.message) {
-				t.Fatalf("desktop=%d %s %s", response.Code, response.Header(), response.Body)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Rider") {
+				t.Fatalf("desktop=%d %s", response.Code, response.Body.String())
 			}
 			id := h.PlanDraft.NewID()
 			h.PlanDraft.Update(id, func(draft *plandraft.Draft) {
@@ -156,9 +159,8 @@ func TestCalculateRefreshErrorMessages(t *testing.T) {
 				draft.Mode = "dropoff"
 			})
 			mobile := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, h.HandleMobileCalculate)
-			target, err := url.Parse(mobile.Header().Get("Location"))
-			if err != nil || mobile.Code != 303 || target.Query().Get("error") != tc.message {
-				t.Fatalf("mobile=%d %s %v", mobile.Code, mobile.Header(), err)
+			if mobile.Code != 303 || mobile.Header().Get("Location") != "/m/routes" {
+				t.Fatalf("mobile=%d %s", mobile.Code, mobile.Header())
 			}
 			saved, err := s.Participants().GetByID(ctx, p.ID)
 			if err != nil || saved.Lat != 1 || time.Since(saved.GeocodedAt) < 30*24*time.Hour {

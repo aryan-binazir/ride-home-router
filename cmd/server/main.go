@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"regexp"
 	"ride-home-router/internal/access"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/server"
 	"strconv"
@@ -63,11 +64,11 @@ func run(args []string) error {
 			AuthorizedParties: os.Getenv("CLERK_AUTHORIZED_PARTIES"),
 			AdminEmails:       os.Getenv("ADMIN_EMAILS"),
 		},
-		Addr:                  opts.Addr,
-		AllowedHosts:          opts.AllowedHosts,
-		DatabaseURL:           opts.DatabaseURL,
-		RoutingEngine:         os.Getenv("ROUTING_ENGINE"),
-		GoogleUsageRoutesUsed: googleUsageSeed(os.Getenv("GOOGLE_USAGE_ROUTES_USED")),
+		Addr:            opts.Addr,
+		AllowedHosts:    opts.AllowedHosts,
+		DatabaseURL:     opts.DatabaseURL,
+		RoutingEngine:   os.Getenv("ROUTING_ENGINE"),
+		GoogleUsageSeed: googleUsageSeed(os.Getenv("GOOGLE_USAGE_SEED"), time.Now().UTC()),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
@@ -191,11 +192,33 @@ func validAllowedHost(host string) bool {
 	return net.ParseIP(host) != nil && !strings.Contains(host, ":")
 }
 
-// googleUsageSeed parses the optional mid-month starting count; anything unparseable is zero.
-func googleUsageSeed(value string) int {
-	n, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || n < 0 {
-		return 0
+// googleUsageSeed parses GOOGLE_USAGE_SEED, e.g. "routes=2026-09:7000,geocoding=2026-09:120".
+// Entries for any month other than the current UTC month are ignored, so a seed
+// left in the environment cannot eat a later month's allowance.
+func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
+	seeds := map[database.UsageSKU]int{}
+	month := now.Format("2006-01")
+	for entry := range strings.SplitSeq(value, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		sku, rest, ok := strings.Cut(entry, "=")
+		if !ok {
+			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
+			continue
+		}
+		seedMonth, count, ok := strings.Cut(rest, ":")
+		n, err := strconv.Atoi(strings.TrimSpace(count))
+		if !ok || err != nil || n < 0 {
+			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
+			continue
+		}
+		if strings.TrimSpace(seedMonth) != month {
+			log.Printf("[INFO] GOOGLE_USAGE_SEED entry for %s ignored in %s", strings.TrimSpace(seedMonth), month)
+			continue
+		}
+		seeds[database.UsageSKU(strings.ToLower(strings.TrimSpace(sku)))] = n
 	}
-	return n
+	return seeds
 }

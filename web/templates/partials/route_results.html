@@ -85,7 +85,7 @@
                     <div class="stat"><dt>Total</dt><dd>{{formatDistance $measured.TotalDistanceMeters $useMiles}}</dd></div>
                     <div class="stat"><dt>Detour</dt><dd>{{formatDuration $measured.DetourSecs}}</dd></div>
                     {{else}}
-                    <div class="stat stat-paused route-timings-status"><dt>Timings</dt><dd>{{$timing.Message}}{{if eq $timing.Status "stale" "failed"}} <button type="button" class="btn btn-sm btn-outline" data-session-action="timings" onclick="showRouteTimings(this)">Show timings</button>{{end}}</dd></div>
+                    <div class="stat stat-paused route-timings-status"><dt>Timings</dt><dd>{{$timing.Message}}{{if and .Stops (eq $timing.Status "stale" "failed")}} <button type="button" class="btn btn-sm btn-outline" data-session-action="timings" onclick="showRouteTimings(this)">Show timings</button>{{end}}</dd></div>
                     {{end}}
                 </dl>
 

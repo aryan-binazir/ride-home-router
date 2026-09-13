@@ -32,14 +32,11 @@ func Build(snapshot routesession.CommitSnapshot) Record {
 		Participants: participantsFromRoutes(snapshot.Original),
 	}
 	if snapshot.ActivityLocation != nil {
-		input.Activity = Activity{
-			ID: snapshot.ActivityLocation.ID, Lat: snapshot.ActivityLocation.Lat, Lng: snapshot.ActivityLocation.Lng,
-		}
+		// Coordinates are provider content with a 30-day allowance; feedback keeps IDs only.
+		input.Activity = Activity{ID: snapshot.ActivityLocation.ID}
 	}
 	for _, driver := range snapshot.SelectedDrivers {
-		inputDriver := Driver{
-			ID: driver.ID, Address: driver.Address, Lat: driver.Lat, Lng: driver.Lng, Capacity: driver.VehicleCapacity,
-		}
+		inputDriver := Driver{ID: driver.ID, Address: driver.Address, Capacity: driver.VehicleCapacity}
 		if vehicle := snapshot.DriverOrgVehicles[driver.ID]; vehicle != nil {
 			inputDriver.OrgVehicleID = new(vehicle.ID)
 		}
@@ -84,7 +81,7 @@ func participantsFromRoutes(routes []models.CalculatedRoute) []Participant {
 			}
 			seen[participant.ID] = struct{}{}
 			participants = append(participants, Participant{
-				ID: participant.ID, Address: participant.Address, Lat: participant.Lat, Lng: participant.Lng,
+				ID: participant.ID, Address: participant.Address,
 			})
 		}
 	}

@@ -13,7 +13,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -108,22 +107,23 @@ func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 	if err != nil {
 		return failAll(err)
 	}
-	attempts := 0
 	for _, request := range requests {
 		if len(request.Points) < 2 {
 			return failAll(errors.New("orderedroute: a route needs at least an origin and a destination"))
 		}
-		attempts += RequestsFor(len(request.Points))
-	}
-	if err := c.reserve(ctx, attempts); err != nil {
-		return failAll(fmt.Errorf("orderedroute: %w", err))
 	}
 
+	// Each car reserves its own attempts, so a nearly exhausted month still
+	// measures as many whole cars as the allowance permits.
 	var wg sync.WaitGroup
 	for i := range requests {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
+			if err := c.reserve(ctx, RequestsFor(len(requests[index].Points))); err != nil {
+				results[index].Err = fmt.Errorf("orderedroute: %w", err)
+				return
+			}
 			legs, err := c.measureRoute(ctx, key, requests[index].Points)
 			results[index].Legs, results[index].Err = legs, err
 		}(i)
@@ -258,9 +258,13 @@ func (c *Client) computeRoute(ctx context.Context, key string, points []models.C
 	return legs, nil
 }
 
-// Routes API durations look like "1234s" or "12.5s".
+// Routes API durations look like "1234s" or "12.5s"; proto3 JSON may omit a
+// zero duration entirely, which decodes as an empty string.
 func parseDuration(value string) (float64, error) {
 	trimmed := strings.TrimSuffix(strings.TrimSpace(value), "s")
+	if trimmed == "" {
+		return 0, nil
+	}
 	seconds, err := strconv.ParseFloat(trimmed, 64)
 	if err != nil || seconds < 0 {
 		return 0, errors.New("invalid duration")
@@ -273,11 +277,6 @@ type StatusError struct{ Status int }
 
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("orderedroute: provider returned HTTP %d", e.Status)
-}
-
-// Temporary reports whether a retry later is reasonable.
-func (e *StatusError) Temporary() bool {
-	return e.Status == http.StatusTooManyRequests || e.Status >= http.StatusInternalServerError
 }
 
 // transportError hides request URLs, which carry coordinates, from error text.
@@ -294,14 +293,4 @@ func unwrapURLError(err error) error {
 		}
 		err = urlErr.Err
 	}
-}
-
-// IsTemporary reports provider conditions worth retrying later: transport
-// faults, rate limits, server errors, and exhausted usage.
-func IsTemporary(err error) bool {
-	if status, ok := errors.AsType[*StatusError](err); ok {
-		return status.Temporary()
-	}
-	_, transport := errors.AsType[*transportError](err)
-	return transport || errors.Is(err, database.ErrUsageExhausted) || errors.Is(err, context.DeadlineExceeded)
 }

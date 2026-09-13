@@ -24,12 +24,13 @@ const (
 	messageTimingsExhausted   = "Timings unavailable this month."
 	messageTimingsUnavailable = "Timings need the Google Maps key. Ask an administrator."
 	messageTimingsFailed      = "Could not get timings."
-	messageTimingsStale       = "Timings not refreshed for this change."
+	messageTimingsStale       = "Timings not fetched for this view."
 	messageTimingsPaused      = "Unavailable until within capacity."
-	messageCurrentEstimates   = "Current estimates for this itinerary"
 
-	// measurementReserve keeps time to persist and render after measuring.
+	// measurementReserve keeps time to persist and render after measuring;
+	// measurementFloor is the least budget worth spending a request on.
 	measurementReserve = 2 * time.Second
+	measurementFloor   = 3 * time.Second
 )
 
 // RouteTiming is one car's provider-measured route for the current response.
@@ -69,9 +70,14 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 	timings := make([]RouteTiming, len(snapshot.Routes))
 	for i := range timings {
 		timings[i] = RouteTiming{Status: timingStale, Message: messageTimingsStale}
-		if i < len(snapshot.OverCapacity) && snapshot.OverCapacity[i] {
+		// Templates hide every car's numbers while the plan is out of balance,
+		// so no car is measured (or billed) until it is balanced again.
+		if snapshot.IsOutOfBalance {
 			timings[i] = RouteTiming{Status: timingPaused, Message: messageTimingsPaused}
 		}
+	}
+	if snapshot.IsOutOfBalance {
+		return timings
 	}
 	if h.Measurer == nil {
 		for i := range snapshot.Routes {
@@ -99,7 +105,15 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 		return timings
 	}
 	measureCtx := ctx
-	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) > measurementReserve {
+	if deadline, ok := ctx.Deadline(); ok {
+		if time.Until(deadline) < measurementReserve+measurementFloor {
+			// Too little budget left to measure anything: reserve nothing.
+			for _, index := range wanted {
+				timings[index] = RouteTiming{Status: timingFailed, Message: messageTimingsFailed}
+			}
+			log.Printf("[ROUTES] timings requested=%d measured=0 outcome=budget_exhausted", len(wanted))
+			return timings
+		}
 		var cancel context.CancelFunc
 		measureCtx, cancel = context.WithDeadline(ctx, deadline.Add(-measurementReserve))
 		defer cancel()
@@ -169,8 +183,8 @@ func (h *Handler) itinerarySummary(summary models.RoutingSummary, timings []Rout
 	used := 0
 	for _, timing := range timings {
 		if timing.Status != timingMeasured {
-			complete = false
-			break
+			// Aggregates over a subset of cars would mislead: keep counts only.
+			return out, false
 		}
 		if len(timing.Route.Stops) == 0 {
 			continue

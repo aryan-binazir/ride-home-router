@@ -41,14 +41,12 @@ func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, err
 	engine := &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}
 	// Sessions written before provider-free planning may carry Google metrics.
 	// Re-estimate both route sets so nothing provider-derived is kept or rewritten.
-	if local, ok := s.distanceCalc.(interface{ NoPrewarm() bool }); ok && local.NoPrewarm() && state.activityLocation != nil {
+	if local, ok := s.distanceCalc.(interface{ NoPrewarm() bool }); ok && local.NoPrewarm() {
 		for _, routes := range [][]models.CalculatedRoute{state.originalRoutes, state.currentRoutes} {
 			for i := range routes {
-				if routes[i].Driver == nil {
-					continue
-				}
-				if err := routing.PopulateRouteMetrics(ctx, s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]); err != nil {
-					return nil, err
+				if state.activityLocation == nil || routes[i].Driver == nil || routing.PopulateRouteMetrics(ctx, s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]) != nil {
+					// Unestimable routes lose their numbers rather than keeping provider values.
+					zeroRouteMetrics(&routes[i])
 				}
 			}
 		}
@@ -168,4 +166,13 @@ func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context
 		return ErrNotFound
 	}
 	return err
+}
+
+func zeroRouteMetrics(route *models.CalculatedRoute) {
+	route.TotalDropoffDistanceMeters, route.DistanceToDriverHomeMeters, route.TotalDistanceMeters = 0, 0, 0
+	route.BaselineDurationSecs, route.RouteDurationSecs, route.DetourSecs = 0, 0, 0
+	for i := range route.Stops {
+		route.Stops[i].DistanceFromPrevMeters, route.Stops[i].CumulativeDistanceMeters = 0, 0
+		route.Stops[i].DurationFromPrevSecs, route.Stops[i].CumulativeDurationSecs = 0, 0
+	}
 }

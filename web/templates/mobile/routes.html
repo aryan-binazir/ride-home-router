@@ -13,7 +13,7 @@
   </div>
   {{range .Routes}}
   {{$current := .}}
-  <article class="mobile-route-card{{if and (lt .Index (len $.Snapshot.OverCapacity)) (index $.Snapshot.OverCapacity .Index)}} mobile-route-card-over-capacity{{end}}">
+  <article id="mobile-route-{{.Index}}" class="mobile-route-card{{if and (lt .Index (len $.Snapshot.OverCapacity)) (index $.Snapshot.OverCapacity .Index)}} mobile-route-card-over-capacity{{end}}">
     <details open>
       <summary>
         {{with .Route.Driver}}
@@ -63,7 +63,7 @@
       {{if $current.Timing.Route}}
       {{if $.Attribution}}<p class="mobile-route-attribution"><picture><source srcset="/static/img/google-maps-attribution-dark.svg" media="(prefers-color-scheme: dark)"><img src="/static/img/google-maps-attribution.svg" alt="Google Maps" width="98" height="18"></picture> <small>Current estimates for this itinerary</small></p>{{end}}
       {{else if $current.Route.Stops}}
-      <form class="mobile-route-timings" method="post" action="/m/routes/timings" hx-post="/m/routes/timings" hx-target="closest .mobile-screen" hx-swap="outerHTML" hx-select=".mobile-screen" hx-disabled-elt="find button">
+      <form class="mobile-route-timings" method="post" action="/m/routes/timings" hx-post="/m/routes/timings" hx-target="#mobile-route-{{$current.Index}}" hx-swap="outerHTML" hx-select="#mobile-route-{{$current.Index}}" hx-disabled-elt="find button">
         <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}">
         <input type="hidden" name="route_index" value="{{$current.Index}}">
         {{if ne $current.Timing.Status "stale"}}<small role="status">{{$current.Timing.Message}}</small>{{end}}

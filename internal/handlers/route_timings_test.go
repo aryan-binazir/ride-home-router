@@ -154,3 +154,67 @@ func TestHandleCalculateRoutes_ExhaustedUsageKeepsThePlanWithoutTimings(t *testi
 		}
 	}
 }
+
+func TestRouteTimingsPauseEveryCarWhilePlanIsOutOfBalance(t *testing.T) {
+	handler, measurer, form := measuredCalculateFixture(t)
+	// Two riders in a one-seat car put the plan out of balance.
+	second, err := handler.DB.Participants().Create(context.Background(), &models.Participant{Name: "Rider Two", Address: "9 Rider Rd", Lat: 40.11, Lng: -73.91})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form.Add("participant_ids", int64ToString(second.ID))
+	result := handler.Router.(*captureRouter).result
+	result.Routes[0].EffectiveCapacity = 1
+	result.Routes[0].Driver.VehicleCapacity = 1
+	result.Routes[0].Stops = append(result.Routes[0].Stops, models.RouteStop{Participant: second})
+	result.Summary.TotalParticipants = 2
+	rr := postCalculate(handler, form, true)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if measurer.count() != 0 {
+		t.Fatalf("out-of-balance plans must not be measured; requests = %d", measurer.count())
+	}
+	if !strings.Contains(rr.Body.String(), `data-timings="paused"`) || strings.Contains(rr.Body.String(), `data-timings="measured"`) {
+		t.Fatalf("expected every car paused:\n%s", rr.Body.String())
+	}
+}
+
+func TestRouteSessionTimingsMeasureOnlyTheRequestedCar(t *testing.T) {
+	handler, measurer, form := measuredCalculateFixture(t)
+	body := postCalculate(handler, form, true).Body.String()
+	start := strings.Index(body, `data-session-id="`) + len(`data-session-id="`)
+	sessionID := body[start : start+strings.Index(body[start:], `"`)]
+	before := measurer.count()
+
+	// A restored session shows the itinerary and fetches nothing.
+	restore := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+sessionID, nil)
+	restore.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+	handler.HandleGetRouteSession(rr, restore)
+	if rr.Code != http.StatusOK || measurer.count() != before || !strings.Contains(rr.Body.String(), `data-timings="stale"`) || !strings.Contains(rr.Body.String(), "Show timings") {
+		t.Fatalf("restore: status=%d requests=%d body=%s", rr.Code, measurer.count()-before, rr.Body.String())
+	}
+
+	payload := strings.NewReader(`{"session_id":"` + sessionID + `","route_index":0}`)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/session/timings", payload)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HX-Request", "true")
+	rr = httptest.NewRecorder()
+	handler.HandleRouteTimings(rr, req)
+	if rr.Code != http.StatusOK || measurer.count()-before != 2 {
+		t.Fatalf("timings: status=%d requests=%d body=%s", rr.Code, measurer.count()-before, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `data-timings="measured"`) || strings.Contains(rr.Body.String(), estimatorSentinel) {
+		t.Fatalf("timings body:\n%s", rr.Body.String())
+	}
+
+	bad := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/session/timings", strings.NewReader(`{"session_id":"`+sessionID+`","route_index":9}`))
+	bad.Header.Set("Content-Type", "application/json")
+	bad.Header.Set("HX-Request", "true")
+	rr = httptest.NewRecorder()
+	handler.HandleRouteTimings(rr, bad)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("out-of-range route index: status=%d", rr.Code)
+	}
+}

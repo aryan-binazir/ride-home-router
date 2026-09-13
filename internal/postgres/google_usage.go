@@ -14,7 +14,8 @@ type googleUsageRepository struct{ db *sql.DB }
 func (s *Store) GoogleUsage() database.GoogleUsageLedger { return &googleUsageRepository{db: s.db} }
 
 // Months follow the UTC calendar so every replica agrees on the boundary.
-const usageMonth = `(date_trunc('month', clock_timestamp() AT TIME ZONE 'UTC'))::date`
+// now() is fixed for the whole transaction, so every statement agrees on the month.
+const usageMonth = `(date_trunc('month', now() AT TIME ZONE 'UTC'))::date`
 
 func (r *googleUsageRepository) ensureRow(ctx context.Context, tx *sql.Tx, sku database.UsageSKU) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO google_usage(month_start, sku, reserved, ceiling) VALUES (`+usageMonth+`, $1, 0, $2) ON CONFLICT (month_start, sku) DO NOTHING`, string(sku), database.UsageDefaultCeiling)

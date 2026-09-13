@@ -453,7 +453,8 @@ func (u *recordingUsage) Reserve(_ context.Context, sku database.UsageSKU, n int
 func TestGoogleGeocoderReservesEveryAttemptAndStopsAtTheCeiling(t *testing.T) {
 	ok := googleStatusServer(t, http.StatusOK, `{"status":"OK","results":[{"formatted_address":"1 Test Way, Boston, MA, USA","geometry":{"location":{"lat":42,"lng":-71}}}]}`)
 	usage := &recordingUsage{}
-	geocoder := WithUsage(newGoogleGeocoder(staticKey("k"), &recordingGate{}, ok.Client(), ok.URL, ok.URL), usage)
+	geocoder := newGoogleGeocoder(staticKey("k"), &recordingGate{}, ok.Client(), ok.URL, ok.URL)
+	geocoder.usage = usage
 	if _, err := geocoder.Geocode(context.Background(), "1 Test Way"); err != nil {
 		t.Fatalf("first geocode: %v", err)
 	}

@@ -3,17 +3,16 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type routeCalculationKind int
@@ -110,13 +109,7 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		}
 		return routeCalculationOutcome{Kind: routeCalculationInternalFailure, Err: err}
 	}
-	if err := c.refreshCoordinates(ctx, participants, drivers, activityLocation); err != nil {
-		kind := routeCalculationRouteFailure
-		if _, ok := errors.AsType[*refreshAddressNotFound](err); ok {
-			kind = routeCalculationValidationFailure
-		}
-		return routeCalculationOutcome{Kind: kind, Err: err}
-	}
+	c.refreshCoordinates(ctx, participants, drivers, activityLocation)
 	modifiedDrivers, driverOrgVehicles := applyOrgVehicleAssignments(drivers, input.OrgVehicleAssignments, orgVehicleMap)
 
 	result, err := c.router.CalculateRoutes(ctx, &routing.RoutingRequest{
@@ -206,65 +199,86 @@ func (c *routeCalculation) loadAssignedOrgVehicles(ctx context.Context, assignme
 	return vehicleMap, nil
 }
 
-// These errors keep provider details and address text out of calculation logs.
-type refreshAddressNotFound struct{ name string }
-
-func (e *refreshAddressNotFound) Error() string { return "coordinate refresh address not found" }
-
-type refreshProviderError struct{ cause error }
-
-func (e *refreshProviderError) Error() string { return "coordinate refresh unavailable" }
-func (e *refreshProviderError) Unwrap() error { return e.cause }
-
-func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants []models.Participant, drivers []models.Driver, location *models.ActivityLocation) error {
-	group, workCtx := errgroup.WithContext(ctx)
-	group.SetLimit(4)
+// refreshCoordinates re-geocodes stale coordinates before planning, once per
+// distinct address. It is best effort: any failure keeps the existing
+// coordinates, logs counts only, and never blocks the calculation.
+func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants []models.Participant, drivers []models.Driver, location *models.ActivityLocation) {
+	if c.geocoder == nil {
+		return
+	}
 	cutoff := time.Now().Add(-models.CoordinateMaxAge)
-	var refreshed atomic.Int32
-	submit := func(id int64, name, address string, lat, lng *float64, at *time.Time, persist func(context.Context, int64, string, models.Coordinates, time.Time) error) {
+	type target struct {
+		lat, lng *float64
+		at       *time.Time
+		persist  func(context.Context, models.Coordinates, time.Time) error
+	}
+	byAddress := make(map[string][]target)
+	var order []string
+	add := func(address string, at *time.Time, lat, lng *float64, persist func(context.Context, models.Coordinates, time.Time) error) {
 		if at.After(cutoff) {
 			return
 		}
-		group.Go(func() error {
-			if err := workCtx.Err(); err != nil {
-				return &refreshProviderError{err}
-			}
-			if c.geocoder == nil {
-				return &refreshProviderError{geocoding.ErrNotConfigured}
-			}
-			result, err := c.geocoder.GeocodeWithRetry(workCtx, address, 3)
-			if err != nil {
-				if errors.Is(err, geocoding.ErrNoGeocodingResults) {
-					return &refreshAddressNotFound{name}
-				}
-				return &refreshProviderError{err}
-			}
-			if result == nil {
-				return &refreshProviderError{fmt.Errorf("empty geocode response")}
-			}
-			now := time.Now()
-			if err := persist(workCtx, id, address, result.Coords, now); err != nil {
-				return &refreshProviderError{err}
-			}
-			*lat, *lng, *at = result.Coords.Lat, result.Coords.Lng, now
-			refreshed.Add(1)
-			return nil
-		})
+		key := strings.ToLower(strings.Join(strings.Fields(address), " "))
+		if _, seen := byAddress[key]; !seen {
+			order = append(order, key)
+		}
+		byAddress[key] = append(byAddress[key], target{lat: lat, lng: lng, at: at, persist: persist})
 	}
 	for i := range participants {
 		p := &participants[i]
-		submit(p.ID, p.Name, p.Address, &p.Lat, &p.Lng, &p.GeocodedAt, c.db.Participants().UpdateCoordinates)
+		add(p.Address, &p.GeocodedAt, &p.Lat, &p.Lng, func(ctx context.Context, coords models.Coordinates, at time.Time) error {
+			return c.db.Participants().UpdateCoordinates(ctx, p.ID, p.Address, coords, at)
+		})
 	}
 	for i := range drivers {
 		d := &drivers[i]
-		submit(d.ID, d.Name, d.Address, &d.Lat, &d.Lng, &d.GeocodedAt, c.db.Drivers().UpdateCoordinates)
+		add(d.Address, &d.GeocodedAt, &d.Lat, &d.Lng, func(ctx context.Context, coords models.Coordinates, at time.Time) error {
+			return c.db.Drivers().UpdateCoordinates(ctx, d.ID, d.Address, coords, at)
+		})
 	}
-	submit(location.ID, location.Name, location.Address, &location.Lat, &location.Lng, &location.GeocodedAt, c.db.ActivityLocations().UpdateCoordinates)
-	err := group.Wait()
-	if err != nil {
-		log.Printf("[GEOCODING] refresh outcome=failed refreshed=%d", refreshed.Load())
-		return err
+	if location != nil {
+		add(location.Address, &location.GeocodedAt, &location.Lat, &location.Lng, func(ctx context.Context, coords models.Coordinates, at time.Time) error {
+			return c.db.ActivityLocations().UpdateCoordinates(ctx, location.ID, location.Address, coords, at)
+		})
 	}
-	log.Printf("[GEOCODING] refresh outcome=success refreshed=%d", refreshed.Load())
-	return nil
+	if len(order) == 0 {
+		return
+	}
+	addressFor := make(map[string]string, len(order))
+	for i := range participants {
+		addressFor[strings.ToLower(strings.Join(strings.Fields(participants[i].Address), " "))] = participants[i].Address
+	}
+	for i := range drivers {
+		addressFor[strings.ToLower(strings.Join(strings.Fields(drivers[i].Address), " "))] = drivers[i].Address
+	}
+	if location != nil {
+		addressFor[strings.ToLower(strings.Join(strings.Fields(location.Address), " "))] = location.Address
+	}
+	var refreshed, failed atomic.Int32
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 4)
+	for _, key := range order {
+		targets := byAddress[key]
+		address := addressFor[key]
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			result, err := c.geocoder.GeocodeWithRetry(ctx, address, 3)
+			if err != nil || result == nil {
+				failed.Add(1)
+				return
+			}
+			now := time.Now()
+			for _, t := range targets {
+				if err := t.persist(ctx, result.Coords, now); err != nil {
+					failed.Add(1)
+					continue
+				}
+				*t.lat, *t.lng, *t.at = result.Coords.Lat, result.Coords.Lng, now
+				refreshed.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	log.Printf("[GEOCODING] refresh addresses=%d refreshed=%d failed=%d", len(order), refreshed.Load(), failed.Load())
 }
