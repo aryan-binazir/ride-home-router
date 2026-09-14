@@ -18,9 +18,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// EnvVar names the connection string tests use; unset skips database tests.
+// EncryptionKey is a synthetic key for isolated database tests only.
 const EncryptionKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
 
+// EnvVar names the connection string tests use; unset skips database tests.
 const EnvVar = "TEST_DATABASE_URL"
 
 var (
