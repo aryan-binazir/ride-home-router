@@ -119,13 +119,15 @@ jobs:
           fi
 
           # Synthetic configuration for public health/readiness and default-deny smoke tests.
-          # No production Clerk credentials or network verification is needed here.
+          # No production credentials or network verification is needed here.
+          credential_encryption_key=$(openssl rand -base64 32)
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/clerk-smoke.pem" 2>/dev/null
           clerk_jwt_key=$(openssl pkey -in "$RUNNER_TEMP/clerk-smoke.pem" -pubout)
           rm "$RUNNER_TEMP/clerk-smoke.pem"
           clerk_publishable_key="pk_test_$(printf 'fixture.clerk.accounts.dev$' | base64 -w0)"
 
           docker run -d --name "$app_container" --network "$network" \
+            -e CREDENTIAL_ENCRYPTION_KEY="$credential_encryption_key" \
             -e CLERK_SECRET_KEY=sk_test_synthetic \
             -e CLERK_PUBLISHABLE_KEY="$clerk_publishable_key" \
             -e CLERK_JWT_KEY="$clerk_jwt_key" \
