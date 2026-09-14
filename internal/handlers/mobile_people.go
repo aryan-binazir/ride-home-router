@@ -45,7 +45,7 @@ func (h *Handler) HandleMobilePeople(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
 		return
 	}
-	h.renderTemplate(w, "mobile/people.html", mobilePeopleView{mobileBaseView: newMobileBase("People", "people", ""), Participants: participants, Drivers: drivers, Labels: labels, ParticipantLabels: participantLabels, DriverLabels: driverLabels})
+	h.renderTemplate(w, "mobile/people.html", mobilePeopleView{mobileBaseView: newMobileBase(r, "People", "people", ""), Participants: participants, Drivers: drivers, Labels: labels, ParticipantLabels: participantLabels, DriverLabels: driverLabels})
 }
 
 func (h *Handler) HandleMobileParticipantForm(w http.ResponseWriter, r *http.Request) {
@@ -111,10 +111,10 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 			return
 		}
 		//nolint:gosec // mobileReturnPath permits only local /m/ paths without a scheme, host, or backslash.
-		http.Redirect(w, r, mobileReturnPath(r, "/m/people"), http.StatusSeeOther)
+		http.Redirect(w, r, mobileSavedReturnPath(r, "/m/people", kind), http.StatusSeeOther)
 		return
 	}
-	view := mobilePersonFormView{mobileBaseView: newMobileBase(mobilePersonTitle(kind, isNew), "people", ""), Kind: kind, Action: mobileFormAction(r), Labels: labels, Selected: map[int64]bool{}}
+	view := mobilePersonFormView{mobileBaseView: newMobileBase(r, mobilePersonTitle(kind, isNew), "people", ""), Kind: kind, Action: mobileFormAction(r), Labels: labels, Selected: map[int64]bool{}}
 	if isNew && kind == "driver" {
 		view.VehicleCapacity = 4
 	}
@@ -156,7 +156,7 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 func mobilePersonSubmittedView(r *http.Request, kind string, labels []models.Label, message string) mobilePersonFormView {
 	capacity, _ := strconv.Atoi(r.FormValue("vehicle_capacity"))
 	return mobilePersonFormView{
-		mobileBaseView: newMobileBase(mobilePersonTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "people", message),
+		mobileBaseView: newMobileBase(r, mobilePersonTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "people", message),
 		Kind:           kind, Action: mobileFormAction(r), Name: r.FormValue("name"), Address: r.FormValue("address"),
 		AddressName: r.FormValue("address_name"), VehicleCapacity: capacity, Labels: labels,
 		Selected: mobileSelected(parseMobileIDs(r.Form["label_ids"])),

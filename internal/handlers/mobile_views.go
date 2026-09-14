@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
@@ -13,8 +14,9 @@ type mobileBaseView struct {
 	Notice    string
 }
 
-func newMobileBase(title, activeTab, message string) mobileBaseView {
-	return mobileBaseView{Title: title, ActiveTab: activeTab, Error: message}
+func newMobileBase(r *http.Request, title, activeTab, message string) mobileBaseView {
+	notice := map[string]string{"participant": "Participant saved.", "driver": "Driver saved.", "location": "Location saved.", "van": "Van saved."}[r.URL.Query().Get("saved")]
+	return mobileBaseView{Title: title, ActiveTab: activeTab, Error: message, Notice: notice}
 }
 
 type mobileErrorView struct {

@@ -92,7 +92,7 @@ func (h *Handler) renderMobileRoutes(w http.ResponseWriter, r *http.Request, sna
 // every other car shows its itinerary with a "Show timings" action.
 func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string, indexes []int) {
 	timings := h.routeTimings(r.Context(), snapshot, indexes)
-	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
+	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(r, mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
 	view.Snapshot.Routes = h.itineraryRoutes(snapshot.Routes)
 	view.Snapshot.Summary, view.ShowAggregates = h.itinerarySummary(snapshot.Summary, timings)
 	for index, route := range snapshot.Routes {

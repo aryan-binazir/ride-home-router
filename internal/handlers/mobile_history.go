@@ -37,7 +37,7 @@ func (h *Handler) HandleMobileHistory(w http.ResponseWriter, r *http.Request) {
 		lastMonth = view.Events[len(view.Events)-1].EventDate.Format("2006-01")
 	}
 	mobileView := mobileHistoryView{
-		mobileBaseView: newMobileBase("History", "history", ""), Groups: groups, UseMiles: view.UseMiles,
+		mobileBaseView: newMobileBase(r, "History", "history", ""), Groups: groups, UseMiles: view.UseMiles,
 		Total: view.Total, DisplayedCount: view.DisplayedCount, NextOffset: view.NextOffset, PageSize: view.PageSize,
 		LastMonth: lastMonth,
 	}
@@ -69,5 +69,5 @@ func (h *Handler) HandleMobileHistoryDetail(w http.ResponseWriter, r *http.Reque
 	for _, route := range routes {
 		savedRoutes = append(savedRoutes, mobileSavedRoute{Route: route, DriverText: formatSavedMobileHandoff(route, false), ParentText: formatSavedMobileHandoff(route, true)})
 	}
-	h.renderTemplate(w, "mobile/history_detail.html", mobileHistoryDetailView{mobileBaseView: newMobileBase("Saved event", "history", ""), Event: event, Routes: savedRoutes, Summary: summary, UseMiles: settings != nil && settings.UseMiles})
+	h.renderTemplate(w, "mobile/history_detail.html", mobileHistoryDetailView{mobileBaseView: newMobileBase(r, "Saved event", "history", ""), Event: event, Routes: savedRoutes, Summary: summary, UseMiles: settings != nil && settings.UseMiles})
 }

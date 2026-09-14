@@ -27,8 +27,8 @@ func (h *Handler) HandleMobilePlan(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileError(w, r, http.StatusUnprocessableEntity, messageHouseholdsDoNotFit, nil)
 		return
 	}
-	base := newMobileBase("Plan", "plan", r.URL.Query().Get("error"))
-	base.Notice = notice
+	base := newMobileBase(r, "Plan", "plan", r.URL.Query().Get("error"))
+	base.Notice = mergeMobileNotice(base.Notice, notice)
 	view := mobilePlanView{
 		mobileBaseView:   base,
 		Draft:            draft,
@@ -128,7 +128,7 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileStoreError(w, r, err, "Locations not found")
 		return
 	}
-	h.renderTemplate(w, "mobile/location.html", mobileLocationView{mobileBaseView: newMobileBase("Location", "plan", r.URL.Query().Get("error")), Locations: locations, SelectedID: draft.LocationID})
+	h.renderTemplate(w, "mobile/location.html", mobileLocationView{mobileBaseView: newMobileBase(r, "Location", "plan", r.URL.Query().Get("error")), Locations: locations, SelectedID: draft.LocationID})
 }
 
 func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
@@ -212,8 +212,8 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 		displayed[participant.ID] = true
 	}
 	hidden := hiddenMobileIDs(selectedIDs, displayed)
-	base := newMobileBase("Riders", "plan", r.URL.Query().Get("error"))
-	base.Notice = notice
+	base := newMobileBase(r, "Riders", "plan", r.URL.Query().Get("error"))
+	base.Notice = mergeMobileNotice(base.Notice, notice)
 	view := mobileRidersView{
 		mobileBaseView:    base,
 		Participants:      participants,
@@ -332,8 +332,8 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	for _, driver := range drivers {
 		displayed[driver.ID] = true
 	}
-	base := newMobileBase("Drivers", "plan", r.URL.Query().Get("error"))
-	base.Notice = notice
+	base := newMobileBase(r, "Drivers", "plan", r.URL.Query().Get("error"))
+	base.Notice = mergeMobileNotice(base.Notice, notice)
 	view := mobileDriversView{
 		mobileBaseView:    base,
 		Drivers:           drivers,
@@ -387,7 +387,7 @@ func (h *Handler) HandleMobileWhen(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/m", http.StatusSeeOther)
 		return
 	}
-	h.renderTemplate(w, "mobile/when.html", mobileWhenView{mobileBaseView: newMobileBase("When", "plan", r.URL.Query().Get("error")), RouteTime: draft.RouteTime, Mode: draft.Mode})
+	h.renderTemplate(w, "mobile/when.html", mobileWhenView{mobileBaseView: newMobileBase(r, "When", "plan", r.URL.Query().Get("error")), RouteTime: draft.RouteTime, Mode: draft.Mode})
 }
 
 func (h *Handler) HandleMobileCalculate(w http.ResponseWriter, r *http.Request) {

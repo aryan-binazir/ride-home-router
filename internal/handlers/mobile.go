@@ -121,7 +121,7 @@ func (h *Handler) renderMobileError(w http.ResponseWriter, r *http.Request, stat
 	}
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 	w.WriteHeader(status)
-	view := mobileErrorView{mobileBaseView: newMobileBase(mobileErrorTitle(status), mobileActiveTab(r.URL.Path), ""), Message: message, ChangeDrivers: message == messageHouseholdsDoNotFit}
+	view := mobileErrorView{mobileBaseView: newMobileBase(r, mobileErrorTitle(status), mobileActiveTab(r.URL.Path), ""), Message: message, ChangeDrivers: message == messageHouseholdsDoNotFit}
 	if renderErr := h.Renderer.Render(w, "mobile/error.html", view); renderErr != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Mobile error template failed: path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(renderErr.Error()))
@@ -261,4 +261,13 @@ func curatedMobileQueryError(message string) string {
 	default:
 		return messageGenericInternalError
 	}
+}
+
+// mobileSavedReturnPath retains the validated local destination and its query.
+func mobileSavedReturnPath(r *http.Request, fallback, kind string) string {
+	target, _ := url.Parse(mobileReturnPath(r, fallback))
+	query := target.Query()
+	query.Set("saved", kind)
+	target.RawQuery = query.Encode()
+	return target.String()
 }

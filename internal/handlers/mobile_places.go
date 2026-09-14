@@ -23,7 +23,7 @@ func (h *Handler) HandleMobilePlaces(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
 		return
 	}
-	h.renderTemplate(w, "mobile/places.html", mobilePlacesView{mobileBaseView: newMobileBase("Places", "places", ""), Locations: locations, Vans: vans})
+	h.renderTemplate(w, "mobile/places.html", mobilePlacesView{mobileBaseView: newMobileBase(r, "Places", "places", ""), Locations: locations, Vans: vans})
 }
 
 func (h *Handler) HandleMobileLocationForm(w http.ResponseWriter, r *http.Request) {
@@ -68,10 +68,10 @@ func (h *Handler) mobilePlaceForm(w http.ResponseWriter, r *http.Request, kind s
 			return
 		}
 		//nolint:gosec // mobileReturnPath permits only local /m/ paths without a scheme, host, or backslash.
-		http.Redirect(w, r, mobileReturnPath(r, "/m/places"), http.StatusSeeOther)
+		http.Redirect(w, r, mobileSavedReturnPath(r, "/m/places", kind), http.StatusSeeOther)
 		return
 	}
-	view := mobilePlaceFormView{mobileBaseView: newMobileBase(mobilePlaceTitle(kind, isNew), "places", ""), Kind: kind, Action: mobileFormAction(r)}
+	view := mobilePlaceFormView{mobileBaseView: newMobileBase(r, mobilePlaceTitle(kind, isNew), "places", ""), Kind: kind, Action: mobileFormAction(r)}
 	if isNew && kind == "van" {
 		view.Capacity = 8
 	}
@@ -96,7 +96,7 @@ func (h *Handler) mobilePlaceForm(w http.ResponseWriter, r *http.Request, kind s
 
 func mobilePlaceSubmittedView(r *http.Request, kind, message string) mobilePlaceFormView {
 	capacity, _ := strconv.Atoi(r.FormValue("capacity"))
-	return mobilePlaceFormView{mobileBaseView: newMobileBase(mobilePlaceTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "places", message), Kind: kind, Action: mobileFormAction(r), Name: r.FormValue("name"), Address: r.FormValue("address"), Capacity: capacity}
+	return mobilePlaceFormView{mobileBaseView: newMobileBase(r, mobilePlaceTitle(kind, strings.HasSuffix(r.URL.Path, "/new")), "places", message), Kind: kind, Action: mobileFormAction(r), Name: r.FormValue("name"), Address: r.FormValue("address"), Capacity: capacity}
 }
 
 func mobilePlaceTitle(kind string, isNew bool) string {

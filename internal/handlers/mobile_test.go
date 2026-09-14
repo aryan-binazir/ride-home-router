@@ -629,7 +629,7 @@ func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	participantCreate := postMobileForm(t, nil, "/m/people/participants/new", url.Values{
 		"name": {"Mobile Rider"}, "address": {"10 Rider Road"}, "address_name": {"Home"},
 	}, handler.HandleMobileParticipantForm)
-	assertMobileRedirect(t, participantCreate, "/m/people")
+	assertMobileRedirect(t, participantCreate, "/m/people?saved=participant")
 	participants, err := store.Participants().List(ctx, "Mobile Rider")
 	if err != nil || len(participants) != 1 {
 		t.Fatalf("created participants = %#v err=%v", participants, err)
@@ -639,13 +639,13 @@ func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	participantEdit := postMobileForm(t, nil, participantEditPath, url.Values{
 		"name": {"Mobile Rider Updated"}, "address": {"10 Rider Road"}, "address_name": {"Home"},
 	}, handler.HandleMobileParticipantForm)
-	assertMobileRedirect(t, participantEdit, "/m/people")
+	assertMobileRedirect(t, participantEdit, "/m/people?saved=participant")
 
 	assertMobilePage(t, nil, "/m/people/drivers/new", handler.HandleMobileDriverForm, `value="4"`)
 	driverCreate := postMobileForm(t, nil, "/m/people/drivers/new", url.Values{
 		"name": {"Mobile Driver"}, "address": {"20 Driver Road"}, "address_name": {"Home"}, "vehicle_capacity": {"4"},
 	}, handler.HandleMobileDriverForm)
-	assertMobileRedirect(t, driverCreate, "/m/people")
+	assertMobileRedirect(t, driverCreate, "/m/people?saved=driver")
 	drivers, err := store.Drivers().List(ctx, "Mobile Driver")
 	if err != nil || len(drivers) != 1 {
 		t.Fatalf("created drivers = %#v err=%v", drivers, err)
@@ -655,14 +655,14 @@ func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	driverEdit := postMobileForm(t, nil, driverEditPath, url.Values{
 		"name": {"Mobile Driver Updated"}, "address": {"20 Driver Road"}, "address_name": {"Home"}, "vehicle_capacity": {"5"},
 	}, handler.HandleMobileDriverForm)
-	assertMobileRedirect(t, driverEdit, "/m/people")
+	assertMobileRedirect(t, driverEdit, "/m/people?saved=driver")
 
 	assertMobilePage(t, nil, "/m/places", handler.HandleMobilePlaces, "Places")
 	assertMobilePage(t, nil, "/m/places/locations/new", handler.HandleMobileLocationForm, "Add location")
 	locationCreate := postMobileForm(t, nil, "/m/places/locations/new", url.Values{
 		"name": {"Mobile Hall"}, "address": {"30 Hall Road"},
 	}, handler.HandleMobileLocationForm)
-	assertMobileRedirect(t, locationCreate, "/m/places")
+	assertMobileRedirect(t, locationCreate, "/m/places?saved=location")
 	locations, err := store.ActivityLocations().List(ctx)
 	if err != nil || len(locations) != 1 {
 		t.Fatalf("created locations = %#v err=%v", locations, err)
@@ -672,13 +672,13 @@ func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	locationEdit := postMobileForm(t, nil, locationEditPath, url.Values{
 		"name": {"Mobile Hall Updated"}, "address": {"30 Hall Road"},
 	}, handler.HandleMobileLocationForm)
-	assertMobileRedirect(t, locationEdit, "/m/places")
+	assertMobileRedirect(t, locationEdit, "/m/places?saved=location")
 
 	assertMobilePage(t, nil, "/m/places/vans/new", handler.HandleMobileVanForm, `value="8"`)
 	vanCreate := postMobileForm(t, nil, "/m/places/vans/new", url.Values{
 		"name": {"Mobile Van"}, "capacity": {"8"},
 	}, handler.HandleMobileVanForm)
-	assertMobileRedirect(t, vanCreate, "/m/places")
+	assertMobileRedirect(t, vanCreate, "/m/places?saved=van")
 	vans, err := store.OrganizationVehicles().List(ctx)
 	if err != nil || len(vans) != 1 {
 		t.Fatalf("created vans = %#v err=%v", vans, err)
@@ -688,7 +688,7 @@ func TestMobilePeopleAndPlacesHandlersCreateEditAndRender(t *testing.T) {
 	vanEdit := postMobileForm(t, nil, vanEditPath, url.Values{
 		"name": {"Mobile Van Updated"}, "capacity": {"9"},
 	}, handler.HandleMobileVanForm)
-	assertMobileRedirect(t, vanEdit, "/m/places")
+	assertMobileRedirect(t, vanEdit, "/m/places?saved=van")
 }
 
 func TestMobileValidationRerendersSubmittedValuesAndHTMLNotFound(t *testing.T) {
@@ -715,7 +715,7 @@ func TestMobilePersonAddressLabelLimitCountsRunes(t *testing.T) {
 	response := postMobileForm(t, nil, "/m/people/participants/new", url.Values{
 		"name": {"Unicode Label Rider"}, "address": {"10 Main Street"}, "address_name": {addressName},
 	}, handler.HandleMobileParticipantForm)
-	assertMobileRedirect(t, response, "/m/people")
+	assertMobileRedirect(t, response, "/m/people?saved=participant")
 	participants, err := store.Participants().List(context.Background(), "Unicode Label Rider")
 	if err != nil || len(participants) != 1 || participants[0].AddressName != addressName {
 		t.Fatalf("saved participants = %#v err=%v", participants, err)
@@ -1148,5 +1148,23 @@ func assertMobilePage(t *testing.T, cookie *http.Cookie, path string, handler ht
 	handler(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), want) {
 		t.Fatalf("GET %s = %d body=%q, want %q", path, response.Code, response.Body.String(), want)
+	}
+}
+
+func TestMobileSaveNoticesRenderOnReturnPages(t *testing.T) {
+	handler, _ := newTestManagementHandler(t)
+	handler.PlanDraft = plandraft.NewStore()
+	t.Cleanup(handler.PlanDraft.Close)
+	for _, tc := range []struct {
+		path, message string
+		handle        http.HandlerFunc
+	}{
+		{"/m/places?saved=van", "Van saved.", handler.HandleMobilePlaces},
+		{"/m/places?saved=location", "Location saved.", handler.HandleMobilePlaces},
+		{"/m/people?saved=participant", "Participant saved.", handler.HandleMobilePeople},
+		{"/m/people?saved=driver", "Driver saved.", handler.HandleMobilePeople},
+		{"/m/plan/riders?saved=participant", "Participant saved.", handler.HandleMobileRiders},
+	} {
+		t.Run(tc.path, func(t *testing.T) { assertMobilePage(t, nil, tc.path, tc.handle, tc.message) })
 	}
 }
