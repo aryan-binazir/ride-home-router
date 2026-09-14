@@ -1168,3 +1168,14 @@ func TestMobileSaveNoticesRenderOnReturnPages(t *testing.T) {
 		t.Run(tc.path, func(t *testing.T) { assertMobilePage(t, nil, tc.path, tc.handle, tc.message) })
 	}
 }
+
+func TestMobilePeopleSearchControlsAndEmptyResults(t *testing.T) {
+	handler, _ := newTestManagementHandler(t)
+	response := httptest.NewRecorder()
+	handler.HandleMobilePeople(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/m/people?search=Nobody", nil))
+	for _, want := range []string{`aria-label="Search people"`, `value="Nobody"`, `href="#drivers"`, `id="drivers"`, "No participants match your search.", "No drivers match your search."} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}

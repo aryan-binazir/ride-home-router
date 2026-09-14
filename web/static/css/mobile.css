@@ -93,6 +93,7 @@ button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height
 .mobile-search { min-height: 48px; display: flex; gap: 8px; align-items: center; margin: 3px 0 10px; padding: 0 10px; border-radius: 10px; background: var(--m-card); }
 .mobile-search svg { width: 18px; fill: none; stroke: var(--m-faint); stroke-width: 2; }
 .mobile-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--m-ink); outline: 0; }
+.mobile-search a { display: inline-flex; align-items: center; color: var(--m-blue); }
 .mobile-search button { border: 0; background: transparent; color: var(--m-blue); }
 .mobile-chips { display: flex; gap: 8px; margin: 0 0 10px; padding-bottom: 2px; overflow-x: auto; }
 .mobile-chip { min-height: 34px; padding: 0 13px; border-radius: 17px; display: inline-flex; align-items: center; background: var(--m-card); color: var(--m-muted); font-size: .82rem; white-space: nowrap; }

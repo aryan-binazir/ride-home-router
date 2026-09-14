@@ -97,6 +97,7 @@ type mobileRoutesView struct {
 
 type mobilePeopleView struct {
 	mobileBaseView
+	Search            string
 	Participants      []models.Participant
 	Drivers           []models.Driver
 	Labels            []models.Label

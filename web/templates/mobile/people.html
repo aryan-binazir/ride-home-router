@@ -4,11 +4,20 @@
     <h1>People</h1>
     <p>Riders and the people driving them.</p>
   </header>
+  <form method="get" action="/m/people" class="mobile-search" role="search">
+    <input type="search" name="search" value="{{.Search}}" placeholder="Search people" aria-label="Search people">
+    <button type="submit">Search</button>
+    {{if .Search}}<a href="/m/people">Clear</a>{{end}}
+  </form>
+  <nav class="mobile-split-actions" aria-label="People sections">
+    <a class="mobile-button mobile-button-secondary" href="#participants">Participants</a>
+    <a class="mobile-button mobile-button-secondary" href="#drivers">Drivers</a>
+  </nav>
   <div class="mobile-split-actions">
     <a class="mobile-button" href="/m/people/participants/new">Add participant</a>
     <a class="mobile-button mobile-button-secondary" href="/m/people/drivers/new">Add driver</a>
   </div>
-  <h2 class="mobile-section-title">Participants</h2>
+  <h2 id="participants" class="mobile-section-title">Participants</h2>
   <div class="mobile-group">
     {{range .Participants}}
     <a class="mobile-row" href="/m/people/participants/{{.ID}}/edit">
@@ -20,10 +29,10 @@
       <i></i>
     </a>
     {{else}}
-    <p class="mobile-empty">No participants yet. Tap "Add participant" above.</p>
+    <p class="mobile-empty">{{if .Search}}No participants match your search.{{else}}No participants yet. Tap "Add participant" above.{{end}}</p>
     {{end}}
   </div>
-  <h2 class="mobile-section-title">Drivers</h2>
+  <h2 id="drivers" class="mobile-section-title">Drivers</h2>
   <div class="mobile-group">
     {{range .Drivers}}
     <a class="mobile-row" href="/m/people/drivers/{{.ID}}/edit">
@@ -35,7 +44,7 @@
       <i></i>
     </a>
     {{else}}
-    <p class="mobile-empty">No drivers yet. Tap "Add driver" above.</p>
+    <p class="mobile-empty">{{if .Search}}No drivers match your search.{{else}}No drivers yet. Tap "Add driver" above.{{end}}</p>
     {{end}}
   </div>
 </section>

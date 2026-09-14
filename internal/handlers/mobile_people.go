@@ -45,7 +45,7 @@ func (h *Handler) HandleMobilePeople(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
 		return
 	}
-	h.renderTemplate(w, "mobile/people.html", mobilePeopleView{mobileBaseView: newMobileBase(r, "People", "people", ""), Participants: participants, Drivers: drivers, Labels: labels, ParticipantLabels: participantLabels, DriverLabels: driverLabels})
+	h.renderTemplate(w, "mobile/people.html", mobilePeopleView{mobileBaseView: newMobileBase(r, "People", "people", ""), Search: search, Participants: participants, Drivers: drivers, Labels: labels, ParticipantLabels: participantLabels, DriverLabels: driverLabels})
 }
 
 func (h *Handler) HandleMobileParticipantForm(w http.ResponseWriter, r *http.Request) {
