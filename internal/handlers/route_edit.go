@@ -159,13 +159,11 @@ func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snap
 		view := h.buildTimedRouteResultsView(snapshot, timings)
 		// A global capacity transition changes every card's timing/copy state.
 		// Missing/invalid client state safely falls back to a complete view.
-		if r.Header.Get("X-Route-Fragment") == "true" && r.Header.Get("X-Route-Balance") == strconv.FormatBool(snapshot.IsOutOfBalance) {
+		// Crossing to two cars enables actions on the first car. The full-view
+		// client path also preserves that unchanged car's already measured timings.
+		addingSecond := len(snapshot.Routes) == 2 && r.URL.Path == "/api/v1/routes/edit/add-driver"
+		if !addingSecond && r.Header.Get("X-Route-Fragment") == "true" && r.Header.Get("X-Route-Balance") == strconv.FormatBool(snapshot.IsOutOfBalance) {
 			view.Partial = true
-			// Crossing from one car to two enables Move/Swap on the first car.
-			// Refresh its actions without buying another provider measurement.
-			if len(snapshot.Routes) == 2 && r.URL.Path == "/api/v1/routes/edit/add-driver" {
-				indexes = allRouteIndexes(snapshot)
-			}
 			view.RenderIndexes = make(map[int]bool, len(indexes))
 			for _, index := range indexes {
 				view.RenderIndexes[index] = true
