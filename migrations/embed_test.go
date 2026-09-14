@@ -31,8 +31,8 @@ func TestLatestVersionMatchesNewestEmbeddedMigration(t *testing.T) {
 	}
 	// Keep this literal independent of LatestVersion so every new migration
 	// requires an explicit readiness expectation update.
-	if version != 20260913150000 {
-		t.Fatalf("LatestVersion() = %d, want 20260913150000", version)
+	if version != 20260914130000 {
+		t.Fatalf("LatestVersion() = %d, want 20260914130000", version)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestVersionReportsLatestCleanMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() error = %v", err)
 	}
-	if version != 20260913150000 || dirty {
-		t.Fatalf("Version() = (%d, %t), want (20260913150000, false)", version, dirty)
+	if version != 20260914130000 || dirty {
+		t.Fatalf("Version() = (%d, %t), want (20260914130000, false)", version, dirty)
 	}
 }
 
@@ -189,8 +189,8 @@ func TestVersionSupportsQuotedSchemaNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() in quoted schema error = %v", err)
 	}
-	if version != 20260913150000 || dirty {
-		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260913150000, false)", version, dirty)
+	if version != 20260914130000 || dirty {
+		t.Fatalf("Version() in quoted schema = (%d, %t), want (20260914130000, false)", version, dirty)
 	}
 }
 
@@ -204,8 +204,8 @@ func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() after Down error = %v", err)
 	}
-	if version != 20260913143724 || dirty {
-		t.Fatalf("Version() after Down = (%d, %t), want (20260913143724, false)", version, dirty)
+	if version != 20260913150000 || dirty {
+		t.Fatalf("Version() after Down = (%d, %t), want (20260913150000, false)", version, dirty)
 	}
 
 	if err := migrations.Run(t.Context(), databaseURL); err != nil {
@@ -215,14 +215,14 @@ func TestDownRollsBackExactlyOneMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() after Run error = %v", err)
 	}
-	if version != 20260913150000 || dirty {
-		t.Fatalf("Version() after Run = (%d, %t), want (20260913150000, false)", version, dirty)
+	if version != 20260914130000 || dirty {
+		t.Fatalf("Version() after Run = (%d, %t), want (20260914130000, false)", version, dirty)
 	}
 }
 
 func TestDownRefusesDisabledMigrationWithoutChangingVersion(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
-	for range 11 {
+	for range 12 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatalf("Down() to baseline error = %v", err)
 		}
@@ -343,7 +343,7 @@ func TestRunRefusesDirtyStateWithRecoveryGuidance(t *testing.T) {
 	}
 
 	err = migrations.Run(t.Context(), databaseURL)
-	for _, want := range []string{"dirty at version 20260913150000", "repair or restore"} {
+	for _, want := range []string{"dirty at version 20260914130000", "repair or restore"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("Run() dirty-state error = %v, want containing %q", err, want)
 		}
@@ -567,7 +567,7 @@ func assertSoftDeleteColumns(t *testing.T, db *sql.DB, want bool) {
 
 func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
-	for range 5 {
+	for range 6 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatalf("Down() to Google Maps key migration: %v", err)
 		}
@@ -592,19 +592,22 @@ func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	if err != nil || version != 20260912210000 || dirty {
 		t.Fatalf("refused rollback changed migration state: version=%d dirty=%t err=%v", version, dirty, err)
 	}
-	if err := migrations.Run(t.Context(), databaseURL); err != nil {
-		t.Fatalf("deploy after refused rollback: %v", err)
-	}
-
 	var count int
 	if err := connection.QueryRow(t.Context(), `SELECT count(*) FROM google_maps_credentials`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("credential count=%d err=%v", count, err)
+	}
+	// The new encryption schema also refuses existing plaintext; this deployment starts empty.
+	if _, err := connection.Exec(t.Context(), `DELETE FROM google_maps_credentials`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Run(t.Context(), databaseURL); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestGeocodeFreshnessMigrationBackfillsAndRollsBack(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
-	for range 3 {
+	for range 4 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatal(err)
 		}
@@ -637,7 +640,7 @@ func TestGeocodeFreshnessMigrationBackfillsAndRollsBack(t *testing.T) {
 	if err := conn.QueryRow(t.Context(), `SELECT cached_at > now()-interval '1 minute' FROM distance_cache`).Scan(&fresh); err != nil || !fresh {
 		t.Fatalf("cache backfill=%v %v", fresh, err)
 	}
-	for range 3 {
+	for range 4 {
 		if err := migrations.Down(t.Context(), databaseURL); err != nil {
 			t.Fatal(err)
 		}
@@ -645,5 +648,32 @@ func TestGeocodeFreshnessMigrationBackfillsAndRollsBack(t *testing.T) {
 	var count int
 	if err := conn.QueryRow(t.Context(), `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name IN ('geocoded_at','cached_at')`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("columns after rollback=%d %v", count, err)
+	}
+}
+
+func TestCredentialEncryptionMigrationPreservesUnexpectedKeys(t *testing.T) {
+	for _, direction := range []string{"up", "down"} {
+		t.Run(direction, func(t *testing.T) {
+			db, migrator := openMigrator(t)
+			insertSQL, readSQL, target := `INSERT INTO google_maps_credentials(id,encrypted_api_key) VALUES(1,$1)`, `SELECT encrypted_api_key FROM google_maps_credentials`, uint(20260913150000)
+			secret := "v1:" + strings.Repeat("a", 40)
+			if direction == "up" {
+				if err := migrator.Migrate(20260913150000); err != nil {
+					t.Fatal(err)
+				}
+				// #nosec G101 -- Deliberately fake credential for the migration preservation test.
+				insertSQL, readSQL, target, secret = `INSERT INTO google_maps_credentials(id,api_key) VALUES(1,$1)`, `SELECT api_key FROM google_maps_credentials`, 20260914130000, "unexpected-plaintext-credential"
+			}
+			if _, err := db.ExecContext(t.Context(), insertSQL, secret); err != nil {
+				t.Fatal(err)
+			}
+			if err := migrator.Migrate(target); err == nil || !strings.Contains(err.Error(), "Delete the configured Google Maps credential") {
+				t.Fatalf("populated storage migration: %v", err)
+			}
+			var got string
+			if err := db.QueryRowContext(t.Context(), readSQL).Scan(&got); err != nil || got != secret {
+				t.Fatal("migration discarded a credential")
+			}
+		})
 	}
 }

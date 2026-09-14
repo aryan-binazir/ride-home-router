@@ -17,7 +17,7 @@ func TestMobileDraftSurvivesAnotherInstanceAndRestart(t *testing.T) {
 	token := fixture.Admin()
 	start := func() (*Server, string) {
 		t.Helper()
-		s, err := New(t.Context(), Config{Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
+		s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
 		if err != nil {
 			t.Fatal(err)
 		}

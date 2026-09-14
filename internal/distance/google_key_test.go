@@ -33,6 +33,12 @@ func TestGoogleMapsKeyDatabaseReplacementAndDeletion(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+	if err := first.ConfigureCredentialEncryption(postgrestest.EncryptionKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.ConfigureCredentialEncryption(postgrestest.EncryptionKey); err != nil {
+		t.Fatal(err)
+	}
 	var mu sync.Mutex
 	var used []string
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

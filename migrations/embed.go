@@ -154,7 +154,7 @@ func preflightDown(ctx context.Context, databaseURL string, migrator *migrate.Mi
 
 	// Refuse before golang-migrate marks the previous version dirty. Keep the
 	// SQL guard too, for other migration runners and concurrent credential writes.
-	if version == 20260912210000 {
+	if version == 20260912210000 || version == 20260914130000 {
 		db, err := openDatabase(ctx, databaseURL)
 		if err != nil {
 			return err

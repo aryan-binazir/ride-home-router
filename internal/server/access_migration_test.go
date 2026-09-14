@@ -18,7 +18,7 @@ func TestAccessMigrationBetweenClerkInstances(t *testing.T) {
 	const adminEmail = "admin@example.test"
 	start := func(f *accesstest.Fixture, admin string) (*Server, string) {
 		t.Helper()
-		s, err := New(t.Context(), Config{Addr: "127.0.0.1:0", DatabaseURL: databaseURL, Auth: f.Config(admin)})
+		s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Addr: "127.0.0.1:0", DatabaseURL: databaseURL, Auth: f.Config(admin)})
 		if err != nil {
 			t.Fatal(err)
 		}

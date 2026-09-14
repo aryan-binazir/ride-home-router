@@ -27,7 +27,7 @@ import (
 
 func TestNewDoesNotApplyDatabaseMigrations(t *testing.T) {
 	databaseURL := postgrestest.UnmigratedDatabase(t)
-	server, err := New(context.Background(), Config{Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
+	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -92,7 +92,7 @@ func TestSetupRoutesSeparatesLivenessFromReadiness(t *testing.T) {
 }
 
 func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
-	server, err := New(context.Background(), Config{Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -112,7 +112,7 @@ func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
 }
 
 func TestServerReportsUnexpectedServeError(t *testing.T) {
-	server, err := New(context.Background(), Config{Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestServerReportsUnexpectedServeError(t *testing.T) {
 }
 
 func TestServerCleanShutdownDoesNotReportServeError(t *testing.T) {
-	server, err := New(context.Background(), Config{Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -686,7 +686,7 @@ func TestRequestBodyMiddlewareRejectsOversizedBody(t *testing.T) {
 func TestRequestSecurityMiddlewareUsesImportUploadBudgetOnRealRoutes(t *testing.T) {
 	fixture := accesstest.New(t)
 	authToken := fixture.Admin()
-	server, err := New(context.Background(), Config{Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

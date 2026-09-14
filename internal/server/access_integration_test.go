@@ -57,7 +57,7 @@ func (h accessHTTP) request(base, method, path, auth, body, contentType string, 
 
 func startAccessServer(t *testing.T, databaseURL string, f *accesstest.Fixture) (*Server, string) {
 	t.Helper()
-	s, err := New(t.Context(), Config{Addr: "127.0.0.1:0", DatabaseURL: databaseURL, Auth: f.Config("admin@example.test", "second@example.test")})
+	s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Addr: "127.0.0.1:0", DatabaseURL: databaseURL, Auth: f.Config("admin@example.test", "second@example.test")})
 	if err != nil {
 		t.Fatal(err)
 	}

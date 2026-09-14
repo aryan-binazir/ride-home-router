@@ -47,8 +47,9 @@ type Server struct {
 
 // Config defines server startup settings.
 type Config struct {
-	Auth access.Config
-	Addr string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
+	CredentialEncryptionKey string
+	Auth                    access.Config
+	Addr                    string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
 	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
 	AllowedHosts []string
 	// DatabaseURL points to the migrated Postgres database to serve.
@@ -84,6 +85,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize data store: %w", err)
 	}
 
+	if err := db.ConfigureCredentialEncryption(cfg.CredentialEncryptionKey); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("credential encryption: %w", err)
+	}
 	gate, err := access.New(cfg.Auth, db)
 	if err != nil {
 		_ = db.Close()
