@@ -38,12 +38,16 @@ type mobilePlanView struct {
 }
 
 type mobileLocationView struct {
+	Search                 string
+	Offset, Next, Previous int
+	HiddenSelected         bool
 	mobileBaseView
 	Locations  []models.ActivityLocation
 	SelectedID int64
 }
 
 type mobileRidersView struct {
+	Offset, Next, Previous int
 	mobileBaseView
 	Participants      []models.Participant
 	Selected          map[int64]bool
@@ -55,10 +59,13 @@ type mobileRidersView struct {
 }
 
 type mobileDriversView struct {
+	Offset, Next, Previous int
+	SelectedCapacities     map[int64]int
 	mobileBaseView
 	Drivers           []models.Driver
 	Selected          map[int64]bool
 	Vehicles          []models.OrganizationVehicle
+	AssignedVehicles  map[int64]*models.OrganizationVehicle
 	Assignments       map[int64]int64
 	SelectedSeats     int
 	Labels            []models.Label
@@ -75,6 +82,7 @@ type mobileWhenView struct {
 }
 
 type mobileRoute struct {
+	Append     bool
 	Index      int
 	Route      models.CalculatedRoute
 	DriverText string
@@ -85,6 +93,7 @@ type mobileRoute struct {
 }
 
 type mobileRoutesView struct {
+	Patch bool
 	mobileBaseView
 	Snapshot  routesession.Snapshot
 	EventDate string
@@ -96,6 +105,7 @@ type mobileRoutesView struct {
 }
 
 type mobilePeopleView struct {
+	ParticipantNextURL, ParticipantPreviousURL, DriverNextURL, DriverPreviousURL string
 	mobileBaseView
 	Search            string
 	Participants      []models.Participant

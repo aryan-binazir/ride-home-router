@@ -228,7 +228,7 @@ func TestMobileDriverPickerHTMXSearchPreservesAssignmentWithHiddenVanlessDriver(
 
 	secondResponse := postMobileHTMXSearch(t, cookie, "/m/plan/drivers?"+query.Encode(), handler.HandleMobileDrivers)
 	body = secondResponse.Body.String()
-	if strings.Contains(body, invalidVanAssignmentMessage) || !strings.Contains(body, fmt.Sprintf(`<option data-capacity="%d" value="%d" selected>`, van.Capacity, van.ID)) {
+	if strings.Contains(body, invalidVanAssignmentMessage) || !strings.Contains(body, fmt.Sprintf(`<option value="%d" data-capacity="%d" selected>`, van.ID, van.Capacity)) {
 		t.Fatalf("HTMX search did not preserve in-flight van assignment: %s", body)
 	}
 }

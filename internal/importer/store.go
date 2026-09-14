@@ -293,8 +293,12 @@ func (s *Store) SelectRows(id string, selected []bool) (Snapshot, error) {
 // Commit consumes the token before writing, so retries cannot duplicate a batch.
 // A non-nil selection replaces the preview selection atomically with commit.
 func (s *Store) Commit(ctx context.Context, id string, selection []bool) (CommitResult, error) {
+	return s.commit(ctx, id, selection, nil)
+}
+
+func (s *Store) commit(ctx context.Context, id string, selection []bool, patch map[int]bool) (CommitResult, error) {
 	if s.records != nil {
-		return s.commitPersistent(ctx, id, selection)
+		return s.commitPersistent(ctx, id, selection, patch)
 	}
 	state, err := s.lockSession(id)
 	if err != nil {
@@ -323,6 +327,10 @@ func (s *Store) Commit(ctx context.Context, id string, selection []bool) (Commit
 	if len(state.selected) != len(state.rows) {
 		state.mu.Unlock()
 		return CommitResult{}, ErrInvalidSelection
+	}
+	if err := applySelectionPatch(state.selected, patch); err != nil {
+		state.mu.Unlock()
+		return CommitResult{}, err
 	}
 	commitCtx, cancel := context.WithTimeout(ctx, defaultCommitTimeout)
 	stopCancel := state.afterCancel(cancel)

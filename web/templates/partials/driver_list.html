@@ -1,4 +1,5 @@
 {{define "driver_list"}}
+<div data-roster-page data-search-query="{{.Pagination.Search}}" data-offset="{{.Pagination.Offset}}">
 {{if .Drivers}}
 <table data-cards>
     <thead>
@@ -28,8 +29,10 @@
 </table>
 {{else}}
 <div class="empty-state">
-    <h3>No drivers yet</h3>
-    <p>Add your first driver to start planning routes.</p>
+    {{if .Pagination.Search}}<h3>No drivers match your search</h3>{{else}}<h3>No drivers yet</h3>
+    <p>Add your first driver to start planning routes.</p>{{end}}
 </div>
 {{end}}
+{{template "roster_pagination" .Pagination}}
+</div>
 {{end}}

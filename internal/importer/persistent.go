@@ -227,7 +227,7 @@ func (s *Store) SelectRowsContext(ctx context.Context, id string, selected []boo
 	return result, err
 }
 
-func (s *Store) commitPersistent(ctx context.Context, id string, selection []bool) (CommitResult, error) {
+func (s *Store) commitPersistent(ctx context.Context, id string, selection []bool, patch map[int]bool) (CommitResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultCommitTimeout)
 	defer cancel()
 	var result CommitResult
@@ -260,6 +260,9 @@ func (s *Store) commitPersistent(ctx context.Context, id string, selection []boo
 				return ErrInvalidSelection
 			}
 			selected = selection
+		}
+		if err := applySelectionPatch(selected, patch); err != nil {
+			return err
 		}
 		result, err = s.createBatchWithWriter(ctx, h.Kind, rows, selected, w)
 		if err != nil {

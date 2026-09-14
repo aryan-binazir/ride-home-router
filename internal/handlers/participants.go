@@ -576,7 +576,9 @@ func (h *Handler) participantListView(r *http.Request, participants []models.Par
 	if err != nil {
 		return ParticipantListView{}, err
 	}
+	participants, pagination := pageRosterParticipants(r, participants)
 	return ParticipantListView{
+		Pagination:   pagination,
 		Participants: participants,
 		Labels:       labels,
 		LabelIDs:     labelIDs,

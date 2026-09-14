@@ -22,16 +22,24 @@ type BasePageView struct {
 
 type IndexPageView struct {
 	BasePageView
-	Participants      []models.Participant
-	Drivers           []models.Driver
-	Labels            []models.Label
-	ParticipantLabels map[int64][]int64
-	DriverLabels      map[int64][]int64
-	ActivityLocations []models.ActivityLocation
-	OrgVehicles       []models.OrganizationVehicle
+	SelectedLocation                                          *models.ActivityLocation
+	PagedPickers                                              bool
+	ParticipantNext, DriverNext, PickerOffset, PickerPrevious int
+	SelectedParticipants, SelectedDrivers                     map[int64]bool
+	HiddenParticipants                                        []int64
+	HiddenDrivers                                             []models.Driver
+	AssignedVehicles                                          map[int64]*models.OrganizationVehicle
+	Participants                                              []models.Participant
+	Drivers                                                   []models.Driver
+	Labels                                                    []models.Label
+	ParticipantLabels                                         map[int64][]int64
+	DriverLabels                                              map[int64][]int64
+	ActivityLocations                                         []models.ActivityLocation
+	OrgVehicles                                               []models.OrganizationVehicle
 }
 
 type ParticipantsPageView struct {
+	Pagination rosterPagination
 	BasePageView
 	Participants []models.Participant
 	Labels       []models.Label
@@ -39,6 +47,7 @@ type ParticipantsPageView struct {
 }
 
 type DriversPageView struct {
+	Pagination rosterPagination
 	BasePageView
 	Drivers  []models.Driver
 	Labels   []models.Label
@@ -79,6 +88,7 @@ type HistoryPageView struct {
 }
 
 type ParticipantListView struct {
+	Pagination   rosterPagination
 	Participants []models.Participant
 	LabelIDs     map[int64][]int64
 	Labels       []models.Label
@@ -91,9 +101,10 @@ type ParticipantFormView struct {
 }
 
 type DriverListView struct {
-	Drivers  []models.Driver
-	LabelIDs map[int64][]int64
-	Labels   []models.Label
+	Pagination rosterPagination
+	Drivers    []models.Driver
+	LabelIDs   map[int64][]int64
+	Labels     []models.Label
 }
 
 type DriverFormView struct {
@@ -138,9 +149,13 @@ type CapacityShortageView struct {
 	RouteTime                 string
 	SelectedOrgVehicles       map[int64]int64
 	EffectiveCapacityByDriver map[int64]int
+	AssignedVehicles          map[int64]*models.OrganizationVehicle
 }
 
 type RouteResultsView struct {
+	// Partial restricts card rendering to RenderIndexes; full views render all cards.
+	Partial       bool
+	RenderIndexes map[int]bool
 	// Timings holds this response's measured copy of each route, or why it has none.
 	Timings []RouteTiming
 	// ShowAggregates is true only when every occupied car was measured in this response.

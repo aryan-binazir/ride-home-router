@@ -1,0 +1,21 @@
+{{define "vehicle_editor"}}
+<section class="route-editor-panel" aria-labelledby="route-editor-title">
+  <header class="route-editor-heading"><h2 id="route-editor-title">Vehicle for {{.Driver.Name}}</h2><button type="button" class="btn btn-sm btn-outline" onclick="closeRouteEditor()">Close</button></header>
+  <form hx-post="{{.URL}}" hx-target="#route-editor" hx-include="{{.Include}}" hx-sync="this:replace">
+    <label class="form-label" for="vehicle-editor-search">Find a van</label>
+    <div class="route-editor-search"><input class="form-input" type="search" name="search" id="vehicle-editor-search" value="{{.Search}}"><button type="submit" class="btn btn-outline">Search</button></div>
+  </form>
+  <form hx-post="{{.URL}}" hx-target="#route-editor" hx-include="{{.Include}}" hx-disabled-elt="find button[type=submit]" hx-sync="this:drop">
+    <input type="hidden" name="choose" value="1">
+    <fieldset class="route-editor-choices"><legend class="visually-hidden">Available vehicles</legend>
+      <label class="route-editor-choice"><input type="radio" name="vehicle_id" value="0" required><span><strong>Personal vehicle</strong><small>{{.Driver.VehicleCapacity}} seats</small></span></label>
+      {{range .Choices}}<label class="route-editor-choice"><input type="radio" name="vehicle_id" value="{{.Value}}" required><span><strong>{{.Name}}</strong><small>{{.Detail}}</small></span></label>{{end}}
+    </fieldset>
+    <button type="submit" class="btn btn-primary">Use vehicle</button>
+  </form>
+  <nav class="route-editor-pagination" aria-label="Vehicle results">
+    {{if .PreviousURL}}<button type="button" class="btn btn-outline" hx-post="{{.PreviousURL}}" hx-target="#route-editor" hx-include="{{.Include}}">Previous</button>{{end}}
+    {{if .NextURL}}<button type="button" class="btn btn-outline" hx-post="{{.NextURL}}" hx-target="#route-editor" hx-include="{{.Include}}">Next</button>{{end}}
+  </nav>
+</section>
+{{end}}

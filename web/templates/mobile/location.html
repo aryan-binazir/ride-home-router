@@ -1,6 +1,9 @@
 {{define "mobile_content"}}
-<form class="mobile-screen" action="/m/plan/location" method="post">
+<form id="mobile-location-picker" class="mobile-screen" action="/m/plan/location" method="post" hx-sync="this:replace">
   {{template "mobile_back_header" (dict "BackURL" "/m" "BackLabel" "Plan" "Title" "Location")}}
+  <div class="mobile-search"><input type="search" name="search" value="{{.Search}}" placeholder="Search locations" aria-label="Search locations" hx-get="/m/plan/location" hx-trigger="input changed delay:300ms" hx-include="#mobile-location-picker" hx-target="#mobile-location-results" hx-swap="outerHTML"></div>
+  {{block "mobile_location_results" .}}<div id="mobile-location-results">
+  {{if .HiddenSelected}}<input hidden type="radio" name="location_id" value="{{.SelectedID}}" checked>{{end}}
   <div class="mobile-group mobile-choice-list">
     {{range .Locations}}
     <label class="mobile-row mobile-choice">
@@ -11,6 +14,10 @@
     <p class="mobile-empty">No locations yet. Add one below.</p>
     {{end}}
   </div>
+  <nav class="route-editor-pagination" aria-label="Location pages">
+    {{if .Offset}}<button type="button" hx-get="/m/plan/location?offset={{.Previous}}" hx-include="#mobile-location-picker" hx-target="#mobile-location-results" hx-swap="outerHTML">Previous</button>{{end}}
+    {{if .Next}}<button type="button" hx-get="/m/plan/location?offset={{.Next}}" hx-include="#mobile-location-picker" hx-target="#mobile-location-results" hx-swap="outerHTML">Next</button>{{end}}
+  </nav></div>{{end}}
   <h2 class="mobile-section-title">Manage</h2>
   <div class="mobile-group">
     <a class="mobile-row mobile-accent" href="/m/places/locations/new?return=/m/plan/location">Add a location<i></i></a>

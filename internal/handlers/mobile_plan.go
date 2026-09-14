@@ -128,7 +128,30 @@ func (h *Handler) HandleMobileLocation(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileStoreError(w, r, err, "Locations not found")
 		return
 	}
-	h.renderTemplate(w, "mobile/location.html", mobileLocationView{mobileBaseView: newMobileBase(r, "Location", "plan", r.URL.Query().Get("error")), Locations: locations, SelectedID: draft.LocationID})
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+	filtered := locations[:0]
+	for _, location := range locations {
+		if strings.Contains(strings.ToLower(location.Name+" "+location.Address), strings.ToLower(search)) {
+			filtered = append(filtered, location)
+		}
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	start, end, next, previous := pickerWindow(len(filtered), offset)
+	selected := draft.LocationID
+	if h.isHTMX(r) {
+		selected, _ = strconv.ParseInt(r.URL.Query().Get("location_id"), 10, 64)
+	}
+	view := mobileLocationView{mobileBaseView: newMobileBase(r, "Location", "plan", r.URL.Query().Get("error")), Locations: filtered[start:end], SelectedID: selected, HiddenSelected: selected > 0, Search: search, Offset: start, Next: next, Previous: previous}
+	for _, location := range view.Locations {
+		if location.ID == selected {
+			view.HiddenSelected = false
+		}
+	}
+	page := "mobile/location.html"
+	if h.isHTMX(r) {
+		page += "#mobile_location_results"
+	}
+	h.renderTemplate(w, page, view)
 }
 
 func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +230,9 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	participants = filterByLabel(participants, func(p models.Participant) int64 { return p.ID }, labelIDs, labelID)
+	offset, _ := strconv.Atoi(values.Get("offset"))
+	start, end, next, previous := pickerWindow(len(participants), offset)
+	participants = participants[start:end]
 	displayed := make(map[int64]bool, len(participants))
 	for _, participant := range participants {
 		displayed[participant.ID] = true
@@ -215,7 +241,7 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 	base := newMobileBase(r, "Riders", "plan", r.URL.Query().Get("error"))
 	base.Notice = mergeMobileNotice(base.Notice, notice)
 	view := mobileRidersView{
-		mobileBaseView:    base,
+		Offset: start, Next: next, Previous: previous, mobileBaseView: base,
 		Participants:      participants,
 		Selected:          mobileSelected(selectedIDs),
 		Labels:            labels,
@@ -223,6 +249,10 @@ func (h *Handler) HandleMobileRiders(w http.ResponseWriter, r *http.Request) {
 		Search:            search,
 		LabelID:           labelID,
 		HiddenSelectedIDs: hidden,
+	}
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "mobile/riders.html#mobile_rider_results", view)
+		return
 	}
 	h.renderTemplate(w, "mobile/riders.html", view)
 }
@@ -308,7 +338,13 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileStoreError(w, r, err, "Drivers not found")
 		return
 	}
-	vehicles, err := h.DB.OrganizationVehicles().List(r.Context())
+	vehicleIDs := make([]int64, 0, len(assignments))
+	for _, vehicleID := range assignments {
+		if vehicleID > 0 {
+			vehicleIDs = append(vehicleIDs, vehicleID)
+		}
+	}
+	vehicles, err := h.DB.OrganizationVehicles().GetByIDs(r.Context(), vehicleIDs)
 	if err != nil {
 		h.renderMobileStoreError(w, r, err, "Some vans are no longer available. Select vans again.")
 		return
@@ -328,6 +364,9 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	drivers = filterByLabel(drivers, func(d models.Driver) int64 { return d.ID }, labelIDs, labelID)
+	offset, _ := strconv.Atoi(values.Get("offset"))
+	start, end, next, previous := pickerWindow(len(drivers), offset)
+	drivers = drivers[start:end]
 	displayed := make(map[int64]bool, len(drivers))
 	for _, driver := range drivers {
 		displayed[driver.ID] = true
@@ -335,7 +374,8 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 	base := newMobileBase(r, "Drivers", "plan", r.URL.Query().Get("error"))
 	base.Notice = mergeMobileNotice(base.Notice, notice)
 	view := mobileDriversView{
-		mobileBaseView:    base,
+		Offset: start, Next: next, Previous: previous,
+		SelectedCapacities: map[int64]int{}, mobileBaseView: base,
 		Drivers:           drivers,
 		Selected:          mobileSelected(selectedIDs),
 		Vehicles:          vehicles,
@@ -346,7 +386,20 @@ func (h *Handler) HandleMobileDrivers(w http.ResponseWriter, r *http.Request) {
 		LabelID:           labelID,
 		HiddenSelectedIDs: hiddenMobileIDs(selectedIDs, displayed),
 	}
+	view.AssignedVehicles = make(map[int64]*models.OrganizationVehicle, len(assignments))
+	for driverID, vehicleID := range assignments {
+		if vehicle, ok := vehiclesByID[vehicleID]; ok {
+			view.AssignedVehicles[driverID] = &vehicle
+		}
+	}
 	view.SelectedSeats = orgVehicleSeatCount(selectedIDs, selectedDrivers, assignments, vehiclesByID)
+	for _, driver := range selectedDrivers {
+		view.SelectedCapacities[driver.ID] = driver.VehicleCapacity
+	}
+	if h.isHTMX(r) {
+		h.renderTemplate(w, "mobile/drivers.html#mobile_driver_results", view)
+		return
+	}
 	h.renderTemplate(w, "mobile/drivers.html", view)
 }
 

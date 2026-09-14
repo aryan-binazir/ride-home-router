@@ -1,0 +1,19 @@
+{{define "catalog_editor"}}
+<section class="route-editor-panel" data-catalog-editor aria-labelledby="route-editor-title">
+  <header class="route-editor-heading"><h2 id="route-editor-title">{{.Title}}</h2><button type="button" class="btn btn-sm btn-outline" onclick="closeRouteEditor()">Close</button></header>
+  <form hx-get="{{.URL}}" hx-target="#route-editor" hx-sync="this:replace">
+    <label class="form-label" for="catalog-search">Search</label>
+    <div class="route-editor-search"><input type="search" class="form-input" id="catalog-search" name="search" value="{{.Search}}"><button class="btn btn-outline" type="submit">Search</button></div>
+  </form>
+  <form method="post" action="{{.SubmitURL}}" hx-post="{{.SubmitURL}}" hx-target="{{.Target}}" {{if .Include}}hx-include="{{.Include}}"{{end}} hx-sync="{{if .Sync}}{{.Sync}}{{else}}this:drop{{end}}" hx-disabled-elt="find button[type=submit]">
+    <fieldset class="route-editor-choices"><legend class="visually-hidden">{{.Title}}</legend>
+      {{range .Choices}}<label class="route-editor-choice"><input type="radio" name="{{$.ChoiceName}}" value="{{.Value}}" required><span><strong>{{.Name}}</strong>{{if .Detail}}<small>{{.Detail}}</small>{{end}}</span></label>{{else}}<p>No matches.</p>{{end}}
+    </fieldset>
+    {{if .Choices}}<button class="btn btn-primary" type="submit">Choose</button>{{end}}
+  </form>
+  <nav class="route-editor-pagination" aria-label="Choice pages">
+    {{if .PreviousURL}}<button type="button" class="btn btn-outline" hx-get="{{.PreviousURL}}" hx-target="#route-editor">Previous</button>{{end}}
+    {{if .NextURL}}<button type="button" class="btn btn-outline" hx-get="{{.NextURL}}" hx-target="#route-editor">Next</button>{{end}}
+  </nav>
+</section>
+{{end}}

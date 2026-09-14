@@ -178,6 +178,7 @@ func buildCapacityShortageViewData(rerr *routing.ErrRoutingFailed, drivers []mod
 		RouteTime:                 routeTime,
 		SelectedOrgVehicles:       assignments,
 		EffectiveCapacityByDriver: effectiveCapacityByDriver,
+		AssignedVehicles:          driverVehicles,
 	}
 }
 

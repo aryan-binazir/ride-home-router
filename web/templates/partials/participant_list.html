@@ -1,4 +1,5 @@
 {{define "participant_list"}}
+<div data-roster-page data-search-query="{{.Pagination.Search}}" data-offset="{{.Pagination.Offset}}">
 {{if .Participants}}
 <table data-cards>
     <thead>
@@ -27,8 +28,10 @@
 </table>
 {{else}}
 <div class="empty-state">
-    <h3>No participants yet</h3>
-    <p>Add your first participant to start planning routes.</p>
+    {{if .Pagination.Search}}<h3>No participants match your search</h3>{{else}}<h3>No participants yet</h3>
+    <p>Add your first participant to start planning routes.</p>{{end}}
 </div>
 {{end}}
+{{template "roster_pagination" .Pagination}}
+</div>
 {{end}}

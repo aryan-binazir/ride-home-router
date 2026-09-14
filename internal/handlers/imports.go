@@ -507,10 +507,12 @@ func logImportRequest(method, action, id string, status, rows int, started time.
 		action = "unknown"
 	}
 	if rows >= 0 {
-		log.Printf("[HTTP] Import request: method=%s action=%s session=%s status=%d rows=%d duration=%s", method, action, shortImportSessionID(id), status, rows, time.Since(started).Round(time.Millisecond))
+		//nolint:gosec // G706: %q escapes every request-derived string; the remaining fields are numeric or durations.
+		log.Printf("[HTTP] Import request: method=%q action=%q session=%q status=%d rows=%d duration=%s", method, action, shortImportSessionID(id), status, rows, time.Since(started).Round(time.Millisecond))
 		return
 	}
-	log.Printf("[HTTP] Import request: method=%s action=%s session=%s status=%d duration=%s", method, action, shortImportSessionID(id), status, time.Since(started).Round(time.Millisecond))
+	//nolint:gosec // G706: %q escapes every request-derived string; the remaining fields are numeric or durations.
+	log.Printf("[HTTP] Import request: method=%q action=%q session=%q status=%d duration=%s", method, action, shortImportSessionID(id), status, time.Since(started).Round(time.Millisecond))
 }
 
 func sanitizeImportRequestPath(r *http.Request, id, action string, pathOK bool) {

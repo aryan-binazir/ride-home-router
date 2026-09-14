@@ -45,7 +45,39 @@ func (h *Handler) HandleMobilePeople(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileError(w, r, http.StatusInternalServerError, messageGenericInternalError, err)
 		return
 	}
-	h.renderTemplate(w, "mobile/people.html", mobilePeopleView{mobileBaseView: newMobileBase(r, "People", "people", ""), Search: search, Participants: participants, Drivers: drivers, Labels: labels, ParticipantLabels: participantLabels, DriverLabels: driverLabels})
+	participantOffset, _ := strconv.Atoi(r.URL.Query().Get("participant_offset"))
+	driverOffset, _ := strconv.Atoi(r.URL.Query().Get("driver_offset"))
+	ps, pe, pn, pp := pickerWindow(len(participants), participantOffset)
+	ds, de, dn, dp := pickerWindow(len(drivers), driverOffset)
+	pageURL := func(p, d int) string {
+		q := url.Values{"search": {search}, "participant_offset": {strconv.Itoa(p)}, "driver_offset": {strconv.Itoa(d)}}
+		return "/m/people?" + q.Encode()
+	}
+	view := mobilePeopleView{mobileBaseView: newMobileBase(r, "People", "people", ""), Search: search, Participants: participants[ps:pe], Drivers: drivers[ds:de], Labels: labels, ParticipantLabels: participantLabels, DriverLabels: driverLabels}
+	if pn > 0 {
+		view.ParticipantNextURL = pageURL(pn, ds)
+	}
+	if ps > 0 {
+		view.ParticipantPreviousURL = pageURL(pp, ds)
+	}
+	if dn > 0 {
+		view.DriverNextURL = pageURL(ps, dn)
+	}
+	if ds > 0 {
+		view.DriverPreviousURL = pageURL(ps, dp)
+	}
+	page := "mobile/people.html"
+	if h.isHTMX(r) {
+		switch r.Header.Get("HX-Target") {
+		case "mobile-people-participants":
+			page += "#mobile_people_participants"
+		case "mobile-people-drivers":
+			page += "#mobile_people_drivers"
+		default:
+			page += "#mobile_people_results"
+		}
+	}
+	h.renderTemplate(w, page, view)
 }
 
 func (h *Handler) HandleMobileParticipantForm(w http.ResponseWriter, r *http.Request) {

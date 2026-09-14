@@ -7,9 +7,11 @@ import (
 	"io/fs"
 	"path"
 	"ride-home-router/internal/templateutil"
+	"strings"
 )
 
 var pageNames = []string{
+	"editor.html",
 	"index.html",
 	"participants.html",
 	"drivers.html",
@@ -84,7 +86,12 @@ func New(templatesFS fs.FS) (*Renderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read mobile layout: %w", err)
 	}
-	mobileBase := template.New("").Funcs(templateutil.FuncMap())
+	// Shared partials (for example a vehicle assignment) are the same server
+	// rendering on both surfaces. Mobile-specific definitions may override them.
+	mobileBase, err := base.Clone()
+	if err != nil {
+		return nil, fmt.Errorf("clone shared mobile templates: %w", err)
+	}
 	if _, err := mobileBase.New("mobile_layout.html").Parse(string(mobileLayout)); err != nil {
 		return nil, fmt.Errorf("parse mobile layout: %w", err)
 	}
@@ -122,6 +129,17 @@ func New(templatesFS fs.FS) (*Renderer, error) {
 
 // Render executes name with data into w.
 func (r *Renderer) Render(w io.Writer, name string, data any) error {
+	// Named page blocks execute directly; never render a page to extract HTML.
+	if pageName, block, partial := strings.Cut(name, "#"); partial {
+		page := r.pages[pageName]
+		if page == nil {
+			page = r.mobilePages[pageName]
+		}
+		if page == nil {
+			return fmt.Errorf("unknown page %q", pageName)
+		}
+		return page.ExecuteTemplate(w, block, data)
+	}
 	if page, ok := r.pages[name]; ok {
 		return page.ExecuteTemplate(w, "layout.html", data)
 	}

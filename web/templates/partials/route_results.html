@@ -16,13 +16,15 @@
             <h2 class="routes-title">Calculated Routes</h2>
             <p class="routes-subtitle">Copy routes, make quick tweaks, then save the event.</p>
         </div>
-        <div class="routes-actions">
+        {{block "route_actions" .}}
+        <div class="routes-actions" id="route-actions-{{.SessionID}}">
             {{if .IsEditing}}
             <button type="button" class="btn btn-sm btn-warning" data-session-action="edit" onclick="resetRoutes()">Reset changes</button>
             {{end}}
             <button type="button" class="btn btn-sm btn-secondary" data-session-action="copy" onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy all routes</button>
             <button type="button" class="btn btn-sm btn-primary" data-session-action="save" onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth'})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
         </div>
+        {{end}}
     </div>
 
     <div class="results-scroll scroll">
@@ -34,13 +36,15 @@
             </div>
             {{end}}
 
+            {{block "route_cards" .}}
             {{$useMiles := .UseMiles}}
             {{$activityLocation := .ActivityLocation}}
             {{$routeCount := len .Routes}}
             {{range $routeIndex, $route := .Routes}}
+            {{if or (not $.Partial) (index $.RenderIndexes $routeIndex)}}
             {{$timing := index $.Timings $routeIndex}}
             {{$measured := $timing.Route}}
-            <section class="route-card {{if .OrgVehicleID}}org-vehicle{{end}} {{if and (lt $routeIndex (len $.OverCapacity)) (index $.OverCapacity $routeIndex)}}route-card-over-capacity{{end}}"
+            <section id="route-{{$.SessionID}}-{{$routeIndex}}" class="route-card {{if .OrgVehicleID}}org-vehicle{{end}} {{if and (lt $routeIndex (len $.OverCapacity)) (index $.OverCapacity $routeIndex)}}route-card-over-capacity{{end}}"
                      data-activity-location-address="{{$activityLocation.Address}}"
                      data-driver-name="{{.Driver.Name}}"
                      data-driver-address="{{.Driver.Address}}"
@@ -67,13 +71,7 @@
                     </div>
                     {{if gt $routeCount 1}}
                     <div class="route-tools">
-                        <select class="form-select form-input-sm form-input-inline" data-session-action="edit" id="swap-select-{{$routeIndex}}" aria-label="Swap {{.Driver.Name}} with another driver">
-                            <option value="">Swap driver with...</option>
-                            {{range $i, $r := $.Routes}}
-                            {{if ne $i $routeIndex}}<option value="{{$i}}">{{$r.Driver.Name}}</option>{{end}}
-                            {{end}}
-                        </select>
-                        <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" onclick="swapDrivers({{$routeIndex}})">Swap</button>
+                        <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" aria-label="Swap {{.Driver.Name}} with another driver" data-editor-url="/api/v1/routes/editor?session_id={{$.SessionID}}&amp;action=swap&amp;from_route_index={{$routeIndex}}" onclick="openRouteEditor(this)">Swap driver</button>
                     </div>
                     {{end}}
                 </div>
@@ -126,15 +124,7 @@
                         {{end}}
                         {{if gt $routeCount 1}}
                         <div class="stop-actions">
-                            <select class="form-select form-input-sm form-input-inline"
-                                    data-session-action="edit"
-                                    aria-label="Move {{.Participant.Name}} to another route"
-                                    onchange="moveParticipant({{.Participant.ID}}, {{$routeIndex}}, this.value); this.value='';">
-                                <option value="">Move to...</option>
-                                {{range $i, $r := $.Routes}}
-                                {{if ne $i $routeIndex}}<option value="{{$i}}">{{$r.Driver.Name}}</option>{{end}}
-                                {{end}}
-                            </select>
+                            <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" aria-label="Move {{.Participant.Name}} to another route" data-editor-url="/api/v1/routes/editor?session_id={{$.SessionID}}&amp;action=move&amp;from_route_index={{$routeIndex}}&amp;participant_id={{.Participant.ID}}" onclick="openRouteEditor(this)">Move</button>
                         </div>
                         {{end}}
                     </div>
@@ -155,26 +145,21 @@
                 </div>
             </section>
             {{end}}
-
-            {{if .UnusedDrivers}}
-            <details class="unused-drivers-section">
-                <summary class="unused-drivers-header">{{pluralize (len .UnusedDrivers) "Unused driver"}} ({{len .UnusedDrivers}})</summary>
-                <div class="unused-drivers-list">
-                    {{range .UnusedDrivers}}
-                    <div class="unused-driver-item">
-                        <div class="driver-avatar" aria-hidden="true">{{initials .Name}}</div>
-                        <div class="driver-info-compact">
-                            <span class="driver-name">{{.Name}}</span>
-                            <span class="driver-capacity text-muted">{{.VehicleCapacity}} personal {{pluralize .VehicleCapacity "seat"}}</span>
-                        </div>
-                        <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" onclick="addUnusedDriver({{.ID}})">Add to routes</button>
-                    </div>
-                    {{end}}
-                </div>
-            </details>
+            {{end}}
             {{end}}
 
-            <div class="route-summary">
+            {{block "route_unused" .}}
+            <div id="route-unused-{{.SessionID}}">
+            {{if .UnusedDrivers}}
+            <div class="unused-drivers-section">
+                <button type="button" class="btn btn-outline" data-session-action="edit" data-editor-url="/api/v1/routes/editor?session_id={{.SessionID}}&amp;action=add" onclick="openRouteEditor(this)">Add unused driver ({{len .UnusedDrivers}})</button>
+            </div>
+            {{end}}
+            </div>
+            {{end}}
+
+            {{block "route_summary" .}}
+            <div class="route-summary" id="route-summary-{{.SessionID}}">
                 <h3 class="visually-hidden">Summary</h3>
                 <div class="summary-grid">
                     <div class="summary-item"><div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div><div class="value">{{.Summary.TotalParticipants}}</div></div>
@@ -198,6 +183,7 @@
                 {{if .Attribution}}<p class="text-muted route-attribution-note">Current estimates for this itinerary</p>{{end}}
             </div>
 
+            {{end}}
             <div class="card save-event-card" id="save-event-panel">
                 <div class="card-header"><h3 class="card-title">Save event</h3></div>
                 <form {{if not .IsOutOfBalance}}hx-post="/api/v1/events"{{end}}
@@ -236,4 +222,13 @@
     </div>
 </div>
 {{end}}
+{{end}}
+
+{{define "route_updates"}}
+<div data-route-patch="{{.SessionID}}" data-route-count="{{len .Routes}}">
+  {{template "route_cards" .}}
+  {{template "route_actions" .}}
+  {{template "route_unused" .}}
+  {{template "route_summary" .}}
+</div>
 {{end}}

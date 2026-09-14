@@ -264,11 +264,11 @@ func TestHandleIndexPage_RendersVanAssignmentsPanelWhenVansExist(t *testing.T) {
 	if !strings.Contains(body, "Depart activity location at") {
 		t.Fatalf("expected Event Planning page to render the route time label, body=%q", body)
 	}
-	if !strings.Contains(body, `id="event-org-vehicles"`) {
-		t.Fatalf("expected Event Planning page to include vans JSON payload, body=%q", body)
+	if strings.Contains(body, `id="event-org-vehicles"`) || strings.Contains(body, "Overflow Van") {
+		t.Fatal("initial planner must not preload the vehicle catalog")
 	}
-	if !strings.Contains(body, "Overflow Van") {
-		t.Fatalf("expected Event Planning page to include saved van data, body=%q", body)
+	if !strings.Contains(body, "/api/v1/planner/vehicle-editor") {
+		t.Fatal("missing on-demand vehicle editor")
 	}
 }
 

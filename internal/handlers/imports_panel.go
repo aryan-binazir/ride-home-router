@@ -56,6 +56,7 @@ type importRowView struct {
 }
 
 type importCommitBarView struct {
+	OOB       bool
 	SessionID string
 	Selected  int
 	Total     int
@@ -63,15 +64,17 @@ type importCommitBarView struct {
 }
 
 type importPreviewView struct {
-	SessionID    string
-	Filename     string
-	IsDriver     bool
-	Warnings     []string
-	Rows         []importRowView
-	Geocoding    bool
-	GeocodeDone  int
-	GeocodeTotal int
-	CommitBar    importCommitBarView
+	Offset, Next, Previous int
+	ProgressOnly           bool
+	SessionID              string
+	Filename               string
+	IsDriver               bool
+	Warnings               []string
+	Rows                   []importRowView
+	Geocoding              bool
+	GeocodeDone            int
+	GeocodeTotal           int
+	CommitBar              importCommitBarView
 }
 
 type importMessageView struct {
@@ -215,11 +218,42 @@ func importSelectionFromForm(r *http.Request, rowCount int) []bool {
 	return selected
 }
 
+func importPageSelection(r *http.Request, rowCount int) (map[int]bool, error) {
+	if len(r.Form["visible"]) > rosterPageSize {
+		return nil, importer.ErrInvalidSelection
+	}
+	patch := make(map[int]bool, len(r.Form["visible"]))
+	for _, value := range r.Form["visible"] {
+		index, err := strconv.Atoi(value)
+		if err != nil || index < 0 || index >= rowCount {
+			return nil, importer.ErrInvalidSelection
+		}
+		patch[index] = false
+	}
+	for _, value := range r.Form["selected"] {
+		index, err := strconv.Atoi(value)
+		if err != nil {
+			return nil, importer.ErrInvalidSelection
+		}
+		if _, ok := patch[index]; !ok {
+			return nil, importer.ErrInvalidSelection
+		}
+		patch[index] = true
+	}
+	return patch, nil
+}
+
 func newImportPreviewView(snapshot importer.Snapshot) importPreviewView {
+	return importPreviewPage(snapshot, 0)
+}
+
+func importPreviewPage(snapshot importer.Snapshot, offset int) importPreviewView {
 	isDriver := snapshot.Kind == importer.KindDriver
-	rows := make([]importRowView, len(snapshot.Rows))
-	for index, row := range snapshot.Rows {
-		rows[index] = importRowView{
+	start, end, next, previous := pickerWindow(len(snapshot.Rows), offset)
+	rows := make([]importRowView, 0, end-start)
+	for index := start; index < end; index++ {
+		row := snapshot.Rows[index]
+		rows = append(rows, importRowView{
 			Index:       index,
 			SourceRow:   row.SourceRow,
 			Name:        row.Name,
@@ -231,19 +265,20 @@ func newImportPreviewView(snapshot importer.Snapshot) importPreviewView {
 			Notes:       importRowNotes(row),
 			Selected:    index < len(snapshot.Selected) && snapshot.Selected[index],
 			Selectable:  len(row.Errors) == 0,
-		}
+		})
 	}
 
 	// Geocoding can make a previously selected row unselectable.
 	selectedCount := 0
-	for _, row := range rows {
-		if row.Selected && row.Selectable {
+	for i, row := range snapshot.Rows {
+		if i < len(snapshot.Selected) && snapshot.Selected[i] && len(row.Errors) == 0 {
 			selectedCount++
 		}
 	}
 	geocoding := snapshot.GeocodeProgress.Running
 
 	return importPreviewView{
+		Offset: start, Next: next, Previous: previous,
 		SessionID:    snapshot.ID,
 		Filename:     snapshot.Filename,
 		IsDriver:     isDriver,
@@ -331,7 +366,14 @@ func (h *Handler) renderImportStep(w http.ResponseWriter, r *http.Request, snaps
 }
 
 func (h *Handler) renderImportPreview(w http.ResponseWriter, r *http.Request, snapshot importer.Snapshot) {
-	view := newImportPreviewView(snapshot)
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	view := importPreviewPage(snapshot, offset)
+	if r.URL.Query().Get("progress") == "1" {
+		view.ProgressOnly = true
+		view.CommitBar.OOB = true
+		h.renderTemplate(w, "import_progress", view)
+		return
+	}
 	if view.Geocoding {
 		configured, err := h.DB.Settings().GoogleMapsKeyConfigured(r.Context())
 		if err != nil {
@@ -361,6 +403,10 @@ func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Reque
 	}
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil), -1
+	}
+	if r.URL.Query().Get("progress") == "1" && snapshot.Status != importer.StatusPreviewing && snapshot.Status != importer.StatusCommitting {
+		w.Header().Set("HX-Retarget", "#import-steps")
+		w.Header().Set("HX-Reswap", "innerHTML")
 	}
 	h.renderImportStep(w, r, snapshot)
 	return http.StatusOK, len(snapshot.Rows)
@@ -409,11 +455,25 @@ func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Reque
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil), -1
 	}
-	updated, err := h.ImportSession.SelectRowsContext(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+	var updated importer.Snapshot
+	var err error
+	if r.Form.Get("page_selection") == "1" {
+		var patch map[int]bool
+		patch, err = importPageSelection(r, len(snapshot.Rows))
+		if err == nil {
+			updated, err = h.ImportSession.SelectRowsPatch(r.Context(), id, patch)
+		}
+	} else {
+		updated, err = h.ImportSession.SelectRowsContext(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+	}
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), -1
 	}
-	h.renderTemplate(w, "import_commit_bar", newImportPreviewView(updated).CommitBar)
+	if r.URL.Query().Get("page") == "1" {
+		h.renderImportPreview(w, r, updated)
+	} else {
+		h.renderTemplate(w, "import_commit_bar", newImportPreviewView(updated).CommitBar)
+	}
 	return http.StatusOK, len(updated.Rows)
 }
 
@@ -428,7 +488,17 @@ func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id s
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil)
 	}
-	result, err := h.ImportSession.Commit(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+	var result importer.CommitResult
+	var err error
+	if r.Form.Get("page_selection") == "1" {
+		var patch map[int]bool
+		patch, err = importPageSelection(r, len(snapshot.Rows))
+		if err == nil {
+			result, err = h.ImportSession.CommitRowsPatch(r.Context(), id, patch)
+		}
+	} else {
+		result, err = h.ImportSession.Commit(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+	}
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err)
 	}

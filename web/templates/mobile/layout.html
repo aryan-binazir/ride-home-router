@@ -10,6 +10,8 @@
   <script src="/static/js/htmx.min.js"></script>
   <script>htmx.config.timeout = 45000;</script>
   <script src="/static/js/ui.js" defer></script>
+  <link rel="stylesheet" href="/static/css/editors.css">
+  <script src="/static/js/editors.js" defer></script>
   <script src="/static/js/mobile.js" defer></script>
   <script src="/static/js/auth.js?v=20260912-theme" defer></script>
 </head>
@@ -26,6 +28,7 @@
     </main>
     {{template "mobile_tabs" .}}
   </div>
+  <dialog id="route-editor-dialog" class="route-editor-dialog" aria-label="Edit plan"><div id="route-editor"></div></dialog>
 </body>
 </html>
 {{end}}
