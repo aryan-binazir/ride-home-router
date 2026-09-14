@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/access"
+	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
@@ -117,7 +119,7 @@ func TestHandleSettingsPage_RendersSMEEmailControl(t *testing.T) {
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
 	rr := httptest.NewRecorder()
-	handler.HandleSettingsPage(rr, req)
+	serveSettingsAsAdmin(t, store, handler.HandleSettingsPage, rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
@@ -145,7 +147,7 @@ func TestHandleUpdateSettings_TrimsAndRoundTripsSMEEmail(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/settings", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
-	handler.HandleUpdateSettings(rr, req)
+	serveSettingsAsAdmin(t, store, handler.HandleUpdateSettings, rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
@@ -177,7 +179,7 @@ func TestHandleUpdateSettings_BlankFormSMEEmailDisablesCapture(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
-	handler.HandleUpdateSettings(rr, req)
+	serveSettingsAsAdmin(t, store, handler.HandleUpdateSettings, rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNoContent, rr.Body.String())
@@ -201,7 +203,7 @@ func TestHandleUpdateSettings_RejectsInvalidFormSMEEmail(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
-	handler.HandleUpdateSettings(rr, req)
+	serveSettingsAsAdmin(t, store, handler.HandleUpdateSettings, rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
@@ -360,4 +362,67 @@ func newTestPageHandler(t *testing.T) (*Handler, *postgres.Store) {
 	t.Cleanup(handler.RouteSession.Close)
 
 	return handler, store
+}
+
+func serveSettingsAsAdmin(t *testing.T, store access.Store, handler http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+	fixture := accesstest.New(t)
+	token := fixture.Admin()
+	gate, err := access.New(fixture.Config(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("Authorization", "Bearer "+token)
+	gate.Protect(handler).ServeHTTP(w, r)
+}
+
+func TestReviewerSettingsNonAdmin(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	if err := store.Settings().Update(t.Context(), &models.Settings{UseMiles: true, SMEEmail: "reviewer@example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	page := httptest.NewRecorder()
+	handler.HandleSettingsPage(page, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/settings", nil))
+	for _, hidden := range []string{"sme_email", "Reviewer email", "reviewer@example.test"} {
+		if strings.Contains(page.Body.String(), hidden) {
+			t.Errorf("non-admin page exposes %q", hidden)
+		}
+	}
+	for _, tc := range []struct {
+		body, content string
+		htmx          bool
+	}{
+		{`{"sme_email":"attacker@example.test"}`, "application/json", false},
+		{"sme_email=", "application/x-www-form-urlencoded", true},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", tc.content)
+		if tc.htmx {
+			req.Header.Set("HX-Request", "true")
+		}
+		response := httptest.NewRecorder()
+		handler.HandleUpdateSettings(response, req)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("non-admin mutation status %d", response.Code)
+		}
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader(`{"use_miles":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.HandleUpdateSettings(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("ordinary preferences status %d", response.Code)
+	}
+	if strings.Contains(response.Body.String(), "reviewer@example.test") {
+		t.Fatal("update exposes reviewer email")
+	}
+	settings, err := store.Settings().Get(t.Context())
+	if err != nil || settings.SMEEmail != "reviewer@example.test" || settings.UseMiles {
+		t.Fatalf("settings not preserved: %#v, %v", settings, err)
+	}
+	response = httptest.NewRecorder()
+	handler.HandleGetSettings(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/settings", nil))
+	if strings.Contains(response.Body.String(), "reviewer@example.test") {
+		t.Fatal("GET exposes reviewer email")
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
+	"ride-home-router/internal/access"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -20,6 +21,9 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !access.IsAdmin(r.Context()) {
+		settings.SMEEmail = ""
+	}
 	h.writeJSON(w, http.StatusOK, settings)
 }
 
@@ -54,6 +58,11 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
+	}
+
+	if req.SMEEmail != nil && !access.IsAdmin(r.Context()) {
+		h.handleHTMXErrorNoSwap(w, r, http.StatusForbidden, "FORBIDDEN", "Only administrators can change the reviewer email.")
+		return
 	}
 
 	currentSettings, err := h.DB.Settings().Get(r.Context())
@@ -135,6 +144,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !access.IsAdmin(r.Context()) {
+		settings.SMEEmail = ""
+	}
 	h.writeJSON(w, http.StatusOK, settings)
 }
 

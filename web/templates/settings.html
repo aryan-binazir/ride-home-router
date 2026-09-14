@@ -27,6 +27,7 @@
             </div>
         </div>
 
+        {{if .IsAdmin}}
         <div class="form-group">
             <label class="form-label" for="sme-email">Reviewer email</label>
             <input type="email"
@@ -36,6 +37,8 @@
                    value="{{.Settings.SMEEmail}}">
             <p class="form-help">Route edits saved by this person help improve route suggestions. Leave blank to turn this off.</p>
         </div>
+
+        {{end}}
 
         <div class="d-flex align-center gap-2">
             <button type="submit" class="btn btn-primary">
