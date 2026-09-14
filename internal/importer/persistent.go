@@ -367,6 +367,7 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	persistCtx, persistCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer persistCancel()
 	failed := err != nil || result == nil || !validCoordinatePair(result.Coords.Lat, result.Coords.Lng)
+	failureMessage := geocodeFailureMessage(err)
 	stored, err := s.durableJobs.Rows(persistCtx, job.SessionID)
 	if err != nil {
 		return err
@@ -382,7 +383,7 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 		}
 		row.NeedsGeocoding = false
 		if failed {
-			row.addError("address could not be geocoded")
+			row.addError(failureMessage)
 		} else {
 			row.Lat = result.Coords.Lat
 			row.Lng = result.Coords.Lng

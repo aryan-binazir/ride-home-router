@@ -16,14 +16,16 @@ import (
 
 func TestPersistentGeocodeRoundLimit(t *testing.T) {
 	for _, tc := range []struct {
-		name                              string
-		successAt, crashRounds, wantCalls int
-		permanent, timeoutLast            bool
+		name                                         string
+		successAt, crashRounds, wantCalls            int
+		configuration, quota, permanent, timeoutLast bool
 	}{
 		{name: "temporary exhaustion", wantCalls: 3},
 		{name: "last round deadline", timeoutLast: true, wantCalls: 3},
 		{name: "success on last round", successAt: 3, wantCalls: 3},
 		{name: "permanent failure", permanent: true, wantCalls: 1},
+		{name: "key rejected", configuration: true, wantCalls: 3},
+		{name: "usage ceiling", quota: true, wantCalls: 3},
 		{name: "crashes consume rounds", crashRounds: 3, wantCalls: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,6 +59,12 @@ func TestPersistentGeocodeRoundLimit(t *testing.T) {
 				}
 				if retries != 3 {
 					t.Fatalf("attempts per round = %d", retries)
+				}
+				if tc.configuration {
+					return nil, &geocoding.ErrGeocodingFailed{Configuration: true, Cause: geocoding.ErrNotConfigured}
+				}
+				if tc.quota {
+					return nil, &geocoding.ErrGeocodingFailed{Configuration: true, Cause: database.ErrUsageExhausted}
 				}
 				if tc.permanent {
 					return nil, geocoding.ErrNoGeocodingResults
@@ -116,6 +124,12 @@ func TestPersistentGeocodeRoundLimit(t *testing.T) {
 			}
 			if tc.successAt == 0 && (len(result.Errors) == 0 || rows[0].Selected) {
 				t.Fatalf("failed row not excluded: %+v %+v", result, rows[0])
+			}
+			if tc.configuration && !containsString(result.Errors, "Google address lookup is unavailable. Ask an administrator to check the saved key, Geocoding API permissions and billing, then upload the file again.") {
+				t.Fatalf("missing configuration guidance: %v", result.Errors)
+			}
+			if tc.quota && !containsString(result.Errors, "The app's Google usage limit has been reached. Ask an administrator to check usage before uploading the file again.") {
+				t.Fatalf("missing usage guidance: %v", result.Errors)
 			}
 			if _, ok, err := db.ImportJobs().Claim(t.Context(), "extra", time.Minute); err != nil || ok {
 				t.Fatalf("finished job claimed: %v %v", ok, err)

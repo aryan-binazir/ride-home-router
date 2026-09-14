@@ -582,7 +582,7 @@ func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
 		if err != nil || result == nil || !validCoordinatePair(result.Coords.Lat, result.Coords.Lng) {
 			failures++
 			for _, rowIndex := range group.rows {
-				state.rows[rowIndex].addError("address could not be geocoded")
+				state.rows[rowIndex].addError(geocodeFailureMessage(err))
 				state.rows[rowIndex].NeedsGeocoding = false
 				state.selected[rowIndex] = false
 			}
@@ -803,4 +803,15 @@ func newSessionID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+// geocodeFailureMessage preserves actionable setup failures without exposing provider details.
+func geocodeFailureMessage(err error) string {
+	if errors.Is(err, database.ErrUsageExhausted) {
+		return "The app's Google usage limit has been reached. Ask an administrator to check usage before uploading the file again."
+	}
+	if failure, ok := errors.AsType[*geocoding.ErrGeocodingFailed](err); errors.Is(err, geocoding.ErrNotConfigured) || ok && failure.Configuration {
+		return "Google address lookup is unavailable. Ask an administrator to check the saved key, Geocoding API permissions and billing, then upload the file again."
+	}
+	return "address could not be geocoded"
 }
