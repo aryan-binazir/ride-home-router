@@ -386,6 +386,24 @@
     }
 
     function installRouteResults({ target, html, htmx, afterRender }) {
+        if (html.includes('data-route-patch=')) {
+            const template = target.ownerDocument.createElement('template');
+            template.innerHTML = html;
+            const patch = template.content.querySelector('[data-route-patch]');
+            const container = target.querySelector('.routes-container');
+            if (!patch || !container || patch.dataset.routePatch !== container.dataset.sessionId) return;
+            for (const fragment of Array.from(patch.children)) {
+                const previous = target.ownerDocument.getElementById(fragment.id);
+                if (previous && target.contains(previous)) previous.replaceWith(fragment);
+                else if (fragment.matches('.route-card')) container.querySelector('[id^="route-unused-"]').before(fragment);
+                else continue;
+                htmx.process(fragment);
+            }
+            container.dataset.routeCount = patch.dataset.routeCount;
+            refreshRouteTotals(target);
+            afterRender();
+            return;
+        }
         const savedFields = snapshotSaveFields(target);
         target.innerHTML = preserveTimings(target, html, target.ownerDocument);
         refreshRouteTotals(target);
@@ -1106,7 +1124,9 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'HX-Request': 'true'
+                            'HX-Request': 'true',
+                            'X-Route-Fragment': 'true',
+                            'X-Route-Balance': document.querySelector('.routes-container')?.dataset.outOfBalance || ''
                         },
                         body: JSON.stringify(payload)
                     });
@@ -1135,7 +1155,7 @@
                 return;
             }
 
-            participantMoveBatcher.enqueue({
+            return participantMoveBatcher.enqueue({
                 session_id: sessionId,
                 participant_id: parseInt(participantId),
                 from_route_index: parseInt(fromRouteIndex),
@@ -1176,7 +1196,7 @@
                 try {
                     const response = await (window.authFetch || fetch)(endpoint, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
+                        headers: { 'Content-Type': 'application/json', 'HX-Request': 'true', 'X-Route-Fragment': 'true', 'X-Route-Balance': document.querySelector('.routes-container')?.dataset.outOfBalance || '' },
                         ...(payload ? { body: JSON.stringify(payload) } : {}),
                     });
                     return routeSessionOrchestrator.applyEditResult({
@@ -1191,6 +1211,42 @@
                     return false;
                 }
             });
+        }
+
+        async function openRouteEditor(button) {
+            const sessionId = getSessionId();
+            const url = button.dataset.editorUrl;
+            if (!sessionId || !plannerState.refresh().canSave) return;
+            if (!await participantMoveBatcher.flushFor(sessionId) || sessionId !== getSessionId() || !plannerState.refresh().canSave) return;
+            try {
+                await htmx.ajax('GET', url, {target: '#route-editor', swap: 'innerHTML'});
+            } catch { showToast('Could not open the editor. Please try again.', 'error'); }
+        }
+
+        async function submitRouteEditor(event) {
+            event.preventDefault();
+            const form = event.target;
+            const values = new FormData(form);
+            const sessionId = values.get('session_id');
+            if (sessionId !== getSessionId() || !plannerState.refresh().canSave || !form.reportValidity()) return;
+            const destination = values.get('destination');
+            if (destination === null || destination === '') return;
+            const button = form.querySelector('button[type="submit"]');
+            if (button.disabled) return;
+            button.disabled = true;
+            let succeeded = false;
+            try {
+                const from = Number(values.get('from_route_index'));
+                if (values.get('action') === 'move') {
+                    await moveParticipant(values.get('participant_id'), from, destination);
+                    succeeded = await participantMoveBatcher.flushFor(sessionId);
+                } else if (values.get('action') === 'swap') {
+                    succeeded = await enqueueRouteEdit(sessionId, '/api/v1/routes/edit/swap-drivers', {session_id: sessionId, route_index_1: from, route_index_2: Number(destination)});
+                } else if (values.get('action') === 'add') {
+                    succeeded = await addUnusedDriver(Number(destination));
+                }
+                if (succeeded && form.isConnected) root.closeRouteEditor();
+            } finally { if (button.isConnected) button.disabled = false; }
         }
 
         async function swapDrivers(routeIndex1) {
@@ -1298,6 +1354,7 @@
         const EVENT_PLANNER_DRAFT_KEY = 'ride-home-router:event-planner-draft:v1';
         const EVENT_PLANNER_MODES = new Set(['dropoff', 'pickup']);
         let isRestoringEventPlannerDraft = false;
+        let plannerRestoreFailed = false;
         let swappedSaveFields = null;
 
         const PLAN_STATE_MESSAGES = {
@@ -1457,7 +1514,7 @@
         }
 
         function saveEventPlannerDraft() {
-            if (isRestoringEventPlannerDraft) return;
+            if (isRestoringEventPlannerDraft || plannerRestoreFailed) return;
 
             const inputs = readPlannerInputs();
             const fingerprint = readPlannerFingerprint(inputs);
@@ -1483,15 +1540,23 @@
             });
         }
 
-        function restoreEventPlannerDraft() {
+        async function restoreEventPlannerDraft() {
             const draft = getEventPlannerDraft();
             const form = getEventForm();
             if (!draft || !form) return;
 
             isRestoringEventPlannerDraft = true;
+            form.inert = true;
+            const calculate = document.getElementById('calculate-btn');
+            if (calculate) calculate.disabled = true;
+            let restored = false;
             try {
-                const activityLocation = form.querySelector('select[name="activity_location_id"]');
+                let activityLocation = form.querySelector('select[name="activity_location_id"]');
                 if (activityLocation && typeof draft.activityLocationId === 'string') {
+                    if (activityLocation.dataset?.onDemand && draft.activityLocationId) {
+                        if (!await window.restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
+                        activityLocation = form.querySelector('select[name="activity_location_id"]');
+                    }
                     activityLocation.value = draft.activityLocationId;
                 }
 
@@ -1508,6 +1573,9 @@
                     routeTime.value = draft.routeTime;
                 }
 
+                for (const kind of ['participants', 'drivers']) {
+                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource && !await requestPlannerPicker(kind, 0, false, draft)) throw new Error('could not restore selected people');
+                }
                 applyCheckedValues('.participant-checkbox', draft.participantIds);
                 applyCheckedValues('.driver-checkbox', draft.driverIds);
                 applyPlannerLabelFilters(draft.labelFilters);
@@ -1517,17 +1585,30 @@
                 renderVanAssignmentsPanel();
 
                 if (draft.vanAssignments && typeof draft.vanAssignments === 'object') {
-                    Object.entries(draft.vanAssignments).forEach(([driverId, vehicleId]) => {
-                        const select = document.getElementById(`van-assignment-${driverId}`);
-                        if (select) {
-                            select.value = String(vehicleId);
+                    const body = new URLSearchParams();
+                    getCheckedInputs('.driver-checkbox').forEach(input => body.append('driver_ids', input.value));
+                    Object.entries(draft.vanAssignments).forEach(([id, vehicle]) => body.set(`org_vehicle_${id}`, String(vehicle)));
+                    if (Object.keys(draft.vanAssignments).length && !document.getElementById('drivers-selection')?.dataset?.pageSource) {
+                        const response = await (window.authFetch || fetch)('/api/v1/planner/vehicle-assignments', {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body, signal: AbortSignal.timeout(15000)});
+                        if (!response.ok) throw new Error('Vehicle assignment restoration failed');
+                        const template = document.createElement('template');
+                        template.innerHTML = await response.text();
+                        for (const control of template.content.querySelectorAll('.van-assignment-inline')) {
+                            const previous = document.getElementById(control.id);
+                            if (previous && form.contains(previous)) { previous.replaceWith(control); htmx.process(control); }
                         }
-                    });
+                    }
                     handleVanAssignmentChange();
                 } else {
                     updateEventStats();
                 }
+                restored = true;
             } finally {
+                plannerRestoreFailed = !restored;
+                // A failed restore must leave Clear all reachable; calculation
+                // remains blocked so a partially restored draft cannot be saved.
+                form.inert = false;
+                if (calculate) calculate.disabled = !restored;
                 updateRouteTimeCopy();
                 ensureDefaultRouteTime();
                 isRestoringEventPlannerDraft = false;
@@ -1590,19 +1671,6 @@
                 .replace(/'/g, '&#39;');
         }
 
-        function getOrgVehicles() {
-            const el = document.getElementById('event-org-vehicles');
-            if (!el) return [];
-
-            try {
-                const parsed = JSON.parse(el.textContent || '[]');
-                return Array.isArray(parsed) ? parsed : [];
-            } catch (err) {
-                console.error('Failed to parse vans JSON', err);
-                return [];
-            }
-        }
-
         function getVanAssignments() {
             const assignments = {};
             document.querySelectorAll('.van-assignment-select').forEach(select => {
@@ -1650,37 +1718,22 @@
         }
 
         function renderVanAssignmentsPanel() {
-            const orgVehicles = getOrgVehicles();
-            const existingAssignments = getVanAssignments();
-            document.querySelectorAll('.driver-checkbox').forEach((checkbox) => {
-                const driverId = checkbox.value;
+            document.querySelectorAll('.driver-checkbox').forEach(checkbox => {
                 const row = checkbox.closest('.select-row');
-                const inlineContainer = row ? row.querySelector('.van-assignment-inline') : null;
-                const select = document.getElementById(`van-assignment-${driverId}`);
-                const personalCapacity = parseInt(checkbox.dataset.capacity, 10) || 0;
-                const selectedVehicleId = existingAssignments[driverId] || '';
-                if (!row || !inlineContainer || !select) return;
-
-                row.classList.toggle('has-van-assignment', checkbox.checked);
-                inlineContainer.classList.toggle('hidden', !checkbox.checked);
-
-                if (orgVehicles.length === 0) {
-                    select.value = '';
-                    select.disabled = true;
-                    select.innerHTML = `<option value="" data-capacity="${personalCapacity}" selected>No vans saved yet</option>`;
-                    return;
-                }
-
-                const options = orgVehicles.map((vehicle) => {
-                    const selected = String(vehicle.id) === String(selectedVehicleId) ? ' selected' : '';
-                    return `<option value="${vehicle.id}" data-capacity="${vehicle.capacity}"${selected}>${escapeHtml(vehicle.name)} (${vehicle.capacity} available seat${vehicle.capacity === 1 ? '' : 's'})</option>`;
-                }).join('');
-
+                const inline = row?.querySelector('.van-assignment-inline');
+                const select = row?.querySelector('.van-assignment-select') || document.getElementById(`van-assignment-${checkbox.value}`);
+                if (!select) return;
+                row?.classList.toggle('has-van-assignment', checkbox.checked);
+                inline?.classList.toggle('hidden', !checkbox.checked);
                 select.disabled = !checkbox.checked;
-                select.innerHTML = `<option value="" data-capacity="${personalCapacity}">Personal vehicle</option>${options}`;
-                select.value = checkbox.checked ? selectedVehicleId : '';
+                if (!checkbox.checked && select.value) {
+                    const option = new Option('Personal vehicle', '', true, true);
+                    option.dataset.capacity = checkbox.dataset.capacity;
+                    select.replaceChildren(option);
+                    const label = inline?.querySelector('.van-assignment-current');
+                    if (label) label.textContent = `Personal vehicle · ${checkbox.dataset.capacity} seats`;
+                }
             });
-
             handleVanAssignmentChange();
         }
 
@@ -1692,7 +1745,7 @@
             drivers.forEach(cb => {
                 const select = document.getElementById(`van-assignment-${cb.value}`);
                 if (select) {
-                    totalCapacity += parseInt(select.options[select.selectedIndex].dataset.capacity, 10) || 0;
+                    totalCapacity += parseInt(select.options[select.selectedIndex]?.dataset.capacity ?? cb.dataset.capacity, 10) || 0;
                     return;
                 }
                 totalCapacity += parseInt(cb.dataset.capacity, 10) || 0;
@@ -1752,9 +1805,76 @@
             });
         }
 
+        const pickerRequests = new Map();
+        const pickerSearchTimers = new Map();
+
+        async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null) {
+            if (!['participants', 'drivers'].includes(kind)) return false;
+            const current = document.getElementById(`${kind}-picker`);
+            if (!current) return false;
+            const name = kind === 'drivers' ? 'driver_ids' : 'participant_ids';
+            const key = kind === 'drivers' ? 'driverIds' : 'participantIds';
+            const inputs = restoreInputs || readPlannerInputs();
+            const sent = new Set(inputs[key] || []);
+            const values = new URLSearchParams({offset: String(offset), search: restoreInputs ? '' : document.getElementById(`${kind}-search`)?.value || ''});
+            for (const id of sent) values.append(name, id);
+            for (const [id, vehicle] of Object.entries(inputs.vanAssignments || {})) values.set(`org_vehicle_${id}`, vehicle);
+            for (const id of restoreInputs?.labelFilters?.[kind] || getActiveLabelFilters(`${kind}-selection`)) values.append('label_ids', id);
+            if (selectAll) values.set('select', 'all');
+            pickerRequests.get(kind)?.abort();
+            const controller = new AbortController();
+            pickerRequests.set(kind, controller);
+            try {
+                const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
+                const html = await response.text();
+                if (pickerRequests.get(kind) !== controller) return false;
+                if (!response.ok) { showRouteError(html, response.headers?.get('HX-Trigger')); return false; }
+                const template = document.createElement('template');
+                template.innerHTML = html;
+                const replacement = template.content.querySelector(`#${kind}-picker`);
+                if (!replacement) return false;
+                if (!restoreInputs) {
+                    const existing = new Map(Array.from(current.querySelectorAll(`input[name="${name}"]`), input => [input.value, input]));
+                    const incoming = new Map(Array.from(replacement.querySelectorAll(`input[name="${name}"]`), input => [input.value, input]));
+                    for (const [id, input] of existing) {
+                        if (input.checked === sent.has(id)) continue;
+                        let next = incoming.get(id);
+                        if (!next && input.checked) {
+                            next = input.cloneNode(true); next.hidden = true; replacement.append(next);
+                            if (kind === 'drivers') {
+                                const select = document.getElementById(`van-assignment-${id}`);
+                                if (select) { const holder = document.createElement('span'); holder.hidden = true; holder.id = `van-control-${id}`; holder.append(select.cloneNode(true)); replacement.append(holder); }
+                            }
+                        }
+                        if (next) next.checked = input.checked;
+                    }
+                    if (kind === 'drivers') {
+                        for (const select of current.querySelectorAll('.van-assignment-select')) {
+                            if (select.value === String(inputs.vanAssignments?.[select.dataset.driverId] || '')) continue;
+                            const next = replacement.querySelector(`#${select.id}`);
+                            if (next) { next.replaceChildren(...Array.from(select.options, option => option.cloneNode(true))); next.value = select.value; }
+                        }
+                    }
+                }
+                current.replaceWith(replacement);
+                htmx.process(replacement);
+                renderVanAssignmentsPanel();
+                updateEventStats();
+                saveEventPlannerDraft();
+                return true;
+            } catch (error) {
+                if (error.name !== 'AbortError') showToast('Could not load people. Please try again.', 'error');
+                return false;
+            } finally { if (pickerRequests.get(kind) === controller) pickerRequests.delete(kind); }
+        }
+
         function recomputeSelectListVisibility(listId) {
             const list = document.getElementById(listId);
             if (!list) return;
+            if (list.dataset?.pageSource) {
+                if (!isRestoringEventPlannerDraft) void requestPlannerPicker(list.dataset.pageSource);
+                return;
+            }
 
             const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
             const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
@@ -1773,6 +1893,12 @@
 
         function filterSelectList(input, listId) {
             // Search text is not part of the draft or the fingerprint.
+            const kind = document.getElementById(listId)?.dataset?.pageSource;
+            if (kind) {
+                clearTimeout(pickerSearchTimers.get(kind));
+                pickerSearchTimers.set(kind, setTimeout(() => { pickerSearchTimers.delete(kind); void requestPlannerPicker(kind); }, 250));
+                return;
+            }
             recomputeSelectListVisibility(listId);
         }
 
@@ -1798,6 +1924,7 @@
         }
 
         function selectAllParticipants() {
+            if (document.getElementById('participants-selection')?.dataset?.pageSource) return requestPlannerPicker('participants', 0, true);
             document.querySelectorAll('.participant-checkbox').forEach(cb => {
                 const row = cb.closest('.select-row');
                 if (row && row.classList.contains('hidden')) return;
@@ -1809,6 +1936,7 @@
         }
 
         function selectAllDrivers() {
+            if (document.getElementById('drivers-selection')?.dataset?.pageSource) return requestPlannerPicker('drivers', 0, true);
             document.querySelectorAll('.driver-checkbox').forEach(cb => {
                 const row = cb.closest('.select-row');
                 if (row && row.classList.contains('hidden')) return;
@@ -1821,6 +1949,14 @@
         }
 
         function clearSelections() {
+            for (const request of pickerRequests.values()) request.abort();
+            pickerRequests.clear();
+            for (const timer of pickerSearchTimers.values()) clearTimeout(timer);
+            pickerSearchTimers.clear();
+            plannerRestoreFailed = false;
+            if (getEventForm()) getEventForm().inert = false;
+            const calculate = document.getElementById('calculate-btn');
+            if (calculate) calculate.disabled = false;
             const form = getEventForm();
             plannerState.invalidateCalculations();
             participantMoveBatcher.discardFor(getSessionId());
@@ -1848,6 +1984,10 @@
                     const activityLocation = form.querySelector('select[name="activity_location_id"]');
                     if (activityLocation) {
                         activityLocation.value = '';
+                        if (activityLocation.dataset?.onDemand) {
+                            activityLocation.innerHTML = '<option value="">Choose location</option>';
+                            activityLocation.closest('#event-activity-location-select')?.querySelector('p')?.remove();
+                        }
                         activityLocation.dispatchEvent(new Event('change', { bubbles: true }));
                     }
 
@@ -1871,9 +2011,13 @@
             clearEventPlannerDraft();
             swappedSaveFields = null;
             plannerState.clear();
+            for (const kind of ['participants', 'drivers']) {
+                if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource) void requestPlannerPicker(kind);
+            }
         }
 
         function validateBeforeCalculate() {
+            if (isRestoringEventPlannerDraft || plannerRestoreFailed) return false;
             const participants = getCheckedInputs('.participant-checkbox');
             const drivers = getCheckedInputs('.driver-checkbox');
             const activityLocation = document.querySelector('select[name="activity_location_id"]');
@@ -2001,7 +2145,7 @@
         }
 
         if (getEventForm()) {
-            restoreEventPlannerDraft();
+            const restoredDraft = restoreEventPlannerDraft();
             document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
                 const row = cb.closest('.select-row');
                 if (row) row.classList.toggle('is-selected', cb.checked);
@@ -2010,10 +2154,11 @@
             updateRouteTimeCopy();
             ensureDefaultRouteTime();
 
-            var activeSession = plannerState.restoreCandidate();
-            if (activeSession) {
-                restoreRouteSession(activeSession);
-            }
+            const activeSession = plannerState.restoreCandidate();
+            restoredDraft.then(() => {
+                updateEventStats();
+                if (activeSession) restoreRouteSession(activeSession);
+            }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'));
 
             // The capacity-shortage pane recalculates from its own hidden copy of
             // the plan plus its own van assignments, so the routes it returns
@@ -2028,7 +2173,12 @@
 
                 recalcForm.querySelectorAll('.org-vehicle-select').forEach(source => {
                     const target = document.getElementById(`van-assignment-${source.dataset.driverId}`);
-                    if (target && !target.disabled) target.value = source.value;
+                    if (target && !target.disabled) {
+                        target.innerHTML = source.innerHTML;
+                        target.value = source.value;
+                        const label = target.closest('.van-assignment-inline')?.querySelector('.van-assignment-current');
+                        if (label) label.textContent = source.selectedOptions[0]?.textContent || 'Personal vehicle';
+                    }
                     if (source.value) vanAssignments[source.dataset.driverId] = source.value;
                 });
                 handleVanAssignmentChange();
@@ -2121,6 +2271,8 @@
         }
 
         root.showToast = showToast;
+        root.openRouteEditor = openRouteEditor;
+        root.submitRouteEditor = submitRouteEditor;
         root.moveParticipant = moveParticipant;
         root.swapDrivers = swapDrivers;
         root.resetRoutes = resetRoutes;
@@ -2133,6 +2285,7 @@
         document.addEventListener('htmx:afterSettle', event => applyLocalEventDate(event.target || document));
         root.handleVanAssignmentChange = handleVanAssignmentChange;
         root.filterSelectList = filterSelectList;
+        root.requestPlannerPicker = requestPlannerPicker;
         root.toggleLabelFilter = toggleLabelFilter;
         root.clearPlannerFilters = clearPlannerFilters;
         root.selectAllParticipants = selectAllParticipants;

@@ -609,10 +609,12 @@ func (h *Handler) driverListView(r *http.Request, drivers []models.Driver) (Driv
 	if err != nil {
 		return DriverListView{}, err
 	}
+	drivers, pagination := pageRosterDrivers(r, drivers)
 	return DriverListView{
-		Drivers:  drivers,
-		Labels:   labels,
-		LabelIDs: labelIDs,
+		Pagination: pagination,
+		Drivers:    drivers,
+		Labels:     labels,
+		LabelIDs:   labelIDs,
 	}, nil
 }
 

@@ -110,6 +110,14 @@ function handleTableSwap(event) {
 
 if (typeof document !== 'undefined') {
   const failedImportSelections = new Set();
+  document.addEventListener('htmx:beforeRequest', event => {
+    if (event.detail?.elt?.matches?.('[data-import-poll]') && !document.getElementById('import-panel')?.open) event.preventDefault();
+  });
+  document.addEventListener('toggle', event => {
+    if (event.target.id !== 'import-panel' || !event.target.open) return;
+    const progress = event.target.querySelector('[data-import-poll]');
+    if (progress) htmx.trigger(progress, 'importResume');
+  }, true);
   document.addEventListener('change', event => {
     if (!event.target.matches?.('#import-selection-form input[name="selected"]')) return;
     // A new checkbox edit explicitly authorizes a write, including one queued

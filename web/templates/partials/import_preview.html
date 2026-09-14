@@ -11,17 +11,7 @@
     </div>
     {{end}}
 
-    {{if .Geocoding}}
-    <div class="import-progress"
-         hx-get="/api/v1/imports/{{.SessionID}}?view=panel"
-         hx-trigger="every 2s"
-         hx-sync="#import-steps:drop"
-         hx-target="#import-steps"
-         hx-swap="innerHTML">
-        <p class="import-progress-label">Looking up addresses… {{.GeocodeDone}}/{{.GeocodeTotal}}</p>
-        <progress class="import-progress-bar" value="{{.GeocodeDone}}" max="{{.GeocodeTotal}}"></progress>
-    </div>
-    {{end}}
+    {{template "import_progress" .}}
 
     <form id="import-selection-form"
           hx-put="/api/v1/imports/{{.SessionID}}/selection?view=panel"
@@ -30,6 +20,8 @@
           hx-disabled-elt="#import-commit-button"
           hx-target="#import-commit-bar"
           hx-swap="outerHTML">
+        <input type="hidden" name="page_selection" value="1">
+        {{range .Rows}}<input type="hidden" name="visible" value="{{.Index}}">{{end}}
         <div class="table-container">
             <table>
                 <thead>
@@ -79,12 +71,16 @@
         </div>
     </form>
 
+    <nav class="route-editor-pagination" aria-label="Import review pages">
+      {{if .Offset}}<button type="button" class="btn btn-outline" hx-put="/api/v1/imports/{{.SessionID}}/selection?view=panel&amp;page=1&amp;offset={{.Previous}}" hx-include="#import-selection-form" hx-disabled-elt="#import-selection-form input, #import-commit-button" hx-sync="#import-steps:queue last" hx-target="#import-steps">Previous</button>{{end}}
+      {{if .Next}}<button type="button" class="btn btn-outline" hx-put="/api/v1/imports/{{.SessionID}}/selection?view=panel&amp;page=1&amp;offset={{.Next}}" hx-include="#import-selection-form" hx-disabled-elt="#import-selection-form input, #import-commit-button" hx-sync="#import-steps:queue last" hx-target="#import-steps">Next</button>{{end}}
+    </nav>
     {{template "import_commit_bar" .CommitBar}}
 </div>
 {{end}}
 
 {{define "import_commit_bar"}}
-<div id="import-commit-bar" class="import-commit-bar">
+<div id="import-commit-bar" class="import-commit-bar" {{if .OOB}}hx-swap-oob="outerHTML"{{end}}>
     <span class="import-commit-summary">{{.Selected}} of {{.Total}} rows selected</span>
     <div class="import-actions">
         <button id="import-commit-button"

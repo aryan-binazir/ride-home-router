@@ -1,0 +1,15 @@
+{{define "mobile_move_link"}}
+{{if gt (len .Snapshot.Routes) 1}}<a class="mobile-text-button" href="/m/routes/editor?session_id={{.Snapshot.ID}}&amp;action=move&amp;from_route_index={{.Current.Index}}&amp;participant_id={{.Participant.ID}}" hx-get="/m/routes/editor?session_id={{.Snapshot.ID}}&amp;action=move&amp;from_route_index={{.Current.Index}}&amp;participant_id={{.Participant.ID}}" hx-target="#route-editor" aria-label="Move {{.Participant.Name}}">Move</a>{{end}}
+{{end}}
+
+{{define "mobile_swap_link"}}
+{{if gt (len .Snapshot.Routes) 1}}<a class="mobile-text-button" href="/m/routes/editor?session_id={{.Snapshot.ID}}&amp;action=swap&amp;from_route_index={{.Current.Index}}" hx-get="/m/routes/editor?session_id={{.Snapshot.ID}}&amp;action=swap&amp;from_route_index={{.Current.Index}}" hx-target="#route-editor" aria-label="Swap {{with .Current.Route.Driver}}{{.Name}}{{end}} with another driver">Swap driver</a>{{end}}
+{{end}}
+
+{{define "mobile_route_edit_updates"}}
+{{$current := .Current}}
+{{range .Current.Route.Stops}}{{with .Participant}}
+<span id="mobile-move-{{$current.Index}}-{{.ID}}" hx-swap-oob="outerHTML">{{template "mobile_move_link" (dict "Current" $current "Participant" . "Snapshot" $.Snapshot)}}</span>
+{{end}}{{end}}
+<span id="mobile-swap-{{$current.Index}}" hx-swap-oob="outerHTML">{{template "mobile_swap_link" .}}</span>
+{{end}}

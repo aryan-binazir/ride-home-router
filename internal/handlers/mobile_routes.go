@@ -93,9 +93,23 @@ func (h *Handler) renderMobileRoutes(w http.ResponseWriter, r *http.Request, sna
 func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string, indexes []int) {
 	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(r, mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
-	view.Snapshot.Routes = h.itineraryRoutes(snapshot.Routes)
 	view.Snapshot.Summary, view.ShowAggregates = h.itinerarySummary(snapshot.Summary, timings)
-	for index, route := range snapshot.Routes {
+	singleCard := h.isHTMX(r) && r.URL.Path == "/m/routes/timings"
+	mutation := h.isHTMX(r) && r.Method == http.MethodPost && !singleCard && status == http.StatusOK && r.URL.Path != "/m/routes/save"
+	view.Patch = mutation && r.URL.Path != "/m/routes/reset" && r.FormValue("rendered_balance") == strconv.FormatBool(snapshot.IsOutOfBalance)
+	renderIndexes := indexes
+	addingSecond := len(snapshot.Routes) == 2 && (r.URL.Path == "/m/routes/add-driver" || r.FormValue("action") == "add")
+	if addingSecond || (!singleCard && !view.Patch) {
+		renderIndexes = allRouteIndexes(snapshot)
+	}
+	for _, index := range renderIndexes {
+		route := snapshot.Routes[index]
+		if view.Patch && addingSecond && index == 0 {
+			// Only the edit controls changed. Leave measured ETAs and copy text
+			// on the existing card, rather than rebuilding or caching them.
+			view.Routes = append(view.Routes, mobileRoute{ActionsOnly: true, Index: index, Route: route})
+			continue
+		}
 		timing := timings[index]
 		// The template reads an ETA per stop, so unmeasured cars carry blanks.
 		etas := make([]string, len(route.Stops))
@@ -105,7 +119,22 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 				view.Attribution = true
 			}
 		}
-		view.Routes = append(view.Routes, mobileRoute{Index: index, Route: view.Snapshot.Routes[index], DriverText: formatMobileHandoff(snapshot, route, false, etas), ParentText: formatMobileHandoff(snapshot, route, true, etas), ETAs: etas, Timing: timing})
+		appending := view.Patch && index == len(snapshot.Routes)-1 && (r.URL.Path == "/m/routes/add-driver" || r.FormValue("action") == "add")
+		view.Routes = append(view.Routes, mobileRoute{Append: appending, Index: index, Route: h.itineraryRoutes([]models.CalculatedRoute{route})[0], DriverText: formatMobileHandoff(snapshot, route, false, etas), ParentText: formatMobileHandoff(snapshot, route, true, etas), ETAs: etas, Timing: timing})
+	}
+	if view.Patch {
+		h.renderMobileTemplateStatus(w, r, status, "mobile_route_updates", view)
+		return
+	}
+	if mutation {
+		w.Header().Set("HX-Retarget", ".mobile-routes")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		h.renderMobileTemplateStatus(w, r, status, "mobile_routes", view)
+		return
+	}
+	if singleCard {
+		h.renderMobileTemplateStatus(w, r, status, "mobile_route_cards", view)
+		return
 	}
 	h.renderMobileTemplateStatus(w, r, status, "mobile/routes.html", view)
 }
@@ -161,8 +190,7 @@ func (h *Handler) HandleMobileMove(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
-	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+	h.finishMobileRouteEdit(w, r, snapshot)
 }
 
 func (h *Handler) HandleMobileSwap(w http.ResponseWriter, r *http.Request) {
@@ -183,8 +211,7 @@ func (h *Handler) HandleMobileSwap(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
-	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+	h.finishMobileRouteEdit(w, r, snapshot)
 }
 
 func (h *Handler) HandleMobileReset(w http.ResponseWriter, r *http.Request) {
@@ -199,8 +226,7 @@ func (h *Handler) HandleMobileReset(w http.ResponseWriter, r *http.Request) {
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
-	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
+	h.finishMobileRouteEdit(w, r, snapshot)
 }
 
 func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +246,15 @@ func (h *Handler) HandleMobileAddDriver(w http.ResponseWriter, r *http.Request) 
 		h.mobileRedirectError(w, r, "/m/routes", mobileRouteErrorMessage(err))
 		return
 	}
-	h.queueTimings(w, r, sessionID, snapshot.ChangedRouteIndexes)
+	h.finishMobileRouteEdit(w, r, snapshot)
+}
+
+func (h *Handler) finishMobileRouteEdit(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot) {
+	if h.isHTMX(r) {
+		h.renderMobileRoutesTimed(w, r, snapshot, http.StatusOK, "", r.FormValue("event_date"), r.FormValue("notes"), snapshot.ChangedRouteIndexes)
+		return
+	}
+	h.queueTimings(w, r, snapshot.ID, snapshot.ChangedRouteIndexes)
 	http.Redirect(w, r, "/m/routes", http.StatusSeeOther)
 }
 

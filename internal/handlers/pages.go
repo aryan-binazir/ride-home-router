@@ -25,11 +25,6 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgVehicles, err := h.DB.OrganizationVehicles().List(r.Context())
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
 		h.renderError(w, r, err)
@@ -46,7 +41,12 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, participantEnd, participantNext, _ := pickerWindow(len(participants), 0)
+	_, driverEnd, driverNext, _ := pickerWindow(len(drivers), 0)
+	participants = participants[:participantEnd]
+	drivers = drivers[:driverEnd]
 	h.renderTemplate(w, "index.html", IndexPageView{
+		PagedPickers: true, ParticipantNext: participantNext, DriverNext: driverNext,
 		Title:             "Event Planning",
 		ActivePage:        ActivePageHome,
 		Participants:      participants,
@@ -55,7 +55,6 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		ParticipantLabels: participantLabels,
 		DriverLabels:      driverLabels,
 		ActivityLocations: activityLocations,
-		OrgVehicles:       orgVehicles,
 	})
 }
 
@@ -77,7 +76,9 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	participants, pagination := pageRosterParticipants(r, participants)
 	h.renderTemplate(w, "participants.html", ParticipantsPageView{
+		Pagination:   pagination,
 		Title:        "Participants",
 		ActivePage:   ActivePageParticipants,
 		Participants: participants,
@@ -104,7 +105,9 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	drivers, pagination := pageRosterDrivers(r, drivers)
 	h.renderTemplate(w, "drivers.html", DriversPageView{
+		Pagination: pagination,
 		Title:      "Drivers",
 		ActivePage: ActivePageDrivers,
 		Drivers:    drivers,

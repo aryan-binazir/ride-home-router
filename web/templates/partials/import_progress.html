@@ -1,0 +1,15 @@
+{{define "import_progress"}}
+<div id="import-progress" class="import-progress"
+ {{if .Geocoding}}data-import-poll
+ hx-get="/api/v1/imports/{{.SessionID}}?view=panel&amp;progress=1&amp;offset={{.Offset}}"
+ hx-trigger="every 2s [document.getElementById('import-panel').open], importResume"
+ hx-sync="#import-steps:drop" hx-target="#import-progress" hx-swap="outerHTML"
+ {{else if .ProgressOnly}}data-import-poll
+ hx-get="/api/v1/imports/{{.SessionID}}?view=panel&amp;offset={{.Offset}}"
+ hx-trigger="load, importResume" hx-sync="#import-steps:queue last" hx-target="#import-steps" hx-swap="innerHTML"
+ {{end}}>
+ {{if .Geocoding}}<p class="import-progress-label">Looking up addresses… {{.GeocodeDone}}/{{.GeocodeTotal}}</p>
+ <progress class="import-progress-bar" value="{{.GeocodeDone}}" max="{{.GeocodeTotal}}"></progress>{{end}}
+</div>
+{{if .ProgressOnly}}{{template "import_commit_bar" .CommitBar}}{{end}}
+{{end}}

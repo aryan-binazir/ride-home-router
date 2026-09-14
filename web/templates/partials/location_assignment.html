@@ -1,0 +1,7 @@
+{{define "location_assignment"}}
+<div id="event-activity-location-select">
+  <select hidden id="activity-location-native" name="activity_location_id" data-on-demand="true" aria-label="Activity location" required><option value="{{with .}}{{.ID}}{{end}}" selected>{{with .}}{{.Name}}{{else}}Choose location{{end}}</option></select>
+  {{with .}}<p><strong>{{.Name}}</strong><br><span class="text-muted">{{.Address}}</span></p>{{end}}
+  <button type="button" class="btn btn-outline" hx-get="/api/v1/planner/location-editor" hx-target="#route-editor">Choose location</button>
+</div>
+{{end}}

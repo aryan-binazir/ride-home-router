@@ -45,7 +45,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 	if !strings.Contains(previewBody, "Address lookup is not configured. Ask an administrator to add the Google Maps key in Settings. This import will resume automatically.") {
 		t.Fatalf("pending import should explain the missing key: %s", previewBody)
 	}
-	for _, want := range []string{"Looking up addresses…", "<progress", `hx-trigger="every 2s"`, `hx-disabled-elt="#import-commit-button"`, `id="import-commit-button"`, `hx-include="#import-selection-form"`, `id="import-selection-form"`, `name="selected"`, "2 of 2 rows selected", "Import 2 rows", "disabled>"} {
+	for _, want := range []string{"Looking up addresses…", "<progress", `hx-trigger="every 2s [document.getElementById('import-panel').open]`, `hx-disabled-elt="#import-commit-button"`, `id="import-commit-button"`, `hx-include="#import-selection-form"`, `id="import-selection-form"`, `name="selected"`, "2 of 2 rows selected", "Import 2 rows", "disabled>"} {
 		if !strings.Contains(previewBody, want) {
 			t.Fatalf("preview fragment missing %q: %s", want, previewBody)
 		}

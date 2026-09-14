@@ -1,0 +1,12 @@
+{{define "vehicle_assignments"}}<div data-vehicle-assignments>{{range .}}{{template "vehicle_assignment" .}}{{end}}</div>{{end}}
+
+{{define "vehicle_assignment"}}
+<span id="{{if .Mobile}}mobile-{{else if .Shortage}}shortage-{{end}}van-control-{{.Driver.ID}}" class="van-assignment-inline{{if not .Selected}} hidden{{end}}">
+  <span class="van-assignment-inline-header"><span class="van-assignment-inline-title">Vehicle for this event</span></span>
+  <select hidden id="{{if .Mobile}}mobile-{{else if .Shortage}}shortage-{{end}}van-assignment-{{.Driver.ID}}" name="org_vehicle_{{.Driver.ID}}" class="{{if .Shortage}}org-vehicle-select{{else}}van-assignment-select{{end}}" data-driver-id="{{.Driver.ID}}" {{if not .Selected}}disabled{{end}} aria-label="Current vehicle">
+    {{with .Vehicle}}<option value="{{.ID}}" data-capacity="{{.Capacity}}" selected>{{.Name}}</option>{{else}}<option value="" data-capacity="{{.Driver.VehicleCapacity}}" selected>Personal vehicle</option>{{end}}
+  </select>
+  <span class="van-assignment-current">{{with .Vehicle}}{{.Name}} · {{.Capacity}} seats{{else}}Personal vehicle · {{.Driver.VehicleCapacity}} seats{{end}}</span>
+  <button type="button" class="btn btn-sm btn-outline" hx-post="/api/v1/planner/vehicle-editor?driver_id={{.Driver.ID}}{{if .Mobile}}&amp;mobile=1{{else if .Shortage}}&amp;shortage=1{{end}}" hx-target="#route-editor" hx-include="{{if .Mobile}}#mobile-driver-picker [name^='org_vehicle_']{{else if .Shortage}}#recalc-form .org-vehicle-select{{else}}#event-form .van-assignment-select{{end}}" onclick="event.stopPropagation()">Change vehicle</button>
+</span>
+{{end}}

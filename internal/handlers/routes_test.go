@@ -1825,11 +1825,11 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 		"<dt>Pickup</dt>",
 		"<dt>To Activity</dt>",
 		"from Driver1's home",
-		"Unused driver (1)",
+		"Add unused driver (1)",
 		"<dt>Passenger</dt>",
 		`class="label">Participant`,
 		`class="label">Driver`,
-		"Driver2",
+		`&amp;action=add`,
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected pickup route results to contain %q, body=%q", fragment, body)

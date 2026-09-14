@@ -179,6 +179,24 @@
     // immediately before swapping so edits made during the request survive.
     document.addEventListener('htmx:beforeSwap', event => {
         const detail = event.detail;
+        if (detail.target?.id === 'mobile-location-results' && detail.shouldSwap) {
+            const form = detail.target.closest('#mobile-location-picker');
+            const selected = new FormData(form).get('location_id');
+            const response = new DOMParser().parseFromString(detail.serverResponse, 'text/html');
+            const results = response.getElementById('mobile-location-results');
+            if (!results) return;
+            let found = false;
+            results.querySelectorAll('input[name="location_id"]').forEach(input => {
+                const chosen = input.value === selected; found ||= chosen;
+                input.toggleAttribute('checked', chosen);
+                if (input.hidden && !chosen) input.remove();
+            });
+            if (selected && !found) {
+                const input = response.createElement('input'); input.type = 'radio'; input.name = 'location_id'; input.value = selected; input.hidden = true; input.setAttribute('checked', ''); results.append(input);
+            }
+            detail.serverResponse = results.outerHTML; return;
+        }
+        if (!['mobile-rider-results', 'mobile-driver-results'].includes(detail.target?.id)) return;
         const form = detail.target?.closest?.('#mobile-rider-picker, #mobile-driver-picker');
         if (!form || !detail.shouldSwap) return;
         const response = new DOMParser().parseFromString(detail.serverResponse, 'text/html');
@@ -196,7 +214,14 @@
         results.querySelectorAll('select[name^="org_vehicle_"]').forEach(select => {
             const id = select.name.slice('org_vehicle_'.length);
             const value = selected.has(id) ? current.get(select.name) || '' : '';
+            const source = form.querySelector(`select[name="${select.name}"]`);
+            if (source && !Array.from(select.options).some(option => option.value === value)) select.innerHTML = source.innerHTML;
             Array.from(select.options).forEach(option => option.toggleAttribute('selected', option.value === value));
+            select.toggleAttribute('disabled', !selected.has(id));
+            const inline = select.closest('.van-assignment-inline');
+            inline?.classList.toggle('hidden', !selected.has(id));
+            const label = inline?.querySelector('.van-assignment-current');
+            if (label) label.textContent = select.selectedOptions[0]?.textContent || 'Personal vehicle';
         });
         for (const id of selected) {
             if (visible.has(id)) continue;
@@ -234,9 +259,20 @@
             checkbox.closest('form')?.querySelector('input[name="route_time"]')?.setAttribute('aria-label', label);
             return;
         }
-        if (!checkbox.matches?.('input[name="driver_ids"]') || checkbox.checked) return;
-        const select = checkbox.closest('.mobile-driver-choice')?.querySelector('select[name^="org_vehicle_"]');
-        if (select) select.value = '';
+        if (!checkbox.matches?.('input[name="driver_ids"]')) return;
+        const row = checkbox.closest('.mobile-driver-choice');
+        const select = row?.querySelector('select[name^="org_vehicle_"]');
+        const inline = row?.querySelector('.van-assignment-inline');
+        if (inline?.classList && select) {
+            inline.classList.toggle('hidden', !checkbox.checked);
+            select.disabled = !checkbox.checked;
+            if (!checkbox.checked) {
+                const option = new Option('Personal vehicle', '', true, true);
+                option.dataset.capacity = checkbox.dataset.capacity;
+                select.replaceChildren(option);
+                inline.querySelector('.van-assignment-current').textContent = `Personal vehicle · ${checkbox.dataset.capacity} seats`;
+            }
+        } else if (select && !checkbox.checked) select.value = '';
     });
 
     document.addEventListener('submit', event => {

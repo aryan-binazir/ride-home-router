@@ -8,6 +8,7 @@ import (
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
+	"strconv"
 )
 
 const maxParticipantMovesPerBatch = 64
@@ -155,7 +156,22 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, indexes []int) {
 	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	if h.isHTMX(r) {
-		h.renderTemplate(w, "route_results", h.buildTimedRouteResultsView(snapshot, timings))
+		view := h.buildTimedRouteResultsView(snapshot, timings)
+		// A global capacity transition changes every card's timing/copy state.
+		// Missing/invalid client state safely falls back to a complete view.
+		// Crossing to two cars enables actions on the first car. The full-view
+		// client path also preserves that unchanged car's already measured timings.
+		addingSecond := len(snapshot.Routes) == 2 && r.URL.Path == "/api/v1/routes/edit/add-driver"
+		if !addingSecond && r.Header.Get("X-Route-Fragment") == "true" && r.Header.Get("X-Route-Balance") == strconv.FormatBool(snapshot.IsOutOfBalance) {
+			view.Partial = true
+			view.RenderIndexes = make(map[int]bool, len(indexes))
+			for _, index := range indexes {
+				view.RenderIndexes[index] = true
+			}
+			h.renderTemplate(w, "route_updates", view)
+		} else {
+			h.renderTemplate(w, "route_results", view)
+		}
 		return
 	}
 	h.writeJSON(w, http.StatusOK, h.routeCalculationResponse(snapshot, timings))

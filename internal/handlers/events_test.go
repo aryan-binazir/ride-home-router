@@ -828,6 +828,7 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 		"templates/layout.html":             {Data: []byte(`{{template "content" .}}`)},
 		"templates/mobile/layout.html":      {Data: []byte(`{{template "mobile_content" .}}`)},
 		"templates/partials/events.html":    {Data: []byte(testEventTemplates)},
+		"templates/editor.html":             {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/index.html":              {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/participants.html":       {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/drivers.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},

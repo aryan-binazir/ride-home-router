@@ -1,0 +1,28 @@
+{{define "route_editor"}}
+<section class="route-editor-panel" data-editor-session="{{.SessionID}}" aria-labelledby="route-editor-title">
+  <header class="route-editor-heading"><h2 id="route-editor-title">{{.Title}}</h2><button type="button" class="btn btn-sm btn-outline" onclick="closeRouteEditor()" aria-label="Close editor">Close</button></header>
+  <form method="get" action="{{.SearchURL}}" {{if .Inline}}hx-get="{{.SearchURL}}" hx-target="#route-editor" hx-sync="this:replace"{{end}}>
+    <input type="hidden" name="session_id" value="{{.SessionID}}">
+    <input type="hidden" name="action" value="{{.Action}}">
+    <input type="hidden" name="from_route_index" value="{{.From}}">
+    <input type="hidden" name="participant_id" value="{{.ParticipantID}}">
+    <label class="form-label" for="route-editor-search">Find a driver</label>
+    <div class="route-editor-search"><input id="route-editor-search" class="form-input" name="search" type="search" value="{{.Search}}" autocomplete="off"><button class="btn btn-outline" type="submit">Search</button></div>
+  </form>
+  <form method="post" action="{{if .Mobile}}/m/routes/choose{{else}}/api/v1/routes/choose{{end}}" {{if and (not .Mobile) .Inline}}onsubmit="submitRouteEditor(event)"{{else if and .Mobile .Inline}}hx-post="/m/routes/choose" hx-target="#mobile-route-updates" hx-include=".mobile-save-card" hx-sync=".mobile-routes:queue all" hx-disabled-elt="find button[type=submit]"{{end}}>
+    <input type="hidden" name="session_id" value="{{.SessionID}}">
+    <input type="hidden" name="action" value="{{.Action}}">
+    <input type="hidden" name="from_route_index" value="{{.From}}">
+    <input type="hidden" name="participant_id" value="{{.ParticipantID}}">
+    <fieldset class="route-editor-choices"><legend class="visually-hidden">Destination driver</legend>
+      {{range .Choices}}<label class="route-editor-choice"><input type="radio" name="destination" value="{{.Value}}" required><span><strong>{{.Name}}</strong><small>{{.Detail}}</small></span></label>{{else}}<p>No matching drivers.</p>{{end}}
+    </fieldset>
+    {{if .Choices}}<button class="btn btn-primary" type="submit">{{if eq .Action "move"}}Move rider{{else if eq .Action "swap"}}Swap drivers{{else}}Add driver{{end}}</button>{{end}}
+  </form>
+  <nav class="route-editor-pagination" aria-label="Driver results">
+    {{if .PreviousURL}}<a href="{{.PreviousURL}}" {{if .Inline}}hx-get="{{.PreviousURL}}" hx-target="#route-editor"{{end}}>Previous</a>{{end}}
+    {{if .NextURL}}<a href="{{.NextURL}}" {{if .Inline}}hx-get="{{.NextURL}}" hx-target="#route-editor"{{end}}>Next</a>{{end}}
+  </nav>
+  <noscript><a href="{{.ReturnURL}}">Back to routes</a></noscript>
+</section>
+{{end}}

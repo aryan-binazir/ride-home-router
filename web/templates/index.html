@@ -29,50 +29,7 @@
                     {{if .ActivityLocations}}
                     <div class="form-group mb-0">
                         <label class="form-label visually-hidden" for="activity-location-native">Location</label>
-                        <div class="ui-select" id="event-activity-location-select">
-                            <select id="activity-location-native" name="activity_location_id" class="form-select ui-select-native" required>
-                                <option value="">-- Select a location --</option>
-                                {{range .ActivityLocations}}
-                                <option value="{{.ID}}">{{.Name}} ({{.Address}})</option>
-                                {{end}}
-                            </select>
-
-                            <button type="button"
-                                    class="ui-select-trigger"
-                                    aria-haspopup="listbox"
-                                    aria-expanded="false"
-                                    aria-label="Activity location">
-                                <span class="ui-select-trigger-text">
-                                    <span class="ui-select-trigger-title">-- Select a location --</span>
-                                    <span class="ui-select-trigger-subtitle hidden"></span>
-                                </span>
-                                <span class="ui-select-chevron" aria-hidden="true"></span>
-                            </button>
-
-                            <div class="ui-select-menu" role="listbox" tabindex="-1">
-                                <button type="button"
-                                        class="ui-select-option is-selected"
-                                        role="option"
-                                        aria-selected="true"
-                                        data-value=""
-                                        data-title="-- Select a location --"
-                                        data-subtitle="">
-                                    <span class="ui-select-option-title">-- Select a location --</span>
-                                </button>
-                                {{range .ActivityLocations}}
-                                <button type="button"
-                                        class="ui-select-option"
-                                        role="option"
-                                        aria-selected="false"
-                                        data-value="{{.ID}}"
-                                        data-title="{{.Name}}"
-                                        data-subtitle="{{.Address}}">
-                                    <span class="ui-select-option-title">{{.Name}}</span>
-                                    <span class="ui-select-option-subtitle">{{.Address}}</span>
-                                </button>
-                                {{end}}
-                            </div>
-                        </div>
+                        {{template "location_assignment" .SelectedLocation}}
                         <p class="form-help">Dropoff routes begin at the activity location. Pickup routes end there.</p>
                     </div>
                     {{else}}
@@ -121,7 +78,9 @@
                         </span>
                     </div>
 
-                    <div class="select-list" id="participants-selection">
+                    {{block "planner_participants" .}}
+                    <div id="participants-picker">
+                    <div class="select-list" id="participants-selection" {{if .PagedPickers}}data-page-source="participants"{{end}}>
                         {{range .Participants}}
                         <label class="select-row"
                                data-search="{{.Name}} {{.AddressName}} {{.Address}}"
@@ -129,7 +88,7 @@
                             <input type="checkbox"
                                    name="participant_ids"
                                    value="{{.ID}}"
-                                   class="form-checkbox participant-checkbox select-control">
+                                   class="form-checkbox participant-checkbox select-control" {{if index $.SelectedParticipants .ID}}checked{{end}}>
                             <span class="select-row-content">
                                 <span class="select-row-title">{{.Name}}</span>
                                 <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
@@ -137,6 +96,10 @@
                         </label>
                         {{end}}
                     </div>
+                    {{range .HiddenParticipants}}<input hidden type="checkbox" class="participant-checkbox" name="participant_ids" value="{{.}}" checked>{{end}}
+                    {{if .PagedPickers}}<nav class="route-editor-pagination" aria-label="Participant pages">{{if .PickerOffset}}<button type="button" class="link" onclick="requestPlannerPicker('participants', {{.PickerPrevious}})">Previous</button>{{end}}{{if .ParticipantNext}}<button type="button" class="link" onclick="requestPlannerPicker('participants', {{.ParticipantNext}})">Next</button>{{end}}</nav>{{end}}
+                    </div>
+                    {{end}}
                     {{else}}
                     <div class="empty-state compact-empty-state">
                         <h3>No participants yet</h3>
@@ -184,7 +147,9 @@
                         </span>
                     </div>
 
-                    <div class="select-list" id="drivers-selection">
+                    {{block "planner_drivers" .}}
+                    <div id="drivers-picker">
+                    <div class="select-list" id="drivers-selection" {{if .PagedPickers}}data-page-source="drivers"{{end}}>
                         {{range .Drivers}}
                         <label class="select-row"
                                data-search="{{.Name}} {{.AddressName}} {{.Address}}"
@@ -196,31 +161,25 @@
                                    data-capacity="{{.VehicleCapacity}}"
                                    data-driver-name="{{.Name}}"
                                    data-driver-address="{{.Address}}"
-                                   data-driver-address-name="{{.AddressName}}">
+                                   data-driver-address-name="{{.AddressName}}" {{if index $.SelectedDrivers .ID}}checked{{end}}>
                             <span class="select-row-content">
                                 <span class="select-row-title">{{.Name}}</span>
                                 <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
                                 <span class="select-row-meta">
                                     <span class="seats van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
                                 </span>
-                                <span class="van-assignment-inline hidden">
-                                    <span class="van-assignment-inline-header">
-                                        <span class="van-assignment-inline-title">Vehicle for this event</span>
-                                        <span class="van-assignment-inline-help text-muted">Optional</span>
-                                    </span>
-                                    <select id="van-assignment-{{.ID}}"
-                                            name="org_vehicle_{{.ID}}"
-                                            class="form-select van-assignment-select"
-                                            data-driver-id="{{.ID}}"
-                                            onchange="handleVanAssignmentChange(); event.stopPropagation();"
-                                            onclick="event.stopPropagation()">
-                                        <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
-                                    </select>
-                                </span>
+                                {{template "vehicle_assignment" (dict "Driver" . "Selected" (index $.SelectedDrivers .ID) "Vehicle" (index $.AssignedVehicles .ID))}}
                             </span>
                         </label>
                         {{end}}
                     </div>
+                    {{range .HiddenDrivers}}
+                    <input hidden type="checkbox" class="driver-checkbox" name="driver_ids" value="{{.ID}}" data-capacity="{{.VehicleCapacity}}" checked>
+                    <span hidden id="van-control-{{.ID}}"><select hidden id="van-assignment-{{.ID}}" class="van-assignment-select" data-driver-id="{{.ID}}" name="org_vehicle_{{.ID}}">{{with index $.AssignedVehicles .ID}}<option selected value="{{.ID}}" data-capacity="{{.Capacity}}">{{.Name}}</option>{{else}}<option selected value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>{{end}}</select></span>
+                    {{end}}
+                    {{if .PagedPickers}}<nav class="route-editor-pagination" aria-label="Driver pages">{{if .PickerOffset}}<button type="button" class="link" onclick="requestPlannerPicker('drivers', {{.PickerPrevious}})">Previous</button>{{end}}{{if .DriverNext}}<button type="button" class="link" onclick="requestPlannerPicker('drivers', {{.DriverNext}})">Next</button>{{end}}</nav>{{end}}
+                    </div>
+                    {{end}}
                     {{else}}
                     <div class="empty-state compact-empty-state">
                         <h3>No drivers yet</h3>
@@ -277,7 +236,6 @@
     </form>
 
     <section class="results-pane" aria-label="Route results">
-        <script type="application/json" id="event-org-vehicles">{{toJSONRaw .OrgVehicles}}</script>
         <template id="results-empty-state-template">
             <div class="results-header">
                 <div>

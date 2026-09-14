@@ -11,6 +11,7 @@ import (
 )
 
 var pageNames = []string{
+	"editor.html",
 	"index.html",
 	"participants.html",
 	"drivers.html",

@@ -178,6 +178,12 @@ func (h *Handler) mobileRedirectError(w http.ResponseWriter, r *http.Request, pa
 	query := target.Query()
 	query.Set("error", message)
 	target.RawQuery = query.Encode()
+	if h.isHTMX(r) && strings.HasPrefix(r.URL.Path, "/m/routes/") {
+		w.Header().Set("HX-Redirect", target.String())
+		w.Header().Set("HX-Reswap", "none")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	//nolint:gosec // The prefix check restricts redirects to the same-origin mobile application.
 	http.Redirect(w, r, target.String(), http.StatusSeeOther)
 }

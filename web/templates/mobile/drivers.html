@@ -8,31 +8,32 @@
     </svg>
     <input type="search" name="search" value="{{.Search}}" placeholder="Search drivers" aria-label="Search drivers"
       hx-post="/m/plan/drivers" hx-trigger="input changed delay:300ms" hx-include="#mobile-driver-picker"
-      hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
+      hx-target="#mobile-driver-results" hx-swap="outerHTML">
   </div>
   {{if .Labels}}
   <div class="mobile-chips" aria-label="Filter drivers by label">
     <label class="mobile-chip {{if eq .LabelID 0}}is-active{{end}}">
       <input class="mobile-chip-input" type="radio" name="label" value="" {{if eq .LabelID 0}}checked{{end}}
         hx-post="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
-        hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
+        hx-target="#mobile-driver-results" hx-swap="outerHTML">
       <span>All</span>
     </label>
     {{range .Labels}}
     <label class="mobile-chip {{if eq .ID $.LabelID}}is-active{{end}}">
       <input class="mobile-chip-input" type="radio" name="label" value="{{.ID}}" {{if eq .ID $.LabelID}}checked{{end}}
         hx-post="/m/plan/drivers" hx-trigger="change" hx-include="#mobile-driver-picker"
-        hx-target="#mobile-driver-results" hx-select="#mobile-driver-results" hx-swap="outerHTML">
+        hx-target="#mobile-driver-results" hx-swap="outerHTML">
       <span>{{.Name}}</span>
     </label>
     {{end}}
   </div>
   {{end}}
   <p class="mobile-count"><span id="mobile-selected-seats" data-seats="{{.SelectedSeats}}">{{.SelectedSeats}} {{pluralize .SelectedSeats "seat"}} selected</span> <a href="/m/people/drivers/new?return=/m/plan/drivers">Add driver</a></p>
+  {{block "mobile_driver_results" .}}
   <div id="mobile-driver-results">
     {{range .HiddenSelectedIDs}}{{$driverID := .}}
-    <input type="hidden" name="driver_ids" value="{{$driverID}}">
-    {{with index $.Assignments $driverID}}<input type="hidden" name="org_vehicle_{{$driverID}}" value="{{.}}">{{end}}
+    <input type="hidden" name="driver_ids" value="{{$driverID}}" data-capacity="{{index $.SelectedCapacities $driverID}}">
+    {{with index $.AssignedVehicles $driverID}}<input type="hidden" name="org_vehicle_{{$driverID}}" value="{{.ID}}" data-capacity="{{.Capacity}}">{{end}}
     {{end}}
     <div class="mobile-group mobile-choice-list">
       {{range .Drivers}}{{$driver := .}}
@@ -42,19 +43,16 @@
           <span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>
           <em>{{.VehicleCapacity}} {{pluralize .VehicleCapacity "seat"}}</em>
         </label>
-        <label class="mobile-vehicle">
-          <span>Vehicle</span>
-          <select name="org_vehicle_{{.ID}}">
-            <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
-            {{range $.Vehicles}}
-            <option data-capacity="{{.Capacity}}" value="{{.ID}}" {{if eq .ID (index $.Assignments $driver.ID)}}selected{{end}}>{{.Name}} · {{.Capacity}} {{pluralize .Capacity "seat"}}</option>
-            {{end}}
-          </select>
-        </label>
+        {{template "vehicle_assignment" (dict "Driver" . "Selected" (index $.Selected .ID) "Mobile" true "Vehicle" (index $.AssignedVehicles .ID))}}
       </div>
       {{else}}<p class="mobile-empty">No drivers match your search.</p>{{end}}
     </div>
+    <nav class="route-editor-pagination" aria-label="Driver pages">
+      {{if .Offset}}<button type="button" hx-post="/m/plan/drivers?offset={{.Previous}}" hx-include="#mobile-driver-picker" hx-target="#mobile-driver-results" hx-swap="outerHTML">Previous</button>{{end}}
+      {{if .Next}}<button type="button" hx-post="/m/plan/drivers?offset={{.Next}}" hx-include="#mobile-driver-picker" hx-target="#mobile-driver-results" hx-swap="outerHTML">Next</button>{{end}}
+    </nav>
   </div>
+  {{end}}
   <div class="mobile-primary-zone"><button class="mobile-button" type="submit">Done</button></div>
 </form>
 {{end}}

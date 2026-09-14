@@ -4,10 +4,10 @@
     <h1>People</h1>
     <p>Riders and the people driving them.</p>
   </header>
-  <form method="get" action="/m/people" class="mobile-search" role="search">
+  <form method="get" action="/m/people" class="mobile-search" role="search" hx-get="/m/people" hx-target="#mobile-people-results" hx-swap="outerHTML" hx-sync="this:replace">
     <input type="search" name="search" value="{{.Search}}" placeholder="Search people" aria-label="Search people">
     <button type="submit">Search</button>
-    {{if .Search}}<a href="/m/people">Clear</a>{{end}}
+    <a href="/m/people">Clear</a>
   </form>
   <nav class="mobile-split-actions" aria-label="People sections">
     <a class="mobile-button mobile-button-secondary" href="#participants">Participants</a>
@@ -17,6 +17,8 @@
     <a class="mobile-button" href="/m/people/participants/new">Add participant</a>
     <a class="mobile-button mobile-button-secondary" href="/m/people/drivers/new">Add driver</a>
   </div>
+  {{block "mobile_people_results" .}}<div id="mobile-people-results">
+  {{block "mobile_people_participants" .}}<div id="mobile-people-participants">
   <h2 id="participants" class="mobile-section-title">Participants</h2>
   <div class="mobile-group">
     {{range .Participants}}
@@ -32,6 +34,11 @@
     <p class="mobile-empty">{{if .Search}}No participants match your search.{{else}}No participants yet. Tap "Add participant" above.{{end}}</p>
     {{end}}
   </div>
+  <nav class="route-editor-pagination" aria-label="Participant pages">
+    {{if .ParticipantPreviousURL}}<a href="{{.ParticipantPreviousURL}}" hx-get="{{.ParticipantPreviousURL}}" hx-target="#mobile-people-participants" hx-swap="outerHTML">Previous</a>{{end}}
+    {{if .ParticipantNextURL}}<a href="{{.ParticipantNextURL}}" hx-get="{{.ParticipantNextURL}}" hx-target="#mobile-people-participants" hx-swap="outerHTML">Next</a>{{end}}
+  </nav></div>{{end}}
+  {{block "mobile_people_drivers" .}}<div id="mobile-people-drivers">
   <h2 id="drivers" class="mobile-section-title">Drivers</h2>
   <div class="mobile-group">
     {{range .Drivers}}
@@ -47,5 +54,10 @@
     <p class="mobile-empty">{{if .Search}}No drivers match your search.{{else}}No drivers yet. Tap "Add driver" above.{{end}}</p>
     {{end}}
   </div>
+  <nav class="route-editor-pagination" aria-label="Driver pages">
+    {{if .DriverPreviousURL}}<a href="{{.DriverPreviousURL}}" hx-get="{{.DriverPreviousURL}}" hx-target="#mobile-people-drivers" hx-swap="outerHTML">Previous</a>{{end}}
+    {{if .DriverNextURL}}<a href="{{.DriverNextURL}}" hx-get="{{.DriverNextURL}}" hx-target="#mobile-people-drivers" hx-swap="outerHTML">Next</a>{{end}}
+  </nav></div>{{end}}
+  </div>{{end}}
 </section>
 {{end}}

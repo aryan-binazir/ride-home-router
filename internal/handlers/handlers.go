@@ -226,7 +226,8 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 
 	if err := h.Renderer.Render(w, name, data); err != nil {
-		log.Printf("[ERROR] Template render error: template=%s err=%v", name, err)
+		//nolint:gosec // G706: %q quotes and escapes both the template name and error message.
+		log.Printf("[ERROR] Template render error: template=%q err=%q", name, err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }

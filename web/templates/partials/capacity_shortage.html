@@ -63,15 +63,7 @@
                             </td>
                             <td>{{.VehicleCapacity}} available {{pluralize .VehicleCapacity "seat"}}</td>
                             <td>
-                                <select name="org_vehicle_{{.ID}}"
-                                        class="form-select org-vehicle-select"
-                                        data-driver-id="{{.ID}}"
-                                        onchange="updateCapacityDisplay(this)">
-                                    <option value="" data-capacity="{{.VehicleCapacity}}">Personal vehicle</option>
-                                    {{range $.OrgVehicles}}
-                                    <option value="{{.ID}}" data-capacity="{{.Capacity}}" {{if eq .ID (index $.SelectedOrgVehicles $driver.ID)}}selected{{end}}>{{.Name}} ({{.Capacity}} available {{pluralize .Capacity "seat"}})</option>
-                                    {{end}}
-                                </select>
+                                {{template "vehicle_assignment" (dict "Driver" . "Selected" true "Shortage" true "Vehicle" (index $.AssignedVehicles .ID))}}
                             </td>
                             <td class="capacity-display">{{index $.EffectiveCapacityByDriver .ID}} available seats</td>
                         </tr>
