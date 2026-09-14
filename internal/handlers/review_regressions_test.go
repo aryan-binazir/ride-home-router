@@ -105,6 +105,9 @@ func TestStandaloneMobileEditorSearchAndPagingKeepNavigationFallback(t *testing.
 		if w.Code != 200 || strings.Contains(body, `hx-get="/m/routes/editor`) || strings.Contains(body, `hx-post="/m/routes/choose"`) || !strings.Contains(body, `action="/m/routes/choose"`) {
 			t.Fatal("standalone editor must keep search, paging and submit as ordinary navigation")
 		}
+		if !strings.Contains(body, `href="/m/routes" aria-label="Close editor"`) {
+			t.Fatal("standalone Close must navigate back to routes")
+		}
 	}
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/m/routes/choose", strings.NewReader("session_id="+snapshot.ID+"&action=move&from_route_index=0&participant_id=1&destination=26"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")

@@ -1,6 +1,6 @@
 {{define "route_editor"}}
 <section class="route-editor-panel" data-editor-session="{{.SessionID}}" aria-labelledby="route-editor-title">
-  <header class="route-editor-heading"><h2 id="route-editor-title">{{.Title}}</h2><button type="button" class="btn btn-sm btn-outline" onclick="closeRouteEditor()" aria-label="Close editor">Close</button></header>
+  <header class="route-editor-heading"><h2 id="route-editor-title">{{.Title}}</h2>{{if .Inline}}<button type="button" class="btn btn-sm btn-outline" onclick="closeRouteEditor()" aria-label="Close editor">Close</button>{{else}}<a class="btn btn-sm btn-outline" href="{{.ReturnURL}}" aria-label="Close editor">Close</a>{{end}}</header>
   <form method="get" action="{{.SearchURL}}" {{if .Inline}}hx-get="{{.SearchURL}}" hx-target="#route-editor" hx-sync="this:replace"{{end}}>
     <input type="hidden" name="session_id" value="{{.SessionID}}">
     <input type="hidden" name="action" value="{{.Action}}">
