@@ -94,11 +94,11 @@ func (r *importJobRepository) Progress(ctx context.Context, id string) (int, int
 func (r *importJobRepository) Claim(ctx context.Context, token string, ttl time.Duration) (database.ImportJob, bool, error) {
 	var job database.ImportJob
 	var indices []byte
-	err := r.db.QueryRowContext(ctx, `UPDATE import_jobs SET claim_token=$1,claimed_until=clock_timestamp()+$2*interval '1 second' WHERE (session_id,job_index) = (
+	err := r.db.QueryRowContext(ctx, `UPDATE import_jobs SET claim_token=$1,claimed_until=clock_timestamp()+$2*interval '1 second',attempts=attempts+1 WHERE (session_id,job_index) = (
  SELECT j.session_id,j.job_index FROM import_jobs j JOIN workflow_sessions s ON s.kind='import' AND s.id=j.session_id
  WHERE (SELECT next_at FROM provider_throttles WHERE name=$3)<=clock_timestamp() AND NOT j.done AND (j.claimed_until IS NULL OR j.claimed_until<clock_timestamp()) AND NOT s.consumed AND s.expires_at>clock_timestamp()
  ORDER BY j.claimed_until NULLS FIRST,j.session_id,j.job_index FOR UPDATE OF j SKIP LOCKED LIMIT 1)
- RETURNING session_id,job_index,address,array_to_json(row_indices),claim_token`, token, ttl.Seconds(), geocodingThrottle).Scan(&job.SessionID, &job.Index, &job.Address, &indices, &job.Token)
+ RETURNING session_id,job_index,address,array_to_json(row_indices),claim_token,attempts`, token, ttl.Seconds(), geocodingThrottle).Scan(&job.SessionID, &job.Index, &job.Address, &indices, &job.Token, &job.Attempts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return job, false, nil
 	}

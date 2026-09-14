@@ -328,6 +328,10 @@ func (s *Store) durableWorker(ctx context.Context) {
 	}
 }
 
+// Each claim reserves a round durably, including interrupted rounds. A later
+// claim can finalize exhausted work after a crash without calling Google again.
+const maxGeocodeRounds = 3
+
 func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	defer func() {
 		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
@@ -338,15 +342,24 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	}()
 	workCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	result, err := s.geocoder.GeocodeWithRetry(workCtx, job.Address, geocodeMaxRetries)
+	var result *geocoding.GeocodingResult
+	var err error
+	if job.Attempts <= maxGeocodeRounds {
+		result, err = s.geocoder.GeocodeWithRetry(workCtx, job.Address, geocodeMaxRetries)
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if workCtx.Err() != nil {
-		return workCtx.Err()
+		err = workCtx.Err()
 	}
-	if failure, ok := errors.AsType[*geocoding.ErrGeocodingFailed](err); ok && failure.Retryable() {
-		return err
+	if job.Attempts < maxGeocodeRounds {
+		if workCtx.Err() != nil {
+			return err
+		}
+		if failure, ok := errors.AsType[*geocoding.ErrGeocodingFailed](err); ok && failure.Retryable() {
+			return err
+		}
 	}
 	persistCtx, persistCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer persistCancel()

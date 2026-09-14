@@ -57,6 +57,8 @@ type ImportJob struct {
 	Address   string
 	Rows      []int
 	Token     string
+	// Attempts counts durable worker rounds, reserved before any provider calls.
+	Attempts int
 }
 type ImportJobRepository interface {
 	Rows(context.Context, string) ([]ImportRow, error)
