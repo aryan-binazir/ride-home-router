@@ -2549,3 +2549,35 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   height: 18px;
   width: auto;
 }
+
+/* Keep the plan compact; roster choices have their own accessible scroll surface. */
+.picker-summary { margin: 0 0 12px; }
+.planner-roster-dialog {
+    width: min(760px, calc(100vw - 32px));
+    max-width: none;
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    padding: 0;
+    color: var(--ink);
+    background: var(--pane);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 24px 80px #0008;
+}
+.planner-roster-dialog[open] { display: flex; flex-direction: column; }
+.planner-roster-dialog::backdrop { background: #0009; }
+.roster-dialog-header, .roster-dialog-footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 18px 24px; flex-shrink: 0;
+}
+.roster-dialog-header { border-bottom: 1px solid var(--line); }
+.roster-dialog-header h2 { margin: 0; font-size: 22px; }
+.roster-dialog-footer { border-top: 1px solid var(--line); }
+.roster-dialog-body { padding: 20px 24px; overflow-y: auto; min-height: 0; }
+.roster-dialog-body > .link { margin-bottom: 16px; }
+.planner-roster-dialog .select-list { max-height: none; overflow: visible; }
+@media (max-width: 600px) {
+    .planner-roster-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+    .roster-dialog-header, .roster-dialog-footer, .roster-dialog-body { padding: 16px; }
+    .roster-dialog-footer { font-size: 13px; }
+}

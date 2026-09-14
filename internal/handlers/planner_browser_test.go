@@ -80,7 +80,20 @@ window.addEventListener('load',()=>{
  const desktopPointer=matchMedia('(min-width: 821px) and (hover: hover) and (pointer: fine)').matches;
  check((getComputedStyle(mobileLink).display!=='none')===!desktopPointer,'mobile link visibility');
 
- if(innerWidth===1440) {const d=document.querySelector('#drivers-search').getBoundingClientRect();check(d.top>=0&&d.bottom<document.querySelector('.plan-pane-scroll').getBoundingClientRect().bottom,'drivers search buried '+JSON.stringify({h:innerHeight,d:d.bottom,pane:document.querySelector('.plan-pane-scroll').getBoundingClientRect().bottom}));}
+ for(const kind of ['participants','drivers']) {
+  const dialog=document.getElementById(kind+'-dialog');
+  check(dialog instanceof HTMLDialogElement && !dialog.open,kind+' modal initially closed');
+  const launch=document.querySelector('[onclick*="'+kind+'-dialog"]');
+  check(launch.getBoundingClientRect().height>0,kind+' picker button visible');
+  launch.click();
+  const box=dialog.getBoundingClientRect();
+  check(dialog.open && box.left>=0 && box.right<=innerWidth && box.top>=0 && box.bottom<=innerHeight,kind+' modal contained');
+  check(dialog.querySelector('.roster-dialog-body').scrollHeight>dialog.querySelector('.roster-dialog-body').clientHeight,kind+' roster scrolls');
+  const input=dialog.querySelector('input[type=checkbox]'); input.checked=true; input.dispatchEvent(new Event('change',{bubbles:true}));
+  dialog.querySelector('.roster-dialog-footer button').click();
+  check(!dialog.open && input.checked && input.form.id==='event-form',kind+' selection retained in event form');
+ }
+
  const target=document.querySelector('#results-section');
  target.innerHTML=ROUTE_HTML;
  target.querySelector('.results-body').insertAdjacentHTML('afterbegin','<div style="height:20000px">Long route list</div>');

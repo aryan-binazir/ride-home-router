@@ -1763,6 +1763,10 @@
             const seatsEl = document.getElementById('drivers-selected-seats');
             if (seatsEl) seatsEl.textContent = totalCapacity;
 
+            for (const [kind, count] of Object.entries({participants: participantsCount, drivers: driversCount, seats: totalCapacity})) {
+                document.querySelectorAll(`[data-picker-summary="${kind}"]`).forEach(el => { el.textContent = count; });
+            }
+
             const statsEl = document.getElementById('selection-stats');
             if (statsEl) {
                 const parts = [];

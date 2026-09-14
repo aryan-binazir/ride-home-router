@@ -41,10 +41,16 @@
                 </section>
 
                 <section class="planner-block">
-                    <div class="blockhead">
-                        <h2>Participants</h2>
-                        <button type="button" class="link" onclick="selectAllParticipants()">Select all</button>
-                    </div>
+                    <div class="blockhead"><h2>Participants</h2></div>
+                    <p class="text-muted picker-summary"><strong data-picker-summary="participants">0</strong> selected</p>
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('participants-dialog').showModal()" aria-haspopup="dialog">Choose participants</button>
+                    <dialog id="participants-dialog" class="planner-roster-dialog" aria-labelledby="participants-dialog-title">
+                      <header class="roster-dialog-header">
+                        <h2 id="participants-dialog-title">Choose participants</h2>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="this.closest('dialog').close()" aria-label="Close participants">Close</button>
+                      </header>
+                      <div class="roster-dialog-body">
+                        <button type="button" class="link" onclick="selectAllParticipants()">Select all matching participants</button>
 
                     {{if .Participants}}
                     <div class="panel-toolbar panel-toolbar-stack">
@@ -106,13 +112,22 @@
                         <p>Add participants on the <a href="/participants">Participants</a> page first.</p>
                     </div>
                     {{end}}
+                      </div>
+                      <footer class="roster-dialog-footer"><span class="text-muted">Selections update as you choose.</span><button type="button" class="btn btn-primary" onclick="this.closest('dialog').close()">Done</button></footer>
+                    </dialog>
                 </section>
 
                 <section class="planner-block">
-                    <div class="blockhead">
-                        <h2>Drivers</h2>
-                        <button type="button" class="link" onclick="selectAllDrivers()">Select all</button>
-                    </div>
+                    <div class="blockhead"><h2>Drivers</h2></div>
+                    <p class="text-muted picker-summary"><strong data-picker-summary="drivers">0</strong> selected · <strong data-picker-summary="seats">0</strong> seats</p>
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('drivers-dialog').showModal()" aria-haspopup="dialog">Choose drivers</button>
+                    <dialog id="drivers-dialog" class="planner-roster-dialog" aria-labelledby="drivers-dialog-title">
+                      <header class="roster-dialog-header">
+                        <h2 id="drivers-dialog-title">Choose drivers</h2>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="this.closest('dialog').close()" aria-label="Close drivers">Close</button>
+                      </header>
+                      <div class="roster-dialog-body">
+                        <button type="button" class="link" onclick="selectAllDrivers()">Select all matching drivers</button>
 
                     {{if .Drivers}}
                     <div class="panel-toolbar panel-toolbar-stack">
@@ -186,6 +201,9 @@
                         <p>Add drivers on the <a href="/drivers">Drivers</a> page first.</p>
                     </div>
                     {{end}}
+                      </div>
+                      <footer class="roster-dialog-footer"><span class="text-muted">Selections update as you choose.</span><button type="button" class="btn btn-primary" onclick="this.closest('dialog').close()">Done</button></footer>
+                    </dialog>
                 </section>
 
                 <section class="planner-block route-options">
