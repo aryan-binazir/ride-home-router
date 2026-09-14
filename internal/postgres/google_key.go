@@ -8,14 +8,14 @@ import (
 
 func (r *settingsRepository) GoogleMapsKey(ctx context.Context) (string, error) {
 	var key string
-	err := r.db.QueryRowContext(ctx, `SELECT api_key FROM google_maps_credentials WHERE id = 1`).Scan(&key)
+	err := r.db.QueryRowContext(ctx, `SELECT encrypted_api_key FROM google_maps_credentials WHERE id = 1`).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", errors.New("failed to read Google Maps credential")
 	}
-	return key, nil
+	return r.cipher.Open(key, "google_maps_api_key")
 }
 
 func (r *settingsRepository) GoogleMapsKeyConfigured(ctx context.Context) (bool, error) {
@@ -28,7 +28,14 @@ func (r *settingsRepository) GoogleMapsKeyConfigured(ctx context.Context) (bool,
 }
 
 func (r *settingsRepository) SetGoogleMapsKey(ctx context.Context, key string) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO google_maps_credentials (id, api_key) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET api_key = EXCLUDED.api_key`, key)
+	if len(key) == 0 || len(key) > 4096 {
+		return errors.New("google maps credential must contain between 1 and 4096 bytes")
+	}
+	encrypted, err := r.cipher.Seal(key, "google_maps_api_key")
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO google_maps_credentials (id, encrypted_api_key) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET encrypted_api_key = EXCLUDED.encrypted_api_key`, encrypted)
 	if err != nil {
 		return errors.New("failed to update Google Maps credential")
 	}

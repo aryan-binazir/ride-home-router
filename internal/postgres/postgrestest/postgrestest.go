@@ -18,6 +18,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// EncryptionKey is a synthetic key for isolated database tests only.
+const EncryptionKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+
 // EnvVar names the connection string tests use; unset skips database tests.
 const EnvVar = "TEST_DATABASE_URL"
 
@@ -34,6 +37,9 @@ func Open(t testing.TB) *postgres.Store {
 	if err != nil {
 		t.Fatalf("open test Postgres store: %v", err)
 	}
+	if err := store.ConfigureCredentialEncryption(EncryptionKey); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {
 			t.Errorf("close test Postgres store: %v", err)
@@ -48,6 +54,9 @@ func OpenURL(t testing.TB, databaseURL string) *postgres.Store {
 	store, err := postgres.New(context.Background(), databaseURL)
 	if err != nil {
 		t.Fatalf("open replica store: %v", err)
+	}
+	if err := store.ConfigureCredentialEncryption(EncryptionKey); err != nil {
+		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {

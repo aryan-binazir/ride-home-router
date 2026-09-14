@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"ride-home-router/internal/credentials"
 	"ride-home-router/internal/database"
 	"ride-home-router/migrations"
 	"strings"
@@ -26,7 +27,8 @@ const (
 
 // Store is a PostgreSQL-backed data store for a migrated schema.
 type Store struct {
-	db *sql.DB
+	db               *sql.DB
+	credentialCipher *credentials.Cipher
 }
 
 // New opens a connection pool to databaseURL and verifies it is reachable.
@@ -90,7 +92,9 @@ func (s *Store) Participants() database.ParticipantRepository {
 
 func (s *Store) Drivers() database.DriverRepository { return &driverRepository{db: s.db} }
 
-func (s *Store) Settings() database.SettingsRepository { return &settingsRepository{db: s.db} }
+func (s *Store) Settings() database.SettingsRepository {
+	return &settingsRepository{db: s.db, cipher: s.credentialCipher}
+}
 
 func (s *Store) ActivityLocations() database.ActivityLocationRepository {
 	return &activityLocationRepository{db: s.db}

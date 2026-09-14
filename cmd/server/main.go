@@ -58,6 +58,7 @@ func run(args []string) error {
 	defer signal.Stop(shutdown)
 
 	srv, err := server.New(context.Background(), server.Config{
+		CredentialEncryptionKey: os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
 		Auth: access.Config{
 			SecretKey:         os.Getenv("CLERK_SECRET_KEY"),
 			PublishableKey:    os.Getenv("CLERK_PUBLISHABLE_KEY"),

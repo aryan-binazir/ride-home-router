@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"ride-home-router/internal/credentials"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 )
 
 type settingsRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	cipher *credentials.Cipher
 }
 
 func (r *settingsRepository) Get(ctx context.Context) (*models.Settings, error) {

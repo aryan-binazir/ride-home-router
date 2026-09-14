@@ -17,7 +17,7 @@ func TestAccessSettingsCookieManagement(t *testing.T) {
 	f.User("member", []string{"member@example.test"}, nil)
 	f.Session("member_session", "member", "active")
 	member := f.Token("member", "member_session")
-	s, err := New(t.Context(), Config{Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t), Auth: f.Config()})
+	s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t), Auth: f.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}

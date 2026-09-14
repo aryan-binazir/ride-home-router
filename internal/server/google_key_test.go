@@ -49,7 +49,7 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 	member := f.Token("member", "member_session", map[string]any{"org_role": "org:admin"})
 	start := func() (*Server, string) {
 		t.Helper()
-		s, err := New(t.Context(), Config{Addr: "127.0.0.1:0", AllowedHosts: []string{"127.0.0.1"}, DatabaseURL: databaseURL, Auth: f.Config("admin@example.test", "second@example.test")})
+		s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Addr: "127.0.0.1:0", AllowedHosts: []string{"127.0.0.1"}, DatabaseURL: databaseURL, Auth: f.Config("admin@example.test", "second@example.test")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -329,6 +329,20 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 	for _, key := range []string{firstKey, secondKey, envKey} {
 		if strings.Contains(string(logs), key) {
 			t.Error("audit logs disclosed a credential")
+		}
+	}
+}
+
+func TestStartupRequiresCredentialEncryptionKey(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	for _, key := range []string{"", "invalid-secret-value"} {
+		s, err := New(t.Context(), Config{DatabaseURL: databaseURL, CredentialEncryptionKey: key})
+		if err == nil {
+			_ = s.Shutdown(t.Context())
+			t.Fatal("startup accepted invalid encryption key")
+		}
+		if !strings.Contains(err.Error(), "credential encryption key must") || strings.Contains(err.Error(), "invalid-secret-value") {
+			t.Fatalf("unexpected startup error: %v", err)
 		}
 	}
 }

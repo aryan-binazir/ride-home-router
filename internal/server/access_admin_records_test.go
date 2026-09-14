@@ -18,7 +18,7 @@ func TestVerifiedAdminEmailPersistenceAndFailure(t *testing.T) {
 	f.User("admin", []string{"ADMIN@example.test", "unrelated@example.test"}, []string{"second@example.test"})
 	f.Session("admin_session", "admin", "active")
 	token := f.Token("admin", "admin_session")
-	s, err := New(t.Context(), Config{Addr: "127.0.0.1:0", DatabaseURL: databaseURL, Auth: f.Config("admin@example.test", "second@example.test")})
+	s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Addr: "127.0.0.1:0", DatabaseURL: databaseURL, Auth: f.Config("admin@example.test", "second@example.test")})
 	if err != nil {
 		t.Fatal(err)
 	}
