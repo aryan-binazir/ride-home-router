@@ -1,6 +1,9 @@
 {{define "mobile_route_cards"}}
 {{range .Routes}}
 {{$current := .}}
+{{if .ActionsOnly}}
+{{template "mobile_route_edit_updates" (dict "Current" . "Snapshot" $.Snapshot)}}
+{{else}}
 {{if .Append}}<div hx-swap-oob="beforeend:#mobile-route-list">{{end}}
 <article {{if and $.Patch (not .Append)}}hx-swap-oob="outerHTML"{{end}} id="mobile-route-{{.Index}}" class="mobile-route-card{{if and (lt .Index (len $.Snapshot.OverCapacity)) (index $.Snapshot.OverCapacity .Index)}} mobile-route-card-over-capacity{{end}}">
   <details open>
@@ -15,7 +18,7 @@
       <li><span class="mobile-stop-number">{{add $i 1}}</span>
         {{with $stop.Participant}}
         <div><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small>{{if not $.Snapshot.IsOutOfBalance}}{{with index $current.ETAs $i}}<em>{{.}}</em>{{end}}{{end}}</div>
-        {{if gt (len $.Snapshot.Routes) 1}}<a class="mobile-text-button" href="/m/routes/editor?session_id={{$.Snapshot.ID}}&amp;action=move&amp;from_route_index={{$current.Index}}&amp;participant_id={{.ID}}" hx-get="/m/routes/editor?session_id={{$.Snapshot.ID}}&amp;action=move&amp;from_route_index={{$current.Index}}&amp;participant_id={{.ID}}" hx-target="#route-editor" aria-label="Move {{.Name}}">Move</a>{{end}}
+        <span id="mobile-move-{{$current.Index}}-{{.ID}}">{{template "mobile_move_link" (dict "Current" $current "Participant" . "Snapshot" $.Snapshot)}}</span>
         {{else}}<div><b>Rider unavailable</b></div>{{end}}
       </li>
       {{end}}
@@ -37,9 +40,10 @@
     </div>
     <textarea class="mobile-copy-source" id="driver-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.DriverText}}</textarea>
     <textarea class="mobile-copy-source" id="parent-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.ParentText}}</textarea>
-    {{if gt (len $.Snapshot.Routes) 1}}<a class="mobile-text-button" href="/m/routes/editor?session_id={{$.Snapshot.ID}}&amp;action=swap&amp;from_route_index={{.Index}}" hx-get="/m/routes/editor?session_id={{$.Snapshot.ID}}&amp;action=swap&amp;from_route_index={{.Index}}" hx-target="#route-editor" aria-label="Swap {{with .Route.Driver}}{{.Name}}{{end}} with another driver">Swap driver</a>{{end}}
+    <span id="mobile-swap-{{.Index}}">{{template "mobile_swap_link" (dict "Current" . "Snapshot" $.Snapshot)}}</span>
   </details>
 </article>
 {{if .Append}}</div>{{end}}
+{{end}}
 {{end}}
 {{end}}

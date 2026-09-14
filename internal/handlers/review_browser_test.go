@@ -13,6 +13,57 @@ import (
 	"testing"
 )
 
+func TestAddingSecondMobileDriverPreservesTimedCard(t *testing.T) {
+	browser := os.Getenv("BROWSER_TEST_BINARY")
+	if browser == "" {
+		t.Skip("BROWSER_TEST_BINARY not set")
+	}
+	h, snapshot, cookie := oneRouteWithUnusedDriver(t)
+	mux := http.NewServeMux()
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("../../web/static"))))
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("/measurement-count", func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprint(w, h.Measurer.(*stubMeasurer).count()) })
+	mux.HandleFunc("/m/routes/editor", func(w http.ResponseWriter, r *http.Request) { r.AddCookie(cookie); h.HandleRouteEditor(w, r) })
+	mux.HandleFunc("/m/routes/choose", func(w http.ResponseWriter, r *http.Request) {
+		r.AddCookie(cookie)
+		h.HandleMobileRouteEditorAction(w, r)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		recorder := httptest.NewRecorder()
+		h.renderMobileRoutesTimed(recorder, r, snapshot, 200, "", "", "", []int{0})
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		script := `<script>addEventListener('load',async()=>{
+ const result={};const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ const settled=()=>new Promise(resolve=>document.addEventListener('htmx:afterSettle',function done(event){if(event.detail.target?.id==='route-editor'){document.removeEventListener('htmx:afterSettle',done);resolve()}}));
+ try{
+  const card=document.getElementById('mobile-route-0');const copy=card.querySelector('textarea').value;
+  result.callsBefore=Number(await(await fetch('/measurement-count')).text());
+  const opened=settled();document.querySelector('a[href*="action=add"]').click();await opened;
+  const choice=document.querySelector('#route-editor input[name="destination"]');choice.checked=true;choice.form.requestSubmit();
+  for(let i=0;i<200&&!document.getElementById('mobile-route-1');i++)await delay(20);
+  const after=document.getElementById('mobile-route-0');
+  result.same=card===after;result.copy=copy===after.querySelector('textarea').value;result.attribution=!!after.querySelector('.mobile-route-attribution');
+  result.move=!!after.querySelector('a[href*="action=move"]');result.cards=document.querySelectorAll('.mobile-route-card').length;
+  result.callsAfter=Number(await(await fetch('/measurement-count')).text());
+ }catch(error){result.error=String(error)}
+ document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);
+ });</script>`
+		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
+	})
+	raw := runRouteBrowser(t, browser, mux)
+	var result struct {
+		Same, Copy, Attribution, Move  bool
+		Cards, CallsBefore, CallsAfter int
+		Error                          string
+	}
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "" || !result.Same || !result.Copy || !result.Attribution || !result.Move || result.Cards != 2 || result.CallsBefore == 0 || result.CallsAfter != result.CallsBefore {
+		t.Fatalf("mobile timing preservation: %s", raw)
+	}
+}
+
 func TestAddingSecondDriverBrowserPreservesMeasuredTimings(t *testing.T) {
 	browser := os.Getenv("BROWSER_TEST_BINARY")
 	if browser == "" {

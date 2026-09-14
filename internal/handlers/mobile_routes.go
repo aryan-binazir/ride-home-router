@@ -104,6 +104,12 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 	}
 	for _, index := range renderIndexes {
 		route := snapshot.Routes[index]
+		if view.Patch && addingSecond && index == 0 {
+			// Only the edit controls changed. Leave measured ETAs and copy text
+			// on the existing card, rather than rebuilding or caching them.
+			view.Routes = append(view.Routes, mobileRoute{ActionsOnly: true, Index: index, Route: route})
+			continue
+		}
 		timing := timings[index]
 		// The template reads an ETA per stop, so unmeasured cars carry blanks.
 		etas := make([]string, len(route.Stops))

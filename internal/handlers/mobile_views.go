@@ -82,12 +82,13 @@ type mobileWhenView struct {
 }
 
 type mobileRoute struct {
-	Append     bool
-	Index      int
-	Route      models.CalculatedRoute
-	DriverText string
-	ParentText string
-	ETAs       []string
+	ActionsOnly bool
+	Append      bool
+	Index       int
+	Route       models.CalculatedRoute
+	DriverText  string
+	ParentText  string
+	ETAs        []string
 	// Timing is this response's measurement for the car; nil Route means no numbers.
 	Timing RouteTiming
 }

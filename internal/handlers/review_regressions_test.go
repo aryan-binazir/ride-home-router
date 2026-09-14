@@ -11,6 +11,67 @@ import (
 	"testing"
 )
 
+func TestDeletedRosterPaginationKeepsOlderRecordsRestorable(t *testing.T) {
+	h, db := newTestPageHandler(t)
+	var firstDriver, firstParticipant int64
+	for i := range 60 {
+		name := fmt.Sprintf("Deleted %03d", i)
+		driver, err := db.Drivers().Create(t.Context(), &models.Driver{Name: name, Address: "1 Main St", VehicleCapacity: 4})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Drivers().Delete(t.Context(), driver.ID); err != nil {
+			t.Fatal(err)
+		}
+		person, err := db.Participants().Create(t.Context(), &models.Participant{Name: name, Address: "1 Main St"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Participants().Delete(t.Context(), person.ID); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			firstDriver = driver.ID
+			firstParticipant = person.ID
+		}
+	}
+	cases := []struct {
+		kind          string
+		id            int64
+		list, restore http.HandlerFunc
+	}{{"drivers", firstDriver, h.HandleListDeletedDrivers, h.HandleRestoreDriver}, {"participants", firstParticipant, h.HandleListDeletedParticipants, h.HandleRestoreParticipant}}
+	for _, tc := range cases {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/"+tc.kind+"/deleted", nil)
+		r.Header.Set("HX-Request", "true")
+		w := httptest.NewRecorder()
+		tc.list(w, r)
+		if !strings.Contains(w.Body.String(), "Next") || !strings.Contains(w.Body.String(), `hx-target="#`+tc.kind+`-deleted"`) {
+			t.Fatalf("%s deleted page lacks navigation", tc.kind)
+		}
+		r = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/"+tc.kind+"/deleted?offset=50", nil)
+		r.Header.Set("HX-Request", "true")
+		w = httptest.NewRecorder()
+		tc.list(w, r)
+		if !strings.Contains(w.Body.String(), "Deleted 000") || strings.Count(w.Body.String(), `<tr id="deleted-`) != 10 {
+			t.Fatalf("%s older deleted records inaccessible", tc.kind)
+		}
+		r = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/"+tc.kind+"/restore", strings.NewReader(fmt.Sprintf("id=%d", tc.id)))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("HX-Request", "true")
+		w = httptest.NewRecorder()
+		tc.restore(w, r)
+		if w.Code != 200 {
+			t.Fatalf("restore %s: %d", tc.kind, w.Code)
+		}
+	}
+	if _, err := db.Drivers().GetByID(t.Context(), firstDriver); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Participants().GetByID(t.Context(), firstParticipant); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestVehicleEditorReportsDeletedRecordsAsUserErrors(t *testing.T) {
 	h, db := newTestPageHandler(t)
 	driver, err := db.Drivers().Create(t.Context(), &models.Driver{Name: "Driver", Address: "1 Main St", VehicleCapacity: 4})
@@ -30,6 +91,29 @@ func TestVehicleEditorReportsDeletedRecordsAsUserErrors(t *testing.T) {
 		if w.Code != tc.status {
 			t.Fatalf("status=%d want=%d", w.Code, tc.status)
 		}
+	}
+}
+
+func TestStandaloneMobileEditorSearchAndPagingKeepNavigationFallback(t *testing.T) {
+	h, snapshot, cookie := largeRouteFixture(t)
+	for _, query := range []string{"", "&search=Driver", "&search=Driver&offset=25"} {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/m/routes/editor?session_id="+snapshot.ID+"&action=move&from_route_index=0&participant_id=1"+query, nil)
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		h.HandleRouteEditor(w, r)
+		body := w.Body.String()
+		if w.Code != 200 || strings.Contains(body, `hx-get="/m/routes/editor`) || strings.Contains(body, `hx-post="/m/routes/choose"`) || !strings.Contains(body, `action="/m/routes/choose"`) {
+			t.Fatal("standalone editor must keep search, paging and submit as ordinary navigation")
+		}
+	}
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/m/routes/choose", strings.NewReader("session_id="+snapshot.ID+"&action=move&from_route_index=0&participant_id=1&destination=26"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.HandleMobileRouteEditorAction(w, r)
+	updated, ok, err := h.RouteSession.Load(t.Context(), snapshot.ID)
+	if err != nil || !ok || w.Code != http.StatusSeeOther || len(updated.Routes[0].Stops) != 0 || len(updated.Routes[26].Stops) != 2 {
+		t.Fatalf("ordinary editor submit failed: status=%d found=%t err=%v", w.Code, ok, err)
 	}
 }
 
@@ -68,7 +152,7 @@ func TestAddSecondDriverRefreshesOriginalCardActions(t *testing.T) {
 				r.Header.Set("HX-Request", "true")
 				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 				h.HandleMobileAddDriver(w, r)
-				if !strings.Contains(w.Body.String(), `id="mobile-route-0"`) {
+				if !strings.Contains(w.Body.String(), `id="mobile-move-0-1"`) || !strings.Contains(w.Body.String(), `id="mobile-swap-0"`) {
 					t.Fatal("original card lacks newly available edit actions")
 				}
 			} else {

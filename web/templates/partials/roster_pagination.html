@@ -1,6 +1,6 @@
 {{define "roster_pagination"}}
 <nav class="route-editor-pagination" aria-label="Roster pages">
-  {{if .PreviousURL}}<button type="button" class="btn btn-sm btn-outline" hx-get="{{.PreviousURL}}" hx-target="#{{.Kind}}-list" hx-swap="innerHTML">Previous</button>{{end}}
-  {{if .NextURL}}<button type="button" class="btn btn-sm btn-outline" hx-get="{{.NextURL}}" hx-target="#{{.Kind}}-list" hx-swap="innerHTML">Next</button>{{end}}
+  {{if .PreviousURL}}<button type="button" class="btn btn-sm btn-outline" hx-get="{{.PreviousURL}}" hx-target="#{{.Target}}" hx-swap="innerHTML">Previous</button>{{end}}
+  {{if .NextURL}}<button type="button" class="btn btn-sm btn-outline" hx-get="{{.NextURL}}" hx-target="#{{.Target}}" hx-swap="innerHTML">Next</button>{{end}}
 </nav>
 {{end}}

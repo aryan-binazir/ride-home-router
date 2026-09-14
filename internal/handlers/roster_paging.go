@@ -9,8 +9,8 @@ import (
 )
 
 type rosterPagination struct {
-	Kind, Search, NextURL, PreviousURL string
-	Offset                             int
+	Kind, Target, Search, NextURL, PreviousURL string
+	Offset                                     int
 }
 
 func pageRoster[T any](r *http.Request, kind string, items []T, describe func(T) string) ([]T, rosterPagination) {
@@ -23,9 +23,14 @@ func pageRoster[T any](r *http.Request, kind string, items []T, describe func(T)
 	}
 	offset, _ := strconv.Atoi(r.FormValue("offset"))
 	start, end, next, previous := pickerWindow(len(matches), offset)
-	page := rosterPagination{Kind: kind, Search: search, Offset: start}
+	baseURL := "/api/v1/" + kind
+	page := rosterPagination{Kind: kind, Target: kind + "-list", Search: search, Offset: start}
+	if r.URL.Path == baseURL+"/deleted" {
+		baseURL += "/deleted"
+		page.Target = kind + "-deleted"
+	}
 	pageURL := func(offset int) string {
-		return "/api/v1/" + kind + "?" + url.Values{"search": {search}, "offset": {strconv.Itoa(offset)}}.Encode()
+		return baseURL + "?" + url.Values{"search": {search}, "offset": {strconv.Itoa(offset)}}.Encode()
 	}
 	if next > 0 {
 		page.NextURL = pageURL(next)
