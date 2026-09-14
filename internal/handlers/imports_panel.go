@@ -315,12 +315,12 @@ func (h *Handler) writeImportError(w http.ResponseWriter, r *http.Request, sessi
 	return status
 }
 
-func (h *Handler) renderImportStep(w http.ResponseWriter, snapshot importer.Snapshot) {
+func (h *Handler) renderImportStep(w http.ResponseWriter, r *http.Request, snapshot importer.Snapshot) {
 	switch snapshot.Status {
 	case importer.StatusMapping:
 		h.renderTemplate(w, "import_mapping", newImportMappingView(snapshot, nil))
 	case importer.StatusPreviewing, importer.StatusCommitting:
-		h.renderTemplate(w, "import_preview", newImportPreviewView(snapshot))
+		h.renderImportPreview(w, r, snapshot)
 	case importer.StatusCommitted:
 		h.renderTemplate(w, "import_result", importCommitView{Message: importCommitMessage(snapshot.CommitResult)})
 	case importer.StatusFailed:
@@ -328,6 +328,19 @@ func (h *Handler) renderImportStep(w http.ResponseWriter, snapshot importer.Snap
 	default:
 		h.renderImportMessage(w, snapshot.ID, importFailureMessage(snapshot))
 	}
+}
+
+func (h *Handler) renderImportPreview(w http.ResponseWriter, r *http.Request, snapshot importer.Snapshot) {
+	view := newImportPreviewView(snapshot)
+	if view.Geocoding {
+		configured, err := h.DB.Settings().GoogleMapsKeyConfigured(r.Context())
+		if err != nil {
+			log.Print("[IMPORT] Unable to check address lookup configuration")
+		} else if !configured {
+			view.Warnings = append(view.Warnings, "Address lookup is not configured. Ask an administrator to add the Google Maps key in Settings. This import will resume automatically.")
+		}
+	}
+	h.renderTemplate(w, "import_preview", view)
 }
 
 func importFailureMessage(snapshot importer.Snapshot) string {
@@ -349,7 +362,7 @@ func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil), -1
 	}
-	h.renderImportStep(w, snapshot)
+	h.renderImportStep(w, r, snapshot)
 	return http.StatusOK, len(snapshot.Rows)
 }
 
@@ -381,7 +394,7 @@ func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), len(updated.Rows)
 	}
-	h.renderTemplate(w, "import_preview", newImportPreviewView(updated))
+	h.renderImportPreview(w, r, updated)
 	return http.StatusOK, len(updated.Rows)
 }
 
