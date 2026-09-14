@@ -96,9 +96,10 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 	view.Snapshot.Summary, view.ShowAggregates = h.itinerarySummary(snapshot.Summary, timings)
 	singleCard := h.isHTMX(r) && r.URL.Path == "/m/routes/timings"
 	mutation := h.isHTMX(r) && r.Method == http.MethodPost && !singleCard && status == http.StatusOK && r.URL.Path != "/m/routes/save"
-	view.Patch = mutation && r.FormValue("rendered_balance") == strconv.FormatBool(snapshot.IsOutOfBalance)
+	view.Patch = mutation && r.URL.Path != "/m/routes/reset" && r.FormValue("rendered_balance") == strconv.FormatBool(snapshot.IsOutOfBalance)
 	renderIndexes := indexes
-	if !singleCard && !view.Patch {
+	addingSecond := len(snapshot.Routes) == 2 && (r.URL.Path == "/m/routes/add-driver" || r.FormValue("action") == "add")
+	if addingSecond || (!singleCard && !view.Patch) {
 		renderIndexes = allRouteIndexes(snapshot)
 	}
 	for _, index := range renderIndexes {

@@ -41,15 +41,10 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	participantNext, driverNext := 0, 0
-	if len(participants) > 50 {
-		participantNext = 50
-		participants = participants[:50]
-	}
-	if len(drivers) > 50 {
-		driverNext = 50
-		drivers = drivers[:50]
-	}
+	_, participantEnd, participantNext, _ := pickerWindow(len(participants), 0)
+	_, driverEnd, driverNext, _ := pickerWindow(len(drivers), 0)
+	participants = participants[:participantEnd]
+	drivers = drivers[:driverEnd]
 	h.renderTemplate(w, "index.html", IndexPageView{
 		PagedPickers: true, ParticipantNext: participantNext, DriverNext: driverNext,
 		Title:             "Event Planning",

@@ -38,6 +38,13 @@ type routeEditorView struct {
 // Opening/searching an editor never measures or changes an itinerary.
 func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 	mobile := strings.HasPrefix(r.URL.Path, "/m/")
+	validationError := func(message string) {
+		if mobile && !h.isHTMX(r) {
+			h.mobileRedirectError(w, r, "/m/routes", message)
+			return
+		}
+		h.handleValidationErrorHTMX(w, r, message)
+	}
 	id := r.URL.Query().Get("session_id")
 	if mobile {
 		if _, _, ok := h.mobileRouteSession(w, r); !ok {
@@ -50,6 +57,10 @@ func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
+		if mobile && !h.isHTMX(r) {
+			h.mobileRedirectError(w, r, "/m/routes", messageSessionNotFound)
+			return
+		}
 		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 		return
 	}
@@ -61,11 +72,11 @@ func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 		view.ReturnURL = "/m/routes"
 	}
 	if action != "move" && action != "swap" && action != "add" {
-		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
+		validationError(messageInvalidRequestBody)
 		return
 	}
 	if action != "add" && (parseErr != nil || from < 0 || from >= len(snapshot.Routes)) {
-		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
+		validationError(messageInvalidRouteIndex)
 		return
 	}
 	switch action {
@@ -77,12 +88,12 @@ func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if view.Title == "" {
-			h.handleValidationErrorHTMX(w, r, "That rider is no longer on this route. Refresh the page and try again.")
+			validationError("That rider is no longer on this route. Refresh the page and try again.")
 			return
 		}
 	case "swap":
 		if snapshot.Routes[from].Driver == nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
+			validationError(messageInvalidRouteIndex)
 			return
 		}
 		view.Title = "Swap " + snapshot.Routes[from].Driver.Name

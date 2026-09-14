@@ -31,7 +31,7 @@
 <div id="mobile-route-actions" {{if .Patch}}hx-swap-oob="outerHTML"{{end}}>
   {{if .Snapshot.UnusedDrivers}}<a class="mobile-button mobile-button-secondary" href="/m/routes/editor?session_id={{.Snapshot.ID}}&amp;action=add" hx-get="/m/routes/editor?session_id={{.Snapshot.ID}}&amp;action=add" hx-target="#route-editor">Add unused driver ({{len .Snapshot.UnusedDrivers}})</a>{{end}}
   {{if .Snapshot.IsEditing}}
-  <form data-confirm="Reset changes? Your edits will be lost." action="/m/routes/reset" method="post" hx-post="/m/routes/reset" hx-target="#mobile-route-updates" hx-include=".mobile-save-card" hx-sync=".mobile-routes:queue all" hx-disabled-elt="find button">
+  <form hx-confirm="Reset changes? Your edits will be lost." data-confirm="Reset changes? Your edits will be lost." action="/m/routes/reset" method="post" hx-post="/m/routes/reset" hx-target="#mobile-route-updates" hx-include=".mobile-save-card" hx-sync=".mobile-routes:queue all" hx-disabled-elt="find button">
     <input type="hidden" name="session_id" value="{{.Snapshot.ID}}"><button class="mobile-text-button" type="submit">Reset changes</button>
   </form>
   {{end}}

@@ -25,8 +25,10 @@
     document.addEventListener('htmx:beforeRequest', event => {
         if (event.detail.target?.id === 'route-editor') generation++;
         const editorRequest = event.detail.target?.id === 'route-editor' || !!event.detail.elt?.closest('#route-editor');
-        if (editorRequest || event.detail.elt?.closest('.mobile-routes, [data-editor-session]')) {
-            requests.set(event.detail.xhr, {generation, sessionId: sessionId(), editorRequest});
+        const path = event.detail.requestConfig?.path || '';
+        const routeRequest = path.startsWith('/api/v1/routes/') || path.startsWith('/m/routes/') || !!event.detail.elt?.closest('.mobile-routes, [data-editor-session]');
+        if (editorRequest || routeRequest) {
+            requests.set(event.detail.xhr, {generation, sessionId: sessionId(), editorRequest, routeRequest});
         }
     });
     document.addEventListener('htmx:beforeSwap', event => {
@@ -35,7 +37,7 @@
         // Closing/replacing an editor cancels transient choices, not a route
         // mutation already committed by the server. Session ownership still applies.
         const transient = target?.id === 'route-editor' || target?.matches?.('.van-assignment-inline') || target?.id === 'event-activity-location-select';
-        if (request && ((transient && request.editorRequest && request.generation !== generation) || request.sessionId !== sessionId())) {
+        if (request && ((transient && request.editorRequest && request.generation !== generation) || (request.routeRequest && request.sessionId !== sessionId()))) {
             event.detail.shouldSwap = false;
         }
     });

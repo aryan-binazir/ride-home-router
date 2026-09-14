@@ -24,7 +24,7 @@
     {{if $current.Timing.Route}}
     {{if $.Attribution}}<p class="mobile-route-attribution"><picture><source srcset="/static/img/google-maps-attribution-dark.svg" media="(prefers-color-scheme: dark)"><img src="/static/img/google-maps-attribution.svg" alt="Google Maps" width="98" height="18"></picture> <small>Current estimates for this itinerary</small></p>{{end}}
     {{else if $current.Route.Stops}}
-    <form class="mobile-route-timings" method="post" action="/m/routes/timings" hx-post="/m/routes/timings" hx-target="#mobile-route-{{$current.Index}}" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <form class="mobile-route-timings" method="post" action="/m/routes/timings" hx-post="/m/routes/timings" hx-sync=".mobile-routes:queue all" hx-target="#mobile-route-{{$current.Index}}" hx-swap="outerHTML" hx-disabled-elt="find button">
       <input type="hidden" name="session_id" value="{{$.Snapshot.ID}}"><input type="hidden" name="route_index" value="{{$current.Index}}">
       {{if ne $current.Timing.Status "stale"}}<small role="status">{{$current.Timing.Message}}</small>{{end}}
       {{if eq $current.Timing.Status "stale" "failed"}}<button class="mobile-button mobile-button-secondary" type="submit">Show timings</button>{{end}}

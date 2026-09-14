@@ -35,7 +35,6 @@ type IndexPageView struct {
 	ParticipantLabels                                         map[int64][]int64
 	DriverLabels                                              map[int64][]int64
 	ActivityLocations                                         []models.ActivityLocation
-	OrgVehicles                                               []models.OrganizationVehicle
 }
 
 type ParticipantsPageView struct {

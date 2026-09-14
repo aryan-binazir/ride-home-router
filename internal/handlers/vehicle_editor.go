@@ -85,7 +85,11 @@ func (h *Handler) HandleVehicleEditor(w http.ResponseWriter, r *http.Request) {
 	}
 	driver, err := h.DB.Drivers().GetByID(r.Context(), id)
 	if err != nil {
-		h.handleInternalError(w, r, err)
+		if h.checkNotFound(err) {
+			h.handleNotFoundHTMX(w, r, "That driver is no longer available.")
+		} else {
+			h.handleInternalError(w, r, err)
+		}
 		return
 	}
 	if driver == nil {
@@ -130,7 +134,11 @@ func (h *Handler) HandleVehicleEditor(w http.ResponseWriter, r *http.Request) {
 		if vehicleID > 0 {
 			vehicle, getErr := h.DB.OrganizationVehicles().GetByID(r.Context(), vehicleID)
 			if getErr != nil {
-				h.handleInternalError(w, r, getErr)
+				if h.checkNotFound(getErr) {
+					h.handleValidationErrorHTMX(w, r, "That vehicle is no longer available.")
+				} else {
+					h.handleInternalError(w, r, getErr)
+				}
 				return
 			}
 			if vehicle == nil {
