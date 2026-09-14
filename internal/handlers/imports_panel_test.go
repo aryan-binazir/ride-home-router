@@ -228,8 +228,8 @@ func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	if !strings.Contains(body, `name="column_0"`) {
 		t.Fatalf("mapping table should be re-rendered: %s", body)
 	}
-	if !strings.Contains(body, `<option value="address" selected>Address</option>`) {
-		t.Fatalf("mapping problems should re-render the original snapshot selections: %s", body)
+	if strings.Count(body, `<option value="name" selected>Name</option>`) != 2 {
+		t.Fatalf("mapping problems should preserve both submitted name selections: %s", body)
 	}
 }
 

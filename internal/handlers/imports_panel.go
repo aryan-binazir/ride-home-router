@@ -366,7 +366,15 @@ func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request
 	}
 	mapping, problems := importMappingFromForm(r, snapshot)
 	if len(problems) > 0 {
-		h.renderTemplate(w, "import_mapping", newImportMappingView(snapshot, problems))
+		view := newImportMappingView(snapshot, problems)
+		for i := range view.Columns {
+			value := r.FormValue(fmt.Sprintf("column_%d", view.Columns[i].Index))
+			view.Columns[i].Selected = importIgnoreValue
+			if field, ok := importFieldFromValue(value, view.IsDriver); ok {
+				view.Columns[i].Selected = string(field)
+			}
+		}
+		h.renderTemplate(w, "import_mapping", view)
 		return http.StatusOK, -1
 	}
 	updated, err := h.ImportSession.ApplyMapping(r.Context(), id, mapping)
