@@ -30,7 +30,7 @@ function reapplyTableFilter(targetId) {
   if (input) filterTable(input, filter[1]);
 }
 
-function switchRosterTab(button, prefix) {
+function switchRosterTab(button, prefix, loaded = false) {
   const activeContainer = document.getElementById(prefix + '-active') || document.getElementById(prefix + '-list');
   const deletedContainer = document.getElementById(prefix + '-deleted') || document.getElementById(prefix + '-deleted-list');
   const activeButton = document.getElementById(prefix + '-active-tab');
@@ -39,6 +39,16 @@ function switchRosterTab(button, prefix) {
   if (!activeContainer || !deletedContainer || !activeButton || !deletedButton) return;
 
   const showDeleted = button === deletedButton;
+  if (showDeleted && !loaded) {
+    deletedButton.dataset.pendingSelection = 'true';
+    button.addEventListener('htmx:afterRequest', event => {
+      const stillSelected = deletedButton.dataset.pendingSelection === 'true';
+      delete deletedButton.dataset.pendingSelection;
+      if (event.detail.successful && stillSelected) switchRosterTab(button, prefix, true);
+    }, { once: true });
+    return;
+  }
+  delete deletedButton.dataset.pendingSelection;
   if (showDeleted) {
     activeContainer.classList.add('hidden');
     deletedContainer.classList.remove('hidden');

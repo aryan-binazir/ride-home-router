@@ -9,6 +9,8 @@ function element(classes = []) {
   const values = new Set(classes);
   return {
     attributes: {},
+    dataset: {},
+    addEventListener(name, handler) { this[name] = handler; },
     classList: {
       add: value => values.add(value),
       remove: value => values.delete(value),
@@ -32,6 +34,9 @@ test('switchRosterTab toggles containers, styles, and pressed state', () => {
   test.after(() => { delete global.document; });
 
   switchRosterTab(elements['participants-deleted-tab'], 'participants');
+  assert.equal(elements['participants-active'].classList.contains('hidden'), false);
+  assert.equal(elements['participants-deleted'].classList.contains('hidden'), true);
+  elements['participants-deleted-tab']['htmx:afterRequest']({ detail: { successful: true } });
 
   assert.equal(elements['participants-active'].classList.contains('hidden'), true);
   assert.equal(elements['participants-deleted'].classList.contains('hidden'), false);
@@ -48,6 +53,28 @@ test('switchRosterTab toggles containers, styles, and pressed state', () => {
   assert.equal(elements['participants-deleted-tab'].classList.contains('btn-outline'), true);
   assert.equal(elements['participants-active-tab'].attributes['aria-pressed'], 'true');
   assert.equal(elements['participants-deleted-tab'].attributes['aria-pressed'], 'false');
+});
+
+test('deleted roster failures and superseded requests preserve the active view', () => {
+  const elements = {
+    'participants-active': element([]),
+    'participants-deleted': element(['hidden']),
+    'participants-active-tab': element(['btn-primary']),
+    'participants-deleted-tab': element(['btn-outline']),
+  };
+  global.document = { getElementById: id => elements[id] || null };
+  try {
+    const deleted = elements['participants-deleted-tab'];
+    switchRosterTab(deleted, 'participants');
+    deleted['htmx:afterRequest']({ detail: { successful: false } });
+    assert.equal(elements['participants-active'].classList.contains('hidden'), false);
+    assert.equal(elements['participants-deleted'].classList.contains('hidden'), true);
+    switchRosterTab(deleted, 'participants');
+    switchRosterTab(elements['participants-active-tab'], 'participants');
+    deleted['htmx:afterRequest']({ detail: { successful: true } });
+    assert.equal(elements['participants-active'].classList.contains('hidden'), false);
+    assert.equal(elements['participants-deleted'].classList.contains('hidden'), true);
+  } finally { delete global.document; }
 });
 
 test('filterTable shows a filtered-empty row only when no data rows match', () => {
