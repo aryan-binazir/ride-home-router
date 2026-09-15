@@ -6,7 +6,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
 async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false} = {}) {
-    const state = {listeners: {}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
+    const state = {heading: {hidden: true}, email: {hidden: true, textContent: ''}, listeners: {}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
     const clerk = {
         session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
         user: signedIn ? {id: 'user_test', primaryEmailAddress: {emailAddress: 'ar@example.com'}} : null,
@@ -20,7 +20,7 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
         URL, Headers, Event,
         location: {pathname, search, href: 'https://app.example'+pathname+search, origin: 'https://app.example', replace: value => { state.redirect = value; }},
         document: {
-            getElementById: id => id === 'auth-retry' ? state.retry : id === 'auth-status' ? state.message : {},
+            getElementById: id => id === 'auth-heading' ? state.heading : id === 'auth-email' ? state.email : id === 'auth-retry' ? state.retry : id === 'auth-status' ? state.message : {},
             addEventListener: (name, listener) => { state.listeners[name] = listener; },
             body: {prepend: node => { state.recovery = node; }},
             createElement: () => ({dataset: {}, setAttribute: () => {}, appendChild: node => { state.recoveryLink = node; }}),
@@ -126,7 +126,10 @@ test('mobile Enter submission preserves the absence of a submitter', async () =>
 test('denied accounts see their email and an explanation', async () => {
     for (const options of [{status: 403}, {status: 503, search: '?denied=1'}]) {
         const state = await run({signedIn: true, ...options});
-        assert.equal(state.message.textContent, "This account isn't approved yet. Ask your organizer to add ar@example.com.");
+        assert.equal(state.message.textContent, "Ask your organizer to approve this email.");
+        assert.equal(state.email.textContent, "ar@example.com");
+        assert.equal(state.email.hidden, false);
+        assert.equal(state.heading.hidden, false);
         assert.equal(state.message.hidden, false);
         assert.equal(state.button.hidden, false);
     }
@@ -138,7 +141,7 @@ test('app configuration failure explains that changes may not save', async () =>
 
 test('denied query explains missing approval even before choosing a signed-in account', async () => {
  const state=await run({search:'?denied=1'});
- assert.equal(state.message.textContent, "This account isn't approved yet. Ask your organizer for access.");
+ assert.equal(state.message.textContent, "Ask your organizer for access.");
 });
 
 test('Clerk script and load failures explain sign-in unavailability', async () => {

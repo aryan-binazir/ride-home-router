@@ -10,8 +10,15 @@
     }
     function showDenied() {
         const email = window.Clerk?.user?.primaryEmailAddress?.emailAddress;
-        showStatus(email ? `This account isn't approved yet. Ask your organizer to add ${email}.`
-            : "This account isn't approved yet. Ask your organizer for access.");
+        const heading = document.getElementById('auth-heading');
+        const emailLabel = document.getElementById('auth-email');
+        if (heading) heading.hidden = false;
+        if (emailLabel) {
+            emailLabel.textContent = email || '';
+            emailLabel.hidden = !email;
+        }
+        showStatus(email ? "Ask your organizer to approve this email."
+            : "Ask your organizer for access.");
     }
     let recovery;
     function showRecovery(text) {

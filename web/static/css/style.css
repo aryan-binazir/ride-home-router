@@ -2581,3 +2581,19 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
     .roster-dialog-header, .roster-dialog-footer, .roster-dialog-body { padding: 16px; }
     .roster-dialog-footer { font-size: 13px; }
 }
+
+/* Access management follows the spacing of the other Settings forms. */
+.access-approval-form { display: grid; gap: 12px; margin-top: 24px; }
+.access-approval-form label { margin: 0; }
+.access-approval-form .btn { justify-self: start; margin-top: 4px; }
+.access-email-list { list-style: none; padding: 0; margin: 24px 0 0; }
+.access-email-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.access-email-list li form { flex-shrink: 0; }
+@media (max-width: 480px) {
+  .access-email-list li { gap: 12px; }
+  .access-email-list .btn { padding-inline: 12px; font-size: 14px; }
+}
+
+.access-email { min-width: 0; overflow-wrap: anywhere; }
+.import-file-help p { margin: 12px 0 0; }
+.import-file-help pre { margin: 8px 0 16px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); overflow-x: auto; white-space: pre; }

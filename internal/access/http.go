@@ -21,8 +21,8 @@ func (a *Access) Register(mux *http.ServeMux) {
 <meta name="color-scheme" content="light dark">
 <title>Sign in - Ride Home Router</title>
 <link rel="stylesheet" href="/static/css/style.css">
-<link rel="stylesheet" href="/static/css/login.css?v=20260912-theme">
-<script src="/static/js/auth.js?v=20260912-theme" defer></script>
+<link rel="stylesheet" href="/static/css/login.css?v=20260914-access">
+<script src="/static/js/auth.js?v=20260914-access" defer></script>
 </head>
 <body class="login-page">
 <main class="login-shell">
@@ -32,6 +32,8 @@ func (a *Access) Register(mux *http.ServeMux) {
 
 </header>
 <section class="login-panel" aria-label="Sign in">
+<h2 id="auth-heading" class="login-status-heading" hidden>Approval needed</h2>
+<p id="auth-email" class="login-email" hidden></p>
 <p id="auth-status" class="login-message" role="status" hidden></p>
 <div id="clerk-sign-in"></div>
 <button id="auth-retry" class="btn login-sign-out" type="button" hidden>Try again</button>
@@ -54,8 +56,8 @@ var accessPanel = template.Must(template.New("access").Parse(`<section id="acces
 <h2>Approved emails</h2>
 <p>Approved accounts share all saved people, locations and events.</p>
 {{if .Message}}<p role="status">{{.Message}}</p>{{end}}
-<form hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-post="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><label for="approved-email">Email address</label><input id="approved-email" class="form-input" type="email" name="email" required maxlength="254"><button class="btn btn-primary" type="submit">Approve email</button></form>
-<ul>{{range .Emails}}<li>{{.}} <form hx-confirm="Remove access for {{.}}?" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-delete="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><input type="hidden" name="email" value="{{.}}"><button class="btn" type="submit">Remove access</button></form></li>{{else}}<li>No approved emails yet. Add one above.</li>{{end}}</ul>
+<form class="access-approval-form" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-post="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><label for="approved-email">Email address</label><input id="approved-email" class="form-input" type="email" name="email" required maxlength="254"><button class="btn btn-primary" type="submit">Approve email</button></form>
+<ul class="access-email-list">{{range .Emails}}<li><span class="access-email">{{.}}</span><form hx-confirm="Remove access for {{.}}?" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]" hx-delete="/api/v1/access" hx-target="#access-management" hx-swap="outerHTML"><input type="hidden" name="email" value="{{.}}"><button class="btn" type="submit">Remove access</button></form></li>{{else}}<li>No approved emails yet. Add one above.</li>{{end}}</ul>
 </section>`))
 
 func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
