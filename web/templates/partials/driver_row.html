@@ -30,7 +30,7 @@
         {{end}}
     </td>
     <td data-col="Available capacity">{{.Driver.VehicleCapacity}}</td>
-    <td class="text-muted" {{if and .Driver.Lat .Driver.Lng}}data-col="Coordinates"{{end}}>
+    <td class="text-muted coordinate-detail" {{if and .Driver.Lat .Driver.Lng}}data-col="Coordinates"{{end}}>
         {{if and .Driver.Lat .Driver.Lng}}
         {{printf "%.4f, %.4f" .Driver.Lat .Driver.Lng}}
         {{end}}

@@ -365,44 +365,13 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/events", handleMethods(handler.HandleListEvents, handler.HandleCreateEvent, nil, nil))
 	mux.HandleFunc("/api/v1/events/", handleResourcePath("/api/v1/events/", "", nil, handler.HandleGetEvent, nil, handler.HandleDeleteEvent))
 
-	// Mobile application: separate server-rendered screens sharing one plan draft.
-	mux.HandleFunc("/m", requireMethod(http.MethodGet, handler.HandleMobilePlan))
-	mux.HandleFunc("/m/calculate", requireMethod(http.MethodPost, handler.HandleMobileCalculate))
-	mux.HandleFunc("/m/plan/location", handleMethods(handler.HandleMobileLocation, handler.HandleMobileLocation, nil, nil))
-	mux.HandleFunc("/m/plan/riders", handleMethods(handler.HandleMobileRiders, handler.HandleMobileRiders, nil, nil))
-	mux.HandleFunc("/m/plan/drivers", handleMethods(handler.HandleMobileDrivers, handler.HandleMobileDrivers, nil, nil))
-	mux.HandleFunc("/m/plan/when", handleMethods(handler.HandleMobileWhen, handler.HandleMobileWhen, nil, nil))
-	mux.HandleFunc("/m/routes", requireMethod(http.MethodGet, handler.HandleMobileRoutes))
-	mux.HandleFunc("/m/routes/editor", requireMethod(http.MethodGet, handler.HandleRouteEditor))
-	mux.HandleFunc("/m/routes/choose", requireMethod(http.MethodPost, handler.HandleMobileRouteEditorAction))
-	mux.HandleFunc("/m/routes/move", requireMethod(http.MethodPost, handler.HandleMobileMove))
-	mux.HandleFunc("/m/routes/swap", requireMethod(http.MethodPost, handler.HandleMobileSwap))
-	mux.HandleFunc("/m/routes/reset", requireMethod(http.MethodPost, handler.HandleMobileReset))
-	mux.HandleFunc("/m/routes/timings", requireMethod(http.MethodPost, handler.HandleMobileRouteTimings))
-	mux.HandleFunc("/m/routes/add-driver", requireMethod(http.MethodPost, handler.HandleMobileAddDriver))
-	mux.HandleFunc("/m/routes/save", requireMethod(http.MethodPost, handler.HandleMobileSave))
-	mux.HandleFunc("/m/people", requireMethod(http.MethodGet, handler.HandleMobilePeople))
-	mux.HandleFunc("/m/people/participants/new", handleMethods(handler.HandleMobileParticipantForm, handler.HandleMobileParticipantForm, nil, nil))
-	mux.HandleFunc("/m/people/participants/", handleMethods(handler.HandleMobileParticipantForm, handler.HandleMobileParticipantForm, nil, nil))
-	mux.HandleFunc("/m/people/drivers/new", handleMethods(handler.HandleMobileDriverForm, handler.HandleMobileDriverForm, nil, nil))
-	mux.HandleFunc("/m/people/drivers/", handleMethods(handler.HandleMobileDriverForm, handler.HandleMobileDriverForm, nil, nil))
-	mux.HandleFunc("/m/places", requireMethod(http.MethodGet, handler.HandleMobilePlaces))
-	mux.HandleFunc("/m/places/locations/new", handleMethods(handler.HandleMobileLocationForm, handler.HandleMobileLocationForm, nil, nil))
-	mux.HandleFunc("/m/places/locations/", handleMethods(handler.HandleMobileLocationForm, handler.HandleMobileLocationForm, nil, nil))
-	mux.HandleFunc("/m/places/vans/new", handleMethods(handler.HandleMobileVanForm, handler.HandleMobileVanForm, nil, nil))
-	mux.HandleFunc("/m/places/vans/", handleMethods(handler.HandleMobileVanForm, handler.HandleMobileVanForm, nil, nil))
-	mux.HandleFunc("/m/history", requireMethod(http.MethodGet, handler.HandleMobileHistory))
-	mux.HandleFunc("/m/history/", requireMethod(http.MethodGet, handler.HandleMobileHistoryDetail))
-	mux.HandleFunc("/m/desktop", requireMethod(http.MethodGet, handleSetDesktopPreference))
-	mux.HandleFunc("/m/desktop-preference", requireMethod(http.MethodGet, handleClearDesktopPreference))
+	// Keep old mobile bookmarks usable without rendering the retired interface.
+	mux.HandleFunc("/m", requireMethod(http.MethodGet, redirectLegacyMobile))
+	mux.HandleFunc("/m/", requireMethod(http.MethodGet, redirectLegacyMobile))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
-			return
-		}
-		if shouldRedirectToMobile(r) {
-			http.Redirect(w, r, "/m", http.StatusTemporaryRedirect)
 			return
 		}
 		handler.HandleIndexPage(w, r)
@@ -419,51 +388,21 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	return mux
 }
 
-func shouldRedirectToMobile(r *http.Request) bool {
-	preferDesktop, _ := r.Cookie("prefer_desktop")
-	if preferDesktop != nil && preferDesktop.Value == "1" {
-		return false
+func redirectLegacyMobile(w http.ResponseWriter, r *http.Request) {
+	target := "/"
+	switch {
+	case strings.HasPrefix(r.URL.Path, "/m/people/drivers"), r.URL.Path == "/m/people" && r.URL.Query().Get("kind") == "drivers":
+		target = "/drivers"
+	case strings.HasPrefix(r.URL.Path, "/m/people"):
+		target = "/participants"
+	case strings.HasPrefix(r.URL.Path, "/m/places/vans"):
+		target = "/vans"
+	case strings.HasPrefix(r.URL.Path, "/m/places"):
+		target = "/activity-locations"
+	case strings.HasPrefix(r.URL.Path, "/m/history"):
+		target = "/history"
 	}
-	if r.URL.Query().Get("m") == "1" || r.Header.Get("Sec-CH-UA-Mobile") == "?1" {
-		return true
-	}
-	userAgent := r.UserAgent()
-	return strings.Contains(userAgent, "Mobile") ||
-		strings.Contains(userAgent, "Android") ||
-		strings.Contains(userAgent, "iPhone") ||
-		strings.Contains(userAgent, "iPad")
-}
-
-func handleSetDesktopPreference(w http.ResponseWriter, r *http.Request) {
-	//nolint:gosec // Local HTTP is supported; this cookie carries no sensitive value.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "prefer_desktop",
-		Value:    "1",
-		Path:     "/",
-		Secure:   httpx.RequestIsSecure(r),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   365 * 24 * 60 * 60,
-	})
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func handleClearDesktopPreference(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("clear") != "1" {
-		writeNotFound(w)
-		return
-	}
-	//nolint:gosec // Local HTTP is supported; this cookie carries no sensitive value.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "prefer_desktop",
-		Path:     "/",
-		Secure:   httpx.RequestIsSecure(r),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-		Expires:  time.Unix(1, 0),
-	})
-	http.Redirect(w, r, "/m", http.StatusSeeOther)
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 type loggingResponseWriter struct {

@@ -25,6 +25,7 @@
         if (!recovery) {
             recovery = document.createElement('p');
             recovery.setAttribute('role', 'alert');
+            recovery.className = 'auth-recovery';
             document.body.prepend(recovery);
         }
         recovery.textContent = text + ' ';

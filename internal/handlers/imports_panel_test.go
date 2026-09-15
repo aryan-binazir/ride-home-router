@@ -497,7 +497,7 @@ func TestRosterPagesRenderImportPanel(t *testing.T) {
 				`steps.innerHTML = ''`,
 				`value="` + string(tt.kind) + `"`,
 				`id="import-steps"`,
-				"We look up addresses automatically.",
+				"we look up addresses automatically.",
 				tt.heading,
 			} {
 				if !strings.Contains(body, want) {

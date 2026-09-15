@@ -62,7 +62,7 @@ func TestPlannerBrowserContainment(t *testing.T) {
 		html = strings.ReplaceAll(html, `<script src="/static/js/`+name+`" defer></script>`, "<script>"+read("js/"+name)+"</script>")
 	}
 	html = strings.ReplaceAll(html, `<script src="/static/js/htmx.min.js"></script>`, "<script>"+read("js/htmx.min.js")+"</script>")
-	html = strings.ReplaceAll(html, `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+	html = strings.ReplaceAll(html, `<script src="/static/js/auth.js?v=20260914-layout" defer></script>`, "")
 	// These are outer window sizes; Chromium reserves space for browser controls.
 	// Exact viewport sizes are also exercised against the running app.
 	for _, size := range [][2]int{{1000, 850}, {1440, 1100}, {2000, 1500}, {390, 1044}} {
@@ -76,9 +76,7 @@ func TestPlannerBrowserContainment(t *testing.T) {
 window.addEventListener('load',()=>{
  const errors=[]; const check=(ok,msg)=>{if(!ok)errors.push(msg)};
  const wide=innerWidth>=821;
- const mobileLink=document.querySelector('.desktop-mode-footer a');
- const desktopPointer=matchMedia('(min-width: 821px) and (hover: hover) and (pointer: fine)').matches;
- check((getComputedStyle(mobileLink).display!=='none')===!desktopPointer,'mobile link visibility');
+ check(!document.querySelector('.desktop-mode-footer'),'no retired mobile footer');
 
  for(const kind of ['participants','drivers']) {
   const dialog=document.getElementById(kind+'-dialog');

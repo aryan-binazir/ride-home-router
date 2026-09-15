@@ -166,7 +166,7 @@ func TestAccessAcrossInstancesAndRevocation(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("member mutation: %d %s", status, body)
 	}
-	for _, path := range []string{"/labels", "/api/v1/labels", "/settings", "/m/people"} {
+	for _, path := range []string{"/labels", "/api/v1/labels", "/settings", "/participants", "/drivers"} {
 		status, body, _ = h.request(b, "GET", path, member, "", "", nil)
 		if status != 200 {
 			t.Fatalf("member page %s: %d %s", path, status, body)
@@ -184,10 +184,10 @@ func TestAccessAcrossInstancesAndRevocation(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("multipart import: %d %s", status, body)
 	}
-	// Persist a mobile workflow using the same authenticated HTTP entry point.
+	// Retired mobile forms cannot mutate data even for approved accounts.
 	status, body, _ = h.request(a, "POST", "/m/plan/when", member, "route_time=06%3A45&mode=pickup", "application/x-www-form-urlencoded", nil)
-	if status != 303 {
-		t.Fatalf("draft: %d %s", status, body)
+	if status != 405 {
+		t.Fatalf("retired draft: %d %s", status, body)
 	}
 	status, body, _ = h.request(b, "DELETE", "/api/v1/access", second, `{"email":"member@example.test"}`, "", nil)
 	if status != 200 {
@@ -338,8 +338,8 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 		t.Fatalf("seed: %d %s", status, body)
 	}
 	status, body, _ = h.request(base, "POST", "/m/plan/when", admin, "route_time=07%3A35&mode=pickup", "application/x-www-form-urlencoded", nil)
-	if status != 303 {
-		t.Fatalf("seed workflow: %d %s", status, body)
+	if status != 405 {
+		t.Fatalf("retired workflow: %d %s", status, body)
 	}
 	conn, err := pgx.Connect(t.Context(), databaseURL)
 	if err != nil {

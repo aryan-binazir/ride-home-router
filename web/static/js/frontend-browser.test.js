@@ -183,3 +183,29 @@ totals.push(document.getElementById('mobile-selected-seats').textContent);docume
 document.getElementById('evidence').textContent=JSON.stringify({totals,errors});`);
     assert.deepEqual(result.totals,['10 seats selected','10 seats selected','8 seats selected']);
 });
+
+test('shared drawer traps keyboard focus and closes without moving page content', {skip: !browser}, () => {
+    const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+    const result = run(`<style>${css}</style><header class="appbar"><button class="nav-toggle" aria-expanded="false">Menu</button><div class="nav-backdrop" hidden></div><nav class="nav" id="primary-navigation"><button class="nav-close">Close</button><a href="/participants">Participants</a><button data-sign-out>Sign out</button></nav></header><main><h1>Drivers</h1></main>`, ['navigation.js'], `
+const toggle=document.querySelector('.nav-toggle'),nav=document.querySelector('.nav'),close=document.querySelector('.nav-close'),backdrop=document.querySelector('.nav-backdrop');
+const top=document.querySelector('h1').getBoundingClientRect().top;
+toggle.click();
+const opened=nav.classList.contains('is-open')&&!backdrop.hidden&&document.activeElement===close;
+close.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));
+const trapped=document.activeElement===document.querySelector('[data-sign-out]');
+document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+const escaped=backdrop.hidden&&document.activeElement===toggle;
+toggle.click();backdrop.click();
+document.getElementById('evidence').textContent=JSON.stringify({opened,trapped,escaped,closed:backdrop.hidden&&!nav.classList.contains('is-open'),shift:document.querySelector('h1').getBoundingClientRect().top-top,errors});`);
+    assert.deepEqual(result, {opened:true, trapped:true, escaped:true, closed:true, shift:0, errors:[]});
+});
+
+test('late authentication failure does not shift shared page content', {skip: !browser}, () => {
+    const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+    const result = run(`<style>${css}</style><h1>Participants</h1><script>window.fetch=()=>new Promise((_,reject)=>setTimeout(()=>reject(Error('offline')),100));</script>`, ['auth.js'], `
+const top=document.querySelector('h1').getBoundingClientRect().top;
+await new Promise(resolve=>setTimeout(resolve,200));
+document.getElementById('evidence').textContent=JSON.stringify({shift:document.querySelector('h1').getBoundingClientRect().top-top,message:document.querySelector('[role=alert]').textContent,errors});`);
+    assert.equal(result.shift, 0);
+    assert.match(result.message, /Could not reach the sign-in service/);
+});

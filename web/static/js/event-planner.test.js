@@ -1232,10 +1232,11 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         children: [form, resultsSection, recalcForm, routeTimeLabel, routeTimeHelp,
             domNode('template', { id: 'results-empty-state-template' })],
     });
-    const root = domNode('html', { children: [body] });
+    const root = domNode('html', { children: [body], classes: ['planner-restoring'] });
 
     const document = {
         readyState: 'complete',
+        documentElement: root,
         body,
         listeners: root.listeners,
         addEventListener: (type, handler) => root.addEventListener(type, handler),
@@ -1264,7 +1265,8 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         console,
         HTMLFormElement,
         Event: class { constructor(type) { return fakeEvent(type); } },
-        AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
+        AbortController,
+        AbortSignal,
         htmx: { process() {} },
         fetch: async (url, options) => {
             fetches.push({ url, options });
@@ -2229,4 +2231,17 @@ test('summarizeMeasuredCards adds up occupied cars only once every one of them h
     assert.equal(summarizeMeasuredCards([measured(8000, 300), stale], true), null, 'one unmeasured car means no total');
     assert.equal(summarizeMeasuredCards([empty], true), null, 'nothing to add up');
     assert.equal(summarizeMeasuredCards([{ timings: 'measured', hasStops: true, totalMeters: 'x', detourSecs: '1' }], true), null, 'bad numbers never produce a total');
+});
+
+
+test('planner stays hidden until saved route restoration finishes', async () => {
+    const app = bootPlanner({storedSession: {id: 'restored-session', fingerprint: 'saved'}});
+    let resolveRequest;
+    app.context.fetch = () => new Promise(resolve => { resolveRequest = resolve; });
+    for (let turn = 0; turn < 12; turn++) await Promise.resolve();
+    assert.equal(app.document.documentElement.classList.contains('planner-restoring'), true);
+    assert.equal(typeof resolveRequest, 'function');
+    resolveRequest({ok: true, status: 204});
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+    assert.equal(app.document.documentElement.classList.contains('planner-restoring'), false);
 });

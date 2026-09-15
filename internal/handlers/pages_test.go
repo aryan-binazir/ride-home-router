@@ -97,7 +97,7 @@ func TestHandleHistoryPage_RendersKeyboardOperableEventToggle(t *testing.T) {
 	}
 }
 
-func TestDesktopLayoutOffersMobileSiteLink(t *testing.T) {
+func TestSharedLayoutOffersHeaderSignOut(t *testing.T) {
 	handler, _ := newTestPageHandler(t)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
 	rr := httptest.NewRecorder()
@@ -106,8 +106,11 @@ func TestDesktopLayoutOffersMobileSiteLink(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if body := rr.Body.String(); !strings.Contains(body, `href="/m/desktop-preference?clear=1"`) || !strings.Contains(body, `>Mobile site</a>`) {
-		t.Fatalf("desktop layout missing mobile-site escape hatch, body=%q", body)
+	body := rr.Body.String()
+	headerEnd := strings.Index(body, "</header>")
+	signOut := strings.Index(body, "data-sign-out")
+	if headerEnd < 0 || signOut < 0 || signOut > headerEnd || strings.Contains(body, ">Mobile site</a>") {
+		t.Fatal("shared layout must place sign-out in the header and omit the retired mobile link")
 	}
 }
 

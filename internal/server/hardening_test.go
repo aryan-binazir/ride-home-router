@@ -47,16 +47,6 @@ func TestHTMXBodyLimitShowsToast(t *testing.T) {
 	}
 }
 
-func TestDesktopPreferenceBehindHTTPSProxy(t *testing.T) {
-	req := httptest.NewRequestWithContext(t.Context(), "GET", "http://router.example/m/desktop", nil)
-	req.Header.Set("X-Forwarded-Proto", "https")
-	w := httptest.NewRecorder()
-	handleSetDesktopPreference(w, req)
-	if cookies := w.Result().Cookies(); len(cookies) != 1 || !cookies[0].Secure {
-		t.Fatalf("cookies=%v", cookies)
-	}
-}
-
 func TestInvalidDatabaseURLDoesNotExposeSecrets(t *testing.T) {
 	_, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, DatabaseURL: "postgres://u@h/db?password=SECRET&sslmode=bogus"})
 	if err == nil || strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "postgres://") {

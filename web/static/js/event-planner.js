@@ -2118,9 +2118,9 @@
             const restore = plannerState.beginRestore(session);
 
             // This same-origin HTML uses the same trusted templates as HTMX swaps.
-            (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
+            return (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
-                signal: restore.signal
+                signal: AbortSignal.any([restore.signal, AbortSignal.timeout(15000)])
             })
             .then(function(response) {
                 if (response.status === 204 || !response.ok) {
@@ -2161,8 +2161,9 @@
             const activeSession = plannerState.restoreCandidate();
             restoredDraft.then(() => {
                 updateEventStats();
-                if (activeSession) restoreRouteSession(activeSession);
-            }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'));
+                if (activeSession) return restoreRouteSession(activeSession);
+            }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
+                .finally(() => document.documentElement?.classList.remove('planner-restoring'));
 
             // The capacity-shortage pane recalculates from its own hidden copy of
             // the plan plus its own van assignments, so the routes it returns

@@ -2416,7 +2416,7 @@ tfoot td {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 820px) {
   .brand-link {
     font-size: 12.5px;
   }
@@ -2597,3 +2597,89 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 .access-email { min-width: 0; overflow-wrap: anywhere; }
 .import-file-help p { margin: 12px 0 0; }
 .import-file-help pre { margin: 8px 0 16px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); overflow-x: auto; white-space: pre; }
+
+/* One shared application shell at every screen size. */
+.appbar .nav { flex: 1; }
+.nav-toggle, .nav-backdrop, .nav-drawer-header { display: none; }
+.nav-sign-out { margin-left: auto; flex-shrink: 0; }
+.roster-toolbar {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--pane-2);
+}
+.roster-toolbar .form-input-search { width: 100%; max-width: 420px; }
+.auth-recovery {
+  position: fixed;
+  z-index: 2000;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--pane);
+  color: var(--ink);
+  box-shadow: 0 8px 32px #0004;
+  font-size: 14px;
+}
+.planner-loading { display: none; }
+.planner-restoring .planner-loading { display: block; padding: 32px; color: var(--ink-3); }
+.planner-restoring .main { visibility: hidden; }
+.planner-restoring .planner-split { transition: none; }
+@media (max-width: 1100px) {
+  .appbar { position: relative; flex-wrap: nowrap; gap: 12px; min-height: 60px; padding: 8px 16px; }
+  .nav-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; font-size: 22px; }
+  .appbar .nav {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    position: fixed;
+    top: 0; bottom: 0; left: 0; right: auto;
+    width: min(320px, calc(100vw - 48px));
+    max-height: none;
+    padding: 16px;
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-radius: 0;
+    z-index: 1100;
+    background: var(--pane);
+    box-shadow: 0 12px 30px #0004;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 180ms ease;
+  }
+  .appbar .nav.is-open { transform: translateX(0); visibility: visible; }
+  .appbar .nav a { padding: 12px 16px; font-size: 15px; }
+  .nav-drawer-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 20px 12px; font-size: 16px; }
+  .nav-close { min-width: 44px; min-height: 44px; font-size: 24px; }
+  .nav-backdrop:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 1050; background: #0008; }
+  body.nav-open { overflow: hidden; }
+  .appbar .nav-sign-out { margin: auto 0 0; min-height: 44px; }
+}
+@media (max-width: 820px) {
+  body { font-size: 15px; }
+  .appbar .brand-link { font-size: 16px; }
+  .form-input, .form-select, .form-textarea { font-size: 16px; min-height: 44px; }
+  .btn, .roster-tabs .roster-tab { min-height: 44px; font-size: 14px; }
+  .panel-title, .card-title { font-size: 17px; }
+  .form-help { font-size: 13px; }
+  .card > h3 { margin-bottom: 16px; }
+  .panel-header:has(.roster-tabs) { flex-direction: column; align-items: stretch; gap: 12px; }
+  .roster-toolbar .form-input-search { max-width: none; }
+  table[data-cards] td { font-size: 14px; line-height: 1.5; }
+  .select-row { min-height: 52px; padding-block: 10px; }
+  .select-row-title { font-size: 15px; }
+  .select-row-subtitle { font-size: 13px; line-height: 1.4; }
+  .roster-dialog-footer { justify-content: flex-end; }
+  .import-panel, table[data-cards] .coordinate-detail, .coordinate-detail,
+  .page-subtitle, .panel-subtitle, .panehead-copy > p, .results-header > div > p,
+  .roster-dialog-footer > .text-muted,
+  .card > h3 + p.text-muted, .card > h2 + p { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .appbar .nav { transition: none; }
+}

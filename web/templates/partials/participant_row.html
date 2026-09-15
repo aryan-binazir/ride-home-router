@@ -29,7 +29,7 @@
         </div>
         {{end}}
     </td>
-    <td class="text-muted" {{if and .Participant.Lat .Participant.Lng}}data-col="Coordinates"{{end}}>
+    <td class="text-muted coordinate-detail" {{if and .Participant.Lat .Participant.Lng}}data-col="Coordinates"{{end}}>
         {{if and .Participant.Lat .Participant.Lng}}
         {{printf "%.4f, %.4f" .Participant.Lat .Participant.Lng}}
         {{end}}

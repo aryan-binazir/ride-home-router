@@ -4,73 +4,45 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/url"
 	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 )
 
-func TestMobileDraftSurvivesAnotherInstanceAndRestart(t *testing.T) {
-	databaseURL := postgrestest.DatabaseURL(t)
+func TestSharedPagesOnDesktopAndMobile(t *testing.T) {
 	fixture := accesstest.New(t)
 	token := fixture.Admin()
-	start := func() (*Server, string) {
-		t.Helper()
-		s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: databaseURL})
-		if err != nil {
-			t.Fatal(err)
-		}
-		addr, err := s.Start()
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
-		return s, "http://" + addr
+	srv, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: fixture.Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
+	if err != nil {
+		t.Fatal(err)
 	}
-	first, a := start()
-	_, b := start()
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	addr, err := srv.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
 	client := &http.Client{Transport: accesstest.BearerTransport{Token: token}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, a+"/m/plan/when", strings.NewReader(url.Values{"route_time": {"06:45"}, "mode": {"pickup"}}.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cookies := resp.Cookies()
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther || len(cookies) == 0 {
-		t.Fatalf("create draft status %d cookies %v", resp.StatusCode, cookies)
-	}
-	check := func(base string) {
-		t.Helper()
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/m/plan/when", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range cookies {
-			req.AddCookie(c)
-		}
-		r, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, err := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if r.StatusCode != http.StatusOK || !strings.Contains(string(body), `value="06:45"`) {
-			t.Fatalf("draft did not survive instance switch: status %d", r.StatusCode)
+	for _, ua := range []string{"Desktop", "Mozilla/5.0 iPhone Mobile", "Android", "iPad"} {
+		for _, path := range []string{"/?m=1", "/participants", "/drivers", "/settings"} {
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("User-Agent", ua)
+			req.Header.Set("Sec-CH-UA-Mobile", "?1")
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != 200 || !strings.Contains(string(body), `id="primary-navigation"`) || strings.Contains(string(body), `class="mobile-shell"`) {
+				t.Fatalf("%s %s: status %d, missing shared shell", ua, path, resp.StatusCode)
+			}
 		}
 	}
-	check(b)
-	if err := first.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	_, restarted := start()
-	check(restarted)
 }

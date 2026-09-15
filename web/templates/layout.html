@@ -5,20 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{if .Title}}{{.Title}} - {{end}}Ride Home Router</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    {{if eq .ActivePage "home"}}<script>document.documentElement.classList.add('planner-restoring');</script>{{end}}
     <script src="/static/js/htmx.min.js"></script>
     <script>htmx.config.timeout = 45000;</script>
     <script src="/static/js/event-planner.js" defer></script>
     <script src="/static/js/ui.js" defer></script>
     <script src="/static/js/roster.js" defer></script>
+    <script src="/static/js/navigation.js" defer></script>
     <link rel="stylesheet" href="/static/css/editors.css">
     <script src="/static/js/editors.js" defer></script>
-    <script src="/static/js/auth.js?v=20260912-theme" defer></script>
+    <script src="/static/js/auth.js?v=20260914-layout" defer></script>
 </head>
 <body class="{{if eq .ActivePage "home"}}planner-page{{else}}standard-page{{end}}">
     <div class="app-shell">
         <header class="appbar">
+            <button type="button" class="nav-toggle btn btn-outline" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded="false">☰</button>
             <a class="brand-link" href="/">Ride Home Router</a>
-            <nav class="nav" aria-label="Primary navigation">
+            <div class="nav-backdrop" hidden></div>
+            <nav id="primary-navigation" class="nav" aria-label="Primary navigation">
+                <div class="nav-drawer-header"><strong>Ride Home Router</strong><button type="button" class="btn btn-outline nav-close" aria-label="Close navigation">×</button></div>
                 <a href="/" {{if eq .ActivePage "home"}}class="active" aria-current="page"{{end}}>Event Planning</a>
                 <a href="/participants" {{if eq .ActivePage "participants"}}class="active" aria-current="page"{{end}}>Participants</a>
                 <a href="/drivers" {{if eq .ActivePage "drivers"}}class="active" aria-current="page"{{end}}>Drivers</a>
@@ -27,19 +32,18 @@
                 <a href="/vans" {{if eq .ActivePage "vans"}}class="active" aria-current="page"{{end}}>Vans</a>
                 <a href="/history" {{if eq .ActivePage "history"}}class="active" aria-current="page"{{end}}>History</a>
                 <a href="/settings" {{if eq .ActivePage "settings"}}class="active" aria-current="page"{{end}}>Settings</a>
+                <button type="button" class="btn btn-outline nav-sign-out" data-sign-out hidden>Sign out</button>
             </nav>
         </header>
 
         <main class="app-main">
+            {{if eq .ActivePage "home"}}<div class="planner-loading" role="status">Loading your plan… <a href="/">Reload</a></div>{{end}}
             <noscript><p class="alert alert-warning">Enable JavaScript to plan and save routes.</p></noscript>
             <div class="main">
                 {{template "content" .}}
             </div>
         </main>
-        <footer class="desktop-mode-footer">
-            <a href="/m/desktop-preference?clear=1">Mobile site</a>
-            <button type="button" data-sign-out hidden>Sign out</button>
-        </footer>
+
     </div>
     <dialog id="route-editor-dialog" class="route-editor-dialog" aria-label="Edit plan"><div id="route-editor"></div></dialog>
 </body>
