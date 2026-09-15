@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{if .Title}}{{.Title}} - {{end}}Ride Home Router</title>
+    <link rel="icon" type="image/svg+xml" href="{{asset "img/favicon.svg"}}">
     <link rel="stylesheet" href="{{asset "css/style.css"}}">
     {{if eq .ActivePage "home"}}<script>document.documentElement.classList.add('planner-restoring');</script>{{end}}
     {{if eq .ActivePage "settings"}}{{if .IsAdmin}}

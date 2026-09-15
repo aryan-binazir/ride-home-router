@@ -22,6 +22,7 @@ func (a *Access) Register(mux *http.ServeMux) {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Sign in - Ride Home Router</title>
+<link rel="icon" type="image/svg+xml" href="` + web.AssetURL("img/favicon.svg") + `">
 <link rel="stylesheet" href="` + web.AssetURL("css/style.css") + `">
 <link rel="stylesheet" href="` + web.AssetURL("css/login.css") + `">
 <script src="` + web.AssetURL("js/auth.js") + `" defer></script>
