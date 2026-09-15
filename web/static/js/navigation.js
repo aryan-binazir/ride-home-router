@@ -21,7 +21,9 @@
         document.body.classList.add('nav-open');
         backdrop.hidden = false;
         if (main) main.inert = true;
-        closeButton.focus();
+        requestAnimationFrame(() => {
+            if (navigation.classList.contains('is-open')) closeButton.focus();
+        });
     });
     closeButton.addEventListener('click', () => close(true));
     backdrop.addEventListener('click', () => close(true));

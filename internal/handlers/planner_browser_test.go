@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"ride-home-router/internal/models"
+	"ride-home-router/web"
 	"strings"
 	"testing"
 	"time"
@@ -56,13 +57,13 @@ func TestPlannerBrowserContainment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	html := page.String()
-	html = strings.ReplaceAll(html, `<link rel="stylesheet" href="/static/css/style.css">`, "<style>"+read("css/style.css")+"</style>")
+	html := strings.ReplaceAll(page.String(), ` onerror="document.documentElement.classList.add('planner-load-failed')"`, "")
+	html = strings.ReplaceAll(html, `<link rel="stylesheet" href="`+web.AssetURL("css/style.css")+`">`, "<style>"+read("css/style.css")+"</style>")
 	for _, name := range []string{"event-planner.js", "ui.js"} {
-		html = strings.ReplaceAll(html, `<script src="/static/js/`+name+`" defer></script>`, "<script>"+read("js/"+name)+"</script>")
+		html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/"+name)+`" defer></script>`, "<script>"+read("js/"+name)+"</script>")
 	}
-	html = strings.ReplaceAll(html, `<script src="/static/js/htmx.min.js"></script>`, "<script>"+read("js/htmx.min.js")+"</script>")
-	html = strings.ReplaceAll(html, `<script src="/static/js/auth.js?v=20260914-layout" defer></script>`, "")
+	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/htmx.min.js")+`"></script>`, "<script>"+read("js/htmx.min.js")+"</script>")
+	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 	// These are outer window sizes; Chromium reserves space for browser controls.
 	// Exact viewport sizes are also exercised against the running app.
 	for _, size := range [][2]int{{1000, 850}, {1440, 1100}, {2000, 1500}, {390, 1044}} {

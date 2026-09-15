@@ -190,6 +190,7 @@ test('shared drawer traps keyboard focus and closes without moving page content'
 const toggle=document.querySelector('.nav-toggle'),nav=document.querySelector('.nav'),close=document.querySelector('.nav-close'),backdrop=document.querySelector('.nav-backdrop');
 const top=document.querySelector('h1').getBoundingClientRect().top;
 toggle.click();
+await new Promise(requestAnimationFrame);
 const opened=nav.classList.contains('is-open')&&!backdrop.hidden&&document.activeElement===close;
 close.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));
 const trapped=document.activeElement===document.querySelector('[data-sign-out]');
@@ -208,4 +209,29 @@ await new Promise(resolve=>setTimeout(resolve,200));
 document.getElementById('evidence').textContent=JSON.stringify({shift:document.querySelector('h1').getBoundingClientRect().top-top,message:document.querySelector('[role=alert]').textContent,errors});`);
     assert.equal(result.shift, 0);
     assert.match(result.message, /Could not reach the sign-in service/);
+});
+
+test('navigation items keep their positions when the active page changes', {skip: !browser}, () => {
+    const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+    const result = run(`<style>${css}</style><header class="appbar"><a class="brand-link">Ride Home Router</a><nav class="nav"><a class="active">Event Planning</a><a>Participants</a><a>Drivers</a><a>Labels</a></nav></header>`, [], `
+const links=[...document.querySelectorAll('.nav a')];
+const positions=()=>links.map(e=>({x:e.getBoundingClientRect().x,width:e.getBoundingClientRect().width}));
+const initial=positions();
+let stable=true;
+for(const active of links){for(const link of links)link.classList.toggle('active',link===active);stable=stable&&JSON.stringify(positions())===JSON.stringify(initial);}
+document.getElementById('evidence').textContent=JSON.stringify({stable,errors});`);
+    assert.equal(result.stable, true);
+});
+
+test('planner loading indicator does not change page geometry', {skip: !browser}, () => {
+    const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+    const result = run(`<style>${css}</style><header class="appbar">Ride Home Router</header><main class="app-main"><div class="planner-loading" role="status"><span class="planner-spinner"></span></div><div class="main"><h1>Plan Event</h1></div></main>`, [], `
+const geometry=()=>[document.querySelector('.appbar').getBoundingClientRect().toJSON(),document.querySelector('.main').getBoundingClientRect().toJSON()];
+const initial=geometry();
+document.documentElement.classList.add('planner-restoring');
+const stable=JSON.stringify(initial)===JSON.stringify(geometry());
+const hidden=getComputedStyle(document.querySelector('.main')).visibility==='hidden';
+document.getElementById('evidence').textContent=JSON.stringify({stable,hidden,errors});`);
+    assert.equal(result.stable, true);
+    assert.equal(result.hidden, true);
 });

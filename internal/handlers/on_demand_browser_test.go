@@ -14,6 +14,7 @@ import (
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
+	"ride-home-router/web"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -49,7 +50,7 @@ func TestRouteEditorBrowserLoadsSearchesAndMovesOnDemand(t *testing.T) {
 			http.Error(w, "render", 500)
 			return
 		}
-		html := strings.ReplaceAll(page.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(page.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>
 addEventListener('load',async()=>{
  const result={errors:[],maxLongTaskMs:0};addEventListener('error',e=>result.errors.push(e.message));
@@ -120,7 +121,7 @@ func TestVehicleAssignmentBrowserRestoresWithoutLoadingCatalog(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		recorder := httptest.NewRecorder()
 		h.HandleIndexPage(recorder, r)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		html = strings.Replace(html, "<head>", "<head><script>localStorage.setItem('ride-home-router:event-planner-draft:v1',"+string(draftJSON)+");</script>", 1)
 		script := `<script>addEventListener('load',()=>{let attempts=0;const check=()=>{const id=document.querySelector('.driver-checkbox:checked')?.value;const select=document.getElementById('van-assignment-'+id);if(select?.value||attempts++>100){const result={value:select?.value,capacity:select?.selectedOptions[0]?.dataset.capacity,options:document.querySelectorAll('.van-assignment-select option').length};document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);}else setTimeout(check,20)};check()});</script>`
 		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
@@ -155,7 +156,7 @@ func TestPlannerPagingBrowserKeepsSelectionsAndSelectsAllMatches(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		recorder := httptest.NewRecorder()
 		h.HandleIndexPage(recorder, r)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{const result={};try{document.querySelector('.driver-checkbox').click();await requestPlannerPicker('drivers',50);const visible=document.querySelectorAll('#drivers-selection .driver-checkbox');visible[visible.length-1].click();await requestPlannerPicker('drivers',0);result.selected=document.querySelectorAll('.driver-checkbox:checked').length;result.seats=document.getElementById('drivers-selected-seats').textContent;await selectAllDrivers();result.all=document.querySelectorAll('.driver-checkbox:checked').length;result.rows=document.querySelectorAll('#drivers-selection .select-row').length;}catch(e){result.error=String(e)}document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);});</script>`
 		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
 	})
@@ -200,7 +201,7 @@ func TestMobileVehicleChoiceAndPagingBrowser(t *testing.T) {
 				w.Header().Add(key, value)
 			}
 		}
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{const result={};const until=async(fn)=>{for(let n=0;n<200;n++){if(fn())return;await new Promise(r=>setTimeout(r,20))}throw Error('condition timeout')};try{result.initial=document.querySelectorAll('.mobile-driver-choice').length;document.querySelector('input[name="driver_ids"]').click();const control=document.querySelector('.van-assignment-inline');result.visible=!control.classList.contains('hidden');control.querySelector('button').click();await until(()=>document.querySelector('#route-editor input[name="vehicle_id"][value="1"]'));await new Promise(r=>setTimeout(r,100));const radio=document.querySelector('#route-editor input[name="vehicle_id"][value="1"]');radio.checked=true;radio.form.requestSubmit();await until(()=>document.querySelector('#mobile-van-assignment-1')?.value==='1');result.seats=document.getElementById('mobile-selected-seats').textContent;const next=Array.from(document.querySelectorAll('#mobile-driver-results button')).find(b=>b.textContent==='Next');if(!next)throw Error('missing next page');next.click();await until(()=>document.querySelectorAll('.mobile-driver-choice').length===10);document.querySelector('.mobile-driver-choice input[name="driver_ids"]').click();result.after=document.getElementById('mobile-selected-seats').textContent;result.selected=new FormData(document.getElementById('mobile-driver-picker')).getAll('driver_ids').length;}catch(e){result.error=String(e)}document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);});</script>`
 		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
 	})
@@ -241,7 +242,7 @@ func TestRosterPagingAndBulkLabelBrowser(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		recorder := httptest.NewRecorder()
 		h.HandleDriversPage(recorder, r)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{const result={};const until=async(fn)=>{for(let n=0;n<300;n++){if(fn())return;await new Promise(r=>setTimeout(r,20))}throw Error('condition timeout')};const settled=id=>new Promise(resolve=>document.addEventListener('htmx:afterSettle',function done(e){if(e.detail.target?.id===id){document.removeEventListener('htmx:afterSettle',done);resolve()}}));try{document.querySelector('input[data-bulk-row]').click();let done=settled('drivers-list');Array.from(document.querySelectorAll('#drivers-list button')).find(b=>b.textContent==='Next').click();await done;const inputs=document.querySelectorAll('input[data-bulk-row]');inputs[inputs.length-1].click();done=settled('drivers-list');Array.from(document.querySelectorAll('#drivers-list button')).find(b=>b.textContent==='Previous').click();await done;result.selected=new FormData(document.getElementById('driver-bulk-form')).getAll('driver_ids').length;done=settled('route-editor');document.querySelector('[hx-get*="label-editor"]').click();await done;document.querySelector('#route-editor input[name="label_id"]').checked=true;document.querySelector('#route-editor input[name="label_id"]').form.requestSubmit();await until(()=>!document.getElementById('route-editor-dialog').open);result.remaining=new FormData(document.getElementById('driver-bulk-form')).getAll('driver_ids').length;result.rows=document.querySelectorAll('input[data-bulk-row]').length;}catch(e){result.error=String(e)}document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result)});</script>`
 		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
 	})
@@ -294,7 +295,7 @@ func TestImportBrowserPagesAndPausesCollapsedPolling(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		recorder := httptest.NewRecorder()
 		h.HandleParticipantsPage(recorder, r)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		html = strings.Replace(html, `<div id="import-steps" class="import-steps"></div>`, `<div id="import-steps" class="import-steps">`+preview+`</div>`, 1)
 		script := `<script>addEventListener('load',async()=>{const result={};const delay=ms=>new Promise(r=>setTimeout(r,ms));const probe=async()=>Number(await(await fetch('/probe')).text());const settled=id=>new Promise(resolve=>document.addEventListener('htmx:afterSettle',function done(e){if(e.detail.target?.id===id){document.removeEventListener('htmx:afterSettle',done);resolve()}}));try{await delay(4200);result.closed=await probe();const panel=document.getElementById('import-panel');panel.open=true;await delay(4200);result.open=await probe();panel.open=false;await delay(4200);result.closedAgain=await probe();panel.open=true;await delay(100);let done=settled('import-commit-bar');document.querySelector('#import-selection-form input[name="selected"]').click();await done;done=settled('import-steps');Array.from(document.querySelectorAll('#import-steps nav button')).find(b=>b.textContent==='Next').click();await done;result.rows=document.querySelectorAll('#import-selection-form input[name="selected"]').length;result.first=document.querySelector('#import-selection-form input[name="selected"]').value;result.summary=document.querySelector('.import-commit-summary').textContent;}catch(e){result.error=String(e)}document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result)});</script>`
 		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"ride-home-router/internal/models"
+	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ const (
 // FuncMap returns the shared template helper functions used in production and tests.
 func FuncMap() template.FuncMap {
 	return template.FuncMap{
+		"asset": web.AssetURL,
 		// Keep stored calendar dates stable across server time zones.
 		"formatDate": func(t time.Time) string {
 			return t.UTC().Format("2006-01-02")

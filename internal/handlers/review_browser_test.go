@@ -8,6 +8,7 @@ import (
 	"os"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
+	"ride-home-router/web"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -31,7 +32,7 @@ func TestAddingSecondMobileDriverPreservesTimedCard(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		recorder := httptest.NewRecorder()
 		h.renderMobileRoutesTimed(recorder, r, snapshot, 200, "", "", "", []int{0})
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{
  const result={};const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const settled=()=>new Promise(resolve=>document.addEventListener('htmx:afterSettle',function done(event){if(event.detail.target?.id==='route-editor'){document.removeEventListener('htmx:afterSettle',done);resolve()}}));
@@ -83,7 +84,7 @@ func TestAddingSecondDriverBrowserPreservesMeasuredTimings(t *testing.T) {
 		view := IndexPageView{ActivityLocations: []models.ActivityLocation{location}, SelectedLocation: &location, Drivers: append([]models.Driver{*snapshot.Routes[0].Driver}, snapshot.UnusedDrivers...), Participants: []models.Participant{*snapshot.Routes[0].Stops[0].Participant}}
 		recorder := httptest.NewRecorder()
 		h.renderTemplate(recorder, "index.html", view)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{
  const result={};const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  try{
@@ -152,7 +153,7 @@ func TestMobileLocationBrowserPreservesOffPageChoiceThroughDone(t *testing.T) {
 		r.AddCookie(cookie)
 		recorder := httptest.NewRecorder()
 		h.HandleMobileLocation(recorder, r)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{
  const settled=()=>new Promise(resolve=>document.addEventListener('htmx:afterSettle',function done(event){if(event.detail.target?.id==='mobile-location-results'){document.removeEventListener('htmx:afterSettle',done);resolve()}}));
  try{
@@ -204,7 +205,7 @@ func TestMobileResetBrowserConfirmsAndRemovesAddedCard(t *testing.T) {
 		r.AddCookie(cookie)
 		recorder := httptest.NewRecorder()
 		h.HandleMobileRoutes(recorder, r)
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="/static/js/auth.js?v=20260912-theme" defer></script>`, "")
+		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		script := `<script>addEventListener('load',async()=>{
  const result={confirmations:0};
  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));

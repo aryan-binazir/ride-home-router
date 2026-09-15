@@ -163,6 +163,7 @@ summary:focus-visible {
 }
 
 .nav a {
+  font-weight: 600;
   padding: 5px 10px;
   border-radius: 4px;
   color: var(--ink-2);
@@ -2626,10 +2627,31 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   font-size: 14px;
 }
 .planner-loading { display: none; }
-.planner-restoring .planner-loading { display: block; padding: 32px; color: var(--ink-3); }
+.planner-restoring .planner-loading {
+  display: grid;
+  position: fixed;
+  inset: 48px 0 0;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  color: var(--ink-3);
+}
+.planner-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: planner-spin 800ms linear infinite;
+}
+@keyframes planner-spin { to { transform: rotate(360deg); } }
+.planner-load-error { display: none; }
+.planner-load-failed .planner-spinner { display: none; }
+.planner-load-failed .planner-load-error { display: block; }
 .planner-restoring .main { visibility: hidden; }
 .planner-restoring .planner-split { transition: none; }
 @media (max-width: 1100px) {
+  .planner-restoring .planner-loading { top: 60px; }
   .appbar { position: relative; flex-wrap: nowrap; gap: 12px; min-height: 60px; padding: 8px 16px; }
   .nav-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; font-size: 22px; }
   .appbar .nav {
@@ -2682,4 +2704,5 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 }
 @media (prefers-reduced-motion: reduce) {
   .appbar .nav { transition: none; }
+  .planner-spinner { animation: none; }
 }

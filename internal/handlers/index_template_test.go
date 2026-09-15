@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/web"
 	"strings"
 	"testing"
 )
@@ -20,10 +21,10 @@ func TestHandleIndexPage_LoadsEventPlannerScript(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, `<script src="/static/js/event-planner.js" defer></script>`) {
+	if !strings.Contains(body, `<script src="`+web.AssetURL("js/event-planner.js")+`" defer`) {
 		t.Fatal("rendered index page should defer event-planner.js")
 	}
-	if !strings.Contains(body, `<script src="/static/js/ui.js" defer></script>`) {
+	if !strings.Contains(body, `<script src="`+web.AssetURL("js/ui.js")+`" defer></script>`) {
 		t.Fatal("rendered index page should defer ui.js so it runs after the DOM is parsed")
 	}
 	if strings.Contains(body, `/static/js/route-copy.js`) {

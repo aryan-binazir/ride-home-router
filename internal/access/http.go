@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"ride-home-router/internal/logutil"
+	"ride-home-router/web"
 )
 
 // Register adds authentication and admin-only access management to the router.
@@ -20,9 +21,9 @@ func (a *Access) Register(mux *http.ServeMux) {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Sign in - Ride Home Router</title>
-<link rel="stylesheet" href="/static/css/style.css">
-<link rel="stylesheet" href="/static/css/login.css?v=20260914-access">
-<script src="/static/js/auth.js?v=20260914-access" defer></script>
+<link rel="stylesheet" href="` + web.AssetURL("css/style.css") + `">
+<link rel="stylesheet" href="` + web.AssetURL("css/login.css") + `">
+<script src="` + web.AssetURL("js/auth.js") + `" defer></script>
 </head>
 <body class="login-page">
 <main class="login-shell">
