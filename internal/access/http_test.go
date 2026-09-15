@@ -61,3 +61,40 @@ func TestSignInHasAccessibleStatusAndExistingAccountSwitch(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminsCardIsReadOnlyAndAdminOnly(t *testing.T) {
+	f := accesstest.New(t)
+	admin := f.Admin()
+	f.User("member", []string{"member@example.test"}, nil)
+	f.Session("member-session", "member", "active")
+	gate, err := access.New(f.Config("second@example.test", "admin@example.test"), &approvals{allowed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	gate.Register(mux)
+	for _, tt := range []struct {
+		token  string
+		status int
+	}{
+		{admin, http.StatusOK},
+		{f.Token("member", "member-session"), http.StatusForbidden},
+		{"", http.StatusUnauthorized},
+	} {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/access/admins", nil)
+		req.Header.Set("Authorization", "Bearer "+tt.token)
+		gate.Protect(mux).ServeHTTP(rr, req)
+		if rr.Code != tt.status {
+			t.Fatalf("status %d, want %d", rr.Code, tt.status)
+		}
+		body := rr.Body.String()
+		if tt.status == http.StatusOK {
+			if !strings.Contains(body, "admin@example.test") || !strings.Contains(body, "second@example.test") || strings.Contains(body, "<form") {
+				t.Fatal("missing configured admins or unexpected editing controls")
+			}
+		} else if strings.Contains(body, "second@example.test") {
+			t.Fatal("admin email disclosed to non-admin")
+		}
+	}
+}

@@ -235,3 +235,31 @@ document.getElementById('evidence').textContent=JSON.stringify({stable,hidden,er
     assert.equal(result.stable, true);
     assert.equal(result.hidden, true);
 });
+
+test('settings reveal all four cards together after every section finishes loading', {skip: !browser}, () => {
+    const result = run(`<script>document.documentElement.classList.add('settings-restoring');const responses={};window.authFetch=url=>new Promise(resolve=>responses[url]=resolve);window.htmx={process(){}};</script><main><section>Preferences</section><div id="google-key-slot"></div><div id="access-slot"></div><div id="admins-slot"></div></main>`, ['settings.js'], `
+const pending=document.documentElement.classList.contains('settings-restoring');
+responses['/api/v1/settings/google-maps-key']({ok:true,text:async()=>'<section>Google key</section>'});
+for(let i=0;i<10;i++)await Promise.resolve();
+const partialHidden=document.documentElement.classList.contains('settings-restoring')&&document.getElementById('google-key-slot').textContent==='';
+responses['/api/v1/access']({ok:true,text:async()=>'<section>Approved emails</section>'});
+responses['/api/v1/access/admins']({ok:true,text:async()=>'<section>Admins</section>'});
+for(let i=0;i<15;i++)await Promise.resolve();
+document.getElementById('evidence').textContent=JSON.stringify({pending,partialHidden,ready:!document.documentElement.classList.contains('settings-restoring'),cards:document.querySelectorAll('main section').length,errors});`);
+    assert.deepEqual(result, {pending:true,partialHidden:true,ready:true,cards:4,errors:[]});
+});
+
+test('settings load failure keeps partial cards hidden and offers recovery', {skip: !browser}, () => {
+    const result = run(`<script>document.documentElement.classList.add('settings-restoring');window.authFetch=async()=>({ok:false,status:503});</script><div id="google-key-slot"></div><div id="access-slot"></div>`, ['settings.js'], `
+for(let i=0;i<15;i++)await Promise.resolve();
+document.getElementById('evidence').textContent=JSON.stringify({hidden:document.documentElement.classList.contains('settings-restoring'),failed:document.documentElement.classList.contains('settings-load-failed'),errors});`);
+    assert.deepEqual(result, {hidden:true,failed:true,errors:[]});
+});
+
+test('deferred settings loader waits for the authentication helper', {skip: !browser}, () => {
+    const script = name => 'data:text/javascript,' + encodeURIComponent(fs.readFileSync(path.join(__dirname, name), 'utf8'));
+    const result = run(`<script>document.documentElement.classList.add('settings-restoring');window.fetch=async url=>url==='/auth/config'?new Promise(()=>{}):{ok:true,text:async()=>'<section>Ready</section>'};window.htmx={process(){}};</script><script defer src="${script('settings.js')}"></script><script defer src="${script('auth.js')}"></script><div id="google-key-slot"></div><div id="access-slot"></div><div id="admins-slot"></div>`, [], `
+await new Promise(resolve=>setTimeout(resolve,50));
+document.getElementById('evidence').textContent=JSON.stringify({ready:!document.documentElement.classList.contains('settings-restoring'),failed:document.documentElement.classList.contains('settings-load-failed'),cards:document.querySelectorAll('section').length,errors});`);
+    assert.deepEqual(result, {ready:true,failed:false,cards:3,errors:[]});
+});

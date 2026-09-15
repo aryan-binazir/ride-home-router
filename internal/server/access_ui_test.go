@@ -45,7 +45,7 @@ func TestAccessSettingsCookieManagement(t *testing.T) {
 		return w
 	}
 	w := request("GET", "/settings", admin, "", false)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `hx-get="/api/v1/access"`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `id="access-slot"`) {
 		t.Fatalf("admin settings %d %s", w.Code, w.Body.String())
 	}
 	w = request("POST", "/api/v1/access", admin, "email=MEMBER%40example.test", true)
@@ -53,7 +53,7 @@ func TestAccessSettingsCookieManagement(t *testing.T) {
 		t.Fatalf("approve HTMX %d %s", w.Code, w.Body.String())
 	}
 	w = request("GET", "/settings", member, "", false)
-	if w.Code != 200 || strings.Contains(w.Body.String(), `hx-get="/api/v1/access"`) {
+	if w.Code != 200 || strings.Contains(w.Body.String(), `id="access-slot"`) {
 		t.Fatalf("member settings %d %s", w.Code, w.Body.String())
 	}
 	w = request("GET", "/api/v1/access", member, "", true)

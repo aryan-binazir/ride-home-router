@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/web"
+	"slices"
 )
 
 // Register adds authentication and admin-only access management to the router.
@@ -51,7 +52,26 @@ func (a *Access) Register(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"publishableKey": a.cfg.PublishableKey, "scriptURL": a.issuer + "/npm/@clerk/clerk-js@5/dist/clerk.browser.js"})
 	})
 	mux.HandleFunc("/api/v1/access", a.manage)
+	mux.HandleFunc("GET /api/v1/access/admins", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if !IsAdmin(r.Context()) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		emails := make([]string, 0, len(a.admins))
+		for email := range a.admins {
+			emails = append(emails, email)
+		}
+		slices.Sort(emails)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = adminsPanel.Execute(w, emails)
+	})
 }
+
+var adminsPanel = template.Must(template.New("admins").Parse(`<section id="administrators" class="card">
+<h2>Admins</h2>
+<ul class="access-email-list">{{range .}}<li><span class="access-email">{{.}}</span><span class="badge badge-muted">Admin</span></li>{{end}}</ul>
+</section>`))
 
 var accessPanel = template.Must(template.New("access").Parse(`<section id="access-management" class="card">
 <h2>Approved emails</h2>

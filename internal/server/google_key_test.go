@@ -217,12 +217,12 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 		}
 		body = request(t, b, "GET", "/settings", token, "", "", nil, 200)
 		if token == member {
-			for _, marker := range []string{"google-maps-key", "api_key", "••••", "/api/v1/access"} {
+			for _, marker := range []string{"google-maps-key", "google-key-slot", "admins-slot", "api_key", "••••", "/api/v1/access"} {
 				if strings.Contains(body, marker) {
 					t.Errorf("member settings expose management %q", marker)
 				}
 			}
-		} else if !strings.Contains(body, endpoint) {
+		} else if !strings.Contains(body, `id="google-key-slot"`) {
 			t.Error("admin settings omit key management")
 		}
 	}

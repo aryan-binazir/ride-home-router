@@ -19,11 +19,14 @@
                        hx-on:change="var steps = document.getElementById('import-steps'); var cancel = steps.querySelector('.import-cancel'); if (cancel) { cancel.removeAttribute('onclick'); cancel.click(); } steps.innerHTML = ''"
                        required>
                 <div class="form-help import-file-help">
-                    <p>Use a CSV or Excel (.xlsx) file with these column names in the first row and one {{.Noun}} on each row below it.</p>
-                    <p><strong>Copy this header row:</strong></p>
-                    <pre><code>Name,Address,Location name{{if eq .Kind "driver"}},Passenger capacity{{end}}</code></pre>
-                    <p><strong>Example row:</strong></p>
-                    <pre><code>Alex Morgan,"123 Main St, Durham, NC 27701",Community center{{if eq .Kind "driver"}},4{{end}}</code></pre>
+                    <p>In Excel, put these headings in <strong>row 1</strong>. Add one {{.Noun}} per row, starting in <strong>row 2</strong>. Save as an <strong>Excel Workbook (.xlsx)</strong>, then upload it here.</p>
+                    <p><strong>Your worksheet should look like this:</strong></p>
+                    <div class="table-container import-sheet-example">
+                        <table aria-label="Example {{.Noun}} Excel worksheet">
+                            <thead><tr><th scope="col">Name</th><th scope="col">Address</th><th scope="col">Location name</th>{{if eq .Kind "driver"}}<th scope="col">Passenger capacity</th>{{end}}</tr></thead>
+                            <tbody><tr><td>Alex Morgan</td><td>123 Main St, Durham, NC 27701</td><td>Community center</td>{{if eq .Kind "driver"}}<td>4</td>{{end}}</tr></tbody>
+                        </table>
+                    </div>
                     <p><strong>Name</strong> and <strong>Address</strong> are required. Include the street, city, state and ZIP code in Address. <strong>Location name</strong> is optional, such as a building or pickup point.</p>
                     {{if eq .Kind "driver"}}<p><strong>Passenger capacity</strong> is a whole number from 1 to 50, excluding the driver. If you include this column, fill it in for every driver. If you leave the column out, new drivers get 4 passenger seats and existing drivers keep their current capacity.</p>{{end}}
                     <p>Different column names? After uploading, you can match them to these fields. Unmatched columns are ignored. You can review the rows before importing; we look up addresses automatically.</p>
