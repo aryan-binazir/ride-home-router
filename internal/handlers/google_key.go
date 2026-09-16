@@ -14,12 +14,14 @@ import (
 var googleKeyPanel = template.Must(template.New("google-key").Parse(`<section id="google-maps-key" class="card">
 <h3>Google Maps API key</h3>
 <p>{{if .Configured}}<span aria-label="Key configured">••••••••</span> Configured{{else}}Not configured{{end}}</p>
-<form hx-put="/api/v1/settings/google-maps-key" hx-target="#google-maps-key" hx-swap="outerHTML">
+<form id="google-key-form" hx-put="/api/v1/settings/google-maps-key" hx-target="#google-maps-key" hx-swap="outerHTML">
 <div class="form-group"><label class="form-label" for="google-key-input">{{if .Configured}}Replace key{{else}}API key{{end}}</label>
 <input id="google-key-input" class="form-input" type="password" name="api_key" autocomplete="new-password" spellcheck="false" autocapitalize="off" required maxlength="4096"></div>
-<button class="btn btn-primary" type="submit">{{if .Configured}}Replace key{{else}}Save key{{end}}</button>
 </form>
+<div class="d-flex align-center gap-2" style="flex-wrap: wrap">
+<button class="btn btn-primary" type="submit" form="google-key-form">{{if .Configured}}Replace key{{else}}Save key{{end}}</button>
 {{if .Configured}}<button class="btn" type="button" hx-delete="/api/v1/settings/google-maps-key" hx-target="#google-maps-key" hx-swap="outerHTML" hx-confirm="Delete the Google Maps API key? Route calculation will be unavailable until a new key is saved.">Delete key</button>{{end}}
+</div>
 </section>`))
 
 // HandleGoogleMapsKey exposes only status and write operations, never the saved key.
