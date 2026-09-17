@@ -88,6 +88,7 @@ type mobileRoute struct {
 	Route       models.CalculatedRoute
 	DriverText  string
 	ParentText  string
+	PreviewURL  string
 	ETAs        []string
 	// Timing is this response's measurement for the car; nil Route means no numbers.
 	Timing RouteTiming

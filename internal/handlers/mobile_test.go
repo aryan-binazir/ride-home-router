@@ -154,6 +154,15 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		}
 	}
 
+	_, preview, found := strings.Cut(routesResponse.Body.String(), `href="https://www.google.com/maps/dir/?`)
+	if !found {
+		t.Fatal("routes page missing Maps preview link")
+	}
+	preview, _, _ = strings.Cut(preview, `"`)
+	if !strings.Contains(preview, "origin=") || strings.Contains(preview, "dir_action") {
+		t.Fatalf("preview href must have origin and no navigation action: %s", preview)
+	}
+
 	moveResponse := postMobileForm(t, draftCookie, "/m/routes/move", url.Values{
 		"session_id":     {draft.RouteSessionID},
 		"participant_id": {fmt.Sprint(firstRider.ID)}, "from_route_index": {"0"}, "to_route_index": {"1"},
@@ -444,7 +453,7 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 	t.Cleanup(store.Close)
 	drafts := plandraft.NewStore()
 	t.Cleanup(drafts.Close)
-	driver := models.Driver{ID: 1, Name: "Small Car", VehicleCapacity: 1}
+	driver := models.Driver{ID: 1, Name: "Small Car", Address: "10 Driver Lane", VehicleCapacity: 1}
 	first := models.Participant{ID: 10, Name: "First Rider", Address: "1 Main", Lat: 1, Lng: 1}
 	second := models.Participant{ID: 11, Name: "Second Rider", Address: "2 Main", Lat: 2, Lng: 2}
 	session := store.Create(routesession.CreateInput{
@@ -453,7 +462,7 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 			Stops:               []models.RouteStop{{Participant: &first}, {Participant: &second}},
 			TotalDistanceMeters: 5000, RouteDurationSecs: 900,
 		}},
-		SelectedDrivers: []models.Driver{driver}, ActivityLocation: &models.ActivityLocation{Name: "Center"},
+		SelectedDrivers: []models.Driver{driver}, ActivityLocation: &models.ActivityLocation{Name: "Center", Address: "1 Church Road"},
 		RouteTime: "18:30", Mode: models.RouteModeDropoff,
 	})
 	id := drafts.NewID()
@@ -481,6 +490,9 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("over-capacity routes page missing %q: %s", want, body)
 		}
+	}
+	if strings.Contains(body, ">Preview</a>") {
+		t.Fatal("over-capacity routes page exposed Preview")
 	}
 	if strings.Contains(body, "5.00 km") || strings.Contains(body, ">6:32 PM<") {
 		t.Fatalf("over-capacity routes page exposed stale metrics: %s", body)

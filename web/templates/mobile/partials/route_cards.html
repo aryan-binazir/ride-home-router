@@ -37,6 +37,9 @@
     <div class="mobile-route-actions">
       <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="driver-copy-{{.Index}}" aria-live="polite" {{if $.Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
       <button type="button" class="mobile-button mobile-button-secondary" data-copy-target="parent-copy-{{.Index}}" aria-live="polite" {{if $.Snapshot.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for parents</button>
+      {{if and .PreviewURL (not $.Snapshot.IsOutOfBalance)}}
+      <a class="mobile-button mobile-button-secondary" href="{{.PreviewURL}}" target="_blank" rel="noopener">Preview</a>
+      {{end}}
     </div>
     <textarea class="mobile-copy-source" id="driver-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.DriverText}}</textarea>
     <textarea class="mobile-copy-source" id="parent-copy-{{.Index}}" tabindex="-1" aria-hidden="true">{{.ParentText}}</textarea>
