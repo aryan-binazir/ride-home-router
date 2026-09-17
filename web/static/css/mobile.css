@@ -136,6 +136,7 @@ button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height
 .mobile-stops button, .mobile-inline-form button { min-height: 34px; border: 0; background: transparent; color: var(--m-blue); cursor: pointer; }
 .mobile-route-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 14px; }
 .mobile-route-actions .mobile-button { min-height: 44px; padding: 0 8px; font-size: .82rem; }
+.mobile-route-actions > a.mobile-button { grid-column: 1 / -1; text-decoration: none; }
 .mobile-copy-source { position: fixed; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 .mobile-inline-form { padding: 10px 14px; display: flex; align-items: end; gap: 8px; border-top: 1px solid var(--m-line); }
 .mobile-inline-form label { flex: 1; color: var(--m-muted); font-size: .78rem; }

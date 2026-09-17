@@ -165,3 +165,57 @@ func TestMobileMapsURLFormatsCoordinatesToSixDecimalPlaces(t *testing.T) {
 		t.Errorf("Maps URL retained coordinates beyond six decimal places: %s", got)
 	}
 }
+
+func TestMobileMapsPreviewURL(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []models.RouteMode{models.RouteModeDropoff, models.RouteModePickup} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			snapshot := routesession.Snapshot{ActivityLocation: &models.ActivityLocation{Address: "1 Church Road"}, Mode: mode}
+			route := models.CalculatedRoute{Driver: &models.Driver{Address: "10 Driver Lane"}, Stops: []models.RouteStop{
+				{Participant: &models.Participant{Address: "2 Rider Street"}},
+				{Participant: &models.Participant{Address: "3 Rider Street"}},
+				{Participant: &models.Participant{Address: "4 Rider Street"}},
+				{Participant: &models.Participant{Address: "5 Rider Street"}},
+			}}
+			origin, destination := "1 Church Road", "10 Driver Lane"
+			if mode == models.RouteModePickup {
+				origin, destination = destination, origin
+			}
+			want := url.Values{"api": {"1"}, "travelmode": {"driving"}, "origin": {origin}, "destination": {destination}, "waypoints": {"2 Rider Street|3 Rider Street|4 Rider Street|5 Rider Street"}}
+			if got := mobileMapsPreviewURL(snapshot, route); got != "https://www.google.com/maps/dir/?"+want.Encode() {
+				t.Fatalf("preview URL = %q, want query %v without dir_action", got, want)
+			}
+		})
+	}
+}
+
+func TestMobileMapsPreviewURLRejectsIncompleteRoutes(t *testing.T) {
+	t.Parallel()
+	for _, missing := range []string{"activity", "driver", "stops", "participant", "activity address", "driver address", "stop address"} {
+		t.Run(missing, func(t *testing.T) {
+			t.Parallel()
+			snapshot := routesession.Snapshot{ActivityLocation: &models.ActivityLocation{Address: "1 Church Road"}}
+			route := models.CalculatedRoute{Driver: &models.Driver{Address: "10 Driver Lane"}, Stops: []models.RouteStop{{Participant: &models.Participant{Address: "5 Rider Street"}}}}
+			switch missing {
+			case "activity":
+				snapshot.ActivityLocation = nil
+			case "driver":
+				route.Driver = nil
+			case "stops":
+				route.Stops = nil
+			case "participant":
+				route.Stops[0].Participant = nil
+			case "activity address":
+				snapshot.ActivityLocation.Address = " "
+			case "driver address":
+				route.Driver.Address = " "
+			case "stop address":
+				route.Stops[0].Participant.Address = " "
+			}
+			if got := mobileMapsPreviewURL(snapshot, route); got != "" {
+				t.Fatalf("preview URL = %q, want blank", got)
+			}
+		})
+	}
+}

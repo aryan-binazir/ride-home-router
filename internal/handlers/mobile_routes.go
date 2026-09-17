@@ -120,7 +120,7 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 			}
 		}
 		appending := view.Patch && index == len(snapshot.Routes)-1 && (r.URL.Path == "/m/routes/add-driver" || r.FormValue("action") == "add")
-		view.Routes = append(view.Routes, mobileRoute{Append: appending, Index: index, Route: h.itineraryRoutes([]models.CalculatedRoute{route})[0], DriverText: formatMobileHandoff(snapshot, route, false, etas), ParentText: formatMobileHandoff(snapshot, route, true, etas), ETAs: etas, Timing: timing})
+		view.Routes = append(view.Routes, mobileRoute{Append: appending, Index: index, Route: h.itineraryRoutes([]models.CalculatedRoute{route})[0], DriverText: formatMobileHandoff(snapshot, route, false, etas), ParentText: formatMobileHandoff(snapshot, route, true, etas), PreviewURL: mobileMapsPreviewURL(snapshot, route), ETAs: etas, Timing: timing})
 	}
 	if view.Patch {
 		h.renderMobileTemplateStatus(w, r, status, "mobile_route_updates", view)
@@ -444,7 +444,7 @@ func displayMobileAddress(name, address string) string {
 	return fmt.Sprintf("%s (%s)", name, address)
 }
 
-func mobileMapsURLs(snapshot routesession.Snapshot, route models.CalculatedRoute) []string {
+func mobileMapsPoints(snapshot routesession.Snapshot, route models.CalculatedRoute) []string {
 	if snapshot.ActivityLocation == nil || route.Driver == nil || len(route.Stops) == 0 {
 		return nil
 	}
@@ -477,6 +477,24 @@ func mobileMapsURLs(snapshot routesession.Snapshot, route models.CalculatedRoute
 	if snapshot.Mode == models.RouteModePickup {
 		points[0], points[len(points)-1] = points[len(points)-1], points[0]
 	}
+	return points
+}
+
+func mobileMapsPreviewURL(snapshot routesession.Snapshot, route models.CalculatedRoute) string {
+	points := mobileMapsPoints(snapshot, route)
+	if len(points) == 0 {
+		return ""
+	}
+	query := url.Values{
+		"api": {"1"}, "travelmode": {"driving"},
+		"origin": {points[0]}, "destination": {points[len(points)-1]},
+		"waypoints": {strings.Join(points[1:len(points)-1], "|")},
+	}
+	return "https://www.google.com/maps/dir/?" + query.Encode()
+}
+
+func mobileMapsURLs(snapshot routesession.Snapshot, route models.CalculatedRoute) []string {
+	points := mobileMapsPoints(snapshot, route)
 	// Mobile browsers support three intermediate waypoints per Maps URL.
 	// Each later leg starts at the preceding leg's destination.
 	var links []string
