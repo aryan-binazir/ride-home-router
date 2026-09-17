@@ -26,7 +26,7 @@ type DriverResponse struct {
 
 // HandleListDrivers handles GET /api/v1/drivers
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
-	search := r.URL.Query().Get("search")
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] GET /api/v1/drivers:")
 
@@ -255,7 +255,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Created driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
-		drivers, err := h.DB.Drivers().List(r.Context(), "")
+		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
 		if err != nil {
 			log.Printf("[ERROR] Failed to list drivers after create: err=%v", err)
 			h.setHTMXToastWithEvent(w, "driverCreated", "Driver saved. Refresh the page to see the updated roster.", toastTypeWarning)
@@ -438,7 +438,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Updated driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
-		drivers, err := h.DB.Drivers().List(r.Context(), "")
+		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
 		if err != nil {
 			log.Printf("[ERROR] Failed to list drivers after update: err=%v", err)
 			h.renderError(w, r, err)

@@ -154,3 +154,51 @@ func TestDriverRepositoryRestoreAllowsLiveDuplicate(t *testing.T) {
 		t.Fatalf("ListDeleted() = %#v, %v; want none", deleted, err)
 	}
 }
+
+func TestDriverRepositorySearch(t *testing.T) {
+	store := postgrestest.Open(t)
+	repo := store.Drivers()
+	row, err := repo.Create(t.Context(), &models.Driver{Name: "Zelda", Address: "123 Maple Avenue", AddressName: "Community Center"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := repo.Create(t.Context(), &models.Driver{Name: "Alice", Address: "456 Oak Road"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, search string
+		ids          []int64
+	}{
+		{"address", "Maple", []int64{row.ID}},
+		{"address name", "munity", []int64{row.ID}},
+		{"mixed case address", "mApLe", []int64{row.ID}},
+		{"mixed case address name", "cEnTeR", []int64{row.ID}},
+		{"name", "zEl", []int64{row.ID}},
+		{"no match", "missing", nil},
+		{"empty ordered", "", []int64{other.ID, row.ID}},
+		{"null address name", "oAk", []int64{other.ID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := repo.List(t.Context(), tc.search)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != len(tc.ids) {
+				t.Fatalf("List(%q) = %#v; want IDs %v", tc.search, rows, tc.ids)
+			}
+			for i, id := range tc.ids {
+				if rows[i].ID != id {
+					t.Fatalf("row %d ID = %d; want %d", i, rows[i].ID, id)
+				}
+			}
+		})
+	}
+	if err := repo.Delete(t.Context(), row.ID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.List(t.Context(), "Maple")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("deleted address match = %#v, %v", rows, err)
+	}
+}

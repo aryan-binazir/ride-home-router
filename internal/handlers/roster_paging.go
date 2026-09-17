@@ -13,16 +13,10 @@ type rosterPagination struct {
 	Offset                                     int
 }
 
-func pageRoster[T any](r *http.Request, kind string, items []T, describe func(T) string) ([]T, rosterPagination) {
+func pageRoster[T any](r *http.Request, kind string, items []T) ([]T, rosterPagination) {
 	search := strings.TrimSpace(r.FormValue("search"))
-	matches := make([]T, 0, len(items))
-	for _, item := range items {
-		if strings.Contains(strings.ToLower(describe(item)), strings.ToLower(search)) {
-			matches = append(matches, item)
-		}
-	}
 	offset, _ := strconv.Atoi(r.FormValue("offset"))
-	start, end, next, previous := pickerWindow(len(matches), offset)
+	start, end, next, previous := pickerWindow(len(items), offset)
 	baseURL := "/api/v1/" + kind
 	page := rosterPagination{Kind: kind, Target: kind + "-list", Search: search, Offset: start}
 	if r.URL.Path == baseURL+"/deleted" {
@@ -38,13 +32,13 @@ func pageRoster[T any](r *http.Request, kind string, items []T, describe func(T)
 	if start > 0 {
 		page.PreviousURL = pageURL(previous)
 	}
-	return matches[start:end], page
+	return items[start:end], page
 }
 
 func pageRosterParticipants(r *http.Request, items []models.Participant) ([]models.Participant, rosterPagination) {
-	return pageRoster(r, "participants", items, func(p models.Participant) string { return p.Name + " " + p.AddressName + " " + p.Address })
+	return pageRoster(r, "participants", items)
 }
 
 func pageRosterDrivers(r *http.Request, items []models.Driver) ([]models.Driver, rosterPagination) {
-	return pageRoster(r, "drivers", items, func(d models.Driver) string { return d.Name + " " + d.AddressName + " " + d.Address })
+	return pageRoster(r, "drivers", items)
 }

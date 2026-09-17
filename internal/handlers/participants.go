@@ -26,7 +26,7 @@ type ParticipantResponse struct {
 
 // HandleListParticipants handles GET /api/v1/participants
 func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request) {
-	search := r.URL.Query().Get("search")
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] GET /api/v1/participants:")
 
@@ -239,7 +239,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Created participant: id=%d", participant.ID)
 	if h.isHTMX(r) {
-		participants, err := h.DB.Participants().List(r.Context(), "")
+		participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after create: err=%v", err)
 			h.setHTMXToastWithEvent(w, "participantCreated", "Participant saved. Refresh the page to see the updated roster.", toastTypeWarning)
@@ -405,7 +405,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] Updated participant: id=%d", participant.ID)
 	if h.isHTMX(r) {
-		participants, err := h.DB.Participants().List(r.Context(), "")
+		participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
 		if err != nil {
 			log.Printf("[ERROR] Failed to list participants after update: err=%v", err)
 			h.renderError(w, r, err)

@@ -26,7 +26,7 @@ func (r *participantRepository) List(ctx context.Context, search string) ([]mode
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+participantColumns+`
 		FROM participants
-		WHERE deleted_at IS NULL AND ($1 = '' OR name ILIKE '%' || $1 || '%')
+		WHERE deleted_at IS NULL AND `+rosterSearchPredicate+`
 		ORDER BY name`, search)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query participants: %w", err)

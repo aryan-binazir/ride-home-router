@@ -26,7 +26,7 @@ func (r *driverRepository) List(ctx context.Context, search string) ([]models.Dr
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+driverColumns+`
 		FROM drivers
-		WHERE deleted_at IS NULL AND ($1 = '' OR name ILIKE '%' || $1 || '%')
+		WHERE deleted_at IS NULL AND `+rosterSearchPredicate+`
 		ORDER BY name`, search)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query drivers: %w", err)

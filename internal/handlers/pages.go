@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"ride-home-router/internal/access"
+	"strings"
 )
 
 // HandleIndexPage handles GET /
@@ -60,7 +61,7 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleParticipantsPage handles GET /participants
 func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request) {
-	participants, err := h.DB.Participants().List(r.Context(), "")
+	participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")))
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -89,7 +90,7 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 
 // HandleDriversPage handles GET /drivers
 func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
-	drivers, err := h.DB.Drivers().List(r.Context(), "")
+	drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")))
 	if err != nil {
 		h.renderError(w, r, err)
 		return

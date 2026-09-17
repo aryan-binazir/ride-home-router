@@ -303,7 +303,7 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 		return
 	}
 
-	participants, err := h.DB.Participants().List(r.Context(), "")
+	participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
 	if err != nil {
 		h.handleInternalError(w, r, err)
 		return
@@ -362,7 +362,7 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 		return
 	}
 
-	drivers, err := h.DB.Drivers().List(r.Context(), "")
+	drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
 	if err != nil {
 		h.handleInternalError(w, r, err)
 		return
