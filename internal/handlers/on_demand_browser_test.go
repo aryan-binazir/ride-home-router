@@ -111,10 +111,15 @@ func TestVehicleAssignmentBrowserRestoresWithoutLoadingCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	draft, _ := json.Marshal(map[string]any{"driverIds": []string{fmt.Sprint(driver.ID)}, "participantIds": []string{}, "vanAssignments": map[string]string{fmt.Sprint(driver.ID): fmt.Sprint(vehicle.ID)}, "mode": "dropoff", "routeTime": "18:30"})
+	location, err := store.ActivityLocations().Create(t.Context(), &models.ActivityLocation{Name: "Saved school", Address: "1 School Rd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, _ := json.Marshal(map[string]any{"activityLocationId": fmt.Sprint(location.ID), "driverIds": []string{fmt.Sprint(driver.ID)}, "participantIds": []string{}, "vanAssignments": map[string]string{fmt.Sprint(driver.ID): fmt.Sprint(vehicle.ID)}, "mode": "dropoff", "routeTime": "18:30"})
 	draftJSON, _ := json.Marshal(string(draft))
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("../../web/static"))))
+	mux.HandleFunc("/api/v1/planner/location-editor", h.HandleLocationEditor)
 	mux.HandleFunc("/api/v1/planner/vehicle-assignments", h.HandleVehicleAssignments)
 	mux.HandleFunc("/api/v1/planner/drivers", h.HandlePlannerPicker)
 	mux.HandleFunc("/api/v1/planner/participants", h.HandlePlannerPicker)
@@ -123,18 +128,19 @@ func TestVehicleAssignmentBrowserRestoresWithoutLoadingCatalog(t *testing.T) {
 		h.HandleIndexPage(recorder, r)
 		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
 		html = strings.Replace(html, "<head>", "<head><script>localStorage.setItem('ride-home-router:event-planner-draft:v1',"+string(draftJSON)+");</script>", 1)
-		script := `<script>addEventListener('load',()=>{let attempts=0;const check=()=>{const id=document.querySelector('.driver-checkbox:checked')?.value;const select=document.getElementById('van-assignment-'+id);if(select?.value||attempts++>100){const result={value:select?.value,capacity:select?.selectedOptions[0]?.dataset.capacity,options:document.querySelectorAll('.van-assignment-select option').length};document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);}else setTimeout(check,20)};check()});</script>`
+		script := `<script>addEventListener('load',()=>{let attempts=0;const check=()=>{const id=document.querySelector('.driver-checkbox:checked')?.value;const select=document.getElementById('van-assignment-'+id);if(select?.value||attempts++>100){const result={value:select?.value,capacity:select?.selectedOptions[0]?.dataset.capacity,options:document.querySelectorAll('.van-assignment-select option').length,location:document.querySelector('[name="activity_location_id"]').value,calculateDisabled:document.getElementById('calculate-btn').disabled};document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);}else setTimeout(check,20)};check()});</script>`
 		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
 	})
 	raw := runRouteBrowser(t, browser, mux)
 	var result struct {
-		Value, Capacity string
-		Options         int
+		Value, Capacity, Location string
+		Options                   int
+		CalculateDisabled         bool
 	}
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Value != fmt.Sprint(vehicle.ID) || result.Capacity != "12" || result.Options != 51 {
+	if result.Value != fmt.Sprint(vehicle.ID) || result.Capacity != "12" || result.Options != 51 || result.Location != fmt.Sprint(location.ID) || result.CalculateDisabled {
 		t.Fatalf("restore: %s", raw)
 	}
 }

@@ -1540,6 +1540,19 @@
             });
         }
 
+        async function restorePlannerLocation(id) {
+            const response = await (window.authFetch || fetch)('/api/v1/planner/location-editor', {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({location_id: id}), signal: AbortSignal.timeout(15000)});
+            if (!response.ok) return false;
+            const template = document.createElement('template');
+            template.innerHTML = await response.text();
+            const replacement = template.content.querySelector('#event-activity-location-select');
+            const previous = document.getElementById('event-activity-location-select');
+            if (!replacement || !previous) return false;
+            previous.replaceWith(replacement);
+            htmx.process(replacement);
+            return true;
+        }
+
         async function restoreEventPlannerDraft() {
             const draft = getEventPlannerDraft();
             const form = getEventForm();
@@ -1554,7 +1567,7 @@
                 let activityLocation = form.querySelector('select[name="activity_location_id"]');
                 if (activityLocation && typeof draft.activityLocationId === 'string') {
                     if (activityLocation.dataset?.onDemand && draft.activityLocationId) {
-                        if (!await window.restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
+                        if (!await restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
                         activityLocation = form.querySelector('select[name="activity_location_id"]');
                     }
                     activityLocation.value = draft.activityLocationId;
