@@ -2810,3 +2810,8 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   padding: 12px 18px;
   border-top: 1px solid var(--line-2);
 }
+
+/* .btn sets display, which would otherwise override the hidden attribute. */
+.address-match-dialog [hidden] {
+  display: none;
+}

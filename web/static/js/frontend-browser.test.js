@@ -265,14 +265,15 @@ document.getElementById('evidence').textContent=JSON.stringify({ready:!document.
 });
 
 test('address marker dialog explains a guess, confirms it, and opens the edit form', {skip: !browser}, () => {
-    const result = run(`<div id="participants-list"><table><tbody><tr id="participant-7"><td>
+    const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+    const result = run(`<style>${css}</style><div id="participants-list"><table><tbody><tr id="participant-7"><td>
 <button type="button" data-address-marker data-kind="participants" data-id="7" data-row="participant-7" data-match="guessed" data-address="12 Oak St Apt 4, Raliegh" data-matched="12 Oak Street, Raleigh, NC 27601">marker</button>
 <button type="button" id="edit" hx-get="/api/v1/participants/7/edit">Edit</button></td></tr>
 <tr id="participant-8"><td><button type="button" id="verified" data-address-marker data-kind="participants" data-id="8" data-row="participant-8" data-match="verified" data-address="1 Verified Way" data-matched="1 Verified Way, Cary, NC 27511">marker</button></td></tr></tbody></table></div>`, ['roster.js'], `
 const calls=[];window.htmx={ajax(verb,url,options){calls.push({verb,url,target:options.target,swap:options.swap});}};
 let edits=0;document.getElementById('edit').addEventListener('click',()=>edits++);
 const text=selector=>document.querySelector(selector).textContent.trim();
-const visible=selector=>!document.querySelector(selector).hidden;
+const visible=selector=>getComputedStyle(document.querySelector(selector)).display!=='none';
 document.querySelector('[data-address-marker]').click();
 const dialog=document.querySelector('dialog.address-match-dialog');
 const guessed={open:dialog.open,title:text('#address-match-title'),entered:text('[data-address-entered-value]'),matched:text('[data-address-matched-value]'),note:text('[data-address-note]'),enteredShown:visible('[data-address-entered]'),fix:visible('[data-address-action="fix"]'),confirm:visible('[data-address-action="confirm"]'),close:visible('[data-address-action="close"]')};
