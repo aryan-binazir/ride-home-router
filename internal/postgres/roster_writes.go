@@ -231,9 +231,10 @@ func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]int64
 	return keys, nil
 }
 
+// PurgeDeletedRoster hard-deletes roster rows soft-deleted over 30 days ago, a bounded batch per table.
 // Snapshot roster IDs deliberately have no foreign keys to the live roster.
 // Label memberships cascade; settings' selected location is set to null.
-func (s *Store) cleanupDeletedRoster(ctx context.Context) error {
+func (s *Store) PurgeDeletedRoster(ctx context.Context) error {
 	for _, table := range []string{"participants", "drivers", "activity_locations"} {
 		//nolint:gosec // G202: table names are fixed above, never supplied by a request.
 		_, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE id IN (SELECT id FROM `+table+` WHERE deleted_at<clock_timestamp()-interval '30 days' ORDER BY deleted_at,id FOR UPDATE SKIP LOCKED LIMIT 100) AND deleted_at<clock_timestamp()-interval '30 days'`)

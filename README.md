@@ -72,7 +72,7 @@ Postgres persists drafts, route edits and imports across restarts/replicas; no s
 
 CSV/XLSX imports geocode on the server. Parsed workflow payloads are capped at 24 MiB; valid rows can be saved despite invalid rows. Workers continue without a browser, recover after restart and allow up to nine Google attempts per unique address, with shared cooldowns. Exhausted addresses require a new import or reapplied mapping.
 
-Deleted people/places are purged after 30 days; event snapshots survive. No app analytics or tracking.
+Deleted people/places are purged after 30 days by a daily sweep; event snapshots survive. No app analytics or tracking.
 
 ## Deploy
 

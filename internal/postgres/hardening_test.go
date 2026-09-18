@@ -43,7 +43,7 @@ func TestRosterRetentionPreservesEventSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = store.CleanupWorkflows(t.Context()); err != nil {
+	if err = store.PurgeDeletedRoster(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.Participants().Restore(t.Context(), participant.ID); !errors.Is(err, database.ErrNotFound) {

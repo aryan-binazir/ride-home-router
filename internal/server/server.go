@@ -152,19 +152,27 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	cleanupDone := make(chan struct{})
 	go func() {
 		defer close(cleanupDone)
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
+		run := func(name string, job func(context.Context) error) {
+			ctx, cancel := context.WithTimeout(cleanupCtx, 5*time.Second)
+			err := job(ctx)
+			cancel()
+			if err != nil && cleanupCtx.Err() == nil {
+				log.Printf("[%s] Cleanup failed: %v", name, err)
+			}
+		}
+		workflowTicker := time.NewTicker(time.Minute)
+		defer workflowTicker.Stop()
+		rosterTicker := time.NewTicker(24 * time.Hour)
+		defer rosterTicker.Stop()
+		run("ROSTER", db.PurgeDeletedRoster)
 		for {
 			select {
 			case <-cleanupCtx.Done():
 				return
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(cleanupCtx, 5*time.Second)
-				err := db.CleanupWorkflows(ctx)
-				cancel()
-				if err != nil && cleanupCtx.Err() == nil {
-					log.Printf("[WORKFLOW] Cleanup failed: %v", err)
-				}
+			case <-workflowTicker.C:
+				run("WORKFLOW", db.CleanupWorkflows)
+			case <-rosterTicker.C:
+				run("ROSTER", db.PurgeDeletedRoster)
 			}
 		}
 	}()
