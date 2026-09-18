@@ -1,0 +1,2 @@
+# Advisory IDs scripts/govulncheck.sh tolerates. Keep each with a reason and remove it once resolved.
+GO-2026-6452 # False positive: GHSA-fx5j-qcqg-grpf is patched in excelize v2.11.0 (in use); the Go vuln DB entry lacks the fixed version.

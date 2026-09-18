@@ -38,7 +38,7 @@ jobs:
         with:
           version-file: .golangci-lint-version
       - name: Scan reachable Go vulnerabilities
-        run: go tool govulncheck ./...
+        run: scripts/govulncheck.sh
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
