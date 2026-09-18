@@ -88,7 +88,9 @@ type importSheetsView struct {
 }
 
 type importCommitView struct {
-	Message         string
+	Message string
+	// GuessedWarning is shown only when the geocoder guessed some addresses.
+	GuessedWarning  string
 	IsDriver        bool
 	ListElementID   string
 	HasList         bool
@@ -313,11 +315,16 @@ func importRowState(row importer.Row) string {
 		return "error"
 	case row.DuplicateInFile || row.DuplicateOfExisting:
 		return "duplicate"
-	case len(row.Warnings) > 0:
+	case len(row.Warnings) > 0, row.AddressGuessed:
 		return "warning"
 	default:
 		return ""
 	}
+}
+
+// importGuessedNote is the preview note for an address the geocoder only guessed.
+func importGuessedNote(matched string) string {
+	return "Google couldn't find this exactly. Matched to: " + matched + ". Check this."
 }
 
 func importRowNotes(row importer.Row) []string {
@@ -329,11 +336,27 @@ func importRowNotes(row importer.Row) []string {
 	if row.DuplicateInFile {
 		notes = append(notes, "Duplicate row in this file — merged into the first")
 	}
+	if row.AddressGuessed {
+		notes = append(notes, importGuessedNote(row.MatchedAddress))
+	}
 	return append(notes, row.Warnings...)
 }
 
 func importCommitMessage(result importer.CommitResult) string {
 	return fmt.Sprintf("%d imported, %d updated, %d skipped", result.Created, result.Updated, result.NotSelected)
+}
+
+// importGuessedWarning tells people to check addresses the geocoder guessed;
+// empty when every address matched exactly.
+func importGuessedWarning(result importer.CommitResult) string {
+	switch {
+	case result.Guessed <= 0:
+		return ""
+	case result.Guessed == 1:
+		return "We couldn't confirm 1 address exactly, so we used Google's closest match. Look for the red marker next to that name and check it. Click the marker to see what we matched and confirm it or fix it."
+	default:
+		return fmt.Sprintf("We couldn't confirm %d addresses exactly, so we used Google's closest match. Look for the red marker next to those names and check each one. Click the marker to see what we matched and confirm it or fix it.", result.Guessed)
+	}
 }
 
 // writeImportError returns the emitted status; HTMX errors use 200 so htmx swaps.
@@ -358,7 +381,7 @@ func (h *Handler) renderImportStep(w http.ResponseWriter, r *http.Request, snaps
 	case importer.StatusPreviewing, importer.StatusCommitting:
 		h.renderImportPreview(w, r, snapshot)
 	case importer.StatusCommitted:
-		h.renderTemplate(w, "import_result", importCommitView{Message: importCommitMessage(snapshot.CommitResult)})
+		h.renderTemplate(w, "import_result", importCommitView{Message: importCommitMessage(snapshot.CommitResult), GuessedWarning: importGuessedWarning(snapshot.CommitResult)})
 	case importer.StatusFailed:
 		h.renderImportMessage(w, snapshot.ID, importFailureMessage(snapshot))
 	default:
@@ -518,8 +541,9 @@ func (h *Handler) cancelImportPanel(w http.ResponseWriter, r *http.Request, id s
 
 func (h *Handler) renderImportCommitted(w http.ResponseWriter, r *http.Request, kind importer.Kind, result importer.CommitResult) {
 	view := importCommitView{
-		Message:  importCommitMessage(result),
-		IsDriver: kind == importer.KindDriver,
+		Message:        importCommitMessage(result),
+		GuessedWarning: importGuessedWarning(result),
+		IsDriver:       kind == importer.KindDriver,
 	}
 	if view.IsDriver {
 		view.ListElementID = "drivers-list"

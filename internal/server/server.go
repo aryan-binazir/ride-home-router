@@ -313,6 +313,22 @@ func handleResourcePath(emptyPath, editSuffix string, editHandler, get, put, del
 	}
 }
 
+// handleActionSuffix routes POST requests ending in suffix to action and every
+// other request to next.
+func handleActionSuffix(suffix string, action, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, suffix) {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w)
+				return
+			}
+			action(w, r)
+			return
+		}
+		next(w, r)
+	}
+}
+
 func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -336,14 +352,16 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/participants/labels/add", requireMethod(http.MethodPost, handler.HandleAddParticipantsToLabel))
 	mux.HandleFunc("/api/v1/participants/labels/remove", requireMethod(http.MethodPost, handler.HandleRemoveParticipantsFromLabel))
 	mux.HandleFunc("/api/v1/participants/new", requireMethod(http.MethodGet, handler.HandleParticipantForm))
-	mux.HandleFunc("/api/v1/participants/", handleResourcePath("/api/v1/participants/", "/edit", handler.HandleParticipantForm, handler.HandleGetParticipant, handler.HandleUpdateParticipant, handler.HandleDeleteParticipant))
+	mux.HandleFunc("/api/v1/participants/", handleActionSuffix(handlers.AddressConfirmSuffix, handler.HandleConfirmParticipantAddress,
+		handleResourcePath("/api/v1/participants/", "/edit", handler.HandleParticipantForm, handler.HandleGetParticipant, handler.HandleUpdateParticipant, handler.HandleDeleteParticipant)))
 	mux.HandleFunc("/api/v1/drivers", handleMethods(handler.HandleListDrivers, handler.HandleCreateDriver, nil, nil))
 	mux.HandleFunc("/api/v1/drivers/restore", requireMethod(http.MethodPost, handler.HandleRestoreDriver))
 	mux.HandleFunc("/api/v1/drivers/deleted", requireMethod(http.MethodGet, handler.HandleListDeletedDrivers))
 	mux.HandleFunc("/api/v1/drivers/labels/add", requireMethod(http.MethodPost, handler.HandleAddDriversToLabel))
 	mux.HandleFunc("/api/v1/drivers/labels/remove", requireMethod(http.MethodPost, handler.HandleRemoveDriversFromLabel))
 	mux.HandleFunc("/api/v1/drivers/new", requireMethod(http.MethodGet, handler.HandleDriverForm))
-	mux.HandleFunc("/api/v1/drivers/", handleResourcePath("/api/v1/drivers/", "/edit", handler.HandleDriverForm, handler.HandleGetDriver, handler.HandleUpdateDriver, handler.HandleDeleteDriver))
+	mux.HandleFunc("/api/v1/drivers/", handleActionSuffix(handlers.AddressConfirmSuffix, handler.HandleConfirmDriverAddress,
+		handleResourcePath("/api/v1/drivers/", "/edit", handler.HandleDriverForm, handler.HandleGetDriver, handler.HandleUpdateDriver, handler.HandleDeleteDriver)))
 	mux.HandleFunc("/api/v1/labels", handleMethods(handler.HandleListLabels, handler.HandleCreateLabel, nil, nil))
 	mux.HandleFunc("/api/v1/labels/new", requireMethod(http.MethodGet, handler.HandleLabelForm))
 	mux.HandleFunc("/api/v1/labels/", handleResourcePath("/api/v1/labels/", "/edit", handler.HandleLabelForm, handler.HandleGetLabel, handler.HandleUpdateLabel, handler.HandleDeleteLabel))

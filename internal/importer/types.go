@@ -101,6 +101,11 @@ type Row struct {
 	// existing driver's capacity instead of resetting it to the default.
 	CapacityDefaulted bool
 
+	// MatchedAddress is the geocoder's label for Address; AddressGuessed means
+	// it settled for its closest candidate rather than an exact match.
+	MatchedAddress string
+	AddressGuessed bool
+
 	HasCoordinates      bool
 	NeedsGeocoding      bool
 	DuplicateInFile     bool

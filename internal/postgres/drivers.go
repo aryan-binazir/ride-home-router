@@ -14,11 +14,11 @@ type driverRepository struct {
 	db *sql.DB
 }
 
-const driverColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz)`
+const driverColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, vehicle_capacity, created_at, updated_at, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz), matched_address, address_match`
 
 func scanDriver(scanner interface{ Scan(dest ...any) error }) (models.Driver, error) {
 	var d models.Driver
-	err := scanner.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt, &d.GeocodedAt)
+	err := scanner.Scan(&d.ID, &d.Name, &d.Address, &d.AddressName, &d.Lat, &d.Lng, &d.VehicleCapacity, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt, &d.GeocodedAt, &d.MatchedAddress, &d.AddressMatch)
 	return d, err
 }
 
@@ -85,8 +85,8 @@ func collectDrivers(rows *sql.Rows) ([]models.Driver, error) {
 }
 
 const insertDriver = `
-	INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at, geocoded_at)
-	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9)
+	INSERT INTO drivers (name, address, address_name, lat, lng, vehicle_capacity, created_at, updated_at, geocoded_at, matched_address, address_match)
+	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11)
 	RETURNING id`
 
 func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
@@ -108,7 +108,7 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				capacity = models.DefaultVehicleCapacity
 			}
 			err := tx.QueryRowContext(ctx, insertDriver,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now, d.GeocodedAt,
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now, d.GeocodedAt, d.MatchedAddress, addressMatchOrDefault(d.AddressMatch),
 			).Scan(&id)
 			if err == nil {
 				d.VehicleCapacity = capacity
@@ -118,18 +118,19 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 		updateRow: func(ctx context.Context, tx *sql.Tx, d *models.Driver, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE drivers
-				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7, geocoded_at = $9
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7, geocoded_at = $9,
+				    matched_address = $10, address_match = $11
 				WHERE id = $8 AND deleted_at IS NULL`,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID, d.GeocodedAt)
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID, d.GeocodedAt, d.MatchedAddress, addressMatchOrDefault(d.AddressMatch))
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE drivers
 				SET address_name = COALESCE(NULLIF($1, ''), address_name),
 				    vehicle_capacity = CASE WHEN $2 > 0 THEN $2 ELSE vehicle_capacity END,
-				    updated_at = $3
+				    updated_at = $3, matched_address = $5, address_match = $6
 				WHERE id = $4 AND deleted_at IS NULL`,
-				d.AddressName, d.VehicleCapacity, now, id)
+				d.AddressName, d.VehicleCapacity, now, id, d.MatchedAddress, addressMatchOrDefault(d.AddressMatch))
 		},
 		fields: func(d *models.Driver) rosterFields {
 			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}

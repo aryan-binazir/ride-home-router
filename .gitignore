@@ -46,3 +46,6 @@ go.work.sum
 
 # scratch files
 _scratch/
+
+# Local agent config and worktrees never belong in the repo.
+.claude/

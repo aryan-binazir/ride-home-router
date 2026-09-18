@@ -2716,3 +2716,102 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 }
 .import-file-help { font-size: 13px; line-height: 1.5; }
 .import-sheet-example th { font-size: 13px; text-transform: none; letter-spacing: normal; }
+
+/* Address match marker: red for a geocoder guess, muted once verified or confirmed. */
+.address-cell {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.address-marker {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: -2px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.address-marker:hover,
+.address-marker:focus-visible {
+  border-color: var(--line-2);
+  background: var(--field-2);
+}
+
+.address-marker-guessed {
+  color: var(--danger);
+}
+
+.address-marker-guessed:hover,
+.address-marker-guessed:focus-visible {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2));
+  background: var(--danger-bg);
+}
+
+.address-marker-confirmed {
+  color: var(--ink-2);
+}
+
+.address-match-dialog {
+  width: min(100%, 420px);
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--pane);
+  color: inherit;
+}
+
+.address-match-dialog::backdrop {
+  background: rgb(0 0 0 / 46%);
+}
+
+.address-match-body {
+  padding: 18px;
+}
+
+.address-match-title {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.address-match-title.is-guessed {
+  color: var(--danger);
+}
+
+.address-match-line {
+  margin: 0 0 8px;
+}
+
+.address-match-line span {
+  display: block;
+  color: var(--ink-2);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.address-match-note {
+  margin: 12px 0 0;
+  color: var(--ink-2);
+}
+
+.address-match-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line-2);
+}
+
+/* .btn sets display, which would otherwise override the hidden attribute. */
+.address-match-dialog [hidden] {
+  display: none;
+}

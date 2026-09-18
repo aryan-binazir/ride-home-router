@@ -13,12 +13,17 @@
     </td>
     <td data-col="Name">{{.Driver.Name}}</td>
     <td data-col="Address">
-        {{if .Driver.AddressName}}
-        <div>{{.Driver.AddressName}}</div>
-        <div class="text-muted" style="font-size: 0.85em;">{{.Driver.Address}}</div>
-        {{else}}
-        {{.Driver.Address}}
-        {{end}}
+        <div class="address-cell">
+            {{template "address_match_marker" dict "Kind" "drivers" "ID" .Driver.ID "Row" (printf "driver-%d" .Driver.ID) "Name" .Driver.Name "Match" .Driver.AddressMatch "Address" .Driver.Address "Matched" .Driver.MatchedAddress}}
+            <div>
+                {{if .Driver.AddressName}}
+                <div>{{.Driver.AddressName}}</div>
+                <div class="text-muted" style="font-size: 0.85em;">{{.Driver.Address}}</div>
+                {{else}}
+                {{.Driver.Address}}
+                {{end}}
+            </div>
+        </div>
     </td>
     <td {{if .LabelNames}}data-col="Labels"{{end}}>
         {{if .LabelNames}}

@@ -13,12 +13,17 @@
     </td>
     <td data-col="Name">{{.Participant.Name}}</td>
     <td data-col="Address">
-        {{if .Participant.AddressName}}
-        <div>{{.Participant.AddressName}}</div>
-        <div class="text-muted" style="font-size: 0.85em;">{{.Participant.Address}}</div>
-        {{else}}
-        {{.Participant.Address}}
-        {{end}}
+        <div class="address-cell">
+            {{template "address_match_marker" dict "Kind" "participants" "ID" .Participant.ID "Row" (printf "participant-%d" .Participant.ID) "Name" .Participant.Name "Match" .Participant.AddressMatch "Address" .Participant.Address "Matched" .Participant.MatchedAddress}}
+            <div>
+                {{if .Participant.AddressName}}
+                <div>{{.Participant.AddressName}}</div>
+                <div class="text-muted" style="font-size: 0.85em;">{{.Participant.Address}}</div>
+                {{else}}
+                {{.Participant.Address}}
+                {{end}}
+            </div>
+        </div>
     </td>
     <td {{if .LabelNames}}data-col="Labels"{{end}}>
         {{if .LabelNames}}

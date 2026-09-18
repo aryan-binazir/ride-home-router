@@ -105,18 +105,38 @@ func RoundCoordinate(coord float64) float64 {
 	return math.Round(coord*100000) / 100000
 }
 
+// AddressMatch records how closely the geocoder matched a stored address.
+// A guessed address stays flagged until a person confirms or corrects it.
+const (
+	AddressMatchVerified  = "verified"
+	AddressMatchGuessed   = "guessed"
+	AddressMatchConfirmed = "confirmed"
+)
+
+// AddressMatchFor maps a geocoder verdict onto a stored match status.
+func AddressMatchFor(guessed bool) string {
+	if guessed {
+		return AddressMatchGuessed
+	}
+	return AddressMatchVerified
+}
+
 // Participant represents a person to be driven home
 type Participant struct {
-	GeocodedAt  time.Time  `json:"-"`
-	ID          int64      `json:"id"`
-	Name        string     `json:"name"`
-	Address     string     `json:"address"`
-	AddressName string     `json:"address_name"`
-	Lat         float64    `json:"lat"`
-	Lng         float64    `json:"lng"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
+	GeocodedAt time.Time `json:"-"`
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	Address    string    `json:"address"`
+	// MatchedAddress is the label the geocoder returned for Address; empty
+	// until an address has been looked up since match tracking existed.
+	MatchedAddress string     `json:"matched_address,omitempty"`
+	AddressMatch   string     `json:"address_match,omitempty"`
+	AddressName    string     `json:"address_name"`
+	Lat            float64    `json:"lat"`
+	Lng            float64    `json:"lng"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 }
 
 // GetCoords returns the coordinates of the participant
@@ -126,10 +146,14 @@ func (p *Participant) GetCoords() Coordinates {
 
 // Driver represents a person who can drive participants home
 type Driver struct {
-	GeocodedAt      time.Time  `json:"-"`
-	ID              int64      `json:"id"`
-	Name            string     `json:"name"`
-	Address         string     `json:"address"`
+	GeocodedAt time.Time `json:"-"`
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	Address    string    `json:"address"`
+	// MatchedAddress is the label the geocoder returned for Address; empty
+	// until an address has been looked up since match tracking existed.
+	MatchedAddress  string     `json:"matched_address,omitempty"`
+	AddressMatch    string     `json:"address_match,omitempty"`
 	AddressName     string     `json:"address_name"`
 	Lat             float64    `json:"lat"`
 	Lng             float64    `json:"lng"`
