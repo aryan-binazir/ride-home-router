@@ -172,6 +172,8 @@ type RouteResultsView struct {
 	IsEditing        bool
 	UnusedDrivers    []models.Driver
 	Mode             string
+	// ReviewerFeedback offers the configured reviewer the "Give feedback" dialog.
+	ReviewerFeedback bool
 }
 
 type RoutingErrorDetails struct {

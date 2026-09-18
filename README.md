@@ -40,6 +40,8 @@ The first six values are required. Missing or malformed authentication/encryptio
 | `ROUTING_ENGINE` | Default `estimate`; `matrix` is for legacy quality comparisons. |
 | `TRUST_CF_ACCESS_HEADER` | Default off. Enable only behind trusted Cloudflare Access for feedback attribution. |
 
+With the header trusted, admins set a **Reviewer email** in Settings. That reviewer's saved route edits are recorded for offline analysis, and while **Collect reviewer notes** is on they also get a **Give feedback** button next to Save event to explain their edits; the note is stored with the same record.
+
 ## Access and credentials
 
 Enable Clerk public signup, Google sign-in and bot protection; configure production Google OAuth credentials. Signup at `/sign-in` creates an identity, not app access. Admins approve exact verified emails in Settings. Email matching ignores case/whitespace, but preserves dots and `+` aliases. All admitted users share data and settings; access and Google-key management require an admin. Change `ADMIN_EMAILS` and restart every replica to change admins.

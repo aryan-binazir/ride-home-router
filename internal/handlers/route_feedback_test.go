@@ -318,3 +318,174 @@ func countFeedbackRows(t *testing.T, conn *pgx.Conn) int {
 	}
 	return count
 }
+
+func TestHandleRouteFeedback_OnlyForConfiguredReviewerWithNotesOn(t *testing.T) {
+	tests := []struct {
+		name    string
+		header  string
+		collect bool
+	}{
+		{name: "other user", header: "other@example.com", collect: true},
+		{name: "no header", collect: true},
+		{name: "notes switched off", header: "sme@example.com", collect: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, store, _ := newRouteFeedbackHandler(t)
+			handler.Renderer = loadEmbeddedTemplates(t)
+			setSMEEmail(t, store, "sme@example.com")
+			setCollectReviewerNotes(t, store, tt.collect)
+			session := createFeedbackSession(handler)
+
+			rr := requestRouteFeedback(handler, http.MethodGet, "/api/v1/routes/feedback?session_id="+session.ID, "", tt.header)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("GET status = %d, want 403 body=%q", rr.Code, rr.Body.String())
+			}
+			rr = requestRouteFeedback(handler, http.MethodPost, "/api/v1/routes/feedback", "session_id="+session.ID+"&note=hi", tt.header)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("POST status = %d, want 403 body=%q", rr.Code, rr.Body.String())
+			}
+			if snapshot, _ := handler.RouteSession.Snapshot(session.ID); snapshot.ReviewerNote != "" {
+				t.Fatalf("note stored despite refusal: %q", snapshot.ReviewerNote)
+			}
+			body := moveFeedbackRider(t, handler, session.ID, tt.header)
+			if strings.Contains(body, `data-session-action="feedback"`) {
+				t.Fatal("route results offer feedback to a non-reviewer")
+			}
+		})
+	}
+}
+
+func TestHandleRouteFeedback_RendersChangesStoresNoteAndSavesWithEvent(t *testing.T) {
+	handler, store, conn := newRouteFeedbackHandler(t)
+	handler.Renderer = loadEmbeddedTemplates(t)
+	setSMEEmail(t, store, "sme@example.com")
+	session := createFeedbackSession(handler)
+
+	rr := requestRouteFeedback(handler, http.MethodGet, "/api/v1/routes/feedback?session_id="+session.ID, "", "SME@Example.com")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "No changes yet.") {
+		t.Fatalf("GET before edits status=%d body=%q", rr.Code, rr.Body.String())
+	}
+
+	body := moveFeedbackRider(t, handler, session.ID, "sme@example.com")
+	if !strings.Contains(body, `data-session-action="feedback" hx-get="/api/v1/routes/feedback?session_id=`+session.ID+`" hx-target="#route-editor" >Give feedback`) {
+		t.Fatalf("route results lack an enabled feedback button: %q", body)
+	}
+
+	rr = requestRouteFeedback(handler, http.MethodGet, "/api/v1/routes/feedback?session_id="+session.ID, "", "sme@example.com")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d body=%q", rr.Code, rr.Body.String())
+	}
+	for _, want := range []string{"Rider One moved from Driver One to Driver Two.", `name="note"`, `name="session_id" value="` + session.ID + `"`, "Not now", "Submit"} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Fatalf("dialog missing %q: %q", want, rr.Body.String())
+		}
+	}
+
+	rr = requestRouteFeedback(handler, http.MethodPost, "/api/v1/routes/feedback", "session_id="+session.ID+"&note=+Rider+One+lives+next+door+to+Driver+Two+", "sme@example.com")
+	if rr.Code != http.StatusNoContent || !strings.Contains(rr.Header().Get("HX-Trigger"), "Feedback saved") {
+		t.Fatalf("POST status = %d trigger=%q body=%q", rr.Code, rr.Header().Get("HX-Trigger"), rr.Body.String())
+	}
+	rr = requestRouteFeedback(handler, http.MethodGet, "/api/v1/routes/feedback?session_id="+session.ID, "", "sme@example.com")
+	if !strings.Contains(rr.Body.String(), ">Rider One lives next door to Driver Two</textarea>") {
+		t.Fatalf("reopened dialog lacks the saved note: %q", rr.Body.String())
+	}
+
+	rr = requestRouteFeedback(handler, http.MethodPost, "/api/v1/routes/feedback", "session_id="+session.ID+"&note="+strings.Repeat("x", models.MaxNotesLength+1), "sme@example.com")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("overlong note status = %d, want 400", rr.Code)
+	}
+	rr = requestRouteFeedback(handler, http.MethodPost, "/api/v1/routes/feedback", "session_id=missing&note=x", "sme@example.com")
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown session status = %d, want 404", rr.Code)
+	}
+
+	saved := saveLiveFeedbackSession(handler, session.ID, "sme@example.com")
+	if saved.Code != http.StatusCreated {
+		t.Fatalf("save status = %d body=%q", saved.Code, saved.Body.String())
+	}
+	var note string
+	var changesJSON []byte
+	if err := conn.QueryRow(context.Background(), `SELECT reviewer_note, changes::text FROM route_feedback WHERE session_id = $1`, session.ID).Scan(&note, &changesJSON); err != nil {
+		t.Fatalf("query route feedback: %v", err)
+	}
+	if note != "Rider One lives next door to Driver Two" {
+		t.Fatalf("reviewer_note = %q", note)
+	}
+	var changes []models.RouteFeedbackChange
+	if err := json.Unmarshal(changesJSON, &changes); err != nil {
+		t.Fatalf("decode changes %s: %v", changesJSON, err)
+	}
+	want := []models.RouteFeedbackChange{{Kind: routesession.ChangeParticipantMoved, ParticipantID: 10, FromDriverID: 1, ToDriverID: 2}}
+	if len(changes) != 1 || changes[0] != want[0] {
+		t.Fatalf("changes = %+v, want %+v", changes, want)
+	}
+	if bytes.Contains(changesJSON, []byte("Rider")) || bytes.Contains(changesJSON, []byte("Driver")) {
+		t.Fatalf("changes JSON carries names: %s", changesJSON)
+	}
+}
+
+func TestHandleRouteFeedback_NoteIsKeptWhenNotesAreSwitchedOffBeforeSaving(t *testing.T) {
+	handler, store, conn := newRouteFeedbackHandler(t)
+	setSMEEmail(t, store, "sme@example.com")
+	session := createFeedbackSession(handler)
+	if _, err := handler.RouteSession.SetReviewerNote(context.Background(), session.ID, "kept"); err != nil {
+		t.Fatal(err)
+	}
+	setCollectReviewerNotes(t, store, false)
+	if rr := saveLiveFeedbackSession(handler, session.ID, "sme@example.com"); rr.Code != http.StatusCreated {
+		t.Fatalf("save status = %d body=%q", rr.Code, rr.Body.String())
+	}
+	var note, changes string
+	if err := conn.QueryRow(context.Background(), `SELECT reviewer_note, changes::text FROM route_feedback WHERE session_id = $1`, session.ID).Scan(&note, &changes); err != nil {
+		t.Fatalf("query route feedback: %v", err)
+	}
+	if note != "kept" || changes != "[]" {
+		t.Fatalf("note=%q changes=%s", note, changes)
+	}
+}
+
+func setCollectReviewerNotes(t *testing.T, store *postgres.Store, collect bool) {
+	t.Helper()
+	settings, err := store.Settings().Get(context.Background())
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	settings.CollectReviewerNotes = collect
+	if err := store.Settings().Update(context.Background(), settings); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+}
+
+func requestRouteFeedback(handler *Handler, method, target, form, authenticatedEmail string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(context.Background(), method, target, strings.NewReader(form))
+	req.Header.Set("HX-Request", "true")
+	if form != "" {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if authenticatedEmail != "" {
+		req.Header.Set(routefeedback.AuthenticatedUserEmailHeader, authenticatedEmail)
+	}
+	rr := httptest.NewRecorder()
+	handler.HandleRouteFeedback(rr, req)
+	return rr
+}
+
+// moveFeedbackRider moves rider 10 to the second car through the HTMX edit
+// endpoint and returns the rendered route results.
+func moveFeedbackRider(t *testing.T, handler *Handler, sessionID, authenticatedEmail string) string {
+	t.Helper()
+	payload := `{"session_id":"` + sessionID + `","moves":[{"participant_id":10,"from_route_index":0,"to_route_index":1,"insert_at_position":-1}]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/move-participant", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HX-Request", "true")
+	if authenticatedEmail != "" {
+		req.Header.Set(routefeedback.AuthenticatedUserEmailHeader, authenticatedEmail)
+	}
+	rr := httptest.NewRecorder()
+	handler.HandleMoveParticipant(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("move status = %d body=%q", rr.Code, rr.Body.String())
+	}
+	return rr.Body.String()
+}

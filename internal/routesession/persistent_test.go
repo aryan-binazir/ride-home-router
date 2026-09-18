@@ -137,3 +137,39 @@ func TestPersistentRouteConflictDoesNotOverwriteOtherInstance(t *testing.T) {
 		t.Fatalf("stale edit overwrote reset: %+v %v", got, err)
 	}
 }
+
+func TestPersistentReviewerNoteIsSharedAcrossInstances(t *testing.T) {
+	url := postgrestest.DatabaseURL(t)
+	first, err := postgres.New(t.Context(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Close() }()
+	second, err := postgres.New(t.Context(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = second.Close() }()
+	a := routesession.NewPersistentStore(calculator{}, first.Workflows())
+	b := routesession.NewPersistentStore(calculator{}, second.Workflows())
+	created, err := a.CreateContext(t.Context(), routesession.CreateInput{Mode: models.RouteModeDropoff, RouteTime: "18:30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetReviewerNote(t.Context(), created.ID, "shared note"); err != nil {
+		t.Fatal(err)
+	}
+	read, ok, err := b.Load(t.Context(), created.ID)
+	if err != nil || !ok || read.ReviewerNote != "shared note" {
+		t.Fatalf("note on second instance: %q %v %v", read.ReviewerNote, ok, err)
+	}
+	err = b.CommitEvent(t.Context(), created.ID, func(_ context.Context, snapshot routesession.CommitSnapshot, _ database.WorkflowWrites) error {
+		if snapshot.ReviewerNote != "shared note" {
+			t.Fatalf("commit snapshot note = %q", snapshot.ReviewerNote)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

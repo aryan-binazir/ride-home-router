@@ -1,0 +1,21 @@
+{{define "route_feedback"}}
+<section class="route-editor-panel" data-editor-session="{{.SessionID}}" aria-labelledby="route-feedback-title">
+  <header class="route-editor-heading"><h2 id="route-feedback-title">Give feedback</h2><button type="button" class="btn btn-sm btn-outline" onclick="closeRouteEditor()" aria-label="Close feedback">Close</button></header>
+  <div>
+    <p class="form-label">Changes since the routes were calculated</p>
+    <ul class="route-feedback-changes">
+      {{range .Changes}}<li>{{.Description}}</li>{{else}}<li>No changes yet.</li>{{end}}
+    </ul>
+  </div>
+  <form hx-post="/api/v1/routes/feedback" hx-swap="none" hx-disabled-elt="find button[type=submit]" hx-on::after-request="if (event.detail.successful) closeRouteEditor()">
+    <input type="hidden" name="session_id" value="{{.SessionID}}">
+    <label class="form-label" for="route-feedback-note">Why did you make these changes?</label>
+    <textarea id="route-feedback-note" name="note" rows="4" class="form-textarea" maxlength="4000" placeholder="What the suggested routes got wrong, and what you changed">{{.Note}}</textarea>
+    <p class="form-help">Your note is recorded with the event when you save it.</p>
+    <div class="route-feedback-actions">
+      <button type="button" class="btn btn-outline" onclick="closeRouteEditor()">Not now</button>
+      <button type="submit" class="btn btn-primary">Submit</button>
+    </div>
+  </form>
+</section>
+{{end}}

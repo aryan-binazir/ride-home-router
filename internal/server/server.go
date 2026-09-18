@@ -354,6 +354,7 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/routes/edit/reset", requireMethod(http.MethodPost, handler.HandleResetRoutes))
 	mux.HandleFunc("/api/v1/routes/edit/add-driver", requireMethod(http.MethodPost, handler.HandleAddDriver))
 	mux.HandleFunc("/api/v1/routes/session", requireMethod(http.MethodGet, handler.HandleGetRouteSession))
+	mux.HandleFunc("/api/v1/routes/feedback", handleMethods(handler.HandleRouteFeedback, handler.HandleRouteFeedback, nil, nil))
 	mux.HandleFunc("/api/v1/routes/session/timings", requireMethod(http.MethodPost, handler.HandleRouteTimings))
 	mux.HandleFunc("/api/v1/address-search", requireMethod(http.MethodGet, handler.HandleAddressSearch))
 	mux.HandleFunc("/api/v1/activity-locations", handleMethods(handler.HandleListActivityLocations, handler.HandleCreateActivityLocation, nil, nil))

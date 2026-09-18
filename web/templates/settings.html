@@ -37,6 +37,16 @@
                    value="{{.Settings.SMEEmail}}">
             <p class="form-help">Route edits saved by this person help improve route suggestions. Leave blank to turn this off.</p>
         </div>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox"
+                       name="collect_reviewer_notes"
+                       class="form-checkbox"
+                       {{if .Settings.CollectReviewerNotes}}checked{{end}}>
+                <span>Collect reviewer notes</span>
+            </label>
+            <p class="form-help">Offer the reviewer a "Give feedback" button to explain their route edits before saving.</p>
+        </div>
 
         {{end}}
 

@@ -187,6 +187,8 @@ type Settings struct {
 	SelectedActivityLocationID int64   `json:"selected_activity_location_id"`
 	UseMiles                   bool    `json:"use_miles"`
 	SMEEmail                   string  `json:"sme_email"`
+	// CollectReviewerNotes offers the reviewer a chance to explain route edits before saving.
+	CollectReviewerNotes bool `json:"collect_reviewer_notes"`
 }
 
 // RouteFeedbackRecord is the event-linked payload used for offline route analysis.
@@ -199,6 +201,18 @@ type RouteFeedbackRecord struct {
 	Input         RouteFeedbackInput   `json:"input"`
 	Proposed      []RouteFeedbackRoute `json:"proposed"`
 	Final         []RouteFeedbackRoute `json:"final"`
+	// Changes lists the net edits between Proposed and Final; ReviewerNote is the
+	// reviewer's free-form explanation of them.
+	Changes      []RouteFeedbackChange `json:"changes"`
+	ReviewerNote string                `json:"reviewer_note"`
+}
+
+// RouteFeedbackChange is one net edit, identified by IDs only.
+type RouteFeedbackChange struct {
+	Kind          string `json:"kind"`
+	ParticipantID int64  `json:"participant_id,omitempty"`
+	FromDriverID  int64  `json:"from_driver_id,omitempty"`
+	ToDriverID    int64  `json:"to_driver_id,omitempty"`
 }
 
 // RouteFeedbackInput is the allowlisted solver input retained for analysis.

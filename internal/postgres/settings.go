@@ -19,13 +19,13 @@ func (r *settingsRepository) Get(ctx context.Context) (*models.Settings, error) 
 	var s models.Settings
 	var selectedLocationID sql.NullInt64
 	if err := r.db.QueryRowContext(ctx, `
-		SELECT location.id, settings.use_miles, settings.sme_email
+		SELECT location.id, settings.use_miles, settings.sme_email, settings.collect_reviewer_notes
 		FROM settings
 		LEFT JOIN activity_locations location
 		  ON location.id = settings.selected_activity_location_id
 		 AND location.deleted_at IS NULL
 		WHERE settings.id = 1`).
-		Scan(&selectedLocationID, &s.UseMiles, &s.SMEEmail); err != nil {
+		Scan(&selectedLocationID, &s.UseMiles, &s.SMEEmail, &s.CollectReviewerNotes); err != nil {
 		return nil, fmt.Errorf("failed to get settings: %w", err)
 	}
 	if selectedLocationID.Valid {
@@ -53,8 +53,8 @@ func (r *settingsRepository) Update(ctx context.Context, s *models.Settings) err
 		}
 		selectedLocationID = &s.SelectedActivityLocationID
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE settings SET selected_activity_location_id = $1, use_miles = $2, sme_email = $3 WHERE id = 1`,
-		selectedLocationID, s.UseMiles, s.SMEEmail); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE settings SET selected_activity_location_id = $1, use_miles = $2, sme_email = $3, collect_reviewer_notes = $4 WHERE id = 1`,
+		selectedLocationID, s.UseMiles, s.SMEEmail, s.CollectReviewerNotes); err != nil {
 		return fmt.Errorf("failed to update settings: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -317,7 +317,9 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 	timings := h.routeTimings(calculationCtx, session, allRouteIndexes(session))
 	if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 		h.setHTMXToast(w, messageRoutesCalculated(result.Summary.TotalDriversUsed), toastTypeSuccess)
-		h.renderTemplate(w, "route_results", h.buildTimedRouteResultsView(session, timings))
+		view := h.buildTimedRouteResultsView(session, timings)
+		view.ReviewerFeedback = h.collectsReviewerNotes(r)
+		h.renderTemplate(w, "route_results", view)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, h.routeCalculationResponse(session, timings))

@@ -33,6 +33,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		SelectedActivityLocationID *int64  `json:"selected_activity_location_id"`
 		UseMiles                   bool    `json:"use_miles"`
 		SMEEmail                   *string `json:"sme_email"`
+		CollectReviewerNotes       *bool   `json:"collect_reviewer_notes"`
 	}
 
 	if h.isHTMX(r) {
@@ -51,6 +52,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if r.Form.Has("sme_email") {
 			value := r.FormValue("sme_email")
 			req.SMEEmail = &value
+			// The reviewer fields render together, so an absent checkbox means unchecked.
+			collect := r.FormValue("collect_reviewer_notes") == "on" || r.FormValue("collect_reviewer_notes") == "true"
+			req.CollectReviewerNotes = &collect
 		}
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -60,8 +64,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.SMEEmail != nil && !access.IsAdmin(r.Context()) {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusForbidden, "FORBIDDEN", "Only administrators can change the reviewer email.")
+	if (req.SMEEmail != nil || req.CollectReviewerNotes != nil) && !access.IsAdmin(r.Context()) {
+		h.handleHTMXErrorNoSwap(w, r, http.StatusForbidden, "FORBIDDEN", "Only administrators can change reviewer settings.")
 		return
 	}
 
@@ -106,6 +110,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		SelectedActivityLocationID: selectedActivityLocationID,
 		UseMiles:                   req.UseMiles,
 		SMEEmail:                   currentSettings.SMEEmail,
+		CollectReviewerNotes:       currentSettings.CollectReviewerNotes,
+	}
+	if req.CollectReviewerNotes != nil {
+		settings.CollectReviewerNotes = *req.CollectReviewerNotes
 	}
 	if req.SMEEmail != nil {
 		settings.SMEEmail = strings.TrimSpace(*req.SMEEmail)
