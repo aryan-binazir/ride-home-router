@@ -9,7 +9,7 @@
 .route-editor-choices{padding:0;border:0;max-height:50dvh;overflow:auto;margin:1rem 0}
 .route-editor-choice{display:flex;align-items:center;gap:.75rem;padding:.75rem .5rem;border-bottom:1px solid var(--border-color,#d2d5d9);cursor:pointer;min-height:48px}
 .route-editor-choice:has(input:checked){background:var(--bg-secondary,#edf2f6)}.route-editor-choice input{width:1.15rem;height:1.15rem;flex-shrink:0}.route-editor-choice span{display:grid;gap:.2rem}.route-editor-choice small{opacity:.75}
-.route-editor-pagination{display:flex;justify-content:space-between;gap:1rem}.route-editor-pagination a{padding:.5rem}
+.route-editor-pagination{display:flex;justify-content:space-between;gap:1rem}.route-editor-pagination a{padding:.5rem}.route-editor-pagination [data-page=next]{margin-left:auto}
 @media(prefers-color-scheme:dark){.route-editor-dialog{background:var(--bg-primary,#182028)}.route-editor-choice:has(input:checked){background:var(--bg-secondary,#26323d)}}
 .route-feedback-changes{margin:.4rem 0 0;padding-left:1.2rem;display:grid;gap:.3rem}
 .route-feedback-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.75rem}

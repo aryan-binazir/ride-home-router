@@ -2609,6 +2609,11 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   background: var(--pane-2);
 }
 .roster-toolbar .form-input-search, #labels-search { width: 100%; max-width: 420px; }
+.roster-pagination { padding: 10px 12px; }
+.roster-pagination [data-page]::before, .roster-pagination [data-page]::after { width: 7px; height: 7px; border: solid currentColor; border-width: 1.5px 1.5px 0 0; }
+.roster-pagination [data-page="prev"]::before { content: ""; transform: rotate(-135deg); }
+.roster-pagination [data-page="next"]::after { content: ""; transform: rotate(45deg); }
+#participants-roster, #drivers-roster { scroll-margin-top: 16px; }
 .auth-recovery {
   position: fixed;
   z-index: 2000;
@@ -2687,6 +2692,9 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   .appbar .brand-link { font-size: 16px; }
   .form-input, .form-select, .form-textarea { font-size: 16px; min-height: 44px; }
   .btn, .roster-tabs .roster-tab { min-height: 44px; font-size: 14px; }
+  .roster-pagination { gap: 12px; padding: 12px; }
+  .roster-pagination .btn { flex: 1; border-radius: 8px; font-weight: 600; }
+  .roster-pagination [data-page]::before, .roster-pagination [data-page]::after { width: 9px; height: 9px; border-width: 2px 2px 0 0; }
   .panel-title, .card-title { font-size: 17px; }
   .form-help { font-size: 13px; }
   .card > h3 { margin-bottom: 16px; }

@@ -6,7 +6,9 @@ Pickup and dropoff route planning for events.
 
 **Plan**: The chosen activity location, riders, drivers, van assignments, time, and pickup or dropoff mode used to calculate routes.
 
-**Mobile plan draft**: An unfinished plan shared across the mobile planning screens, with any currently attached route session.
+**Mobile plan draft**: An unfinished plan shared across the retired mobile planning screens, with any currently attached route session.
+
+**Mobile UI**: The desktop pages rendered responsively at phone widths (hamburger navigation). The standalone `/m/` site is retired: `server.go` redirects it to the desktop pages, and its handlers, templates, `mobile.css`, and `mobile.js` are scheduled for deletion.
 
 **Route session**: A temporary set of calculated routes that can be adjusted before saving an event.
 

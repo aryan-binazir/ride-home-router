@@ -1,3 +1,4 @@
+// RETIRED: script for the unreachable /m/ mobile site. Scheduled for deletion; do not edit.
 (() => {
     let selectedSeats;
     let knownSeats = 0;
