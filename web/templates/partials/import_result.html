@@ -1,6 +1,7 @@
 {{define "import_result"}}
 <div class="import-step">
     <div class="alert alert-success">{{.Message}}</div>
+    {{if .GuessedWarning}}<div class="alert alert-warning" data-import-guessed-warning>{{.GuessedWarning}}</div>{{end}}
     <div class="import-actions">
         <button type="button"
                 class="btn btn-outline"

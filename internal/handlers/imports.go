@@ -74,6 +74,7 @@ type importCommitResultJSON struct {
 	Created     int `json:"created"`
 	Updated     int `json:"updated"`
 	NotSelected int `json:"not_selected"`
+	Guessed     int `json:"guessed"`
 }
 
 type importSnapshotJSON struct {
@@ -428,7 +429,7 @@ func newImportMappingJSON(mapping importer.Mapping) importMappingJSON {
 }
 
 func newImportCommitResultJSON(result importer.CommitResult) importCommitResultJSON {
-	return importCommitResultJSON{Created: result.Created, Updated: result.Updated, NotSelected: result.NotSelected}
+	return importCommitResultJSON{Created: result.Created, Updated: result.Updated, NotSelected: result.NotSelected, Guessed: result.Guessed}
 }
 
 func mergeImportMapping(snapshot importer.Snapshot, request importMappingRequest) importer.Mapping {

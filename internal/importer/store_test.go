@@ -1013,3 +1013,39 @@ func (r *fakeDriverRepository) UpsertBatch(_ context.Context, batch []*models.Dr
 	}
 	return result, nil
 }
+
+func TestCommitCountsGuessedAddresses(t *testing.T) {
+	db := newFakeDataStore()
+	geocoder := &fakeGeocoder{result: func(_ context.Context, address string, _ int) (*geocoding.GeocodingResult, error) {
+		guessed := strings.Contains(address, "Raliegh")
+		return &geocoding.GeocodingResult{
+			Coords: models.Coordinates{Lat: 35.7, Lng: -78.6}, FormattedAddress: "Matched " + address, Guessed: guessed,
+		}, nil
+	}}
+	store := newStore(geocoder, db, time.Hour, time.Hour, time.Now)
+	t.Cleanup(store.Close)
+	grid := testGrid(t, "name,address\nAlex,12 Oak St Raliegh\nBlair,2 Main St\n")
+	created, err := store.Create(KindParticipant, "riders.csv", grid)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
+		t.Fatalf("ApplyMapping() error = %v", err)
+	}
+	snapshot := waitForGeocoding(t, store, created.ID)
+	if !snapshot.Rows[0].AddressGuessed || snapshot.Rows[0].MatchedAddress != "Matched 12 Oak St Raliegh" || snapshot.Rows[1].AddressGuessed {
+		t.Fatalf("rows = %#v", snapshot.Rows)
+	}
+	result, err := store.Commit(context.Background(), created.ID, nil)
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if result != (CommitResult{Created: 2, Guessed: 1}) {
+		t.Fatalf("Commit() result = %#v", result)
+	}
+	db.participants.mu.Lock()
+	defer db.participants.mu.Unlock()
+	if len(db.participants.rows) != 2 || db.participants.rows[0].AddressMatch != models.AddressMatchGuessed || db.participants.rows[0].MatchedAddress != "Matched 12 Oak St Raliegh" || db.participants.rows[1].AddressMatch != models.AddressMatchVerified {
+		t.Fatalf("participant rows = %#v", db.participants.rows)
+	}
+}

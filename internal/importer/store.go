@@ -59,6 +59,8 @@ type CommitResult struct {
 	Created     int
 	Updated     int
 	NotSelected int
+	// Guessed counts written rows whose address the geocoder only guessed.
+	Guessed int
 }
 
 // Snapshot is a concurrency-safe copy of an import session.
@@ -476,13 +478,21 @@ func (s *Store) createBatchWithWriter(ctx context.Context, kind Kind, rows []Row
 		indices = append(indices, i)
 	}
 	result.NotSelected -= len(indices)
+	for _, rowIndex := range indices {
+		if rows[rowIndex].AddressGuessed {
+			result.Guessed++
+		}
+	}
 
 	switch kind {
 	case KindParticipant:
 		batch := make([]*models.Participant, len(indices))
 		for i, rowIndex := range indices {
 			row := rows[rowIndex]
-			batch[i] = &models.Participant{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt}
+			batch[i] = &models.Participant{
+				Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt,
+				MatchedAddress: row.MatchedAddress, AddressMatch: models.AddressMatchFor(row.AddressGuessed),
+			}
 		}
 		var batchResult database.BatchUpsertResult
 		var err error
@@ -504,7 +514,10 @@ func (s *Store) createBatchWithWriter(ctx context.Context, kind Kind, rows []Row
 			if row.CapacityDefaulted {
 				capacity = 0 // UpsertBatch keeps an existing driver's capacity and defaults new ones.
 			}
-			batch[i] = &models.Driver{Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt, VehicleCapacity: capacity}
+			batch[i] = &models.Driver{
+				Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt, VehicleCapacity: capacity,
+				MatchedAddress: row.MatchedAddress, AddressMatch: models.AddressMatchFor(row.AddressGuessed),
+			}
 		}
 		var batchResult database.BatchUpsertResult
 		var err error
@@ -591,6 +604,8 @@ func (s *Store) runGeocodeJob(state *session, groups []geocodeGroup) {
 				state.rows[rowIndex].Lat = result.Coords.Lat
 				state.rows[rowIndex].Lng = result.Coords.Lng
 				state.rows[rowIndex].GeocodedAt = time.Now()
+				state.rows[rowIndex].MatchedAddress = result.FormattedAddress
+				state.rows[rowIndex].AddressGuessed = result.Guessed
 				state.rows[rowIndex].HasCoordinates = true
 				state.rows[rowIndex].NeedsGeocoding = false
 			}

@@ -14,11 +14,11 @@ type participantRepository struct {
 	db *sql.DB
 }
 
-const participantColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz)`
+const participantColumns = `id, name, address, COALESCE(address_name, ''), lat, lng, created_at, updated_at, deleted_at, COALESCE(geocoded_at, '0001-01-01 UTC'::timestamptz), matched_address, address_match`
 
 func scanParticipant(scanner interface{ Scan(dest ...any) error }) (models.Participant, error) {
 	var p models.Participant
-	err := scanner.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt, &p.GeocodedAt)
+	err := scanner.Scan(&p.ID, &p.Name, &p.Address, &p.AddressName, &p.Lat, &p.Lng, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt, &p.GeocodedAt, &p.MatchedAddress, &p.AddressMatch)
 	return p, err
 }
 
@@ -85,8 +85,8 @@ func collectParticipants(rows *sql.Rows) ([]models.Participant, error) {
 }
 
 const insertParticipant = `
-	INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at, geocoded_at)
-	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8)
+	INSERT INTO participants (name, address, address_name, lat, lng, created_at, updated_at, geocoded_at, matched_address, address_match)
+	VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10)
 	RETURNING id`
 
 func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
@@ -104,23 +104,25 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 				p.GeocodedAt = now
 			}
 			err := tx.QueryRowContext(ctx, insertParticipant,
-				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, now, p.GeocodedAt,
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, now, p.GeocodedAt, p.MatchedAddress, addressMatchOrDefault(p.AddressMatch),
 			).Scan(&id)
 			return id, err
 		},
 		updateRow: func(ctx context.Context, tx *sql.Tx, p *models.Participant, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE participants
-				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6, geocoded_at = $8
+				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6, geocoded_at = $8,
+				    matched_address = $9, address_match = $10
 				WHERE id = $7 AND deleted_at IS NULL`,
-				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID, p.GeocodedAt)
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID, p.GeocodedAt, p.MatchedAddress, addressMatchOrDefault(p.AddressMatch))
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, p *models.Participant, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				UPDATE participants
-				SET address_name = COALESCE(NULLIF($1, ''), address_name), updated_at = $2
+				SET address_name = COALESCE(NULLIF($1, ''), address_name), updated_at = $2,
+				    matched_address = $4, address_match = $5
 				WHERE id = $3 AND deleted_at IS NULL`,
-				p.AddressName, now, id)
+				p.AddressName, now, id, p.MatchedAddress, addressMatchOrDefault(p.AddressMatch))
 		},
 		fields: func(p *models.Participant) rosterFields {
 			return rosterFields{id: &p.ID, createdAt: &p.CreatedAt, updatedAt: &p.UpdatedAt}

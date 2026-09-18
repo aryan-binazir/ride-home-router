@@ -15,6 +15,7 @@ const (
 	messageChooseValidActivityLocation                   = "Please choose a valid activity location."
 	messageChooseValidRouteTime                          = "Choose a valid route time."
 	messageForbidden                                     = "You do not have access to this page."
+	messageAddressConfirmed                              = "Address confirmed."
 	messageDriverNotFound                                = "Driver not found. Refresh the page and try again."
 	messageEventDateRequired                             = "Choose an event date."
 	messageEventNotFound                                 = "Event not found. Refresh the page and try again."

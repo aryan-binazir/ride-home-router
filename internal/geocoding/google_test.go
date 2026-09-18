@@ -470,3 +470,31 @@ func TestGoogleGeocoderReservesEveryAttemptAndStopsAtTheCeiling(t *testing.T) {
 		t.Fatalf("autocomplete has its own allowance: %v", err)
 	}
 }
+
+func TestGoogleGeocodeFlagsGuessedMatches(t *testing.T) {
+	cases := []struct {
+		name        string
+		result      string
+		wantGuessed bool
+	}{
+		{name: "rooftop exact match", result: `{"formatted_address":"1 Main St, Boston, MA 02110, USA","partial_match":false,"geometry":{"location_type":"ROOFTOP","location":{"lat":42.36,"lng":-71.05}}}`},
+		{name: "interpolated street number", result: `{"formatted_address":"1 Main St, Boston, MA 02110, USA","geometry":{"location_type":"RANGE_INTERPOLATED","location":{"lat":42.36,"lng":-71.05}}}`},
+		{name: "missing fields", result: `{"formatted_address":"1 Main St, Boston, MA 02110, USA","geometry":{"location":{"lat":42.36,"lng":-71.05}}}`},
+		{name: "partial match", result: `{"formatted_address":"Main St, Boston, MA, USA","partial_match":true,"geometry":{"location_type":"ROOFTOP","location":{"lat":42.36,"lng":-71.05}}}`, wantGuessed: true},
+		{name: "approximate location", result: `{"formatted_address":"Boston, MA, USA","geometry":{"location_type":"APPROXIMATE","location":{"lat":42.36,"lng":-71.05}}}`, wantGuessed: true},
+		{name: "geometric center", result: `{"formatted_address":"Main St, Boston, MA, USA","geometry":{"location_type":"GEOMETRIC_CENTER","location":{"lat":42.36,"lng":-71.05}}}`, wantGuessed: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := googleStatusServer(t, http.StatusOK, `{"status":"OK","results":[`+tc.result+`]}`)
+			geocoder := newGoogleGeocoder(staticKey("test-key"), nil, server.Client(), server.URL, server.URL)
+			result, err := geocoder.Geocode(context.Background(), "1 Main St, Boston")
+			if err != nil {
+				t.Fatalf("Geocode() error = %v", err)
+			}
+			if result.Guessed != tc.wantGuessed {
+				t.Fatalf("Geocode() guessed = %t, want %t", result.Guessed, tc.wantGuessed)
+			}
+		})
+	}
+}

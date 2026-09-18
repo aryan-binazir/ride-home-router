@@ -40,22 +40,23 @@ type rosterGeocodeError struct{ err error }
 func (e rosterGeocodeError) Error() string { return e.err.Error() }
 func (e rosterGeocodeError) Unwrap() error { return e.err }
 
-func (e rosterEditor) geocode(ctx context.Context, address string) (models.Coordinates, error) {
+func (e rosterEditor) geocode(ctx context.Context, address string) (*geocoding.GeocodingResult, error) {
 	result, err := e.geocoder.GeocodeWithRetry(ctx, address, 3)
 	if err != nil {
-		return models.Coordinates{}, rosterGeocodeError{err}
+		return nil, rosterGeocodeError{err}
 	}
-	return result.Coords, nil
+	return result, nil
 }
 
 func (e rosterEditor) createParticipant(ctx context.Context, edit participantEdit) (*models.Participant, error) {
-	coords, err := e.geocode(ctx, edit.Address)
+	result, err := e.geocode(ctx, edit.Address)
 	if err != nil {
 		return nil, err
 	}
 	participant := &models.Participant{
 		Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
-		Lat: coords.Lat, Lng: coords.Lng, GeocodedAt: time.Now(),
+		Lat: result.Coords.Lat, Lng: result.Coords.Lng, GeocodedAt: time.Now(),
+		MatchedAddress: result.FormattedAddress, AddressMatch: models.AddressMatchFor(result.Guessed),
 	}
 	rosterCreateMu.Lock()
 	defer rosterCreateMu.Unlock()
@@ -76,14 +77,16 @@ func (e rosterEditor) updateParticipant(ctx context.Context, existing *models.Pa
 	participant := &models.Participant{
 		ID: existing.ID, Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
 		Lat: existing.Lat, Lng: existing.Lng, CreatedAt: existing.CreatedAt, GeocodedAt: existing.GeocodedAt,
+		MatchedAddress: existing.MatchedAddress, AddressMatch: existing.AddressMatch,
 	}
 	if edit.Address != existing.Address {
-		coords, err := e.geocode(ctx, edit.Address)
+		result, err := e.geocode(ctx, edit.Address)
 		if err != nil {
 			return nil, err
 		}
-		participant.Lat, participant.Lng = coords.Lat, coords.Lng
+		participant.Lat, participant.Lng = result.Coords.Lat, result.Coords.Lng
 		participant.GeocodedAt = time.Now()
+		participant.MatchedAddress, participant.AddressMatch = result.FormattedAddress, models.AddressMatchFor(result.Guessed)
 	}
 	if edit.SetLabels {
 		return e.db.Participants().UpdateWithLabels(ctx, participant, edit.LabelIDs)
@@ -97,13 +100,14 @@ type driverEdit struct {
 }
 
 func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*models.Driver, error) {
-	coords, err := e.geocode(ctx, edit.Address)
+	result, err := e.geocode(ctx, edit.Address)
 	if err != nil {
 		return nil, err
 	}
 	driver := &models.Driver{
 		Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
-		VehicleCapacity: edit.VehicleCapacity, Lat: coords.Lat, Lng: coords.Lng, GeocodedAt: time.Now(),
+		VehicleCapacity: edit.VehicleCapacity, Lat: result.Coords.Lat, Lng: result.Coords.Lng, GeocodedAt: time.Now(),
+		MatchedAddress: result.FormattedAddress, AddressMatch: models.AddressMatchFor(result.Guessed),
 	}
 	rosterCreateMu.Lock()
 	defer rosterCreateMu.Unlock()
@@ -125,14 +129,16 @@ func (e rosterEditor) updateDriver(ctx context.Context, existing *models.Driver,
 		ID: existing.ID, Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
 		VehicleCapacity: edit.VehicleCapacity, Lat: existing.Lat, Lng: existing.Lng,
 		CreatedAt: existing.CreatedAt, GeocodedAt: existing.GeocodedAt,
+		MatchedAddress: existing.MatchedAddress, AddressMatch: existing.AddressMatch,
 	}
 	if edit.Address != existing.Address {
-		coords, err := e.geocode(ctx, edit.Address)
+		result, err := e.geocode(ctx, edit.Address)
 		if err != nil {
 			return nil, err
 		}
-		driver.Lat, driver.Lng = coords.Lat, coords.Lng
+		driver.Lat, driver.Lng = result.Coords.Lat, result.Coords.Lng
 		driver.GeocodedAt = time.Now()
+		driver.MatchedAddress, driver.AddressMatch = result.FormattedAddress, models.AddressMatchFor(result.Guessed)
 	}
 	if edit.SetLabels {
 		return e.db.Drivers().UpdateWithLabels(ctx, driver, edit.LabelIDs)

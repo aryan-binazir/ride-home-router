@@ -24,7 +24,7 @@
     {{range .Participants}}
     <a class="mobile-row" href="/m/people/participants/{{.ID}}/edit">
       <span>
-        <b>{{.Name}}</b>
+        <b>{{.Name}}{{if eq .AddressMatch "guessed"}} <em class="mobile-address-flag" title="Check this address">Check address</em>{{end}}</b>
         <small>{{displayAddress .AddressName .Address}}</small>
         {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.ParticipantLabels .ID))}}
       </span>
@@ -44,7 +44,7 @@
     {{range .Drivers}}
     <a class="mobile-row" href="/m/people/drivers/{{.ID}}/edit">
       <span>
-        <b>{{.Name}}</b>
+        <b>{{.Name}}{{if eq .AddressMatch "guessed"}} <em class="mobile-address-flag" title="Check this address">Check address</em>{{end}}</b>
         <small>{{displayAddress .AddressName .Address}} · {{.VehicleCapacity}} seats</small>
         {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.DriverLabels .ID))}}
       </span>

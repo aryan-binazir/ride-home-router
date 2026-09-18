@@ -74,3 +74,74 @@
         detail.serverResponse = response.body.innerHTML;
     });
 })();
+
+// Address match dialog: explains whether the geocoder matched an address
+// exactly, and lets people accept its guess or open the edit form.
+(() => {
+    if (typeof document === 'undefined') return;
+    let dialog = null;
+    let marker = null;
+    const copy = {
+        guessed: {title: 'Address needs a look', note: "Google couldn't find this exactly, so this is its closest guess."},
+        confirmed: {title: 'Address confirmed', note: "You confirmed Google's match for this address."},
+        verified: {title: 'Address verified', note: 'Google matched this address exactly.'},
+    };
+    function ensureDialog() {
+        if (dialog) return dialog;
+        dialog = document.createElement('dialog');
+        dialog.className = 'address-match-dialog';
+        dialog.setAttribute('aria-labelledby', 'address-match-title');
+        dialog.innerHTML = `
+      <div class="address-match-body">
+        <h3 id="address-match-title" class="address-match-title"></h3>
+        <p class="address-match-line" data-address-entered><span>You entered</span><strong data-address-entered-value></strong></p>
+        <p class="address-match-line"><span data-address-matched-label>We matched it to</span><strong data-address-matched-value></strong></p>
+        <p class="address-match-note" data-address-note></p>
+      </div>
+      <div class="address-match-actions">
+        <button type="button" class="btn btn-outline" data-address-action="close">Close</button>
+        <button type="button" class="btn btn-outline" data-address-action="fix">Fix address</button>
+        <button type="button" class="btn btn-primary" data-address-action="confirm">Looks right</button>
+      </div>`;
+        dialog.addEventListener('click', event => {
+            const action = event.target.closest('[data-address-action]')?.dataset.addressAction;
+            if (action === 'close') dialog.close();
+            else if (action === 'fix') fixAddress();
+            else if (action === 'confirm') confirmAddress();
+            else if (event.target === dialog) dialog.close();
+        });
+        document.body.append(dialog);
+        return dialog;
+    }
+    function fixAddress() {
+        dialog.close();
+        document.getElementById(marker.dataset.row)?.querySelector('button[hx-get$="/edit"]')?.click();
+    }
+    function confirmAddress() {
+        dialog.close();
+        const {kind, id} = marker.dataset;
+        htmx.ajax('POST', `/api/v1/${kind}/${id}/address/confirm`, {source: marker, target: `#${kind}-list`, swap: 'innerHTML'});
+    }
+    function open(button) {
+        marker = button;
+        const box = ensureDialog();
+        const match = copy[button.dataset.match] ? button.dataset.match : 'verified';
+        const guessed = match === 'guessed';
+        const matched = button.dataset.matched || button.dataset.address;
+        box.querySelector('#address-match-title').textContent = copy[match].title;
+        box.querySelector('#address-match-title').classList.toggle('is-guessed', guessed);
+        box.querySelector('[data-address-entered]').hidden = !guessed;
+        box.querySelector('[data-address-entered-value]').textContent = button.dataset.address;
+        box.querySelector('[data-address-matched-label]').textContent = guessed ? 'We matched it to' : 'Address';
+        box.querySelector('[data-address-matched-value]').textContent = matched;
+        box.querySelector('[data-address-note]').textContent = copy[match].note;
+        box.querySelector('[data-address-action="close"]').hidden = guessed;
+        box.querySelector('[data-address-action="fix"]').hidden = !guessed;
+        box.querySelector('[data-address-action="confirm"]').hidden = !guessed;
+        box.showModal();
+    }
+    document.addEventListener('click', event => {
+        const button = event.target.closest('[data-address-marker]');
+        if (button) open(button);
+    });
+})();

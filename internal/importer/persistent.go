@@ -388,6 +388,8 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 			row.Lat = result.Coords.Lat
 			row.Lng = result.Coords.Lng
 			row.GeocodedAt = time.Now()
+			row.MatchedAddress = result.FormattedAddress
+			row.AddressGuessed = result.Guessed
 			row.HasCoordinates = true
 		}
 		data, err := json.Marshal(row)

@@ -67,13 +67,31 @@ type googleGeocodeResponse struct {
 	Status  string `json:"status"`
 	Results []struct {
 		FormattedAddress string `json:"formatted_address"`
+		PartialMatch     bool   `json:"partial_match"`
 		Geometry         struct {
-			Location struct {
+			LocationType string `json:"location_type"`
+			Location     struct {
 				Lat *float64 `json:"lat"`
 				Lng *float64 `json:"lng"`
 			} `json:"location"`
 		} `json:"geometry"`
 	} `json:"results"`
+}
+
+// googleGuessed reports an answer Google did not match exactly: either it
+// flagged the match as partial, or it placed the result somewhere less precise
+// than a rooftop or an interpolated address range. A missing location_type is
+// treated as precise, so responses without the field stay verified.
+func googleGuessed(partialMatch bool, locationType string) bool {
+	if partialMatch {
+		return true
+	}
+	switch locationType {
+	case "", "ROOFTOP", "RANGE_INTERPOLATED":
+		return false
+	default:
+		return true
+	}
 }
 
 // ErrNotConfigured means the Google Maps key is missing, rejected, or its
@@ -161,6 +179,7 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		Coords:           models.Coordinates{Lat: *loc.Lat, Lng: *loc.Lng},
 		DisplayName:      result.FormattedAddress,
 		FormattedAddress: googleAddressLabel(result.FormattedAddress),
+		Guessed:          googleGuessed(result.PartialMatch, result.Geometry.LocationType),
 	}, nil
 }
 

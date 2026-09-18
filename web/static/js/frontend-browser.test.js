@@ -263,3 +263,30 @@ await new Promise(resolve=>setTimeout(resolve,50));
 document.getElementById('evidence').textContent=JSON.stringify({ready:!document.documentElement.classList.contains('settings-restoring'),failed:document.documentElement.classList.contains('settings-load-failed'),cards:document.querySelectorAll('section').length,errors});`);
     assert.deepEqual(result, {ready:true,failed:false,cards:3,errors:[]});
 });
+
+test('address marker dialog explains a guess, confirms it, and opens the edit form', {skip: !browser}, () => {
+    const result = run(`<div id="participants-list"><table><tbody><tr id="participant-7"><td>
+<button type="button" data-address-marker data-kind="participants" data-id="7" data-row="participant-7" data-match="guessed" data-address="12 Oak St Apt 4, Raliegh" data-matched="12 Oak Street, Raleigh, NC 27601">marker</button>
+<button type="button" id="edit" hx-get="/api/v1/participants/7/edit">Edit</button></td></tr>
+<tr id="participant-8"><td><button type="button" id="verified" data-address-marker data-kind="participants" data-id="8" data-row="participant-8" data-match="verified" data-address="1 Verified Way" data-matched="1 Verified Way, Cary, NC 27511">marker</button></td></tr></tbody></table></div>`, ['roster.js'], `
+const calls=[];window.htmx={ajax(verb,url,options){calls.push({verb,url,target:options.target,swap:options.swap});}};
+let edits=0;document.getElementById('edit').addEventListener('click',()=>edits++);
+const text=selector=>document.querySelector(selector).textContent.trim();
+const visible=selector=>!document.querySelector(selector).hidden;
+document.querySelector('[data-address-marker]').click();
+const dialog=document.querySelector('dialog.address-match-dialog');
+const guessed={open:dialog.open,title:text('#address-match-title'),entered:text('[data-address-entered-value]'),matched:text('[data-address-matched-value]'),note:text('[data-address-note]'),enteredShown:visible('[data-address-entered]'),fix:visible('[data-address-action="fix"]'),confirm:visible('[data-address-action="confirm"]'),close:visible('[data-address-action="close"]')};
+dialog.querySelector('[data-address-action="confirm"]').click();
+const afterConfirm={open:dialog.open,calls:calls.slice()};
+document.querySelector('[data-address-marker]').click();dialog.querySelector('[data-address-action="fix"]').click();
+const afterFix={open:dialog.open,edits};
+document.getElementById('verified').click();
+const verified={open:dialog.open,title:text('#address-match-title'),matched:text('[data-address-matched-value]'),note:text('[data-address-note]'),enteredShown:visible('[data-address-entered]'),fix:visible('[data-address-action="fix"]'),confirm:visible('[data-address-action="confirm"]'),close:visible('[data-address-action="close"]')};
+dialog.querySelector('[data-address-action="close"]').click();
+document.getElementById('evidence').textContent=JSON.stringify({guessed,afterConfirm,afterFix,verified,closed:!dialog.open,errors});`);
+    assert.deepEqual(result.guessed, {open: true, title: 'Address needs a look', entered: '12 Oak St Apt 4, Raliegh', matched: '12 Oak Street, Raleigh, NC 27601', note: "Google couldn't find this exactly, so this is its closest guess.", enteredShown: true, fix: true, confirm: true, close: false});
+    assert.deepEqual(result.afterConfirm, {open: false, calls: [{verb: 'POST', url: '/api/v1/participants/7/address/confirm', target: '#participants-list', swap: 'innerHTML'}]});
+    assert.deepEqual(result.afterFix, {open: false, edits: 1});
+    assert.deepEqual(result.verified, {open: true, title: 'Address verified', matched: '1 Verified Way, Cary, NC 27511', note: 'Google matched this address exactly.', enteredShown: false, fix: false, confirm: false, close: true});
+    assert.equal(result.closed, true);
+});

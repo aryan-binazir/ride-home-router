@@ -19,6 +19,10 @@ type GeocodingResult struct {
 	Coords           models.Coordinates
 	DisplayName      string
 	FormattedAddress string
+	// Guessed marks a provider answer that is not an exact match for the
+	// requested address, so a person should confirm or correct it. Only the
+	// Google geocoder reports it; every other source leaves it false.
+	Guessed bool
 }
 
 // Label returns the address text shown in search suggestions.

@@ -184,3 +184,4 @@ button.htmx-request { opacity: .6; cursor: progress; }
   .mobile-desktop-switch { display: block; margin-bottom: 16px; }
   .mobile-footer a[href="/m/desktop"] { display: none; }
 }
+.mobile-address-flag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--m-danger); color: var(--m-card); font-size: .68rem; font-style: normal; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; vertical-align: middle; }

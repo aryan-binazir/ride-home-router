@@ -244,3 +244,12 @@ func (s *Store) PurgeDeletedRoster(ctx context.Context) error {
 	}
 	return nil
 }
+
+// addressMatchOrDefault stores a blank status as verified so callers that
+// never geocoded (tests, legacy paths) satisfy the CHECK constraint.
+func addressMatchOrDefault(status string) string {
+	if status == "" {
+		return models.AddressMatchVerified
+	}
+	return status
+}
