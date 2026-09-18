@@ -44,8 +44,10 @@ func TestRouteFeedbackCreateIsIdempotentAndCascadesWithEvent(t *testing.T) {
 			Drivers:      []routefeedback.Driver{{ID: 1, Address: "1 Road", Lat: 35.1, Lng: -78.1, Capacity: 4}},
 			Participants: []routefeedback.Participant{{ID: 10, Address: "10 Road", Lat: 35.2, Lng: -78.2}},
 		},
-		Proposed: []routefeedback.Route{{DriverID: 1, ParticipantIDs: []int64{10}, TotalDistanceMeters: 1000}},
-		Final:    []routefeedback.Route{{DriverID: 1, ParticipantIDs: []int64{10}, TotalDistanceMeters: 1000}},
+		Proposed:     []routefeedback.Route{{DriverID: 1, ParticipantIDs: []int64{10}, TotalDistanceMeters: 1000}},
+		Final:        []routefeedback.Route{{DriverID: 1, ParticipantIDs: []int64{10}, TotalDistanceMeters: 1000}},
+		Changes:      []models.RouteFeedbackChange{{Kind: "participant_moved", ParticipantID: 10, FromDriverID: 2, ToDriverID: 1}},
+		ReviewerNote: "Rider asked for this driver",
 	}
 	if err := store.RouteFeedback().Create(context.Background(), record); err != nil {
 		t.Fatalf("create feedback: %v", err)
@@ -75,6 +77,18 @@ func TestRouteFeedbackCreateIsIdempotentAndCascadesWithEvent(t *testing.T) {
 	}
 	if final[0].TotalDistanceMeters != 1000 {
 		t.Fatalf("duplicate replaced stored final distance: %v", final[0].TotalDistanceMeters)
+	}
+	var note string
+	var changesJSON []byte
+	if err := conn.QueryRow(context.Background(), `SELECT reviewer_note, changes::text FROM route_feedback WHERE session_id = $1`, record.SessionID).Scan(&note, &changesJSON); err != nil {
+		t.Fatalf("query note and changes: %v", err)
+	}
+	var changes []models.RouteFeedbackChange
+	if err := json.Unmarshal(changesJSON, &changes); err != nil {
+		t.Fatalf("decode changes %s: %v", changesJSON, err)
+	}
+	if note != "Rider asked for this driver" || len(changes) != 1 || changes[0] != record.Changes[0] {
+		t.Fatalf("stored note=%q changes=%s", note, changesJSON)
 	}
 
 	if err := store.Events().Delete(context.Background(), event.ID); err != nil {

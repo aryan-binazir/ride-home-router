@@ -1365,8 +1365,8 @@
         // Preview can inspect either snapshot, but waits while edits are pending.
         const SESSION_ACTION_CONTROLS = '[data-session-action]';
         const PLAN_STATE_LOCKS = {
-            stale: '[data-session-action="copy"], [data-session-action="edit"], [data-session-action="save"]',
-            saved: '[data-session-action="edit"], [data-session-action="save"]',
+            stale: '[data-session-action="copy"], [data-session-action="edit"], [data-session-action="feedback"], [data-session-action="save"]',
+            saved: '[data-session-action="edit"], [data-session-action="feedback"], [data-session-action="save"]',
         };
 
         function setPlanStateBanner(container, message) {

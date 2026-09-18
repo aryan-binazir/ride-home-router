@@ -23,10 +23,11 @@ type persistedState struct {
 	UseMiles bool
 	Time     string
 	Mode     models.RouteMode
+	Note     string `json:",omitempty"`
 }
 
 func encodeState(state *session) ([]byte, error) {
-	return json.Marshal(persistedState{state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode})
+	return json.Marshal(persistedState{state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode, state.reviewerNote})
 }
 
 func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, error) {
@@ -37,7 +38,7 @@ func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, err
 	if p.Dirty == nil {
 		p.Dirty = make(map[int]struct{})
 	}
-	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, lastAccessedAt: s.now()}
+	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, reviewerNote: p.Note, lastAccessedAt: s.now()}
 	engine := &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}
 	// Sessions written before provider-free planning may carry Google metrics.
 	// Re-estimate both route sets so nothing provider-derived is kept or rewritten.

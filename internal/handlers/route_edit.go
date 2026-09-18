@@ -109,6 +109,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 	if h.isHTMX(r) {
 		view := h.buildTimedRouteResultsView(snapshot, h.routeTimings(r.Context(), snapshot, snapshot.ChangedRouteIndexes))
 		view.IsEditing = true
+		view.ReviewerFeedback = h.collectsReviewerNotes(r)
 		h.renderTemplate(w, "route_results", view)
 		return
 	}
@@ -157,6 +158,7 @@ func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snap
 	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	if h.isHTMX(r) {
 		view := h.buildTimedRouteResultsView(snapshot, timings)
+		view.ReviewerFeedback = h.collectsReviewerNotes(r)
 		// A global capacity transition changes every card's timing/copy state.
 		// Missing/invalid client state safely falls back to a complete view.
 		// Crossing to two cars enables actions on the first car. The full-view

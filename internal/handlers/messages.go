@@ -36,6 +36,8 @@ const (
 	messageOrganizationVehicleNotFound                   = "Van not found. Refresh the page and try again."
 	messageParticipantNotFound                           = "Rider not found. Refresh the page and try again."
 	messagePreferencesSaved                              = "Preferences saved."
+	messageReviewerFeedbackUnavailable                   = "Feedback is only collected from the configured reviewer."
+	messageReviewerNoteSaved                             = "Feedback saved. It is recorded when you save the event."
 	messageRoutePlanExpired                              = "That route plan expired. Calculate it again."
 	messageRoutesMustBeBalancedBeforeSaving              = "Give every rider a seat before saving."
 	messageMovesRequired                                 = "Choose a rider to move."

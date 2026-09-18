@@ -43,9 +43,14 @@ func Build(snapshot routesession.CommitSnapshot) Record {
 		input.Drivers = append(input.Drivers, inputDriver)
 	}
 
+	changes := make([]models.RouteFeedbackChange, 0, len(snapshot.Changes))
+	for _, change := range snapshot.Changes {
+		changes = append(changes, models.RouteFeedbackChange{Kind: change.Kind, ParticipantID: change.ParticipantID, FromDriverID: change.FromDriverID, ToDriverID: change.ToDriverID})
+	}
 	return Record{
 		SessionID: snapshot.SessionID, SchemaVersion: SchemaVersion, Mode: snapshot.Mode,
 		Input: input, Proposed: routesFrom(snapshot.Original), Final: routesFrom(snapshot.Final),
+		Changes: changes, ReviewerNote: snapshot.ReviewerNote,
 	}
 }
 

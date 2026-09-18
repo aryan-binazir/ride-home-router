@@ -72,6 +72,9 @@ type Snapshot struct {
 	IsEditing           bool
 	OverCapacity        []bool
 	IsOutOfBalance      bool
+	// Changes lists the net edits since calculation; ReviewerNote explains them.
+	Changes      []RouteChange
+	ReviewerNote string
 }
 
 // CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
@@ -85,6 +88,8 @@ type CommitSnapshot struct {
 	DriverOrgVehicles map[int64]*models.OrganizationVehicle
 	ActivityLocation  *models.ActivityLocation
 	Mode              models.RouteMode
+	Changes           []RouteChange
+	ReviewerNote      string
 }
 
 // RoutingResult returns an independent event-persistence payload for the final routes.
@@ -107,6 +112,7 @@ type session struct {
 	useMiles          bool
 	routeTime         string
 	mode              models.RouteMode
+	reviewerNote      string
 	lastAccessedAt    time.Time
 	deleted           bool
 	mu                sync.Mutex
@@ -364,6 +370,8 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 		DriverOrgVehicles: copyVehicles(state.driverOrgVehicles),
 		ActivityLocation:  copyLocation(state.activityLocation),
 		Mode:              state.mode,
+		Changes:           routeChanges(state.originalRoutes, state.currentRoutes),
+		ReviewerNote:      state.reviewerNote,
 	}
 	if err := persist(ctx, payload); err != nil {
 		return err
@@ -617,6 +625,7 @@ func snapshotOf(state *session) Snapshot {
 		ID: state.id, Routes: routes, Summary: calculateSummary(routes), ActivityLocation: copyLocation(state.activityLocation),
 		UseMiles: state.useMiles, RouteTime: state.routeTime, Mode: state.mode, UnusedDrivers: unusedDrivers(routes, state.selectedDrivers),
 		IsEditing: !routesEqual(state.originalRoutes, state.currentRoutes), OverCapacity: over, IsOutOfBalance: out,
+		Changes: routeChanges(state.originalRoutes, state.currentRoutes), ReviewerNote: state.reviewerNote,
 	}
 }
 

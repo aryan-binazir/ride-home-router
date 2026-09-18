@@ -429,3 +429,59 @@ func TestReviewerSettingsNonAdmin(t *testing.T) {
 		t.Fatal("GET exposes reviewer email")
 	}
 }
+
+func TestReviewerNotesSettingIsAdminOnlyAndDefaultsOn(t *testing.T) {
+	handler, store := newTestPageHandler(t)
+	settings, err := store.Settings().Get(t.Context())
+	if err != nil || !settings.CollectReviewerNotes {
+		t.Fatalf("fresh settings collect_reviewer_notes = %v err=%v, want on", settings, err)
+	}
+
+	page := httptest.NewRecorder()
+	serveSettingsAsAdmin(t, store, handler.HandleSettingsPage, page, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/settings", nil))
+	if !strings.Contains(page.Body.String(), `name="collect_reviewer_notes"`) || !strings.Contains(page.Body.String(), "Collect reviewer notes") {
+		t.Fatalf("admin settings page lacks the reviewer notes checkbox: %q", page.Body.String())
+	}
+	nonAdmin := httptest.NewRecorder()
+	handler.HandleSettingsPage(nonAdmin, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/settings", nil))
+	if strings.Contains(nonAdmin.Body.String(), "collect_reviewer_notes") {
+		t.Fatal("non-admin settings page exposes the reviewer notes checkbox")
+	}
+
+	// The admin form omits the checkbox when it is unchecked.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader("use_miles=on&sme_email=sme%40example.com"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+	serveSettingsAsAdmin(t, store, handler.HandleUpdateSettings, rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%q", rr.Code, rr.Body.String())
+	}
+	if settings, err = store.Settings().Get(t.Context()); err != nil || settings.CollectReviewerNotes {
+		t.Fatalf("unchecked box left notes on: %+v err=%v", settings, err)
+	}
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader("use_miles=on&sme_email=sme%40example.com&collect_reviewer_notes=on"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr = httptest.NewRecorder()
+	serveSettingsAsAdmin(t, store, handler.HandleUpdateSettings, rr, req)
+	if settings, err = store.Settings().Get(t.Context()); rr.Code != http.StatusNoContent || err != nil || !settings.CollectReviewerNotes || settings.SMEEmail != "sme@example.com" {
+		t.Fatalf("checked box status=%d settings=%+v err=%v", rr.Code, settings, err)
+	}
+
+	// Non-admins cannot touch it, and their ordinary saves leave it alone.
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader(`{"collect_reviewer_notes":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	handler.HandleUpdateSettings(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin toggle status = %d, want 403", rr.Code)
+	}
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader(`{"use_miles":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	handler.HandleUpdateSettings(rr, req)
+	if settings, err = store.Settings().Get(t.Context()); rr.Code != http.StatusOK || err != nil || !settings.CollectReviewerNotes || settings.SMEEmail != "sme@example.com" {
+		t.Fatalf("ordinary save status=%d settings=%+v err=%v", rr.Code, settings, err)
+	}
+}
