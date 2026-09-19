@@ -105,7 +105,7 @@ make check-unit  # same, skips database tests
 make eval        # planner regression suite; several minutes
 ```
 
-Set `BROWSER_TEST_BINARY` to Chrome/Chromium to enable browser tests; otherwise they skip. No running app or npm dependencies required. `make eval` compares synthetic rosters against a committed baseline and writes `_scratch/planner-eval-report.md`. CI runs it for planner-related changes; passing establishes no material regression, not optimal routes.
+Set `BROWSER_TEST_BINARY` to Chrome/Chromium to enable browser tests; otherwise they skip. No running app or npm dependencies required. `make eval` compares synthetic rosters against a committed baseline and writes `_scratch/planner-eval-report.md`. Run it locally for planner-related changes; passing establishes no material regression, not optimal routes. This repository has no CI. Agents must complete the local pre-merge checks in [AGENTS.md](AGENTS.md).
 
 ## License and disclaimer
 
