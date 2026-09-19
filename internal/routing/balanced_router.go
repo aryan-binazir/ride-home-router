@@ -566,28 +566,24 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 					continue
 				}
 
-				sourcePosition := 0
-				for _, sourceGroup := range rc.routeHouseholdBlocks(workingStops[sourceDriverID]) {
-					groupSize := len(sourceGroup.members)
-					if groupSize > routes[emptyDriverID].driver.VehicleCapacity {
-						sourcePosition += groupSize
+				sourceStops := workingStops[sourceDriverID]
+				for _, sourceBlock := range rc.routeHouseholdBlocks(sourceStops) {
+					if sourceBlock.end-sourceBlock.start > routes[emptyDriverID].driver.VehicleCapacity {
 						continue
 					}
 
 					candidateStops := maps.Clone(workingStops)
-					candidateStops[sourceDriverID] = removeRange(workingStops[sourceDriverID], sourcePosition, sourcePosition+groupSize)
-					candidateStops[emptyDriverID] = slices.Clone(sourceGroup.members)
+					candidateStops[sourceDriverID] = removeRange(sourceStops, sourceBlock.start, sourceBlock.end)
+					candidateStops[emptyDriverID] = slices.Clone(sourceStops[sourceBlock.start:sourceBlock.end])
 					if len(candidateStops[sourceDriverID]) == 0 {
 						candidateVisited := maps.Clone(visited)
 						candidateVisited[emptyDriverID] = struct{}{}
 						if !hasUnvisitedMultiBlockRoute(candidateStops, candidateVisited) {
-							sourcePosition += groupSize
 							continue
 						}
 						if err := search(sourceDriverID, candidateStops, candidateVisited); err != nil {
 							return err
 						}
-						sourcePosition += groupSize
 						continue
 					}
 
@@ -603,7 +599,6 @@ func (r *BalancedRouter) maximizeNonemptyRoutes(ctx context.Context, rc routeCon
 					if candidateScore.betterThan(currentScore) && (!best.found || candidateScore.betterThan(best.score)) {
 						best = nonemptyRouteRepair{stops: candidateStops, score: candidateScore, found: true}
 					}
-					sourcePosition += groupSize
 				}
 			}
 			return nil
@@ -770,7 +765,7 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 			continue
 		}
 
-		route.stops = insertGroupAt(route.stops, bestGroup, bestPosition)
+		route.stops = insertParticipantsAt(route.stops, bestGroup.members, bestPosition)
 
 		memberNames := make([]string, len(bestGroup.members))
 		for i, m := range bestGroup.members {
@@ -1082,7 +1077,7 @@ func (rc routeContext) optimizeStopsForSolution(
 				continue
 			}
 			blocks := rc.routeHouseholdBlocks(stops)
-			candidateBlocks := make([]*participantGroup, len(blocks))
+			candidateBlocks := make([]householdBlock, len(blocks))
 			candidateStops := make([]*models.Participant, 0, len(stops))
 			otherLatest, otherDetour := 0.0, math.Inf(-1)
 			prefixCompletion, prefixDuration := 0.0, 0.0
@@ -1106,7 +1101,7 @@ func (rc routeContext) optimizeStopsForSolution(
 				}
 				candidateStops = candidateStops[:0]
 				for _, block := range candidateBlocks {
-					candidateStops = append(candidateStops, block.members...)
+					candidateStops = append(candidateStops, stops[block.start:block.end]...)
 				}
 				candidateMetrics, err := rc.evaluateRouteObjective(ctx, routes[driverID].driver, candidateStops, currentMetrics[driverIndex].corridorSpread)
 				if err != nil {
@@ -1152,7 +1147,7 @@ func (rc routeContext) optimizeStopsForSolution(
 			for i := 0; i < len(blocks)-1; i++ {
 				for j := i + 2; j <= len(blocks); j++ {
 					copy(candidateBlocks, blocks)
-					reverseParticipantGroups(candidateBlocks, i, j-1)
+					slices.Reverse(candidateBlocks[i:j])
 					if err := consider(); err != nil {
 						return nil, solutionScore{}, err
 					}
@@ -1321,9 +1316,8 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 			if len(sourceBlocks) < 2 {
 				continue
 			}
-			sourcePosition := 0
-			for _, sourceGroup := range sourceBlocks {
-				groupSize := len(sourceGroup.members)
+			for _, sourceBlock := range sourceBlocks {
+				groupSize := sourceBlock.end - sourceBlock.start
 				for _, destinationDriverID := range driverIDs {
 					select {
 					case <-ctx.Done():
@@ -1335,8 +1329,8 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 					if len(destinationRoute.stops) != 0 || groupSize > destinationRoute.driver.VehicleCapacity {
 						continue
 					}
-					newSourceStops := removeRange(sourceRoute.stops, sourcePosition, sourcePosition+groupSize)
-					newDestinationStops := slices.Clone(sourceGroup.members)
+					newSourceStops := removeRange(sourceRoute.stops, sourceBlock.start, sourceBlock.end)
+					newDestinationStops := slices.Clone(sourceRoute.stops[sourceBlock.start:sourceBlock.end])
 					if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops); err != nil {
 						return iteration, err
 					}
@@ -1344,7 +1338,6 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 						break routeActivationSearch
 					}
 				}
-				sourcePosition += groupSize
 			}
 		}
 
@@ -1356,10 +1349,9 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 		relocationSearch:
 			for _, sourceDriverID := range driverIDs {
 				sourceRoute := routes[sourceDriverID]
-				sourceBlocks := rc.routeHouseholdBlocks(sourceRoute.stops)
-				sourcePosition := 0
-				for _, sourceGroup := range sourceBlocks {
-					groupSize := len(sourceGroup.members)
+				for _, sourceBlock := range rc.routeHouseholdBlocks(sourceRoute.stops) {
+					groupSize := sourceBlock.end - sourceBlock.start
+					members := sourceRoute.stops[sourceBlock.start:sourceBlock.end]
 					for _, destinationDriverID := range driverIDs {
 						select {
 						case <-ctx.Done():
@@ -1376,8 +1368,8 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 						}
 
 						for _, destinationPosition := range rc.householdBoundaryPositions(destinationRoute.stops) {
-							newSourceStops := removeRange(sourceRoute.stops, sourcePosition, sourcePosition+groupSize)
-							newDestinationStops := insertGroupAt(destinationRoute.stops, sourceGroup, destinationPosition)
+							newSourceStops := removeRange(sourceRoute.stops, sourceBlock.start, sourceBlock.end)
+							newDestinationStops := insertParticipantsAt(destinationRoute.stops, members, destinationPosition)
 							if err := consider(sourceDriverID, destinationDriverID, newSourceStops, newDestinationStops); err != nil {
 								return iteration, err
 							}
@@ -1386,7 +1378,6 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 							}
 						}
 					}
-					sourcePosition += groupSize
 				}
 			}
 
@@ -1396,9 +1387,9 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 					break
 				}
 				firstRoute := routes[firstDriverID]
-				firstPosition := 0
-				for _, firstGroup := range rc.routeHouseholdBlocks(firstRoute.stops) {
-					firstSize := len(firstGroup.members)
+				for _, firstBlock := range rc.routeHouseholdBlocks(firstRoute.stops) {
+					firstSize := firstBlock.end - firstBlock.start
+					firstMembers := firstRoute.stops[firstBlock.start:firstBlock.end]
 					for _, secondDriverID := range driverIDs[firstIndex+1:] {
 						select {
 						case <-ctx.Done():
@@ -1407,19 +1398,19 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 						}
 
 						secondRoute := routes[secondDriverID]
-						secondPosition := 0
-						for _, secondGroup := range rc.routeHouseholdBlocks(secondRoute.stops) {
+						for _, secondBlock := range rc.routeHouseholdBlocks(secondRoute.stops) {
 							select {
 							case <-ctx.Done():
 								return iteration, ctx.Err()
 							default:
 							}
 
-							secondSize := len(secondGroup.members)
+							secondSize := secondBlock.end - secondBlock.start
 							if len(firstRoute.stops)-firstSize+secondSize <= firstRoute.driver.VehicleCapacity &&
 								len(secondRoute.stops)-secondSize+firstSize <= secondRoute.driver.VehicleCapacity {
-								newFirstStops := replaceRangeWithGroup(firstRoute.stops, firstPosition, firstPosition+firstSize, secondGroup)
-								newSecondStops := replaceRangeWithGroup(secondRoute.stops, secondPosition, secondPosition+secondSize, firstGroup)
+								secondMembers := secondRoute.stops[secondBlock.start:secondBlock.end]
+								newFirstStops := replaceRangeWithParticipants(firstRoute.stops, firstBlock.start, firstBlock.end, secondMembers)
+								newSecondStops := replaceRangeWithParticipants(secondRoute.stops, secondBlock.start, secondBlock.end, firstMembers)
 								if err := consider(firstDriverID, secondDriverID, newFirstStops, newSecondStops); err != nil {
 									return iteration, err
 								}
@@ -1427,10 +1418,8 @@ func optimizeAssignments(ctx context.Context, rc routeContext, routes map[int64]
 									break swapSearch
 								}
 							}
-							secondPosition += secondSize
 						}
 					}
-					firstPosition += firstSize
 				}
 			}
 		}
@@ -1582,11 +1571,11 @@ func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[
 	return swaps, nil
 }
 
-func replaceRangeWithGroup(stops []*models.Participant, start, end int, group *participantGroup) []*models.Participant {
-	result := make([]*models.Participant, len(stops)-(end-start)+len(group.members))
+func replaceRangeWithParticipants(stops []*models.Participant, start, end int, members []*models.Participant) []*models.Participant {
+	result := make([]*models.Participant, len(stops)-(end-start)+len(members))
 	copy(result, stops[:start])
-	copy(result[start:], group.members)
-	copy(result[start+len(group.members):], stops[end:])
+	copy(result[start:], members)
+	copy(result[start+len(members):], stops[end:])
 	return result
 }
 
@@ -1792,34 +1781,41 @@ func (rc routeContext) newParticipantGroup(participant *models.Participant) *par
 	}
 }
 
-func (rc routeContext) routeHouseholdBlocks(stops []*models.Participant) []*participantGroup {
+// householdBlock is one run of adjacent stops from the same household, as a
+// half-open index range over the stops slice it was derived from. The search
+// enumerates these ranges for every candidate move, so they are plain values
+// rather than heap objects.
+type householdBlock struct {
+	start, end int
+}
+
+func (rc routeContext) routeHouseholdBlocks(stops []*models.Participant) []householdBlock {
 	if len(stops) == 0 {
 		return nil
 	}
 
-	blocks := make([]*participantGroup, 0, len(stops))
-	for _, stop := range stops {
-		if len(blocks) == 0 || rc.householdKey(blocks[len(blocks)-1].members[0]) != rc.householdKey(stop) {
-			blocks = append(blocks, rc.newParticipantGroup(stop))
-			continue
+	blocks := make([]householdBlock, 0, len(stops))
+	start := 0
+	for i := 1; i <= len(stops); i++ {
+		if i == len(stops) || rc.householdKey(stops[start]) != rc.householdKey(stops[i]) {
+			blocks = append(blocks, householdBlock{start: start, end: i})
+			start = i
 		}
-		blocks[len(blocks)-1].members = append(blocks[len(blocks)-1].members, stop)
 	}
 
 	return blocks
 }
 
 func (rc routeContext) householdBoundaryPositions(stops []*models.Participant) []int {
-	if len(stops) == 0 {
-		return []int{0}
-	}
-
 	positions := make([]int, 0, len(stops)+1)
 	positions = append(positions, 0)
-	pos := 0
-	for _, block := range rc.routeHouseholdBlocks(stops) {
-		pos += len(block.members)
-		positions = append(positions, pos)
+	for i := 1; i < len(stops); i++ {
+		if rc.householdKey(stops[i-1]) != rc.householdKey(stops[i]) {
+			positions = append(positions, i)
+		}
+	}
+	if len(stops) > 0 {
+		positions = append(positions, len(stops))
 	}
 
 	return positions
@@ -2002,14 +1998,10 @@ func normalizedCapacitiesKey(capacities []int) string {
 	return string(key)
 }
 
-func insertGroupAt(stops []*models.Participant, group *participantGroup, pos int) []*models.Participant {
-	newStops := make([]*models.Participant, len(stops)+len(group.members))
-
+func insertParticipantsAt(stops, members []*models.Participant, pos int) []*models.Participant {
+	newStops := make([]*models.Participant, len(stops)+len(members))
 	copy(newStops, stops[:pos])
-
-	copy(newStops[pos:], group.members)
-
-	copy(newStops[pos+len(group.members):], stops[pos:])
-
+	copy(newStops[pos:], members)
+	copy(newStops[pos+len(members):], stops[pos:])
 	return newStops
 }

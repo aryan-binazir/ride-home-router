@@ -1360,18 +1360,16 @@ func TestBalancedRouter_ThreeHouseholdsUseBothDrivers(t *testing.T) {
 	}
 }
 
-func TestInsertGroupAt(t *testing.T) {
+func TestInsertParticipantsAt(t *testing.T) {
 	existing := []*models.Participant{
 		{ID: 1, Name: "Alice"},
 		{ID: 2, Name: "Bob"},
 		{ID: 3, Name: "Charlie"},
 	}
 
-	group := &participantGroup{
-		members: []*models.Participant{
-			{ID: 4, Name: "David"},
-			{ID: 5, Name: "Eve"},
-		},
+	members := []*models.Participant{
+		{ID: 4, Name: "David"},
+		{ID: 5, Name: "Eve"},
 	}
 
 	tests := []struct {
@@ -1398,7 +1396,7 @@ func TestInsertGroupAt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := insertGroupAt(existing, group, tt.pos)
+			result := insertParticipantsAt(existing, members, tt.pos)
 
 			if len(result) != len(tt.expected) {
 				t.Errorf("expected %d participants, got %d", len(tt.expected), len(result))

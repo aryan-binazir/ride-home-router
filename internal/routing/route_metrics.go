@@ -193,7 +193,7 @@ func (rc routeContext) groupInsertionDeltaRiderScoreFrom(ctx context.Context, dr
 		return 0, nil
 	}
 
-	afterStops := insertGroupAt(stops, group, pos)
+	afterStops := insertParticipantsAt(stops, group.members, pos)
 	after, err := rc.riderScore(ctx, driver, afterStops)
 	if err != nil {
 		return 0, err

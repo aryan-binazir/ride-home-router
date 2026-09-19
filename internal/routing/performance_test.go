@@ -269,3 +269,37 @@ func TestCalculationPreservesRoundedDistanceIdentity(t *testing.T) {
 		})
 	}
 }
+
+// A larger household fixture than the 12-rider references above: enough riders
+// that the assignment search relocates and swaps household blocks between cars.
+// It protects the exact plan through allocation-only refactors of the search.
+func TestRoutingPreservesMediumHouseholdReferenceResults(t *testing.T) {
+	discardRoutingLogs(t)
+	for _, mode := range []routing.RouteMode{routing.RouteModeDropoff, routing.RouteModePickup} {
+		t.Run(string(mode), func(t *testing.T) {
+			req, source := performanceFixture(60, 12, true)
+			req.Mode = mode
+			result, err := routing.NewBalancedRouter(source).CalculateRoutes(t.Context(), &req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join("testdata", "reference-medium-households-"+string(mode)+".json")
+			if os.Getenv("UPDATE_ROUTING_REFERENCES") == "1" {
+				if err := os.WriteFile(path, actual, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			expected, err := os.ReadFile(path) //nolint:gosec // Path uses only fixed test-case names.
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(actual) != string(expected) {
+				t.Fatalf("medium household plan differs from the reference: got %s", actual)
+			}
+		})
+	}
+}

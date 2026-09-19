@@ -20,6 +20,12 @@ edit flow leaves every reference car's order unchanged.
 Regenerate only for a decided
 solver change, with `UPDATE_ROUTING_REFERENCES=1 go test ./internal/routing -run
 TestRoutingPreservesReferenceResults`.
+The `reference-medium-households-*.json` files hold the 60-rider, 12-driver
+household plans added on 2026-09-19, large enough for the assignment search to
+consider relocating and swapping household blocks between cars. They were captured before the
+search switched household blocks from heap objects to index ranges, and both
+plans were unchanged by it. Regenerate them with the same variable and
+`-run TestRoutingPreservesMediumHouseholdReferenceResults`.
 The `edited-*.json` files capture the same results after calling
 `OptimizeRouteOrder` on each route. Tests compare every field exactly, including
 floating-point metrics, stop order, and route order.
