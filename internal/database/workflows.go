@@ -60,9 +60,18 @@ type ImportJob struct {
 	// Attempts counts durable worker rounds, reserved before any provider calls.
 	Attempts int
 }
+
+// ImportProgress counts jobs and rows from one database snapshot.
+type ImportProgress struct {
+	Done, Total             int
+	RowCount, SelectedCount int
+}
+
 type ImportJobRepository interface {
 	Rows(context.Context, string) ([]ImportRow, error)
+	RowsByIndices(context.Context, string, []int) ([]ImportRow, error)
 	Progress(context.Context, string) (int, int, error)
+	Summary(context.Context, string) (ImportProgress, error)
 	Claim(context.Context, string, time.Duration) (ImportJob, bool, error)
 	Finish(context.Context, ImportJob, []ImportRow, bool) error
 	Release(context.Context, ImportJob) error

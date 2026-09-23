@@ -78,6 +78,14 @@ type Snapshot struct {
 	CommitResult    CommitResult
 }
 
+// ProgressSnapshot holds only the counts and state needed by the progress panel.
+type ProgressSnapshot struct {
+	ID                      string
+	Status                  Status
+	GeocodeProgress         GeocodeProgress
+	RowCount, SelectedCount int
+}
+
 type session struct {
 	id             string
 	kind           Kind
@@ -110,6 +118,7 @@ type Store struct {
 	durableJobs     database.ImportJobRepository
 	workerCancel    context.CancelFunc
 	workerDone      chan struct{}
+	workerWake      chan struct{}
 	geocoder        geocoding.Geocoder
 	db              database.DataStore
 	sessions        map[string]*session

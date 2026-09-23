@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
@@ -55,7 +54,7 @@ func NewPersistentStore(parent context.Context, g geocoding.Geocoder, db databas
 		panic("importer: shared workflow storage is required")
 	}
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
-	s := &Store{geocoder: g, db: db, records: records, durableJobs: jobs, ttl: defaultSessionTTL, now: time.Now, workerCancel: cancel, workerDone: make(chan struct{})}
+	s := &Store{geocoder: g, db: db, records: records, durableJobs: jobs, ttl: defaultSessionTTL, now: time.Now, workerCancel: cancel, workerDone: make(chan struct{}), workerWake: make(chan struct{}, 1)}
 	go s.durableWorker(ctx)
 	return s
 }
@@ -123,6 +122,44 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	}
 	snapshot.GeocodeProgress = GeocodeProgress{Done: done, Total: total, Running: done < total}
 	return snapshot, true, nil
+}
+
+// LoadProgress extends the same sliding expiry as Load, without fetching rows.
+func (s *Store) LoadProgress(ctx context.Context, id string) (ProgressSnapshot, bool, error) {
+	if s.records == nil {
+		state, err := s.lockSession(id)
+		if err != nil {
+			return ProgressSnapshot{}, false, nil
+		}
+		defer state.mu.Unlock()
+		progress := ProgressSnapshot{ID: id, Status: state.status, GeocodeProgress: state.progress, RowCount: len(state.rows)}
+		for i, row := range state.rows {
+			if i < len(state.selected) && state.selected[i] && len(row.Errors) == 0 {
+				progress.SelectedCount++
+			}
+		}
+		return progress, true, nil
+	}
+	record, err := s.records.Load(ctx, "import", id, s.ttl)
+	if errors.Is(err, database.ErrNotFound) {
+		return ProgressSnapshot{}, false, nil
+	}
+	if err != nil {
+		return ProgressSnapshot{}, false, err
+	}
+	var header importHeader
+	if err := json.Unmarshal(record.Data, &header); err != nil {
+		return ProgressSnapshot{}, false, err
+	}
+	counts, err := s.durableJobs.Summary(ctx, id)
+	if err != nil {
+		return ProgressSnapshot{}, false, err
+	}
+	return ProgressSnapshot{
+		ID: id, Status: header.Status,
+		GeocodeProgress: GeocodeProgress{Done: counts.Done, Total: counts.Total, Running: counts.Done < counts.Total},
+		RowCount:        counts.RowCount, SelectedCount: counts.SelectedCount,
+	}, true, nil
 }
 
 func decodeImportRows(stored []database.ImportRow) ([]Row, []bool, error) {
@@ -197,6 +234,11 @@ func (s *Store) applyMappingPersistent(ctx context.Context, id string, mapping M
 	})
 	if err != nil {
 		return Snapshot{}, err
+	}
+	// A buffered wake coalesces concurrent mappings without blocking on geocoding.
+	select {
+	case s.workerWake <- struct{}{}:
+	default:
 	}
 	result, _, err := s.Load(ctx, id)
 	return result, err
@@ -301,32 +343,43 @@ func (s *Store) CancelContext(ctx context.Context, id string) (bool, error) {
 
 func (s *Store) durableWorker(ctx context.Context) {
 	defer close(s.workerDone)
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
+	const activeInterval = 250 * time.Millisecond
+	const idleLimit = 30 * time.Second
+	delay := activeInterval
+	timer := time.NewTimer(0) // Recover persisted jobs immediately on startup.
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-s.workerWake:
+			delay = activeInterval
+		case <-timer.C:
+		}
+		if ctx.Err() != nil {
+			return
 		}
 		token, err := newSessionID()
-		if err != nil {
-			log.Printf("[IMPORT] Generate claim token: %v", err)
-			continue
+		var job database.ImportJob
+		var ok bool
+		if err == nil {
+			job, ok, err = s.durableJobs.Claim(ctx, token, time.Minute)
 		}
-		job, ok, err := s.durableJobs.Claim(ctx, token, time.Minute)
 		if ctx.Err() != nil {
 			return
 		}
 		if err != nil {
 			log.Printf("[IMPORT] Claim job: %v", err)
-			continue
 		}
-		if !ok {
-			continue
-		}
-		if err = s.processJob(ctx, job); err != nil && !errors.Is(err, database.ErrNotFound) && !errors.Is(err, database.ErrWorkflowConflict) && ctx.Err() == nil {
-			log.Printf("[IMPORT] Process job: %v", err)
+		if ok && err == nil {
+			if err = s.processJob(ctx, job); err != nil && !errors.Is(err, database.ErrNotFound) && !errors.Is(err, database.ErrWorkflowConflict) && ctx.Err() == nil {
+				log.Printf("[IMPORT] Process job: %v", err)
+			}
+			delay = activeInterval
+			timer.Reset(delay)
+		} else {
+			timer.Reset(delay)
+			delay = min(delay*2, idleLimit)
 		}
 	}
 }
@@ -368,17 +421,30 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	defer persistCancel()
 	failed := err != nil || result == nil || !validCoordinatePair(result.Coords.Lat, result.Coords.Lng)
 	failureMessage := geocodeFailureMessage(err)
-	stored, err := s.durableJobs.Rows(persistCtx, job.SessionID)
+	stored, err := s.durableJobs.RowsByIndices(persistCtx, job.SessionID, job.Rows)
 	if err != nil {
 		return err
 	}
-	updated := make([]database.ImportRow, 0, len(job.Rows))
+	// A partial or mismatched subset must never mark a job complete.
+	wanted := make(map[int]struct{}, len(job.Rows))
 	for _, index := range job.Rows {
-		if index < 0 || index >= len(stored) {
-			return fmt.Errorf("invalid geocode row index")
+		if index < 0 {
+			return errors.New("invalid geocode row index")
 		}
+		wanted[index] = struct{}{}
+	}
+	if len(stored) != len(job.Rows) || len(wanted) != len(job.Rows) {
+		return errors.New("incomplete geocode rows")
+	}
+	updated := make([]database.ImportRow, 0, len(stored))
+	for _, storedRow := range stored {
+		index := storedRow.Index
+		if _, ok := wanted[index]; !ok {
+			return errors.New("unexpected geocode row index")
+		}
+		delete(wanted, index)
 		var row Row
-		if err = json.Unmarshal(stored[index].Data, &row); err != nil {
+		if err = json.Unmarshal(storedRow.Data, &row); err != nil {
 			return err
 		}
 		row.NeedsGeocoding = false

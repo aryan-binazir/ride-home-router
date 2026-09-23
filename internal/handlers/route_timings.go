@@ -33,6 +33,7 @@ const (
 	// measurementFloor is the least budget worth spending a request on.
 	measurementReserve = 2 * time.Second
 	measurementFloor   = 3 * time.Second
+	measurementTimeout = 30 * time.Second
 )
 
 // RouteTiming is one car's provider-measured route for the current response.
@@ -102,7 +103,7 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 	if len(wanted) == 0 {
 		return timings
 	}
-	measureCtx := ctx
+	measurementDeadline := time.Now().Add(measurementTimeout)
 	if deadline, ok := ctx.Deadline(); ok {
 		if time.Until(deadline) < measurementReserve+measurementFloor {
 			// Too little budget left to measure anything: reserve nothing.
@@ -112,10 +113,13 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 			log.Printf("[ROUTES] timings requested=%d measured=0 outcome=budget_exhausted", len(wanted))
 			return timings
 		}
-		var cancel context.CancelFunc
-		measureCtx, cancel = context.WithDeadline(ctx, deadline.Add(-measurementReserve))
-		defer cancel()
+		if reserved := deadline.Add(-measurementReserve); reserved.Before(measurementDeadline) {
+			measurementDeadline = reserved
+		}
 	}
+	// The shared budget includes waiting for a provider slot, not only network I/O.
+	measureCtx, cancel := context.WithDeadline(ctx, measurementDeadline)
+	defer cancel()
 	var institute models.Coordinates
 	if snapshot.ActivityLocation != nil {
 		institute = snapshot.ActivityLocation.GetCoords()

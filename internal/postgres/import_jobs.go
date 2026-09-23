@@ -22,11 +22,15 @@ func importRows(ctx context.Context, q queryRows, id string) ([]database.ImportR
 	if err != nil {
 		return nil, err
 	}
+	return scanImportRows(rows)
+}
+
+func scanImportRows(rows *sql.Rows) ([]database.ImportRow, error) {
 	defer func() { _ = rows.Close() }()
 	result := []database.ImportRow{}
 	for rows.Next() {
 		var row database.ImportRow
-		if err = rows.Scan(&row.Index, &row.Data, &row.Selected); err != nil {
+		if err := rows.Scan(&row.Index, &row.Data, &row.Selected); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
@@ -36,6 +40,25 @@ func importRows(ctx context.Context, q queryRows, id string) ([]database.ImportR
 
 func (r *importJobRepository) Rows(ctx context.Context, id string) ([]database.ImportRow, error) {
 	return importRows(ctx, r.db, id)
+}
+
+// RowsByIndices fetches a job's rows without materializing the rest of its import.
+func (r *importJobRepository) RowsByIndices(ctx context.Context, id string, indices []int) ([]database.ImportRow, error) {
+	if len(indices) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT row_index,payload,selected FROM import_rows WHERE session_id=$1 AND row_index=ANY($2::integer[]) ORDER BY row_index`, id, indices)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanImportRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(result) != len(indices) {
+		return nil, database.ErrNotFound
+	}
+	return result, nil
 }
 
 func (w workflowWrites) ImportRows(ctx context.Context, id string) ([]database.ImportRow, error) {
@@ -89,6 +112,21 @@ func (r *importJobRepository) Progress(ctx context.Context, id string) (int, int
 	var done, total int
 	err := r.db.QueryRowContext(ctx, `SELECT count(*) FILTER(WHERE done),count(*) FROM import_jobs WHERE session_id=$1`, id).Scan(&done, &total)
 	return done, total, err
+}
+
+// Summary avoids downloading row payloads for a progress-only response. Both
+// aggregates share a statement snapshot, including atomic Finish updates.
+func (r *importJobRepository) Summary(ctx context.Context, id string) (database.ImportProgress, error) {
+	var progress database.ImportProgress
+	err := r.db.QueryRowContext(ctx, `
+ SELECT jobs.done,jobs.total,rows.total,rows.selected
+ FROM (SELECT count(*) FILTER (WHERE done) AS done,count(*) AS total
+       FROM import_jobs WHERE session_id=$1) jobs
+ CROSS JOIN (SELECT count(*) AS total,count(*) FILTER (
+   WHERE selected AND CASE WHEN payload->>'Errors' IS NULL THEN true
+                      ELSE json_array_length(payload->'Errors')=0 END) AS selected
+   FROM import_rows WHERE session_id=$1) rows`, id).Scan(&progress.Done, &progress.Total, &progress.RowCount, &progress.SelectedCount)
+	return progress, err
 }
 
 func (r *importJobRepository) Claim(ctx context.Context, token string, ttl time.Duration) (database.ImportJob, bool, error) {

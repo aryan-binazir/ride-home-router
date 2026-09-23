@@ -50,7 +50,8 @@ func TestPersistentImportResumesAfterWorkerShutdownAndCommitsOnce(t *testing.T) 
 	}}
 	second := NewPersistentStore(t.Context(), fast, b, b.Workflows(), b.ImportJobs())
 	defer second.Close()
-	deadline := time.Now().Add(35 * time.Second)
+	// Recovery allows the 30-second lease cooldown plus one idle polling interval.
+	deadline := time.Now().Add(65 * time.Second)
 	for {
 		snapshot, ok, err := second.Load(t.Context(), created.ID)
 		if err != nil || !ok {
