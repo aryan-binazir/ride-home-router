@@ -160,7 +160,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 				log.Printf("[%s] Cleanup failed: %v", name, err)
 			}
 		}
-		workflowTicker := time.NewTicker(time.Minute)
+		workflowTicker := time.NewTicker(5 * time.Minute)
 		defer workflowTicker.Stop()
 		rosterTicker := time.NewTicker(24 * time.Hour)
 		defer rosterTicker.Stop()

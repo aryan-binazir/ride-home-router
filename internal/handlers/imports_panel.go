@@ -421,6 +421,30 @@ func (h *Handler) renderImportMessage(w http.ResponseWriter, sessionID, message 
 }
 
 func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Request, id string) (int, int) {
+	if r.URL.Query().Get("progress") == "1" {
+		progress, ok, err := h.ImportSession.LoadProgress(r.Context(), id)
+		if err != nil {
+			return h.writeImportStoreError(w, r, id, err), -1
+		}
+		if !ok {
+			return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil), -1
+		}
+		if progress.Status == importer.StatusPreviewing || progress.Status == importer.StatusCommitting {
+			requested, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			offset, _, _, _ := pickerWindow(progress.RowCount, requested)
+			view := importPreviewView{
+				Offset: offset, ProgressOnly: true, SessionID: id,
+				Geocoding:   progress.GeocodeProgress.Running,
+				GeocodeDone: progress.GeocodeProgress.Done, GeocodeTotal: progress.GeocodeProgress.Total,
+				CommitBar: importCommitBarView{
+					OOB: true, SessionID: id, Selected: progress.SelectedCount, Total: progress.RowCount,
+					Disabled: progress.GeocodeProgress.Running || progress.SelectedCount == 0 || progress.Status != importer.StatusPreviewing,
+				},
+			}
+			h.renderTemplate(w, "import_progress", view)
+			return http.StatusOK, progress.RowCount
+		}
+	}
 	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
 	if loadErr != nil {
 		return h.writeImportStoreError(w, r, id, loadErr), -1
