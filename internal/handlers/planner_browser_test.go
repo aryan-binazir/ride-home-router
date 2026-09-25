@@ -64,8 +64,7 @@ func TestPlannerBrowserContainment(t *testing.T) {
 	}
 	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/htmx.min.js")+`"></script>`, "<script>"+read("js/htmx.min.js")+"</script>")
 	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
-	// These are outer window sizes; Chromium reserves space for browser controls.
-	// Exact viewport sizes are also exercised against the running app.
+	// Exercise the exact viewport sizes that the planner must contain.
 	for _, size := range [][2]int{{1000, 850}, {1440, 1100}, {2000, 1500}, {390, 1044}} {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
 			dir, err := os.MkdirTemp("/tmp", "rhr-layout-")
@@ -116,23 +115,17 @@ window.addEventListener('load',()=>{
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 			defer cancel()
-			//nolint:gosec // Explicit test-only browser executable, never request input.
-			cmd := exec.CommandContext(ctx, browser, "--headless", "--no-sandbox", "--disable-gpu", "--no-first-run", "--hide-scrollbars", fmt.Sprintf("--window-size=%d,%d", size[0], size[1]), "--user-data-dir="+filepath.Join(dir, "profile"), "--dump-dom", "--virtual-time-budget=1500", "file://"+file)
+			// The CDP runner sets the actual viewport before loading the page.
+			// Chromium --dump-dom can evaluate this fixture with a zero-sized viewport.
+			//nolint:gosec // Fixed test runner; browser is an explicit test-only executable.
+			cmd := exec.CommandContext(ctx, "node", "../../web/static/js/frontend-browser.test.js", "--browser-cdp", browser, file, fmt.Sprint(size[0]), fmt.Sprint(size[1]), "#qa-result")
 			cmd.WaitDelay = 2 * time.Second
-			out, err := cmd.Output()
+			out, err := cmd.CombinedOutput()
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("browser: %v: %s", err, out)
 			}
-			if !bytes.Contains(out, []byte(`id="qa-result" style="position:fixed;display:none">PASS</pre>`)) {
-				s := string(out)
-				start := strings.Index(s, `<pre id="qa-result"`)
-				if start >= 0 {
-					s = s[start:]
-					if end := strings.Index(s, "</pre>"); end >= 0 {
-						s = s[:end]
-					}
-				}
-				t.Fatalf("layout regression: %s", s)
+			if string(out) != "PASS" {
+				t.Fatalf("layout regression: %s", out)
 			}
 		})
 	}
