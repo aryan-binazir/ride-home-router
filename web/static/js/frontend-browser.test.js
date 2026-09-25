@@ -1,14 +1,91 @@
 'use strict';
-const test = require('node:test');
+const test = process.argv[2] === '--browser-cdp' ? () => {} : require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {execFileSync} = require('node:child_process');
+const {execFileSync, spawn} = require('node:child_process');
+const {once} = require('node:events');
 const {pathToFileURL} = require('node:url');
 const browser = process.env.BROWSER_TEST_BINARY;
 
-function run(body, assets, scenario) {
+// The planner Go test also invokes this file with --browser-cdp. Unlike
+// --dump-dom, CDP gives the fixture a viewport and runs animation frames.
+async function runBrowserCDP([executable, file, width, height, selector]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-cdp-'));
+    const child = spawn(executable, [
+        '--headless', '--no-sandbox', '--disable-gpu', '--no-first-run',
+        '--remote-allow-origins=*', '--remote-debugging-port=0',
+        `--user-data-dir=${directory}`, 'about:blank',
+    ], {stdio: 'ignore'});
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+    let socket;
+    try {
+        const portFile = path.join(directory, 'DevToolsActivePort');
+        let port;
+        for (let i = 0; i < 200 && !port; i++) {
+            if (fs.existsSync(portFile)) port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
+            else await pause(25);
+        }
+        if (!port) throw new Error('Chromium did not start its debugging endpoint');
+        const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+        const page = pages.find(entry => entry.type === 'page');
+        if (!page) throw new Error('Chromium did not open a page');
+        socket = new WebSocket(page.webSocketDebuggerUrl);
+        await new Promise((resolve, reject) => {
+            socket.addEventListener('open', resolve, {once: true});
+            socket.addEventListener('error', reject, {once: true});
+        });
+
+        let nextID = 0;
+        const pending = new Map();
+        socket.addEventListener('message', ({data}) => {
+            const message = JSON.parse(data);
+            if (!pending.has(message.id)) return;
+            const [resolve, reject] = pending.get(message.id);
+            pending.delete(message.id);
+            if (message.error) reject(new Error(message.error.message));
+            else resolve(message.result);
+        });
+        const send = (method, params = {}) => new Promise((resolve, reject) => {
+            const id = ++nextID;
+            pending.set(id, [resolve, reject]);
+            socket.send(JSON.stringify({id, method, params}));
+        });
+        await send('Emulation.setDeviceMetricsOverride', {
+            width: Number(width), height: Number(height), deviceScaleFactor: 1, mobile: false,
+        });
+        await send('Page.navigate', {url: pathToFileURL(file).href});
+        const expression = `document.querySelector(${JSON.stringify(selector)})?.textContent`;
+        for (let i = 0; i < 250; i++) {
+            const response = await send('Runtime.evaluate', {expression, returnByValue: true});
+            if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
+            const evidence = response.result.value;
+            if (evidence && evidence !== 'pending') {
+                process.stdout.write(evidence);
+                return;
+            }
+            await pause(20);
+        }
+        throw new Error(`Browser fixture did not write ${selector} evidence`);
+    } finally {
+        socket?.close();
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill();
+            await Promise.race([once(child, 'exit'), pause(1000)]);
+        }
+        fs.rmSync(directory, {recursive: true, force: true});
+    }
+}
+
+if (process.argv[2] === '--browser-cdp') {
+    runBrowserCDP(process.argv.slice(3)).catch(error => {
+        console.error(error);
+        process.exitCode = 1;
+    });
+}
+
+function run(body, assets, scenario, rendered = false) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-feedback-'));
     try {
         const file = path.join(directory, 'fixture.html');
@@ -16,8 +93,10 @@ function run(body, assets, scenario) {
 <script>const errors=[];window.addEventListener('error',e=>errors.push(e.message));</script>
 ${assets.map(name => `<script>${fs.readFileSync(path.join(__dirname, name), 'utf8')}</script>`).join('')}
 <script>document.addEventListener('DOMContentLoaded', async()=>{try {${scenario}} catch(e) {document.getElementById('evidence').textContent=JSON.stringify({error:String(e)});}});</script></body></html>`);
-        const output = execFileSync(browser, ['--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', `--user-data-dir=${directory}/profile`, '--dump-dom', '--virtual-time-budget=2000', pathToFileURL(file).href], {encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe']});
-        const result = JSON.parse(output.match(/<pre id="evidence">(.*?)<\/pre>/s)?.[1] || 'null');
+        const output = rendered
+            ? execFileSync(process.execPath, [__filename, '--browser-cdp', browser, file, '800', '600', '#evidence'], {encoding: 'utf8', timeout: 60000})
+            : execFileSync(browser, ['--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', `--user-data-dir=${directory}/profile`, '--dump-dom', '--virtual-time-budget=2000', pathToFileURL(file).href], {encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe']});
+        const result = JSON.parse(rendered ? output : output.match(/<pre id="evidence">(.*?)<\/pre>/s)?.[1] || 'null');
         assert.ok(result);
         assert.equal(result.error, undefined);
         assert.deepEqual(result.errors, []);
@@ -197,7 +276,7 @@ const trapped=document.activeElement===document.querySelector('[data-sign-out]')
 document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
 const escaped=backdrop.hidden&&document.activeElement===toggle;
 toggle.click();backdrop.click();
-document.getElementById('evidence').textContent=JSON.stringify({opened,trapped,escaped,closed:backdrop.hidden&&!nav.classList.contains('is-open'),shift:document.querySelector('h1').getBoundingClientRect().top-top,errors});`);
+document.getElementById('evidence').textContent=JSON.stringify({opened,trapped,escaped,closed:backdrop.hidden&&!nav.classList.contains('is-open'),shift:document.querySelector('h1').getBoundingClientRect().top-top,errors});`, true);
     assert.deepEqual(result, {opened:true, trapped:true, escaped:true, closed:true, shift:0, errors:[]});
 });
 
