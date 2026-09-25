@@ -163,6 +163,8 @@ func (s *Store) DeleteContext(ctx context.Context, id string) error {
 
 // CommitEvent atomically creates the event and consumes the route session.
 // The writer belongs to this transaction and must not escape the callback.
+// The callback must not call Store methods: memory sessions remain locked until
+// it returns, and lock waiters cannot cancel. Memory callbacks receive a nil writer.
 func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context.Context, CommitSnapshot, database.WorkflowWrites) error) error {
 	if s.records == nil {
 		return s.commitMemory(ctx, id, persist)

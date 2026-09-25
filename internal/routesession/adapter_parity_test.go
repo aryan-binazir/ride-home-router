@@ -30,8 +30,9 @@ func TestRouteSessionAdaptersPreserveEditAndCommitBehavior(t *testing.T) {
 					}},
 					{Driver: &models.Driver{ID: 2, Name: "Second", VehicleCapacity: 3}, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 12, Name: "Other", Address: "9 Pine St", Lat: 2}}}},
 				},
-				SelectedDrivers:  []models.Driver{{ID: 1, Name: "First", VehicleCapacity: 3}, {ID: 2, Name: "Second", VehicleCapacity: 3}, {ID: 3, Name: "Third", VehicleCapacity: 3}},
-				ActivityLocation: &models.ActivityLocation{ID: 1, Lat: 0, Lng: 0}, Mode: models.RouteModeDropoff,
+				SelectedDrivers:   []models.Driver{{ID: 1, Name: "First", VehicleCapacity: 3}, {ID: 2, Name: "Second", VehicleCapacity: 3}, {ID: 3, Name: "Third", VehicleCapacity: 3}},
+				DriverOrgVehicles: map[int64]*models.OrganizationVehicle{3: {ID: 30, Name: "Shared van", Capacity: 5}},
+				ActivityLocation:  &models.ActivityLocation{ID: 1, Lat: 0, Lng: 0}, Mode: models.RouteModeDropoff,
 			}
 			created, err := store.CreateContext(ctx, input)
 			if err != nil {
@@ -53,6 +54,9 @@ func TestRouteSessionAdaptersPreserveEditAndCommitBehavior(t *testing.T) {
 			if !slices.Equal(moved.ChangedRouteIndexes, []int{0, 1}) || len(moved.Routes[0].Stops) != 0 || len(moved.Routes[1].Stops) != 3 || moved.Routes[1].Stops[0].Participant.ID != 10 || moved.Routes[1].Stops[1].Participant.ID != 11 {
 				t.Fatalf("household move = %+v", moved)
 			}
+			if _, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 10, FromRouteIndex: 0, ToRouteIndex: 0}}, routesession.ApplyMovesOptions{RequireClaimedSource: true}); !errors.Is(err, routesession.ErrParticipantNotInSource) {
+				t.Fatalf("wrong claimed source = %v", err)
+			}
 			if _, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 999, ToRouteIndex: 0}}, routesession.ApplyMovesOptions{}); !errors.Is(err, routesession.ErrParticipantNotFound) {
 				t.Fatalf("invalid move = %v", err)
 			}
@@ -65,7 +69,7 @@ func TestRouteSessionAdaptersPreserveEditAndCommitBehavior(t *testing.T) {
 				t.Fatalf("note = %+v %v", noted, err)
 			}
 			added, err := store.AddDriver(ctx, created.ID, 3)
-			if err != nil || !slices.Equal(added.ChangedRouteIndexes, []int{2}) {
+			if err != nil || !slices.Equal(added.ChangedRouteIndexes, []int{2}) || added.Routes[2].OrgVehicleID != 30 || added.Routes[2].EffectiveCapacity != 5 {
 				t.Fatalf("add driver = %+v %v", added, err)
 			}
 			swapped, err := store.SwapDrivers(ctx, created.ID, 0, 2)
@@ -144,6 +148,40 @@ func TestRouteSessionAdaptersRollBackBatchAndRefreshDirtyRoutes(t *testing.T) {
 			reset, err := store.ResetContext(ctx, created.ID)
 			if err != nil || reset.IsOutOfBalance || !slices.Equal(reset.ChangedRouteIndexes, []int{0, 1}) || len(reset.Routes[0].Stops) != 1 || len(reset.Routes[1].Stops) != 2 {
 				t.Fatalf("reset = %+v %v", reset, err)
+			}
+		})
+	}
+}
+
+func TestRouteSessionAdaptersKeepPriorPlanAfterDistanceFailure(t *testing.T) {
+	failure := errors.New("synthetic distance failure")
+	for _, adapter := range []string{"memory", "durable"} {
+		t.Run(adapter, func(t *testing.T) {
+			calc := failingCalculator{err: failure}
+			var store *routesession.Store
+			if adapter == "memory" {
+				store = routesession.NewStore(calc)
+				t.Cleanup(store.Close)
+			} else {
+				store = routesession.NewPersistentStore(calc, postgrestest.Open(t).Workflows())
+			}
+			ctx := t.Context()
+			created, err := store.CreateContext(ctx, routesession.CreateInput{
+				Routes: []models.CalculatedRoute{
+					{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Lat: 35, Lng: -78}}}},
+					{Driver: &models.Driver{ID: 2, VehicleCapacity: 2}, EffectiveCapacity: 2},
+				},
+				ActivityLocation: &models.ActivityLocation{ID: 1, Lat: 35.1, Lng: -78.1}, Mode: models.RouteModeDropoff,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 10, ToRouteIndex: 1}}, routesession.ApplyMovesOptions{}); !errors.Is(err, failure) {
+				t.Fatalf("distance failure = %v", err)
+			}
+			retained, ok, err := store.Load(ctx, created.ID)
+			if err != nil || !ok || len(retained.Routes[0].Stops) != 1 || len(retained.Routes[1].Stops) != 0 || retained.IsEditing {
+				t.Fatalf("failed edit changed session: %+v %v %v", retained, ok, err)
 			}
 		})
 	}
