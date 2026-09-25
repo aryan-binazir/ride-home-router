@@ -19,22 +19,8 @@ func applySelectionPatch(selected []bool, patch map[int]bool) error {
 	return nil
 }
 
-// SelectRowsPatch changes only submitted rows, under the session's write lock.
+// SelectRowsPatch changes only submitted rows in one workflow transaction.
 func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bool) (Snapshot, error) {
-	if s.records == nil {
-		state, err := s.lockSession(id)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		defer state.mu.Unlock()
-		if state.status != StatusPreviewing {
-			return Snapshot{}, ErrInvalidSessionState
-		}
-		if err := applySelectionPatch(state.selected, patch); err != nil {
-			return Snapshot{}, err
-		}
-		return snapshotOf(state), nil
-	}
 	err := s.records.Transact(ctx, "import", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		var h importHeader
 		if err := json.Unmarshal(record.Data, &h); err != nil {
@@ -65,5 +51,5 @@ func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bo
 
 // CommitRowsPatch applies the visible page delta atomically with the commit.
 func (s *Store) CommitRowsPatch(ctx context.Context, id string, patch map[int]bool) (CommitResult, error) {
-	return s.commit(ctx, id, nil, patch)
+	return s.commitPersistent(ctx, id, nil, patch)
 }
