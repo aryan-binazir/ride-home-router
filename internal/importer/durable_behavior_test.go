@@ -146,6 +146,13 @@ func TestDurableGeocodeDedupFailureAndGuessedAddress(t *testing.T) {
 	if finished.Selected[2] || len(finished.Rows[2].Errors) == 0 || finished.Rows[2].HasCoordinates || !finished.Rows[3].AddressGuessed {
 		t.Fatalf("failed/guessed rows = %+v %+v", finished.Rows[2], finished.Rows[3])
 	}
+	// A client may select a failed row. Commit must still exclude it.
+	selected := append([]bool(nil), finished.Selected...)
+	selected[2] = true
+	selection, err := s.SelectRowsContext(t.Context(), preview.ID, selected)
+	if err != nil || !selection.Selected[2] {
+		t.Fatalf("failed row selection = %+v err=%v", selection.Selected, err)
+	}
 	result, err := s.Commit(t.Context(), preview.ID, nil)
 	if err != nil || result != (CommitResult{Created: 3, NotSelected: 1, Guessed: 1}) {
 		t.Fatalf("commit = %+v err=%v", result, err)
@@ -155,6 +162,9 @@ func TestDurableGeocodeDedupFailureAndGuessedAddress(t *testing.T) {
 		t.Fatalf("roster = %+v err=%v", rows, err)
 	}
 	for _, row := range rows {
+		if row.Name == "Third" {
+			t.Fatalf("failed address was committed: %+v", row)
+		}
 		if row.Name == "Fourth" && (row.AddressMatch != models.AddressMatchGuessed || row.MatchedAddress != "Matched 3 Raliegh St") {
 			t.Fatalf("guessed address = %+v", row)
 		}
