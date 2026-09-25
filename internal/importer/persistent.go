@@ -54,15 +54,12 @@ func NewPersistentStore(parent context.Context, g geocoding.Geocoder, db databas
 		panic("importer: shared workflow storage is required")
 	}
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
-	s := &Store{geocoder: g, db: db, records: records, durableJobs: jobs, ttl: defaultSessionTTL, now: time.Now, workerCancel: cancel, workerDone: make(chan struct{}), workerWake: make(chan struct{}, 1)}
+	s := &Store{geocoder: g, db: db, records: records, durableJobs: jobs, ttl: defaultSessionTTL, workerCancel: cancel, workerDone: make(chan struct{}), workerWake: make(chan struct{}, 1)}
 	go s.durableWorker(ctx)
 	return s
 }
 
 func (s *Store) CreateContext(ctx context.Context, kind Kind, filename string, grid *Grid) (Snapshot, error) {
-	if s.records == nil {
-		return s.Create(kind, filename, grid)
-	}
 	select {
 	case <-s.workerDone:
 		return Snapshot{}, ErrStoreClosed
@@ -90,10 +87,6 @@ func (s *Store) CreateContext(ctx context.Context, kind Kind, filename string, g
 }
 
 func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
-	if s.records == nil {
-		snapshot, ok := s.Snapshot(id)
-		return snapshot, ok, nil
-	}
 	record, err := s.records.Load(ctx, "import", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) {
 		return Snapshot{}, false, nil
@@ -126,20 +119,6 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 
 // LoadProgress extends the same sliding expiry as Load, without fetching rows.
 func (s *Store) LoadProgress(ctx context.Context, id string) (ProgressSnapshot, bool, error) {
-	if s.records == nil {
-		state, err := s.lockSession(id)
-		if err != nil {
-			return ProgressSnapshot{}, false, nil
-		}
-		defer state.mu.Unlock()
-		progress := ProgressSnapshot{ID: id, Status: state.status, GeocodeProgress: state.progress, RowCount: len(state.rows)}
-		for i, row := range state.rows {
-			if i < len(state.selected) && state.selected[i] && len(row.Errors) == 0 {
-				progress.SelectedCount++
-			}
-		}
-		return progress, true, nil
-	}
 	record, err := s.records.Load(ctx, "import", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) {
 		return ProgressSnapshot{}, false, nil
@@ -177,7 +156,8 @@ func decodeImportRows(stored []database.ImportRow) ([]Row, []bool, error) {
 	return rows, selected, nil
 }
 
-func (s *Store) applyMappingPersistent(ctx context.Context, id string, mapping Mapping) (Snapshot, error) {
+// ApplyMapping validates the staged grid and starts geocoding work.
+func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (Snapshot, error) {
 	record, err := s.records.Load(ctx, "import", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) {
 		return Snapshot{}, ErrSessionNotFound
@@ -245,9 +225,6 @@ func (s *Store) applyMappingPersistent(ctx context.Context, id string, mapping M
 }
 
 func (s *Store) SelectRowsContext(ctx context.Context, id string, selected []bool) (Snapshot, error) {
-	if s.records == nil {
-		return s.SelectRows(id, selected)
-	}
 	err := s.records.Transact(ctx, "import", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		var h importHeader
 		if err := json.Unmarshal(record.Data, &h); err != nil {
@@ -306,7 +283,7 @@ func (s *Store) commitPersistent(ctx context.Context, id string, selection []boo
 		if err := applySelectionPatch(selected, patch); err != nil {
 			return err
 		}
-		result, err = s.createBatchWithWriter(ctx, h.Kind, rows, selected, w)
+		result, err = s.createBatch(ctx, h.Kind, rows, selected, w)
 		if err != nil {
 			return err
 		}
@@ -327,9 +304,6 @@ func (s *Store) commitPersistent(ctx context.Context, id string, selection []boo
 }
 
 func (s *Store) CancelContext(ctx context.Context, id string) (bool, error) {
-	if s.records == nil {
-		return s.Cancel(id), nil
-	}
 	_, err := s.records.Load(ctx, "import", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) {
 		return false, nil

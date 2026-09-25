@@ -389,9 +389,17 @@ type importTestGeocoder struct {
 	geocoding.Geocoder
 	mu    sync.Mutex
 	calls int
+	pause <-chan struct{}
 }
 
-func (g *importTestGeocoder) GeocodeWithRetry(_ context.Context, _ string, _ int) (*geocoding.GeocodingResult, error) {
+func (g *importTestGeocoder) GeocodeWithRetry(ctx context.Context, _ string, _ int) (*geocoding.GeocodingResult, error) {
+	if g.pause != nil {
+		select {
+		case <-g.pause:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	g.mu.Lock()
 	g.calls++
 	call := g.calls
@@ -420,7 +428,7 @@ func (g *blockingImportGeocoder) GeocodeWithRetry(ctx context.Context, _ string,
 func newImportTestHandler(t *testing.T, geocoder geocoding.Geocoder) (*Handler, *postgres.Store) {
 	t.Helper()
 	db := postgrestest.Open(t)
-	importStore := importer.NewStore(geocoder, db)
+	importStore := importer.NewPersistentStore(t.Context(), geocoder, db, db.Workflows(), db.ImportJobs())
 	handler := &Handler{DB: db, Geocoder: geocoder, ImportSession: importStore, Renderer: loadEmbeddedTemplates(t)}
 	t.Cleanup(importStore.Close)
 	return handler, db

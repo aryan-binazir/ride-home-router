@@ -15,7 +15,8 @@ import (
 )
 
 func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
-	handler, db := newImportTestHandler(t, &importTestGeocoder{})
+	pause := make(chan struct{})
+	handler, db := newImportTestHandler(t, &importTestGeocoder{pause: pause})
 
 	upload := newImportPanelUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\nBlair,2 Main St\n", importer.KindParticipant, "")
 	uploadRecorder := httptest.NewRecorder()
@@ -51,6 +52,7 @@ func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {
 		}
 	}
 
+	close(pause)
 	waitForImportHTTPGeocoding(t, handler, id)
 
 	pollRecorder := httptest.NewRecorder()

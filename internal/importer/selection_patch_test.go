@@ -1,7 +1,6 @@
 package importer
 
 import (
-	"context"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	"testing"
@@ -41,31 +40,6 @@ func TestPersistentPageSelectionAndCommitPreserveOffPageChoices(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
-	if _, err = s.SelectRowsPatch(t.Context(), created.ID, map[int]bool{0: false}); err != nil {
-		t.Fatal(err)
-	}
-	result, err := s.CommitRowsPatch(t.Context(), created.ID, map[int]bool{2: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Created != 1 || result.NotSelected != 2 {
-		t.Fatalf("off-page choices lost: %+v", result)
-	}
-}
-
-func TestPageSelectionAndCommitPreserveOffPageChoices(t *testing.T) {
-	db := newFakeDataStore()
-	s := newStore(successfulTestGeocoder(), db, time.Hour, time.Hour, time.Now)
-	t.Cleanup(s.Close)
-	grid := testGrid(t, "name,address\nFirst,1 Main St\nSecond,2 Main St\nThird,3 Main St\n")
-	created, err := s.Create(KindParticipant, "riders.csv", grid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ApplyMapping(context.Background(), created.ID, AutoMap(grid.Headers)); err != nil {
-		t.Fatal(err)
-	}
-	waitForGeocoding(t, s, created.ID)
 	if _, err = s.SelectRowsPatch(t.Context(), created.ID, map[int]bool{0: false}); err != nil {
 		t.Fatal(err)
 	}
