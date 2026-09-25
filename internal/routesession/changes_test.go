@@ -69,7 +69,7 @@ func TestSnapshotChangesReportNetMovesAndSwaps(t *testing.T) {
 	}
 	assertChanges(t, toNew, "D1 and D2 swapped routes.", "C moved from D2 to D3.")
 
-	reset, err := store.Reset(created.ID)
+	reset, err := store.ResetContext(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestReviewerNoteSurvivesEditsAndReachesCommit(t *testing.T) {
 		t.Fatalf("edit dropped the note: %q", moved.ReviewerNote)
 	}
 	var committed CommitSnapshot
-	if err := store.Commit(context.Background(), created.ID, func(_ context.Context, snapshot CommitSnapshot) error {
+	if err := commitSession(store, context.Background(), created.ID, func(_ context.Context, snapshot CommitSnapshot) error {
 		committed = snapshot
 		return nil
 	}); err != nil {

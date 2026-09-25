@@ -19,8 +19,8 @@ func TestMobileRouteActionsRejectStaleOrMissingSession(t *testing.T) {
 				h, _ := newTestManagementHandler(t)
 				h.PlanDraft = plandraft.NewStore()
 				t.Cleanup(h.PlanDraft.Close)
-				old := h.RouteSession.Create(routesession.CreateInput{})
-				current := h.RouteSession.Create(routesession.CreateInput{Mode: models.RouteModeDropoff, ActivityLocation: &models.ActivityLocation{Name: "Activity", Address: "Activity Road"}, Routes: []models.CalculatedRoute{
+				old := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{})
+				current := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Mode: models.RouteModeDropoff, ActivityLocation: &models.ActivityLocation{Name: "Activity", Address: "Activity Road"}, Routes: []models.CalculatedRoute{
 					{Driver: &models.Driver{ID: 1, Name: "New driver", Address: "Driver Road", VehicleCapacity: 4}, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider", Address: "Rider Road"}}}, EffectiveCapacity: 4},
 					{Driver: &models.Driver{ID: 2, Name: "Second driver", Address: "Other Road", VehicleCapacity: 4}, EffectiveCapacity: 4},
 				}})

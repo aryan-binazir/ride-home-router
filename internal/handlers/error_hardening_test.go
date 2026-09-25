@@ -87,7 +87,7 @@ func TestMobileSaveFailurePreservesDateAndNotes(t *testing.T) {
 	h, _ := newTestManagementHandler(t)
 	h.PlanDraft = plandraft.NewStore()
 	t.Cleanup(h.PlanDraft.Close)
-	session := h.RouteSession.Create(routesession.CreateInput{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 4}, EffectiveCapacity: 4, Mode: models.RouteModeDropoff, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}})
+	session := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 4}, EffectiveCapacity: 4, Mode: models.RouteModeDropoff, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}})
 	id := h.PlanDraft.NewID()
 	h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 	h.DB = errorStore{h.DB}
@@ -137,7 +137,7 @@ func TestMobileSaveRetryReturnsSameEvent(t *testing.T) {
 	h, _ := newTestManagementHandler(t)
 	h.PlanDraft = plandraft.NewStore()
 	t.Cleanup(h.PlanDraft.Close)
-	session := h.RouteSession.Create(routesession.CreateInput{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 4}, EffectiveCapacity: 4, Mode: models.RouteModeDropoff, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}})
+	session := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Mode: models.RouteModeDropoff, Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 4}, EffectiveCapacity: 4, Mode: models.RouteModeDropoff, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}})
 	id := h.PlanDraft.NewID()
 	h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 	form := url.Values{"session_id": {session.ID}, "event_date": {"2026-10-11"}}

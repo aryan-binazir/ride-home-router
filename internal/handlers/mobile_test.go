@@ -123,7 +123,7 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	if !ok || draft.RouteSessionID != oldSessionID {
 		t.Fatalf("draft after failed replacement = %#v, want session %q", draft, oldSessionID)
 	}
-	if _, ok := handler.RouteSession.Snapshot(oldSessionID); !ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, oldSessionID); !ok {
 		t.Fatal("failed replacement deleted the existing route session")
 	}
 
@@ -134,10 +134,10 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 	if !ok || draft.RouteSessionID == oldSessionID {
 		t.Fatalf("replacement route session = %#v, want a new session ID", draft)
 	}
-	if _, ok := handler.RouteSession.Snapshot(oldSessionID); ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, oldSessionID); ok {
 		t.Fatal("superseded route session remains available")
 	}
-	if _, ok := handler.RouteSession.Snapshot(draft.RouteSessionID); !ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, draft.RouteSessionID); !ok {
 		t.Fatal("replacement route session is unavailable")
 	}
 
@@ -168,7 +168,7 @@ func TestMobileDraftFlowCalculatesRendersAndMovesParticipant(t *testing.T) {
 		"participant_id": {fmt.Sprint(firstRider.ID)}, "from_route_index": {"0"}, "to_route_index": {"1"},
 	}, handler.HandleMobileMove)
 	assertMobileRedirect(t, moveResponse, "/m/routes")
-	snapshot, ok := handler.RouteSession.Snapshot(draft.RouteSessionID)
+	snapshot, ok := mustLoadRouteSession(t, handler.RouteSession, draft.RouteSessionID)
 	if !ok || len(snapshot.Routes[0].Stops) != 0 || len(snapshot.Routes[1].Stops) != 2 {
 		t.Fatalf("routes after move = %#v", snapshot.Routes)
 	}
@@ -245,12 +245,12 @@ func TestMobileCalculateDiscardsRoutesWhenDraftChangesDuringSolve(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	oldestSession := handler.RouteSession.Create(routesession.CreateInput{})
+	oldestSession := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	time.Sleep(time.Millisecond)
 	// Leave one slot open: 1 oldest + 254 fillers + the calculated session = 256.
 	// After the stale session is deleted, the probe below must not evict oldestSession.
 	for range routesession.MaxConcurrentSessions - 2 {
-		handler.RouteSession.Create(routesession.CreateInput{})
+		mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	}
 
 	id := handler.PlanDraft.NewID()
@@ -283,8 +283,8 @@ func TestMobileCalculateDiscardsRoutesWhenDraftChangesDuringSolve(t *testing.T) 
 		t.Fatalf("draft after stale calculation = (%#v, %t), want current inputs and no session", draft, ok)
 	}
 
-	handler.RouteSession.Create(routesession.CreateInput{})
-	if _, ok := handler.RouteSession.Snapshot(oldestSession.ID); !ok {
+	mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, oldestSession.ID); !ok {
 		t.Fatal("stale calculation leaked its session and evicted the oldest live session")
 	}
 }
@@ -306,10 +306,10 @@ func TestMobileCalculateRedirectsToRoutesWhenAnotherCalculationWins(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldestSession := handler.RouteSession.Create(routesession.CreateInput{})
+	oldestSession := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	time.Sleep(time.Millisecond)
 	for range routesession.MaxConcurrentSessions - 3 {
-		handler.RouteSession.Create(routesession.CreateInput{})
+		mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	}
 	id := handler.PlanDraft.NewID()
 	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
@@ -341,11 +341,11 @@ func TestMobileCalculateRedirectsToRoutesWhenAnotherCalculationWins(t *testing.T
 	if !ok || got.RouteSessionID == "" {
 		t.Fatalf("draft after concurrent calculations = (%#v, %t), want a winning session", got, ok)
 	}
-	if _, live := handler.RouteSession.Snapshot(got.RouteSessionID); !live {
+	if _, live := mustLoadRouteSession(t, handler.RouteSession, got.RouteSessionID); !live {
 		t.Fatal("winning route session is unavailable")
 	}
-	handler.RouteSession.Create(routesession.CreateInput{})
-	if _, live := handler.RouteSession.Snapshot(oldestSession.ID); !live {
+	mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
+	if _, live := mustLoadRouteSession(t, handler.RouteSession, oldestSession.ID); !live {
 		t.Fatal("losing calculation leaked its session and evicted the oldest live session")
 	}
 }
@@ -376,7 +376,7 @@ func TestMobileSaveDoesNotEraseSessionAttachedDuringCommit(t *testing.T) {
 		}},
 		Mode: models.RouteModeDropoff,
 	}
-	oldSession := handler.RouteSession.Create(routesession.CreateInput{
+	oldSession := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: result.Routes,
 		Mode:   models.RouteModeDropoff,
 	})
@@ -431,7 +431,7 @@ func TestMobileSaveDoesNotEraseSessionAttachedDuringCommit(t *testing.T) {
 	if !found || got.RouteSessionID != newSessionID {
 		t.Fatalf("draft after save = (%#v, %t), want newer session %q", got, found, newSessionID)
 	}
-	if _, live := handler.RouteSession.Snapshot(newSessionID); !live {
+	if _, live := mustLoadRouteSession(t, handler.RouteSession, newSessionID); !live {
 		t.Fatal("newer route session was deleted during save")
 	}
 }
@@ -456,7 +456,7 @@ func TestMobileRoutesPausesMetricsAndCopyingWhenOverCapacity(t *testing.T) {
 	driver := models.Driver{ID: 1, Name: "Small Car", Address: "10 Driver Lane", VehicleCapacity: 1}
 	first := models.Participant{ID: 10, Name: "First Rider", Address: "1 Main", Lat: 1, Lng: 1}
 	second := models.Participant{ID: 11, Name: "Second Rider", Address: "2 Main", Lat: 2, Lng: 2}
-	session := store.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
 			Driver: &driver, EffectiveCapacity: 1,
 			Stops:               []models.RouteStop{{Participant: &first}, {Participant: &second}},
@@ -506,7 +506,7 @@ func TestMobileRoutesUsesSingularSummaryLabels(t *testing.T) {
 	t.Cleanup(drafts.Close)
 	driver := models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 1}
 	rider := models.Participant{ID: 10, Name: "Rider", Address: "1 Main"}
-	session := store.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes:           []models.CalculatedRoute{{Driver: &driver, EffectiveCapacity: 1, Stops: []models.RouteStop{{Participant: &rider}}}},
 		SelectedDrivers:  []models.Driver{driver},
 		ActivityLocation: &models.ActivityLocation{Name: "Center"},
@@ -571,7 +571,7 @@ func TestMobileWhenInvalidationDeletesRouteSession(t *testing.T) {
 	t.Cleanup(drafts.Close)
 	sessions := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(sessions.Close)
-	session := sessions.Create(routesession.CreateInput{})
+	session := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 	id := drafts.NewID()
 	drafts.Update(id, func(d *plandraft.Draft) {
 		d.RouteTime = "18:30"
@@ -586,7 +586,7 @@ func TestMobileWhenInvalidationDeletesRouteSession(t *testing.T) {
 	}, handler.HandleMobileWhen)
 
 	assertMobileRedirect(t, response, "/m")
-	if _, ok := sessions.Snapshot(session.ID); ok {
+	if _, ok := mustLoadRouteSession(t, sessions, session.ID); ok {
 		t.Fatal("invalidated route session remains available")
 	}
 }
@@ -596,10 +596,10 @@ func TestMobilePlanLifecycleConcurrentEditsAndAdoptionsDeleteDisplacedSessions(t
 	t.Cleanup(drafts.Close)
 	sessions := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(sessions.Close)
-	initial := sessions.Create(routesession.CreateInput{})
+	initial := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 	replacements := []routesession.Snapshot{
-		sessions.Create(routesession.CreateInput{}),
-		sessions.Create(routesession.CreateInput{}),
+		mustCreateRouteSession(t, sessions, routesession.CreateInput{}),
+		mustCreateRouteSession(t, sessions, routesession.CreateInput{}),
 	}
 	id := drafts.NewID()
 	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = initial.ID })
@@ -625,7 +625,7 @@ func TestMobilePlanLifecycleConcurrentEditsAndAdoptionsDeleteDisplacedSessions(t
 		t.Fatalf("final route session = %q, want one replacement", draft.RouteSessionID)
 	}
 	for _, session := range append([]routesession.Snapshot{initial}, replacements...) {
-		_, live := sessions.Snapshot(session.ID)
+		_, live := mustLoadRouteSession(t, sessions, session.ID)
 		if live != (session.ID == draft.RouteSessionID) {
 			t.Fatalf("session %q live = %t, want only final session %q live", session.ID, live, draft.RouteSessionID)
 		}
@@ -776,7 +776,7 @@ func TestMobileRidersPrunesSoftDeletedParticipantFromDraft(t *testing.T) {
 	if err := store.Participants().Delete(ctx, deleted.ID); err != nil {
 		t.Fatal(err)
 	}
-	session := handler.RouteSession.Create(routesession.CreateInput{})
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	id := handler.PlanDraft.NewID()
 	handler.PlanDraft.Update(id, func(d *plandraft.Draft) {
 		d.ParticipantIDs = []int64{deleted.ID, active.ID}
@@ -798,7 +798,7 @@ func TestMobileRidersPrunesSoftDeletedParticipantFromDraft(t *testing.T) {
 	if !ok || len(draft.ParticipantIDs) != 1 || draft.ParticipantIDs[0] != active.ID {
 		t.Fatalf("pruned draft = %#v ok=%v", draft, ok)
 	}
-	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); ok {
 		t.Fatal("route session invalidated by pruning remains available")
 	}
 }
@@ -1095,7 +1095,7 @@ func TestMobileDraftAccessRefreshesCookieAndRouteMoveRejectsMalformedTargets(t *
 	handler.PlanDraft = plandraft.NewStore()
 	t.Cleanup(handler.PlanDraft.Close)
 	id := handler.PlanDraft.NewID()
-	session := handler.RouteSession.Create(routesession.CreateInput{})
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	handler.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 	cookie := mobileTestCookie(id)
 

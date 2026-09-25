@@ -1,0 +1,13 @@
+# Route-session transition ownership
+
+Route sessions are temporary plans that callers edit before saving an Event. The durable store previously reconstructed a memory `Store` for each request, called its public mutation or commit method, then serialized the result. The same `Store` type also exposed memory-only `Create`, `Snapshot`, `Reset`, `Delete`, and `Commit` methods alongside context-aware operations. A caller had to know which methods worked with its constructor.
+
+The route-session module now presents one context-aware set of operations through the existing `Store` type. It builds a session once on create. Edit transitions operate on that session and construct their own snapshots. The memory path holds the session lock while it applies an edit. The durable path loads and decodes the session, applies the same edit, then uses its revision in a compare-and-swap write. Distance calls stay outside a database transaction, so a stale edit returns `ErrWorkflowConflict`. The load keeps the existing sliding expiry behavior, even if validation or recalculation later fails.
+
+Durable decoding retains the existing provider-metric scrub. When the lookup is the local estimator, it re-estimates both original and current routes or clears metrics it cannot estimate. A read returns the scrubbed snapshot without writing it. A successful edit persists that scrubbed state. The memory path does not scrub. No measured provider metrics are added to persisted sessions or Events.
+
+Both commit paths build the same copied `CommitSnapshot` and reject an unbalanced plan. The memory path calls the persistence callback while holding the session lock and records a bounded committed marker afterward. The durable path calls the callback inside `WorkflowRepository.Transact`, then marks the record consumed and clears its payload. Event insertion and session consumption remain atomic. Feedback is still captured after a successful commit on a best-effort basis, as ADR 0001 requires.
+
+Using `WorkflowRepository.Update` for edits was rejected. It would hold the row lock during distance work and replace the existing stale-write conflict with a serialized second write. Separate public adapter types were also rejected: they would add two forwarding interfaces around the same transitions while callers already use one concrete store.
+
+This decision leaves session expiry, mobile and desktop lifecycle ownership, planner algorithms, schema, and provider behavior unchanged. Public behavior tests run the same edits on both adapters; durable tests retain their conflict, rollback, and commit-once coverage.

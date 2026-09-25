@@ -250,7 +250,7 @@ func TestMobileMoveRejectsSameAndMalformedDestinationWithoutMutation(t *testing.
 	t.Cleanup(draftStore.Close)
 	driver := models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 4}
 	rider := models.Participant{ID: 2, Name: "Rider", Address: "1 Rider", Lat: 1, Lng: 1}
-	session := store.Create(routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &driver, EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: &rider}}}}, SelectedDrivers: []models.Driver{driver}, ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &driver, EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: &rider}}}}, SelectedDrivers: []models.Driver{driver}, ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
 	id := draftStore.NewID()
 	draftStore.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 	handler := &Handler{PlanDraft: draftStore, RouteSession: store}
@@ -261,7 +261,7 @@ func TestMobileMoveRejectsSameAndMalformedDestinationWithoutMutation(t *testing.
 		if response.Code != http.StatusSeeOther || !strings.HasPrefix(response.Header().Get("Location"), "/m/routes?error=") {
 			t.Fatalf("destination %q response = %d %q", destination, response.Code, response.Header().Get("Location"))
 		}
-		snapshot, ok := store.Snapshot(session.ID)
+		snapshot, ok := mustLoadRouteSession(t, store, session.ID)
 		if !ok || snapshot.IsEditing || len(snapshot.Routes[0].Stops) != 1 || snapshot.Routes[0].Stops[0].Participant.ID != rider.ID {
 			t.Fatalf("destination %q mutated snapshot: %#v", destination, snapshot)
 		}

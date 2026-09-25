@@ -146,7 +146,7 @@ func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, 
 	return store
 }
 
-func (s *Store) Create(input CreateInput) Snapshot {
+func newSession(input CreateInput, now time.Time) *session {
 	state := &session{
 		id:                generateID(),
 		originalRoutes:    copyRoutes(input.Routes),
@@ -158,8 +158,12 @@ func (s *Store) Create(input CreateInput) Snapshot {
 		useMiles:          input.UseMiles,
 		routeTime:         input.RouteTime,
 		mode:              input.Mode,
-		lastAccessedAt:    s.now(),
+		lastAccessedAt:    now,
 	}
+	return state
+}
+
+func (s *Store) insert(state *session) {
 	s.mu.Lock()
 	evictedID := ""
 	if len(s.sessions) >= MaxConcurrentSessions {
@@ -170,8 +174,6 @@ func (s *Store) Create(input CreateInput) Snapshot {
 	if evictedID != "" {
 		log.Printf("[SESSION] Evicted route session at capacity: id=%s", evictedID)
 	}
-	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
-	return snapshotWithChanges(state, changedRoutes(nil, state.currentRoutes))
 }
 
 func (s *Store) evictOldestSessionLocked() string {
@@ -190,43 +192,64 @@ func (s *Store) evictOldestSessionLocked() string {
 	return oldestID
 }
 
-func (s *Store) Snapshot(id string) (Snapshot, bool) {
-	state, err := s.lockSession(id)
-	if err != nil {
-		return Snapshot{}, false
-	}
-	defer state.mu.Unlock()
-	return snapshotOf(state), true
+func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options ApplyMovesOptions) (Snapshot, error) {
+	return s.update(ctx, id, func(state *session) (Snapshot, error) {
+		before := routeKeys(state.currentRoutes)
+
+		backupRoutes := copyRoutes(state.currentRoutes)
+		backupDirty := copyDirty(state.dirtyRouteIndexes)
+		rollback := func() { state.currentRoutes = backupRoutes; state.dirtyRouteIndexes = backupDirty }
+		for _, move := range moves {
+			from, ok := findParticipant(state.currentRoutes, move.ParticipantID)
+			if !ok {
+				rollback()
+				return Snapshot{}, ErrParticipantNotFound
+			}
+			if options.RequireClaimedSource && from != move.FromRouteIndex {
+				rollback()
+				return Snapshot{}, ErrParticipantNotInSource
+			}
+			if err := applyMove(state, move, from); err != nil {
+				rollback()
+				return Snapshot{}, err
+			}
+			_, unbalanced := capacityState(state.currentRoutes)
+			if !unbalanced {
+				if err := s.recalculateDirty(ctx, state); err != nil {
+					rollback()
+					return Snapshot{}, err
+				}
+			}
+		}
+		return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
+	})
 }
 
-func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options ApplyMovesOptions) (Snapshot, error) {
-	if s.records != nil {
-		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.ApplyMoves(ctx, id, moves, options) })
-	}
-	state, err := s.lockSession(id)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	defer state.mu.Unlock()
-	before := routeKeys(state.currentRoutes)
-
-	backupRoutes := copyRoutes(state.currentRoutes)
-	backupDirty := copyDirty(state.dirtyRouteIndexes)
-	rollback := func() { state.currentRoutes = backupRoutes; state.dirtyRouteIndexes = backupDirty }
-	for _, move := range moves {
-		from, ok := findParticipant(state.currentRoutes, move.ParticipantID)
+func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (Snapshot, error) {
+	return s.update(ctx, id, func(state *session) (Snapshot, error) {
+		before := routeKeys(state.currentRoutes)
+		if first < 0 || first >= len(state.currentRoutes) || second < 0 || second >= len(state.currentRoutes) {
+			return Snapshot{}, ErrInvalidRouteIndex
+		}
+		backup := copyRoutes(state.currentRoutes)
+		backupDirty := copyDirty(state.dirtyRouteIndexes)
+		rollback := func() { state.currentRoutes = backup; state.dirtyRouteIndexes = backupDirty }
+		route1, route2 := &state.currentRoutes[first], &state.currentRoutes[second]
+		cap1, ok := routeCapacity(*route1)
 		if !ok {
-			rollback()
-			return Snapshot{}, ErrParticipantNotFound
+			return Snapshot{}, ErrSwapMissingDriver
 		}
-		if options.RequireClaimedSource && from != move.FromRouteIndex {
-			rollback()
-			return Snapshot{}, ErrParticipantNotInSource
+		cap2, ok := routeCapacity(*route2)
+		if !ok {
+			return Snapshot{}, ErrSwapMissingDriver
 		}
-		if err := applyMove(state, move, from); err != nil {
-			rollback()
-			return Snapshot{}, err
+		if len(route1.Stops) > cap2 || len(route2.Stops) > cap1 {
+			return Snapshot{}, ErrSwapCapacity
 		}
+		route1.Driver, route2.Driver = route2.Driver, route1.Driver
+		route1.EffectiveCapacity, route2.EffectiveCapacity = route2.EffectiveCapacity, route1.EffectiveCapacity
+		route1.OrgVehicleID, route2.OrgVehicleID = route2.OrgVehicleID, route1.OrgVehicleID
+		route1.OrgVehicleName, route2.OrgVehicleName = route2.OrgVehicleName, route1.OrgVehicleName
 		_, unbalanced := capacityState(state.currentRoutes)
 		if !unbalanced {
 			if err := s.recalculateDirty(ctx, state); err != nil {
@@ -234,112 +257,52 @@ func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options
 				return Snapshot{}, err
 			}
 		}
-	}
-	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
-}
-
-func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (Snapshot, error) {
-	if s.records != nil {
-		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.SwapDrivers(ctx, id, first, second) })
-	}
-	state, err := s.lockSession(id)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	defer state.mu.Unlock()
-	before := routeKeys(state.currentRoutes)
-	if first < 0 || first >= len(state.currentRoutes) || second < 0 || second >= len(state.currentRoutes) {
-		return Snapshot{}, ErrInvalidRouteIndex
-	}
-	backup := copyRoutes(state.currentRoutes)
-	backupDirty := copyDirty(state.dirtyRouteIndexes)
-	rollback := func() { state.currentRoutes = backup; state.dirtyRouteIndexes = backupDirty }
-	route1, route2 := &state.currentRoutes[first], &state.currentRoutes[second]
-	cap1, ok := routeCapacity(*route1)
-	if !ok {
-		return Snapshot{}, ErrSwapMissingDriver
-	}
-	cap2, ok := routeCapacity(*route2)
-	if !ok {
-		return Snapshot{}, ErrSwapMissingDriver
-	}
-	if len(route1.Stops) > cap2 || len(route2.Stops) > cap1 {
-		return Snapshot{}, ErrSwapCapacity
-	}
-	route1.Driver, route2.Driver = route2.Driver, route1.Driver
-	route1.EffectiveCapacity, route2.EffectiveCapacity = route2.EffectiveCapacity, route1.EffectiveCapacity
-	route1.OrgVehicleID, route2.OrgVehicleID = route2.OrgVehicleID, route1.OrgVehicleID
-	route1.OrgVehicleName, route2.OrgVehicleName = route2.OrgVehicleName, route1.OrgVehicleName
-	_, unbalanced := capacityState(state.currentRoutes)
-	if !unbalanced {
-		if err := s.recalculateDirty(ctx, state); err != nil {
-			rollback()
-			return Snapshot{}, err
+		for _, index := range []int{first, second} {
+			if _, wasDirty := backupDirty[index]; wasDirty && !unbalanced {
+				continue // Optimization already refreshed this route's metrics.
+			}
+			if err := s.recalculateRoute(ctx, state, &state.currentRoutes[index]); err != nil {
+				rollback()
+				return Snapshot{}, err
+			}
 		}
-	}
-	for _, index := range []int{first, second} {
-		if _, wasDirty := backupDirty[index]; wasDirty && !unbalanced {
-			continue // Optimization already refreshed this route's metrics.
-		}
-		if err := s.recalculateRoute(ctx, state, &state.currentRoutes[index]); err != nil {
-			rollback()
-			return Snapshot{}, err
-		}
-	}
-	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
-}
-
-func (s *Store) Reset(id string) (Snapshot, error) {
-	state, err := s.lockSession(id)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	defer state.mu.Unlock()
-	before := routeKeys(state.currentRoutes)
-	state.currentRoutes = copyRoutes(state.originalRoutes)
-	state.dirtyRouteIndexes = make(map[int]struct{})
-	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
+		return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
+	})
 }
 
 func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snapshot, error) {
-	if s.records != nil {
-		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.AddDriver(ctx, id, driverID) })
-	}
-	state, err := s.lockSession(id)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	defer state.mu.Unlock()
-	before := routeKeys(state.currentRoutes)
-	var driver *models.Driver
-	for i := range state.selectedDrivers {
-		if state.selectedDrivers[i].ID == driverID {
-			driver = copyDriver(&state.selectedDrivers[i])
-			break
+	return s.update(ctx, id, func(state *session) (Snapshot, error) {
+		before := routeKeys(state.currentRoutes)
+		var driver *models.Driver
+		for i := range state.selectedDrivers {
+			if state.selectedDrivers[i].ID == driverID {
+				driver = copyDriver(&state.selectedDrivers[i])
+				break
+			}
 		}
-	}
-	if driver == nil {
-		return Snapshot{}, ErrDriverNotSelected
-	}
-	for _, route := range state.currentRoutes {
-		if route.Driver != nil && route.Driver.ID == driverID {
-			return Snapshot{}, ErrDriverAlreadyInRoutes
+		if driver == nil {
+			return Snapshot{}, ErrDriverNotSelected
 		}
-	}
-	newRoute := models.CalculatedRoute{Driver: driver, Stops: []models.RouteStop{}, EffectiveCapacity: driver.VehicleCapacity, Mode: state.mode}
-	if vehicle := state.driverOrgVehicles[driverID]; vehicle != nil {
-		newRoute.OrgVehicleID, newRoute.OrgVehicleName, newRoute.EffectiveCapacity = vehicle.ID, vehicle.Name, vehicle.Capacity
-	}
-	if err := s.recalculateRoute(ctx, state, &newRoute); err != nil {
-		return Snapshot{}, err
-	}
-	state.currentRoutes = append(state.currentRoutes, newRoute)
-	return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
+		for _, route := range state.currentRoutes {
+			if route.Driver != nil && route.Driver.ID == driverID {
+				return Snapshot{}, ErrDriverAlreadyInRoutes
+			}
+		}
+		newRoute := models.CalculatedRoute{Driver: driver, Stops: []models.RouteStop{}, EffectiveCapacity: driver.VehicleCapacity, Mode: state.mode}
+		if vehicle := state.driverOrgVehicles[driverID]; vehicle != nil {
+			newRoute.OrgVehicleID, newRoute.OrgVehicleName, newRoute.EffectiveCapacity = vehicle.ID, vehicle.Name, vehicle.Capacity
+		}
+		if err := s.recalculateRoute(ctx, state, &newRoute); err != nil {
+			return Snapshot{}, err
+		}
+		state.currentRoutes = append(state.currentRoutes, newRoute)
+		return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
+	})
 }
 
-// Commit persists under the session lock, then removes the session.
-// The callback must not call Store methods; lock waiters cannot cancel.
-func (s *Store) Commit(ctx context.Context, id string, persist func(context.Context, CommitSnapshot) error) error {
+// commitMemory persists under the session lock. The callback must not call
+// Store methods; lock waiters cannot cancel.
+func (s *Store) commitMemory(ctx context.Context, id string, persist func(context.Context, CommitSnapshot, database.WorkflowWrites) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) && s.wasCommitted(id) {
@@ -356,24 +319,11 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 			state.mu.Unlock()
 		}
 	}()
-	_, unbalanced := capacityState(state.currentRoutes)
-	if unbalanced {
-		return ErrUnbalanced
+	payload, err := commitSnapshot(state)
+	if err != nil {
+		return err
 	}
-	payload := CommitSnapshot{
-		RouteTime:         state.routeTime,
-		SessionID:         state.id,
-		Original:          copyRoutes(state.originalRoutes),
-		Final:             copyRoutes(state.currentRoutes),
-		Summary:           calculateSummary(state.currentRoutes),
-		SelectedDrivers:   append([]models.Driver(nil), state.selectedDrivers...),
-		DriverOrgVehicles: copyVehicles(state.driverOrgVehicles),
-		ActivityLocation:  copyLocation(state.activityLocation),
-		Mode:              state.mode,
-		Changes:           routeChanges(state.originalRoutes, state.currentRoutes),
-		ReviewerNote:      state.reviewerNote,
-	}
-	if err := persist(ctx, payload); err != nil {
+	if err := persist(ctx, payload, nil); err != nil {
 		return err
 	}
 	state.deleted = true
@@ -392,6 +342,26 @@ func (s *Store) Commit(ctx context.Context, id string, persist func(context.Cont
 	return nil
 }
 
+func commitSnapshot(state *session) (CommitSnapshot, error) {
+	_, unbalanced := capacityState(state.currentRoutes)
+	if unbalanced {
+		return CommitSnapshot{}, ErrUnbalanced
+	}
+	return CommitSnapshot{
+		RouteTime:         state.routeTime,
+		SessionID:         state.id,
+		Original:          copyRoutes(state.originalRoutes),
+		Final:             copyRoutes(state.currentRoutes),
+		Summary:           calculateSummary(state.currentRoutes),
+		SelectedDrivers:   append([]models.Driver(nil), state.selectedDrivers...),
+		DriverOrgVehicles: copyVehicles(state.driverOrgVehicles),
+		ActivityLocation:  copyLocation(state.activityLocation),
+		Mode:              state.mode,
+		Changes:           routeChanges(state.originalRoutes, state.currentRoutes),
+		ReviewerNote:      state.reviewerNote,
+	}, nil
+}
+
 func (s *Store) evictOldestCommittedLocked() {
 	oldestID := ""
 	var oldestCommit time.Time
@@ -406,7 +376,7 @@ func (s *Store) evictOldestCommittedLocked() {
 	}
 }
 
-func (s *Store) Delete(id string) {
+func (s *Store) deleteMemory(id string) {
 	if id == "" {
 		return
 	}

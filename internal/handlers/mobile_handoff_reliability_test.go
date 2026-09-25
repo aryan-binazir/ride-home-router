@@ -60,7 +60,7 @@ func TestMobileMapsHandoffPreservesStopsAcrossSupportedLegs(t *testing.T) {
 				} else {
 					expected = append(expected, "41.000000,-73.000000")
 				}
-				snapshot := h.RouteSession.Create(routesession.CreateInput{Routes: []models.CalculatedRoute{route}, Mode: mode, RouteTime: "18:30", ActivityLocation: &models.ActivityLocation{Name: "Activity", Address: "Activity Road", Lat: 40, Lng: -73}})
+				snapshot := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Routes: []models.CalculatedRoute{route}, Mode: mode, RouteTime: "18:30", ActivityLocation: &models.ActivityLocation{Name: "Activity", Address: "Activity Road", Lat: 40, Lng: -73}})
 				id := h.PlanDraft.NewID()
 				h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = snapshot.ID })
 				text := handoffTextarea(t, mobileRoutePage(t, h, id), "driver-copy-0")
@@ -119,7 +119,7 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			}
 			// Empty unused routes must not shift the handoff-to-saved-route association.
 			route := models.CalculatedRoute{Driver: driver, EffectiveCapacity: 4, Mode: mode, RouteDurationSecs: 1200, Stops: []models.RouteStop{{Participant: rider, CumulativeDurationSecs: 300}}}
-			snapshot := h.RouteSession.Create(routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 99, Name: "Unused", VehicleCapacity: 4}}, route}, ActivityLocation: &models.ActivityLocation{Name: "Grace Center", Address: "1 Grace Way", Lat: 40, Lng: -73}, RouteTime: "18:30", Mode: mode})
+			snapshot := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 99, Name: "Unused", VehicleCapacity: 4}}, route}, ActivityLocation: &models.ActivityLocation{Name: "Grace Center", Address: "1 Grace Way", Lat: 40, Lng: -73}, RouteTime: "18:30", Mode: mode})
 			id := h.PlanDraft.NewID()
 			h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = snapshot.ID })
 			page := mobileRoutePage(t, h, id)
@@ -129,7 +129,7 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			}
 			// Saved handoffs keep names, stops, addresses and Maps links but never travel
 			// times, which are provider content the app may not store.
-			live, _ := h.RouteSession.Snapshot(snapshot.ID)
+			live, _ := mustLoadRouteSession(t, h.RouteSession, snapshot.ID)
 			driverText := formatMobileHandoff(live, live.Routes[1], false, nil)
 			parentText := formatMobileHandoff(live, live.Routes[1], true, nil)
 			if strings.Contains(driverText, " PM - ") || strings.Contains(driverText, " AM - ") {
@@ -140,7 +140,7 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			if !strings.HasPrefix(target, "/m/history/") {
 				t.Fatalf("save: %d %s", response.Code, target)
 			}
-			if _, ok := h.RouteSession.Snapshot(snapshot.ID); ok {
+			if _, ok := mustLoadRouteSession(t, h.RouteSession, snapshot.ID); ok {
 				t.Fatal("saved live session not consumed")
 			}
 			rider.Name = "Edited Rider"

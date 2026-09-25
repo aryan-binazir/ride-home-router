@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -29,8 +30,8 @@ func TestMobilePlanLifecycleInputEditsInvalidateAttachedSession(t *testing.T) {
 			t.Cleanup(drafts.Close)
 			sessions := routesession.NewStore(routeEditDistanceCalculator{})
 			t.Cleanup(sessions.Close)
-			attached := sessions.Create(routesession.CreateInput{})
-			unrelated := sessions.Create(routesession.CreateInput{})
+			attached := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
+			unrelated := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 			id := drafts.NewID()
 			drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = attached.ID })
 			lifecycle := mobilePlanLifecycle{drafts: drafts, sessions: sessions}
@@ -44,10 +45,10 @@ func TestMobilePlanLifecycleInputEditsInvalidateAttachedSession(t *testing.T) {
 			if !ok || !tt.check(stored) || stored.RouteSessionID != "" {
 				t.Fatalf("stored draft = %#v, found=%t", stored, ok)
 			}
-			if _, live := sessions.Snapshot(attached.ID); live {
+			if _, live := mustLoadRouteSession(t, sessions, attached.ID); live {
 				t.Fatal("displaced session remains live")
 			}
-			if _, live := sessions.Snapshot(unrelated.ID); !live {
+			if _, live := mustLoadRouteSession(t, sessions, unrelated.ID); !live {
 				t.Fatal("unrelated session was deleted")
 			}
 		})
@@ -60,10 +61,10 @@ func TestMobilePlanLifecycleReleasePreservesNewerSession(t *testing.T) {
 	sessions := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(sessions.Close)
 	lifecycle := mobilePlanLifecycle{drafts: drafts, sessions: sessions}
-	consumed := sessions.Create(routesession.CreateInput{})
+	consumed := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 	id := drafts.NewID()
 	original := drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = consumed.ID })
-	newer := sessions.Create(routesession.CreateInput{})
+	newer := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 	if got := lifecycle.AdoptCalculation(id, original, newer.ID); got != mobilePlanAdopted {
 		t.Fatalf("adoption = %v, want adopted", got)
 	}
@@ -74,7 +75,7 @@ func TestMobilePlanLifecycleReleasePreservesNewerSession(t *testing.T) {
 	if !ok || current.RouteSessionID != newer.ID {
 		t.Fatalf("draft = %#v, want newer session attached", current)
 	}
-	if _, live := sessions.Snapshot(newer.ID); !live {
+	if _, live := mustLoadRouteSession(t, sessions, newer.ID); !live {
 		t.Fatal("newer session was deleted")
 	}
 	lifecycle.ReleaseSavedSession(id, newer.ID)
@@ -99,19 +100,21 @@ func TestMobilePlanLifecycleRejectsResultWithoutLiveWinner(t *testing.T) {
 				if state == "edited inputs" {
 					lifecycle.EditInputs(id, func(d *mobilePlanInputs) { d.RouteTime = "19:00" })
 				} else {
-					winner := sessions.Create(routesession.CreateInput{})
+					winner := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 					if got := lifecycle.AdoptCalculation(id, original, winner.ID); got != mobilePlanAdopted {
 						t.Fatalf("adoption = %v, want adopted", got)
 					}
-					sessions.Delete(winner.ID)
+					if err := sessions.DeleteContext(context.Background(), winner.ID); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
-			loser := sessions.Create(routesession.CreateInput{})
+			loser := mustCreateRouteSession(t, sessions, routesession.CreateInput{})
 
 			if got := lifecycle.AdoptCalculation(id, original, loser.ID); got != mobilePlanExpired {
 				t.Fatalf("adoption = %v, want expired when no live winner remains", got)
 			}
-			if _, live := sessions.Snapshot(loser.ID); live {
+			if _, live := mustLoadRouteSession(t, sessions, loser.ID); live {
 				t.Fatal("rejected result remains live")
 			}
 			current, found := drafts.Get(id)
@@ -129,7 +132,7 @@ func TestMobileSaveFailureKeepsDraftSessionForRetry(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	handler.PlanDraft = plandraft.NewStore()
 	t.Cleanup(handler.PlanDraft.Close)
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
 			Driver:            &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 2},
 			EffectiveCapacity: 2,
@@ -153,7 +156,7 @@ func TestMobileSaveFailureKeepsDraftSessionForRetry(t *testing.T) {
 	if !ok || current.RouteSessionID != session.ID {
 		t.Fatalf("draft after failed save = %#v, want captured session still attached", current)
 	}
-	if _, live := handler.RouteSession.Snapshot(session.ID); !live {
+	if _, live := mustLoadRouteSession(t, handler.RouteSession, session.ID); !live {
 		t.Fatal("failed save consumed the route session")
 	}
 }

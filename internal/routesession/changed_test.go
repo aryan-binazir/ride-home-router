@@ -22,7 +22,7 @@ func changedFixture(t *testing.T) (*Store, Snapshot) {
 		{ID: 11, Name: "D2", Lat: 42.2, Lng: -71.2, VehicleCapacity: 4},
 		{ID: 12, Name: "D3", Lat: 42.3, Lng: -71.3, VehicleCapacity: 4},
 	}
-	snapshot := store.Create(CreateInput{
+	snapshot := mustCreate(t, store, CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &drivers[0], EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: riders[0]}, {Participant: riders[1]}}},
 			{Driver: &drivers[1], EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: riders[2]}}},
@@ -62,14 +62,14 @@ func TestSnapshotReportsWhichRoutesChanged(t *testing.T) {
 	if !slices.Equal(swapped.ChangedRouteIndexes, []int{0, 2}) {
 		t.Fatalf("swap changes both cars: %v", swapped.ChangedRouteIndexes)
 	}
-	reset, err := store.Reset(created.ID)
+	reset, err := store.ResetContext(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(reset.ChangedRouteIndexes, []int{0, 1}) {
 		t.Fatalf("reset changes every route that differs from the current state: %v", reset.ChangedRouteIndexes)
 	}
-	loaded, ok := store.Snapshot(created.ID)
+	loaded, ok := mustLoad(t, store, created.ID)
 	if !ok || len(loaded.ChangedRouteIndexes) != 0 {
 		t.Fatalf("a plain read changes nothing: %v", loaded.ChangedRouteIndexes)
 	}

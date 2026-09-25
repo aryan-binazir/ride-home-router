@@ -41,7 +41,7 @@ func (s routeFeedbackDataStore) RouteFeedback() database.RouteFeedbackRepository
 func TestHandleCreateEvent_CapturesEditedSMERouteFeedback(t *testing.T) {
 	handler, store, conn := newRouteFeedbackHandler(t)
 	setSMEEmail(t, store, "SME@Example.com")
-	session := createFeedbackSession(handler)
+	session := createFeedbackSession(t, handler)
 	if _, err := handler.RouteSession.ApplyMoves(context.Background(), session.ID, []routesession.Move{{
 		ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
 	}}, routesession.ApplyMovesOptions{}); err != nil {
@@ -90,7 +90,7 @@ func TestHandleMobileSaveCapturesSMERouteFeedback(t *testing.T) {
 	handler.PlanDraft = plandraft.NewStore()
 	t.Cleanup(handler.PlanDraft.Close)
 	setSMEEmail(t, store, "sme@example.com")
-	session := createFeedbackSession(handler)
+	session := createFeedbackSession(t, handler)
 	draftID := handler.PlanDraft.NewID()
 	handler.PlanDraft.Update(draftID, func(d *plandraft.Draft) { d.RouteSessionID = session.ID })
 
@@ -113,7 +113,7 @@ func TestHandleMobileSaveCapturesSMERouteFeedback(t *testing.T) {
 func TestHandleCreateEvent_CapturesUnchangedSMERouteFeedback(t *testing.T) {
 	handler, store, conn := newRouteFeedbackHandler(t)
 	setSMEEmail(t, store, "sme@example.com")
-	session := createFeedbackSession(handler)
+	session := createFeedbackSession(t, handler)
 
 	rr := saveLiveFeedbackSession(handler, session.ID, "sme@example.com")
 	if rr.Code != http.StatusCreated {
@@ -148,7 +148,7 @@ func TestHandleCreateEvent_DoesNotCaptureWithoutMatchingSME(t *testing.T) {
 				routefeedback.SetTrustCFAccessHeader(false)
 			}
 			setSMEEmail(t, store, tt.setting)
-			session := createFeedbackSession(handler)
+			session := createFeedbackSession(t, handler)
 			rr := saveLiveFeedbackSession(handler, session.ID, tt.header)
 			if rr.Code != http.StatusCreated {
 				t.Fatalf("status = %d, want 201 body=%q", rr.Code, rr.Body.String())
@@ -209,7 +209,7 @@ func TestHandleCreateEvent_FeedbackFailureStillCommitsEventAndSession(t *testing
 	wantErr := errors.New("feedback unavailable")
 	failing := &failingRouteFeedbackRepository{err: wantErr}
 	handler.DB = routeFeedbackDataStore{DataStore: store, feedback: failing}
-	session := createFeedbackSession(handler)
+	session := createFeedbackSession(t, handler)
 
 	rr := saveLiveFeedbackSession(handler, session.ID, "sme@example.com")
 	if rr.Code != http.StatusCreated {
@@ -222,10 +222,10 @@ func TestHandleCreateEvent_FeedbackFailureStillCommitsEventAndSession(t *testing
 	if err != nil || total != 1 || len(events) != 1 {
 		t.Fatalf("saved events = %#v total=%d err=%v", events, total, err)
 	}
-	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); ok {
 		t.Fatal("session remained retryable after feedback failure")
 	}
-	if err := handler.RouteSession.Commit(context.Background(), session.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); !errors.Is(err, routesession.ErrAlreadyCommitted) {
+	if err := commitRouteSession(handler.RouteSession, context.Background(), session.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); !errors.Is(err, routesession.ErrAlreadyCommitted) {
 		t.Fatalf("retry Commit error = %v, want ErrAlreadyCommitted", err)
 	}
 }
@@ -263,9 +263,9 @@ func setSMEEmail(t *testing.T, store *postgres.Store, email string) {
 	}
 }
 
-func createFeedbackSession(handler *Handler) routesession.Snapshot {
+func createFeedbackSession(t *testing.T, handler *Handler) routesession.Snapshot {
 	result := feedbackRoutingResult()
-	return handler.RouteSession.Create(routesession.CreateInput{
+	return mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: result.Routes,
 		SelectedDrivers: []models.Driver{
 			{ID: 1, Name: "Driver One", Address: "1 Driver Road", AddressName: "Home One", Lat: 35.1, Lng: -78.1, VehicleCapacity: 4},
@@ -335,7 +335,7 @@ func TestHandleRouteFeedback_OnlyForConfiguredReviewerWithNotesOn(t *testing.T) 
 			handler.Renderer = loadEmbeddedTemplates(t)
 			setSMEEmail(t, store, "sme@example.com")
 			setCollectReviewerNotes(t, store, tt.collect)
-			session := createFeedbackSession(handler)
+			session := createFeedbackSession(t, handler)
 
 			rr := requestRouteFeedback(handler, http.MethodGet, "/api/v1/routes/feedback?session_id="+session.ID, "", tt.header)
 			if rr.Code != http.StatusForbidden {
@@ -345,7 +345,7 @@ func TestHandleRouteFeedback_OnlyForConfiguredReviewerWithNotesOn(t *testing.T) 
 			if rr.Code != http.StatusForbidden {
 				t.Fatalf("POST status = %d, want 403 body=%q", rr.Code, rr.Body.String())
 			}
-			if snapshot, _ := handler.RouteSession.Snapshot(session.ID); snapshot.ReviewerNote != "" {
+			if snapshot, _ := mustLoadRouteSession(t, handler.RouteSession, session.ID); snapshot.ReviewerNote != "" {
 				t.Fatalf("note stored despite refusal: %q", snapshot.ReviewerNote)
 			}
 			body := moveFeedbackRider(t, handler, session.ID, tt.header)
@@ -360,7 +360,7 @@ func TestHandleRouteFeedback_RendersChangesStoresNoteAndSavesWithEvent(t *testin
 	handler, store, conn := newRouteFeedbackHandler(t)
 	handler.Renderer = loadEmbeddedTemplates(t)
 	setSMEEmail(t, store, "sme@example.com")
-	session := createFeedbackSession(handler)
+	session := createFeedbackSession(t, handler)
 
 	rr := requestRouteFeedback(handler, http.MethodGet, "/api/v1/routes/feedback?session_id="+session.ID, "", "SME@Example.com")
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "No changes yet.") {
@@ -428,7 +428,7 @@ func TestHandleRouteFeedback_RendersChangesStoresNoteAndSavesWithEvent(t *testin
 func TestHandleRouteFeedback_NoteIsKeptWhenNotesAreSwitchedOffBeforeSaving(t *testing.T) {
 	handler, store, conn := newRouteFeedbackHandler(t)
 	setSMEEmail(t, store, "sme@example.com")
-	session := createFeedbackSession(handler)
+	session := createFeedbackSession(t, handler)
 	if _, err := handler.RouteSession.SetReviewerNote(context.Background(), session.ID, "kept"); err != nil {
 		t.Fatal(err)
 	}

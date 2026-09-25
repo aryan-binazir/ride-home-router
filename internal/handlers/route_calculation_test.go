@@ -72,7 +72,7 @@ func TestRouteCalculation_AssignedVehicleSuccessCreatesRestorableSession(t *test
 		t.Fatalf("organization vehicles used = %d, want 1", got)
 	}
 
-	session, ok := handler.RouteSession.Snapshot(outcome.Session.ID)
+	session, ok := mustLoadRouteSession(t, handler.RouteSession, outcome.Session.ID)
 	if !ok {
 		t.Fatal("expected route session to be restorable")
 	}
