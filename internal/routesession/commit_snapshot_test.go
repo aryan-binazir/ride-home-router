@@ -12,7 +12,7 @@ func TestCommitSnapshotIsDeepCopiedAcrossFailedPersistence(t *testing.T) {
 	store := routesession.NewStore(calculator{})
 	t.Cleanup(store.Close)
 	vehicle := &models.OrganizationVehicle{ID: 50, Name: "Van", Capacity: 8}
-	created := store.Create(routesession.CreateInput{
+	created := mustCreate(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &models.Driver{ID: 1, Name: "Driver One", VehicleCapacity: 8}, EffectiveCapacity: 8, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Rider"}}}},
 			{Driver: &models.Driver{ID: 2, Name: "Driver Two", VehicleCapacity: 4}, EffectiveCapacity: 4},
@@ -27,7 +27,7 @@ func TestCommitSnapshotIsDeepCopiedAcrossFailedPersistence(t *testing.T) {
 	}
 
 	wantErr := errors.New("persistence failed")
-	err := store.Commit(context.Background(), created.ID, func(_ context.Context, snapshot routesession.CommitSnapshot) error {
+	err := commitSession(store, context.Background(), created.ID, func(_ context.Context, snapshot routesession.CommitSnapshot) error {
 		if snapshot.SessionID != created.ID || len(snapshot.Original[0].Stops) != 1 || len(snapshot.Final[1].Stops) != 1 {
 			t.Fatalf("commit snapshot = %#v", snapshot)
 		}
@@ -54,7 +54,7 @@ func TestCommitSnapshotIsDeepCopiedAcrossFailedPersistence(t *testing.T) {
 		t.Fatalf("Commit error = %v, want %v", err, wantErr)
 	}
 
-	err = store.Commit(context.Background(), created.ID, func(_ context.Context, snapshot routesession.CommitSnapshot) error {
+	err = commitSession(store, context.Background(), created.ID, func(_ context.Context, snapshot routesession.CommitSnapshot) error {
 		if snapshot.Original[0].Driver.Name != "Driver One" || snapshot.Original[0].Stops[0].Participant.Name != "Rider" {
 			t.Fatalf("original snapshot retained mutation: %#v", snapshot.Original)
 		}

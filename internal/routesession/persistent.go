@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -30,7 +31,7 @@ func encodeState(state *session) ([]byte, error) {
 	return json.Marshal(persistedState{state.originalRoutes, state.currentRoutes, state.dirtyRouteIndexes, state.selectedDrivers, state.driverOrgVehicles, state.activityLocation, state.useMiles, state.routeTime, state.mode, state.reviewerNote})
 }
 
-func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, error) {
+func (s *Store) decodeState(ctx context.Context, id string, data []byte) (*session, error) {
 	var p persistedState
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, err
@@ -39,7 +40,6 @@ func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, err
 		p.Dirty = make(map[int]struct{})
 	}
 	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, reviewerNote: p.Note, lastAccessedAt: s.now()}
-	engine := &Store{distanceCalc: s.distanceCalc, sessions: map[string]*session{id: state}, committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}
 	// Sessions written before provider-free planning may carry Google metrics.
 	// Re-estimate both route sets so nothing provider-derived is kept or rewritten.
 	if local, ok := s.distanceCalc.(interface{ NoPrewarm() bool }); ok && local.NoPrewarm() {
@@ -52,7 +52,7 @@ func (s *Store) engine(ctx context.Context, id string, data []byte) (*Store, err
 			}
 		}
 	}
-	return engine, nil
+	return state, nil
 }
 
 func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepository) *Store {
@@ -63,12 +63,15 @@ func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepositor
 }
 
 func (s *Store) CreateContext(ctx context.Context, input CreateInput) (Snapshot, error) {
+	state := newSession(input, s.now())
+	snapshot := snapshotWithChanges(state, changedRoutes(nil, state.currentRoutes))
 	if s.records == nil {
-		return s.Create(input), nil
+		s.insert(state)
+		log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
+		return snapshot, nil
 	}
-	engine := &Store{distanceCalc: s.distanceCalc, sessions: make(map[string]*session), committed: make(map[string]time.Time), ttl: s.ttl, now: s.now}
-	snapshot := engine.Create(input)
-	data, err := encodeState(engine.sessions[snapshot.ID])
+	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
+	data, err := encodeState(state)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -80,8 +83,15 @@ func (s *Store) CreateContext(ctx context.Context, input CreateInput) (Snapshot,
 
 func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	if s.records == nil {
-		snapshot, ok := s.Snapshot(id)
-		return snapshot, ok, nil
+		state, err := s.lockSession(id)
+		if errors.Is(err, ErrNotFound) {
+			return Snapshot{}, false, nil
+		}
+		if err != nil {
+			return Snapshot{}, false, err
+		}
+		defer state.mu.Unlock()
+		return snapshotOf(state), true, nil
 	}
 	record, err := s.records.Load(ctx, "route", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) || record.Consumed {
@@ -90,14 +100,22 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	engine, err := s.engine(ctx, id, record.Data)
+	state, err := s.decodeState(ctx, id, record.Data)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	return snapshotOf(engine.sessions[id]), true, nil
+	return snapshotOf(state), true, nil
 }
 
-func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snapshot, error)) (Snapshot, error) {
+func (s *Store) update(ctx context.Context, id string, mutate func(*session) (Snapshot, error)) (Snapshot, error) {
+	if s.records == nil {
+		state, err := s.lockSession(id)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		defer state.mu.Unlock()
+		return mutate(state)
+	}
 	record, err := s.records.Load(ctx, "route", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) || record.Consumed {
 		return Snapshot{}, ErrNotFound
@@ -105,15 +123,15 @@ func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snap
 	if err != nil {
 		return Snapshot{}, err
 	}
-	engine, err := s.engine(ctx, id, record.Data)
+	state, err := s.decodeState(ctx, id, record.Data)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	result, err := mutate(engine)
+	result, err := mutate(state)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	data, err := encodeState(engine.sessions[id])
+	data, err := encodeState(state)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -127,15 +145,17 @@ func (s *Store) change(ctx context.Context, id string, mutate func(*Store) (Snap
 }
 
 func (s *Store) ResetContext(ctx context.Context, id string) (Snapshot, error) {
-	if s.records == nil {
-		return s.Reset(id)
-	}
-	return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.Reset(id) })
+	return s.update(ctx, id, func(state *session) (Snapshot, error) {
+		before := routeKeys(state.currentRoutes)
+		state.currentRoutes = copyRoutes(state.originalRoutes)
+		state.dirtyRouteIndexes = make(map[int]struct{})
+		return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil
+	})
 }
 
 func (s *Store) DeleteContext(ctx context.Context, id string) error {
 	if s.records == nil {
-		s.Delete(id)
+		s.deleteMemory(id)
 		return nil
 	}
 	return s.records.Delete(ctx, "route", id)
@@ -145,18 +165,21 @@ func (s *Store) DeleteContext(ctx context.Context, id string) error {
 // The writer belongs to this transaction and must not escape the callback.
 func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context.Context, CommitSnapshot, database.WorkflowWrites) error) error {
 	if s.records == nil {
-		return s.Commit(ctx, id, func(ctx context.Context, snapshot CommitSnapshot) error { return persist(ctx, snapshot, nil) })
+		return s.commitMemory(ctx, id, persist)
 	}
 	err := s.records.Transact(ctx, "route", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		if record.Consumed {
 			return ErrAlreadyCommitted
 		}
-		engine, err := s.engine(ctx, id, record.Data)
+		state, err := s.decodeState(ctx, id, record.Data)
 		if err != nil {
 			return err
 		}
-		err = engine.Commit(ctx, id, func(ctx context.Context, snapshot CommitSnapshot) error { return persist(ctx, snapshot, w) })
+		snapshot, err := commitSnapshot(state)
 		if err != nil {
+			return err
+		}
+		if err := persist(ctx, snapshot, w); err != nil {
 			return err
 		}
 		record.Consumed = true
@@ -165,6 +188,9 @@ func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context
 	})
 	if errors.Is(err, database.ErrNotFound) {
 		return ErrNotFound
+	}
+	if err == nil {
+		log.Printf("[SESSION] Deleted route session: id=%s", id)
 	}
 	return err
 }

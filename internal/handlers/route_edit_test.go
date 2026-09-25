@@ -24,7 +24,7 @@ func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)
 	h := &Handler{RouteSession: store}
-	session := store.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes:           []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10}}}}, {Driver: &models.Driver{ID: 2, VehicleCapacity: 2}}},
 		ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff,
 	})
@@ -177,7 +177,7 @@ func newRouteEditHandler(t *testing.T) (*Handler, routesession.Snapshot) {
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)
 	drivers := []models.Driver{{ID: 1, Name: "One", VehicleCapacity: 2}, {ID: 2, Name: "Two", VehicleCapacity: 2}, {ID: 3, Name: "Three", VehicleCapacity: 2}}
-	created := store.Create(routesession.CreateInput{
+	created := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &drivers[0], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Rider", Lat: 1}}}},
 			{Driver: &drivers[1], EffectiveCapacity: 2, Stops: []models.RouteStop{}},

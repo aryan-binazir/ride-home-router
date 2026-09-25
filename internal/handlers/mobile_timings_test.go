@@ -23,7 +23,7 @@ func twoCarMobileFixture(t *testing.T) (*Handler, *stubMeasurer, *http.Cookie, r
 	second := models.Driver{ID: 2, Name: "Marcus Hill", Address: "5 Driver Rd", Lat: 40.4, Lng: -73.4, VehicleCapacity: 3}
 	riderOne := models.Participant{ID: 10, Name: "Maya Chen", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.1}
 	riderTwo := models.Participant{ID: 11, Name: "Leo Park", Address: "2 Rider Rd", Lat: 40.2, Lng: -73.2}
-	session := store.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &first, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &riderOne}}},
 			{Driver: &second, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &riderTwo}}},

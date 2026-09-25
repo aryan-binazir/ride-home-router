@@ -37,7 +37,7 @@ func TestEmptyCarIsLabelledEmptyNotMeasured(t *testing.T) {
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)
 	rider := models.Participant{ID: 10, Name: "Rider", Address: "1 Main", Lat: 1, Lng: 1}
-	session := store.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &models.Driver{ID: 1, Name: "Full", VehicleCapacity: 3}, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &rider}}},
 			{Driver: &models.Driver{ID: 2, Name: "Spare", VehicleCapacity: 3}, EffectiveCapacity: 3},

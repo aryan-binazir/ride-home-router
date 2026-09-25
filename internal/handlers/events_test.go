@@ -129,7 +129,7 @@ func TestHandleCreateEvent_MissingSessionReturnsHTMXRecalculateError(t *testing.
 func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{
 				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
@@ -163,14 +163,14 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 saved event, got %d", len(events))
 	}
-	if _, ok := handler.RouteSession.Snapshot(session.ID); ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); ok {
 		t.Fatal("session remains available after successful event persistence")
 	}
 }
 
 func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
 			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
 			EffectiveCapacity: 2,
@@ -196,7 +196,7 @@ func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
 	if response.Error.Code != "VALIDATION_ERROR" || response.Error.Message != messageEventDateRequired {
 		t.Fatalf("error = %#v", response.Error)
 	}
-	if _, ok := handler.RouteSession.Snapshot(session.ID); !ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); !ok {
 		t.Fatal("session was removed after event date validation failed")
 	}
 	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
@@ -215,7 +215,7 @@ func TestHandleCreateEvent_ConcurrentRetryDoesNotCreateDuplicate(t *testing.T) {
 			Mode:              models.RouteModeDropoff,
 		}},
 	}
-	session := handler.RouteSession.Create(routesession.CreateInput{Routes: result.Routes, Mode: result.Mode})
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{Routes: result.Routes, Mode: result.Mode})
 	started := make(chan struct{})
 	release := make(chan struct{})
 	blockingRepo := &blockingEventRepository{EventRepository: store.Events(), started: started, release: release}
@@ -262,7 +262,7 @@ func TestHandleCreateEvent_ConcurrentRetryDoesNotCreateDuplicate(t *testing.T) {
 
 func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
 			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
 			EffectiveCapacity: 2,
@@ -290,14 +290,14 @@ func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rr.Code, rr.Body.String())
 	}
-	if _, ok := handler.RouteSession.Snapshot(session.ID); !ok {
+	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); !ok {
 		t.Fatal("session was removed after event persistence failed")
 	}
 }
 
 func TestHandleCreateEvent_AllEmptyRoutesReturnsSafeMessage(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
 			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
 			EffectiveCapacity: 2,
@@ -376,14 +376,16 @@ func TestHandleCreateEvent_BogusSessionWithoutDateReturnsSessionExpired(t *testi
 
 func TestHandleCreateEvent_DeletedSessionRejectsPostedRoutesJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
 			Driver: &models.Driver{ID: 1, Name: "Session Driver", VehicleCapacity: 2},
 			Stops:  []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
 		}},
 		Mode: models.RouteModeDropoff,
 	})
-	handler.RouteSession.Delete(session.ID)
+	if err := handler.RouteSession.DeleteContext(context.Background(), session.ID); err != nil {
+		t.Fatal(err)
+	}
 	form := url.Values{
 		"event_date":  {"2026-03-14"},
 		"session_id":  {session.ID},
@@ -417,7 +419,7 @@ func TestHandleCreateEvent_DeletedSessionRejectsPostedRoutesJSON(t *testing.T) {
 func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{
 				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
@@ -487,7 +489,7 @@ func TestHandleCreateEvent_SessionSaveIgnoresClientSuppliedRoutes(t *testing.T) 
 func TestHandleCreateEvent_OutOfBalanceSessionReturnsBadRequest(t *testing.T) {
 	handler, _ := newTestEventHandler(t, false)
 
-	session := handler.RouteSession.Create(routesession.CreateInput{
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{
 				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 1},

@@ -2,8 +2,10 @@ package routesession_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
@@ -12,6 +14,48 @@ import (
 	"testing"
 	"time"
 )
+
+func TestPersistentLoadScrubsOldProviderMetricsWithoutWritingUntilEdit(t *testing.T) {
+	db := postgrestest.Open(t)
+	store := routesession.NewPersistentStore(distance.NewEstimator(), db.Workflows())
+	created, err := store.CreateContext(t.Context(), routesession.CreateInput{
+		Routes: []models.CalculatedRoute{{
+			Driver: &models.Driver{ID: 1, Lat: 35.01, Lng: -78.01, VehicleCapacity: 2}, EffectiveCapacity: 2,
+			Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10, Lat: 35.02, Lng: -78.02}}},
+			TotalDistanceMeters: 99999999, RouteDurationSecs: 99999999,
+		}},
+		ActivityLocation: &models.ActivityLocation{ID: 1, Lat: 35, Lng: -78}, Mode: models.RouteModeDropoff,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := db.Workflows().Load(t.Context(), "route", created.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err := store.Load(t.Context(), created.ID)
+	if err != nil || !ok || loaded.Routes[0].TotalDistanceMeters == 99999999 || loaded.Routes[0].RouteDurationSecs == 99999999 {
+		t.Fatalf("old provider metrics shown: %+v %v %v", loaded, ok, err)
+	}
+	afterRead, err := db.Workflows().Load(t.Context(), "route", created.ID, time.Hour)
+	if err != nil || before.Revision != afterRead.Revision || string(before.Data) != string(afterRead.Data) {
+		t.Fatalf("Load wrote session: before=%d after=%d err=%v", before.Revision, afterRead.Revision, err)
+	}
+	if _, err := store.SetReviewerNote(t.Context(), created.ID, "checked"); err != nil {
+		t.Fatal(err)
+	}
+	afterEdit, err := db.Workflows().Load(t.Context(), "route", created.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct{ Original, Current []models.CalculatedRoute }
+	if err := json.Unmarshal(afterEdit.Data, &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Original) != 1 || len(state.Current) != 1 || state.Original[0].TotalDistanceMeters == 99999999 || state.Current[0].TotalDistanceMeters == 99999999 {
+		t.Fatalf("edit retained provider metrics: %+v", state)
+	}
+}
 
 func TestPersistentRoutesShareStateAndCommitOnce(t *testing.T) {
 	url := postgrestest.DatabaseURL(t)

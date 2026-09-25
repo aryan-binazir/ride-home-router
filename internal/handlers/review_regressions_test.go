@@ -138,7 +138,7 @@ func oneRouteWithUnusedDriver(t *testing.T) (*Handler, routesession.Snapshot, *h
 	drafts := plandraft.NewStore()
 	t.Cleanup(drafts.Close)
 	drivers := []models.Driver{{ID: 1, Name: "First driver", VehicleCapacity: 4}, {ID: 2, Name: "Unused driver", VehicleCapacity: 4}}
-	snapshot := store.Create(routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "Venue"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+	snapshot := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "Venue"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
 	id := drafts.NewID()
 	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = snapshot.ID })
 	return &Handler{Renderer: loadEmbeddedTemplates(t), RouteSession: store, PlanDraft: drafts, Measurer: &stubMeasurer{}}, snapshot, mobileTestCookie(id)

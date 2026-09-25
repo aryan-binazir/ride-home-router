@@ -24,7 +24,7 @@ func largeRouteFixture(t *testing.T) (*Handler, routesession.Snapshot, *http.Coo
 		drivers[i] = models.Driver{ID: int64(i + 1), Name: fmt.Sprintf("Driver %03d", i+1), VehicleCapacity: 4, Address: "2 Test St"}
 		routes[i] = models.CalculatedRoute{Driver: &drivers[i], EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: &models.Participant{ID: int64(i + 1), Name: fmt.Sprintf("Rider %03d", i+1), Address: "3 Test St"}}}}
 	}
-	snapshot := store.Create(routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "Venue", Address: "1 Test St"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+	snapshot := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: routes, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "Venue", Address: "1 Test St"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
 	id := drafts.NewID()
 	drafts.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = snapshot.ID })
 	return &Handler{Renderer: loadEmbeddedTemplates(t), RouteSession: store, PlanDraft: drafts, Measurer: &stubMeasurer{}}, snapshot, mobileTestCookie(id)

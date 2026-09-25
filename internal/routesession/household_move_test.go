@@ -15,7 +15,7 @@ func TestApplyMovesMovesTheWholeHousehold(t *testing.T) {
 	sibling1 := &models.Participant{ID: 1, Name: "Amelia Bennett", Address: "12 Oak St", Lat: 1, Lng: 1}
 	sibling2 := &models.Participant{ID: 2, Name: "Noah Bennett", Address: "12 Oak St", Lat: 1, Lng: 1}
 	other := &models.Participant{ID: 3, Name: "Owen Carter", Address: "40 Elm St", Lat: 2, Lng: 2}
-	created := store.Create(routesession.CreateInput{
+	created := mustCreate(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{
 				Driver: &models.Driver{ID: 1, Name: "From", Lat: 10, Lng: 0, VehicleCapacity: 4}, EffectiveCapacity: 4,
@@ -43,7 +43,7 @@ func TestApplyMovesMovesTheWholeHousehold(t *testing.T) {
 	}
 
 	// A household that overflows the destination still moves as a unit; the plan is flagged out of balance, as a single overflowing rider is.
-	full := store.Create(routesession.CreateInput{
+	full := mustCreate(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &models.Driver{ID: 1, Name: "From", VehicleCapacity: 4}, EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: sibling1}, {Participant: sibling2}}},
 			{Driver: &models.Driver{ID: 2, Name: "Tiny", VehicleCapacity: 1}, EffectiveCapacity: 1},

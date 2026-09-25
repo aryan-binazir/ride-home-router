@@ -41,16 +41,10 @@ func (c RouteChange) Description() string {
 
 // SetReviewerNote stores the reviewer's explanation of the session's edits.
 func (s *Store) SetReviewerNote(ctx context.Context, id, note string) (Snapshot, error) {
-	if s.records != nil {
-		return s.change(ctx, id, func(engine *Store) (Snapshot, error) { return engine.SetReviewerNote(ctx, id, note) })
-	}
-	state, err := s.lockSession(id)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	defer state.mu.Unlock()
-	state.reviewerNote = strings.TrimSpace(note)
-	return snapshotOf(state), nil
+	return s.update(ctx, id, func(state *session) (Snapshot, error) {
+		state.reviewerNote = strings.TrimSpace(note)
+		return snapshotOf(state), nil
+	})
 }
 
 // routeChanges lists the net edits from original to current. Driver swaps
