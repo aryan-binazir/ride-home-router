@@ -134,7 +134,7 @@ func (s *Store) listExisting(ctx context.Context, kind Kind) ([]Existing, error)
 	}
 }
 
-func (s *Store) createBatch(ctx context.Context, kind Kind, rows []Row, selected []bool, w database.WorkflowWrites) (CommitResult, error) {
+func createBatch(ctx context.Context, kind Kind, rows []Row, selected []bool, w database.WorkflowWrites) (CommitResult, error) {
 	result := CommitResult{NotSelected: len(rows)}
 	indices := make([]int, 0, len(rows))
 	for i := range rows {

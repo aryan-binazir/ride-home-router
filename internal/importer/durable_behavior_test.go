@@ -64,27 +64,34 @@ func TestDurableImportUsesLatestSelectionAndCommitsCountsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := durableTestStore(t, db, successfulTestGeocoder())
-	preview := stageDurableImport(t, s, KindParticipant, "name,address\nFirst,1 Main St\nSecond,2 Main St\nThird,3 Main St\n")
+	preview := stageDurableImport(t, s, KindParticipant, "name,address\nFirst,1 Main St\nSecond,2 Main St\nThird,3 Main St\nFourth,4 Main St\n")
 	if !preview.Rows[1].DuplicateOfExisting || !preview.Selected[1] {
 		t.Fatalf("existing row preview = %+v selected=%v", preview.Rows[1], preview.Selected[1])
 	}
+	if preview.Rows[0].DuplicateOfExisting {
+		t.Fatalf("first row was already a duplicate at preview: %+v", preview.Rows[0])
+	}
 	waitDurableImport(t, s, preview.ID)
-	if _, err := s.SelectRowsContext(t.Context(), preview.ID, []bool{false, false, false}); err != nil {
+	// The duplicate appears after preview, so commit must use current roster keys.
+	if _, err := db.Participants().Create(t.Context(), &models.Participant{Name: " First ", Address: "1 MAIN ST", Lat: 40, Lng: -73}); err != nil {
 		t.Fatal(err)
 	}
-	selection, err := s.SelectRowsContext(t.Context(), preview.ID, []bool{true, true, false})
+	if _, err := s.SelectRowsContext(t.Context(), preview.ID, []bool{false, false, false, false}); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := s.SelectRowsContext(t.Context(), preview.ID, []bool{true, true, false, true})
 	if err != nil || selection.Selected[2] {
 		t.Fatalf("latest selection = %+v err=%v", selection.Selected, err)
 	}
 	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result != (CommitResult{Created: 1, Updated: 1, NotSelected: 1}) {
+	if err != nil || result != (CommitResult{Created: 1, Updated: 2, NotSelected: 1}) {
 		t.Fatalf("commit = %+v err=%v", result, err)
 	}
 	if _, err := s.Commit(t.Context(), preview.ID, nil); !errors.Is(err, ErrCommitConsumed) {
 		t.Fatalf("second commit = %v, want consumed", err)
 	}
 	rows, err := db.Participants().List(t.Context(), "")
-	if err != nil || len(rows) != 2 {
+	if err != nil || len(rows) != 3 {
 		t.Fatalf("roster rows = %+v err=%v", rows, err)
 	}
 }

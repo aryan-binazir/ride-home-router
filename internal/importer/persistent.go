@@ -283,7 +283,7 @@ func (s *Store) commitPersistent(ctx context.Context, id string, selection []boo
 		if err := applySelectionPatch(selected, patch); err != nil {
 			return err
 		}
-		result, err = s.createBatch(ctx, h.Kind, rows, selected, w)
+		result, err = createBatch(ctx, h.Kind, rows, selected, w)
 		if err != nil {
 			return err
 		}
