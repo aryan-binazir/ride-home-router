@@ -24,7 +24,6 @@ func parseActivityLocationID(path string) (int64, error) {
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
-// HandleListActivityLocations handles GET /api/v1/activity-locations
 func (h *Handler) HandleListActivityLocations(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/activity-locations")
 	locations, err := h.DB.ActivityLocations().List(r.Context())
@@ -41,7 +40,6 @@ func (h *Handler) HandleListActivityLocations(w http.ResponseWriter, r *http.Req
 	h.writeJSON(w, http.StatusOK, locations)
 }
 
-// HandleListDeletedActivityLocations handles GET /api/v1/activity-locations/deleted.
 func (h *Handler) HandleListDeletedActivityLocations(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/activity-locations/deleted")
 	locations, err := h.DB.ActivityLocations().ListDeleted(r.Context())
@@ -63,7 +61,6 @@ func (h *Handler) HandleListDeletedActivityLocations(w http.ResponseWriter, r *h
 	h.writeJSON(w, http.StatusOK, locations)
 }
 
-// HandleCreateActivityLocation handles POST /api/v1/activity-locations
 func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name    string `json:"name"`
@@ -104,7 +101,6 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Print("[HTTP] POST /api/v1/activity-locations:")
 
 	geocodeResult, err := h.Geocoder.GeocodeWithRetry(r.Context(), req.Address, 3)
@@ -140,7 +136,6 @@ func (h *Handler) HandleCreateActivityLocation(w http.ResponseWriter, r *http.Re
 	h.writeJSON(w, http.StatusCreated, createdLocation)
 }
 
-// HandleGetActivityLocation handles GET /api/v1/activity-locations/{id}
 func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Request) {
 	id, err := parseActivityLocationID(r.URL.Path)
 	if err != nil {
@@ -172,7 +167,6 @@ func (h *Handler) HandleGetActivityLocation(w http.ResponseWriter, r *http.Reque
 	h.writeJSON(w, http.StatusOK, location)
 }
 
-// HandleActivityLocationForm handles GET /api/v1/activity-locations/{id}/edit
 func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Request) {
 	id, err := parseActivityLocationID(r.URL.Path)
 	if err != nil {
@@ -193,7 +187,6 @@ func (h *Handler) HandleActivityLocationForm(w http.ResponseWriter, r *http.Requ
 	h.renderTemplate(w, "activity_location_form", ActivityLocationFormView{ActivityLocation: location})
 }
 
-// HandleUpdateActivityLocation handles PUT /api/v1/activity-locations/{id}
 func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Request) {
 	id, err := parseActivityLocationID(r.URL.Path)
 	if err != nil {
@@ -298,7 +291,6 @@ func (h *Handler) HandleUpdateActivityLocation(w http.ResponseWriter, r *http.Re
 	h.writeJSON(w, http.StatusOK, updatedLocation)
 }
 
-// HandleDeleteActivityLocation handles DELETE /api/v1/activity-locations/{id}
 func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Request) {
 	id, err := parseActivityLocationID(r.URL.Path)
 	if err != nil {
@@ -308,7 +300,7 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] DELETE /api/v1/activity-locations/%d", id)
 
 	if err := h.DB.ActivityLocations().Delete(r.Context(), id); err != nil {
@@ -347,7 +339,6 @@ func (h *Handler) HandleDeleteActivityLocation(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandleRestoreActivityLocation handles POST /api/v1/activity-locations/restore.
 func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
@@ -357,7 +348,7 @@ func (h *Handler) HandleRestoreActivityLocation(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] POST /api/v1/activity-locations/restore: id=%d", id)
 	if err := h.DB.ActivityLocations().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {

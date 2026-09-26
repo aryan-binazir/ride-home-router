@@ -1,4 +1,3 @@
-/* Clerk owns session refresh; every backend request independently checks access. */
 (async function () {
     const retry = document.getElementById('auth-retry');
     if (retry) retry.addEventListener('click', () => location.reload());
@@ -36,18 +35,20 @@
         link.textContent = 'Sign in in another tab, then retry here.';
         recovery.appendChild(link);
     }
-    // Retry only an explicit 401: the backend rejects it before any mutation.
-    // Never retry network errors or 5xx, where a mutation might have committed.
+    async function refreshedSessionToken() {
+        try {
+            return await window.Clerk.session.getToken({skipCache: true});
+        } catch (_) {
+            return null;
+        }
+    }
     window.authFetch = async function (url, options = {}) {
         if (new URL(url, location.href).origin !== location.origin) {
             throw new Error('Authenticated requests must stay on this site.');
         }
         let response = await fetch(url, options);
         if (response.status === 401 && window.Clerk?.session) {
-            let token;
-            try {
-                token = await window.Clerk.session.getToken({skipCache: true});
-            } catch (_) { /* Keep the current edit when refresh is unavailable. */ }
+            const token = await refreshedSessionToken();
             if (token) {
                 const headers = new Headers(options.headers);
                 headers.set('Authorization', 'Bearer ' + token);
@@ -86,8 +87,6 @@
             if (pendingForms.has(form)) return;
             pendingForms.add(form);
             try {
-                // A phone may wake with an expired cookie. Refresh before its
-                // plain HTML POST so the browser keeps unsent input on failure.
                 const token = await window.Clerk.session?.getToken({skipCache: true});
                 if (!token) throw new Error('No active session');
                 readyForms.add(form);

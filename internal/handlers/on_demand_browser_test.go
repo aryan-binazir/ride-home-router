@@ -21,8 +21,6 @@ import (
 	"time"
 )
 
-// Real Chromium + HTTP + application templates/scripts and route-edit handlers.
-// The calculation fixture avoids external provider work; edits use the real store.
 func TestRouteEditorBrowserLoadsSearchesAndMovesOnDemand(t *testing.T) {
 	browser := os.Getenv("BROWSER_TEST_BINARY")
 	if browser == "" {

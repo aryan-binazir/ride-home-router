@@ -50,7 +50,6 @@ func TestSnapshotReportsWhichRoutesChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The appended car is reported so callers can render it; measuring an empty car costs nothing.
 	if !slices.Equal(added.ChangedRouteIndexes, []int{2}) {
 		t.Fatalf("adding a car reports the new index: %v", added.ChangedRouteIndexes)
 	}
@@ -58,7 +57,6 @@ func TestSnapshotReportsWhichRoutesChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Route 0's driver became D3 and route 2's became D1; route 2 stays empty.
 	if !slices.Equal(swapped.ChangedRouteIndexes, []int{0, 2}) {
 		t.Fatalf("swap changes both cars: %v", swapped.ChangedRouteIndexes)
 	}

@@ -1,4 +1,3 @@
-// Package importer parses and validates participant and driver roster files.
 package importer
 
 import (
@@ -6,7 +5,6 @@ import (
 	"time"
 )
 
-// Import limits shared with the HTTP layer.
 const (
 	MaxDataRows       = 2000
 	MaxColumns        = 64
@@ -20,7 +18,6 @@ const (
 	UnmappedColumn = -1
 )
 
-// Format identifies a supported roster file format.
 type Format string
 
 const (
@@ -28,7 +25,6 @@ const (
 	FormatXLSX Format = "xlsx"
 )
 
-// Kind identifies the roster being imported.
 type Kind string
 
 const (
@@ -36,7 +32,6 @@ const (
 	KindDriver      Kind = "driver"
 )
 
-// Field identifies an importable roster field.
 type Field string
 
 const (
@@ -46,7 +41,6 @@ const (
 	FieldCapacity    Field = "capacity"
 )
 
-// Mapping binds fields to columns; UnmappedColumn leaves a field unbound.
 type Mapping struct {
 	NameColumn        int
 	AddressColumn     int
@@ -57,14 +51,12 @@ type Mapping struct {
 	Ignored   []int
 }
 
-// Grid holds parsed headers and private rows that require validation.
 type Grid struct {
 	Headers  []string
 	Warnings []string
 	rows     []gridRow
 }
 
-// Len returns the number of data rows in the grid.
 func (g *Grid) Len() int {
 	if g == nil {
 		return 0
@@ -80,29 +72,23 @@ type gridRow struct {
 	xlsx      bool
 }
 
-// Existing identifies one current roster entry.
 type Existing struct {
 	Name    string
 	Address string
 }
 
-// Row is validated; HasCoordinates distinguishes (0,0) from missing values.
 type Row struct {
 	GeocodedAt time.Time
 	SourceRow  int
 
-	Name        string
-	Address     string
-	AddressName string
-	Lat         float64
-	Lng         float64
-	Capacity    int
-	// CapacityDefaulted means no capacity column was mapped; updates keep the
-	// existing driver's capacity instead of resetting it to the default.
-	CapacityDefaulted bool
+	Name             string
+	Address          string
+	AddressName      string
+	Lat              float64
+	Lng              float64
+	Capacity         int
+	CapacityUnmapped bool `json:"CapacityDefaulted"`
 
-	// MatchedAddress is the geocoder's label for Address; AddressGuessed means
-	// it settled for its closest candidate rather than an exact match.
 	MatchedAddress string
 	AddressGuessed bool
 

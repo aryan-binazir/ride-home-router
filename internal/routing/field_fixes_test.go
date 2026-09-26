@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// A roster that cannot fit is reported immediately, before any distance work,
-// so a 500-rider shortage does not run into the calculation timeout.
 func TestCalculateRoutesReportsSeatShortageBeforeSearching(t *testing.T) {
 	calc := &countingSolveDistanceCalculator{}
 	router := NewBalancedRouter(calc)
@@ -37,8 +35,6 @@ func TestCalculateRoutesReportsSeatShortageBeforeSearching(t *testing.T) {
 	}
 }
 
-// Two drivers who each hold the other's neighbourhood must end up swapped:
-// the driver phase exchanges whole cars, not households.
 func TestAssignmentSearchSwapsDriversWhoseHomesAreCrossed(t *testing.T) {
 	institute := models.Coordinates{Lat: 0, Lng: 0}
 	north := &models.Driver{ID: 1, Name: "North Driver", Lat: 0.10, Lng: 0, VehicleCapacity: 2}
@@ -86,9 +82,6 @@ func names(stops []*models.Participant) []string {
 	return out
 }
 
-// A swap the comparator would prefer (it lowers the worst detour) is still
-// refused when it adds driving overall, and refusing it leaves both cars as
-// they were.
 func TestDriverSwapThatAddsDrivingIsRefused(t *testing.T) {
 	institute := models.Coordinates{Lat: 0, Lng: 0}
 	a := &models.Driver{ID: 1, Name: "A", Lat: 0.029, Lng: 0.099, VehicleCapacity: 2}
@@ -131,8 +124,6 @@ func mustMetrics(t *testing.T, rc routeContext, routes map[int64]*balancedRoute)
 	return out
 }
 
-// Whatever the driver phase does, including its final stop-ordering pass, the
-// plan it returns never drives more in total than the plan it was given.
 func TestDriverPhaseNeverAddsDriving(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20260913, 4)) //nolint:gosec // Seeded test data, not security material.
 	institute := models.Coordinates{Lat: 0, Lng: 0}
@@ -159,7 +150,6 @@ func TestDriverPhaseNeverAddsDriving(t *testing.T) {
 		}
 		rc := newRouteContext(lookup, institute, normalizeRouteMode("dropoff"))
 		rc.prepareParticipants(riders)
-		// Deal riders round-robin in a random order so drivers often hold the wrong car.
 		rng.Shuffle(len(riders), func(i, j int) { riders[i], riders[j] = riders[j], riders[i] })
 		routes := map[int64]*balancedRoute{}
 		ids := []int64{}

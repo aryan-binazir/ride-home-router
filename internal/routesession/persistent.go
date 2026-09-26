@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// persistedState is versioned by the database migration that introduces it.
-// A request loads its own copy; no application instance owns a session.
 type persistedState struct {
 	Original []models.CalculatedRoute
 	Current  []models.CalculatedRoute
@@ -40,19 +38,29 @@ func (s *Store) decodeState(ctx context.Context, id string, data []byte) (*sessi
 		p.Dirty = make(map[int]struct{})
 	}
 	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, reviewerNote: p.Note, lastAccessedAt: s.now()}
-	// Sessions written before provider-free planning may carry Google metrics.
-	// Re-estimate both route sets so nothing provider-derived is kept or rewritten.
-	if local, ok := s.distanceCalc.(interface{ NoPrewarm() bool }); ok && local.NoPrewarm() {
-		for _, routes := range [][]models.CalculatedRoute{state.originalRoutes, state.currentRoutes} {
-			for i := range routes {
-				if state.activityLocation == nil || routes[i].Driver == nil || routing.PopulateRouteMetrics(ctx, s.distanceCalc, state.activityLocation.GetCoords(), state.mode, &routes[i]) != nil {
-					// Unestimable routes lose their numbers rather than keeping provider values.
-					routing.ZeroRouteMetrics(&routes[i])
-				}
+	s.estimateStoredRoutes(ctx, state)
+	return state, nil
+}
+
+func (s *Store) estimateStoredRoutes(ctx context.Context, state *session) {
+	estimator, ok := s.distanceCalc.(interface{ NoPrewarm() bool })
+	if !ok || !estimator.NoPrewarm() {
+		return
+	}
+	for _, routes := range [][]models.CalculatedRoute{state.originalRoutes, state.currentRoutes} {
+		for i := range routes {
+			if !routeMetricsEstimated(ctx, s.distanceCalc, state, &routes[i]) {
+				routing.ZeroRouteMetrics(&routes[i])
 			}
 		}
 	}
-	return state, nil
+}
+
+func routeMetricsEstimated(ctx context.Context, calc distance.Lookup, state *session, route *models.CalculatedRoute) bool {
+	if state.activityLocation == nil || route.Driver == nil {
+		return false
+	}
+	return routing.PopulateRouteMetrics(ctx, calc, state.activityLocation.GetCoords(), state.mode, route) == nil
 }
 
 func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepository) *Store {
@@ -146,7 +154,7 @@ func (s *Store) update(ctx context.Context, id string, mutate func(*session) (Sn
 
 func (s *Store) ResetContext(ctx context.Context, id string) (Snapshot, error) {
 	return s.update(ctx, id, func(state *session) (Snapshot, error) {
-		before := routeKeys(state.currentRoutes)
+		before := routeIdentity(state.currentRoutes)
 		state.currentRoutes = copyRoutes(state.originalRoutes)
 		state.dirtyRouteIndexes = make(map[int]struct{})
 		return snapshotWithChanges(state, changedRoutes(before, state.currentRoutes)), nil

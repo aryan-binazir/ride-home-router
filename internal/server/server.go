@@ -31,7 +31,6 @@ import (
 	"time"
 )
 
-// Server owns the HTTP server and its dependencies.
 type Server struct {
 	cleanupCancel context.CancelFunc
 	cleanupDone   chan struct{}
@@ -45,15 +44,12 @@ type Server struct {
 	allowedHosts  []string
 }
 
-// Config defines server startup settings.
 type Config struct {
 	CredentialEncryptionKey string
 	Auth                    access.Config
-	Addr                    string // e.g., "127.0.0.1:8080" or "127.0.0.1:0" for random port
-	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
-	AllowedHosts []string
-	// DatabaseURL points to the migrated Postgres database to serve.
-	DatabaseURL string
+	Addr                    string
+	AllowedHosts            []string
+	DatabaseURL             string
 	// RoutingEngine selects "estimate" (default: provider-free planning that is
 	// measured afterwards) or "matrix" (legacy Google distance matrix, kept only
 	// to compare route quality).
@@ -69,13 +65,13 @@ const (
 	serverIdleTimeout  = 120 * time.Second
 
 	maxRequestBodyBytes int64 = 1 << 20
+	httpDefaultPort           = "80"
 
 	serverMessageForbidden        = "Forbidden"
 	serverMessageMethodNotAllowed = "Method not allowed"
 	serverMessageNotFound         = "Not found"
 )
 
-// New prepares a stopped server against an already-migrated database.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, errors.New("database URL is required")
@@ -189,7 +185,6 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}, nil
 }
 
-// Start begins serving and returns the listener address.
 func (s *Server) Start() (string, error) {
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
@@ -224,7 +219,6 @@ func (s *Server) Errors() <-chan error {
 	return s.serveErrors
 }
 
-// Shutdown stops sessions, HTTP serving, and database access.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.cleanupCancel != nil {
 		s.cleanupCancel()
@@ -313,8 +307,6 @@ func handleResourcePath(emptyPath, editSuffix string, editHandler, get, put, del
 	}
 }
 
-// handleActionSuffix routes POST requests ending in suffix to action and every
-// other request to next.
 func handleActionSuffix(suffix string, action, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, suffix) {
@@ -392,7 +384,6 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/v1/events", handleMethods(handler.HandleListEvents, handler.HandleCreateEvent, nil, nil))
 	mux.HandleFunc("/api/v1/events/", handleResourcePath("/api/v1/events/", "", nil, handler.HandleGetEvent, nil, handler.HandleDeleteEvent))
 
-	// Keep old mobile bookmarks usable without rendering the retired interface.
 	mux.HandleFunc("/m", requireMethod(http.MethodGet, redirectLegacyMobile))
 	mux.HandleFunc("/m/", requireMethod(http.MethodGet, redirectLegacyMobile))
 
@@ -453,8 +444,6 @@ type requestAllowlist struct {
 	hosts map[string]struct{}
 }
 
-// newRequestAllowlist always permits loopback names.
-// A public listener requires an explicit proxy hostname.
 func newRequestAllowlist(actualAddr string, allowedHosts []string) (requestAllowlist, error) {
 	bindHost, port, err := net.SplitHostPort(actualAddr)
 	if err != nil {
@@ -479,12 +468,10 @@ func newRequestAllowlist(actualAddr string, allowedHosts []string) (requestAllow
 	hosts := make(map[string]struct{})
 	for _, name := range names {
 		hosts[strings.ToLower(net.JoinHostPort(name, port))] = struct{}{}
-		// A bare HTTP host implies port 80.
-		if port == "80" {
+		if port == httpDefaultPort {
 			hosts[strings.ToLower(bareHost(name))] = struct{}{}
 		}
 	}
-	// Proxy hosts are valid bare and on the listener port.
 	for _, name := range allowedHosts {
 		name = strings.ToLower(strings.TrimSpace(name))
 		if name == "" {
@@ -534,7 +521,6 @@ func requestSecurityMiddleware(allowlist requestAllowlist, next http.Handler) ht
 	})
 }
 
-// Body buffering is inside authentication, so denied uploads are never read.
 func requestBodyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isStateChangingMethod(r.Method) {
@@ -593,7 +579,6 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Recovery owns access logging so unwritten panic responses are recorded as 500.
 func recoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -636,9 +621,6 @@ func requestError(w http.ResponseWriter, r *http.Request, message string, status
 	http.Error(w, message, status)
 }
 
-// routingDistanceSource picks the planner's distance source. The estimator is
-// the default; the Google matrix stays selectable only to compare route quality.
-// The boolean reports whether planning is provider-free and therefore measured afterwards.
 func routingDistanceSource(engine string, cache database.DistanceCacheRepository, key distance.APIKeyProvider) (distance.SolveSource, bool, error) {
 	switch strings.ToLower(strings.TrimSpace(engine)) {
 	case "", "estimate":

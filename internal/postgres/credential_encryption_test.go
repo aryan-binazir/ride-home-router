@@ -77,7 +77,6 @@ func TestCredentialEncryptionStorageAndRecovery(t *testing.T) {
 	if _, err = replica.Settings().GoogleMapsKey(t.Context()); err == nil {
 		t.Fatal("wrong key decrypted credential")
 	}
-	// A valid replacement encryption key can recover through admin re-entry.
 	if err = replica.Settings().SetGoogleMapsKey(t.Context(), "replacement-secret"); err != nil {
 		t.Fatal(err)
 	}

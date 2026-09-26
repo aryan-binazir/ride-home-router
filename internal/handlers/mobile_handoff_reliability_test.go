@@ -47,10 +47,11 @@ func TestMobileMapsHandoffPreservesStopsAcrossSupportedLegs(t *testing.T) {
 				t.Cleanup(h.PlanDraft.Close)
 				route := models.CalculatedRoute{Driver: &models.Driver{ID: 1, Name: "Driver", Address: "Driver home", Lat: 41, Lng: -73, VehicleCapacity: 12}, EffectiveCapacity: 12, Mode: mode}
 				var expected []string
+				repeatedFirstStopLat := 40 + 1.0/100
 				for i := 1; i <= count; i++ {
 					lat := 40 + float64(i)/100
 					if i == 3 {
-						lat = 40.01 // A later visit to the first address must not disappear.
+						lat = repeatedFirstStopLat
 					}
 					route.Stops = append(route.Stops, models.RouteStop{Participant: &models.Participant{ID: int64(i), Name: fmt.Sprintf("Rider %d", i), Lat: lat, Lng: -73}})
 					expected = append(expected, fmt.Sprintf("%.6f,-73.000000", lat))
@@ -83,7 +84,7 @@ func TestMobileMapsHandoffPreservesStopsAcrossSupportedLegs(t *testing.T) {
 					}
 					if waypoints := q.Get("waypoints"); waypoints != "" {
 						stops := strings.Split(waypoints, "|")
-						if len(stops) > 3 {
+						if len(stops) > maxIntermediateMapsWaypoints {
 							t.Fatalf("unsupported %d waypoints: %s", len(stops), line)
 						}
 						visited = append(visited, stops...)
@@ -117,9 +118,9 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Empty unused routes must not shift the handoff-to-saved-route association.
+			unusedLeadingRoute := models.CalculatedRoute{Driver: &models.Driver{ID: 99, Name: "Unused", VehicleCapacity: 4}}
 			route := models.CalculatedRoute{Driver: driver, EffectiveCapacity: 4, Mode: mode, RouteDurationSecs: 1200, Stops: []models.RouteStop{{Participant: rider, CumulativeDurationSecs: 300}}}
-			snapshot := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 99, Name: "Unused", VehicleCapacity: 4}}, route}, ActivityLocation: &models.ActivityLocation{Name: "Grace Center", Address: "1 Grace Way", Lat: 40, Lng: -73}, RouteTime: "18:30", Mode: mode})
+			snapshot := mustCreateRouteSession(t, h.RouteSession, routesession.CreateInput{Routes: []models.CalculatedRoute{unusedLeadingRoute, route}, ActivityLocation: &models.ActivityLocation{Name: "Grace Center", Address: "1 Grace Way", Lat: 40, Lng: -73}, RouteTime: "18:30", Mode: mode})
 			id := h.PlanDraft.NewID()
 			h.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = snapshot.ID })
 			page := mobileRoutePage(t, h, id)
@@ -127,8 +128,6 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			if !strings.Contains(liveDriverText, "Maps:") || !strings.Contains(liveDriverText, "Grace Center") {
 				t.Fatal("live handoff setup missing route details")
 			}
-			// Saved handoffs keep names, stops, addresses and Maps links but never travel
-			// times, which are provider content the app may not store.
 			live, _ := mustLoadRouteSession(t, h.RouteSession, snapshot.ID)
 			driverText := formatMobileHandoff(live, live.Routes[1], false, nil)
 			parentText := formatMobileHandoff(live, live.Routes[1], true, nil)
@@ -151,11 +150,10 @@ func TestSavedMobileHandoffSurvivesSessionConsumptionAndRosterChanges(t *testing
 			if err := store.Drivers().Delete(ctx, driver.ID); err != nil {
 				t.Fatal(err)
 			}
-			// A fresh handler proves history doesn't depend on the old in-memory plan.
-			history := &Handler{DB: store, Renderer: loadEmbeddedTemplates(t)}
+			historyWithoutLivePlan := &Handler{DB: store, Renderer: loadEmbeddedTemplates(t)}
 			req := httptest.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 			saved := httptest.NewRecorder()
-			history.HandleMobileHistoryDetail(saved, req)
+			historyWithoutLivePlan.HandleMobileHistoryDetail(saved, req)
 			if saved.Code != 200 {
 				t.Fatalf("history: %d %s", saved.Code, saved.Body.String())
 			}

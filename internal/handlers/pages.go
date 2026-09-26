@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// HandleIndexPage handles GET /
 func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 	participants, err := h.DB.Participants().List(r.Context(), "")
 	if err != nil {
@@ -59,7 +58,6 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleParticipantsPage handles GET /participants
 func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request) {
 	participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")))
 	if err != nil {
@@ -88,7 +86,6 @@ func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// HandleDriversPage handles GET /drivers
 func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 	drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")))
 	if err != nil {
@@ -117,7 +114,6 @@ func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleLabelsPage handles GET /labels
 func (h *Handler) HandleLabelsPage(w http.ResponseWriter, r *http.Request) {
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
@@ -132,7 +128,6 @@ func (h *Handler) HandleLabelsPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleActivityLocationsPage handles GET /activity-locations
 func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Request) {
 	activityLocations, err := h.DB.ActivityLocations().List(r.Context())
 	if err != nil {
@@ -147,7 +142,6 @@ func (h *Handler) HandleActivityLocationsPage(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// HandleVansPage handles GET /vans
 func (h *Handler) HandleVansPage(w http.ResponseWriter, r *http.Request) {
 	orgVehicles, err := h.DB.OrganizationVehicles().List(r.Context())
 	if err != nil {
@@ -162,7 +156,6 @@ func (h *Handler) HandleVansPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleSettingsPage handles GET /settings
 func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
@@ -178,7 +171,6 @@ func (h *Handler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleHistoryPage handles GET /history
 func (h *Handler) HandleHistoryPage(w http.ResponseWriter, r *http.Request) {
 	view, err := h.buildEventListView(r.Context(), 20, 0)
 	if err != nil {

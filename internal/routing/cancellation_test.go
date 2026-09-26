@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-// Count resource lifetimes at the package boundary, without depending on worker
-// function names or a private scheduler hook. The tests themselves are external.
 func routingGoroutines() int {
 	stacks := make([]byte, 1<<20)
 	n := runtime.Stack(stacks, true)
@@ -33,8 +31,6 @@ func TestCalculationResultsAgreeAcrossParallelism(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	for _, mode := range []routing.RouteMode{routing.RouteModePickup, routing.RouteModeDropoff} {
 		for _, households := range []bool{false, true} {
-			// Keep repeated determinism checks small under race and coverage
-			// instrumentation. Large solves belong in BenchmarkCalculateRoutesWarm.
 			req, source := performanceFixture(12, 3, households)
 			req.Mode = mode
 			runtime.GOMAXPROCS(1)
@@ -68,16 +64,14 @@ func TestCalculationResultsAgreeAcrossParallelism(t *testing.T) {
 
 type interruptedDistances struct {
 	warmDistances
-	calls, stopAt int
-	failure       error
-	panics        bool
+	unsynchronizedCalls, stopAt int
+	failure                     error
+	panics                      bool
 }
 
 func (s *interruptedDistances) GetDistance(ctx context.Context, a, b models.Coordinates) (*distance.DistanceResult, error) {
-	// Deliberately unsynchronized: the public source remains serial even when
-	// search is parallel, and the race suite protects that contract.
-	s.calls++
-	if s.calls == s.stopAt {
+	s.unsynchronizedCalls++
+	if s.unsynchronizedCalls == s.stopAt {
 		if s.panics {
 			panic(s.failure)
 		}
@@ -121,7 +115,6 @@ func TestParallelCalculationJoinsWorkersOnParentCancellation(t *testing.T) {
 	discardRoutingLogs(t)
 	previous := runtime.GOMAXPROCS(4)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
-	// Reach parallel search promptly even with race and coverage instrumentation.
 	req, source := performanceFixture(12, 3, false)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -168,13 +161,11 @@ func TestConcurrentCalculationsBoundWorkersAndJoinOnCancellation(t *testing.T) {
 	previous := runtime.GOMAXPROCS(4)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	for range 5 {
-		// Four simultaneous solves must reach parallel search before the deadline.
 		req, source := performanceFixture(12, 3, false)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 4)
 		for range 4 {
 			go func() {
-				// Each calculation owns its mutable input slices.
 				local := req
 				local.Participants = append([]models.Participant(nil), req.Participants...)
 				local.Drivers = append([]models.Driver(nil), req.Drivers...)

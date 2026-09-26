@@ -7,30 +7,30 @@ import (
 	"sort"
 )
 
-// Metrics is what a coordinator would care about in a plan, in plain units.
 type Metrics struct {
 	CarsUsed         int     `json:"cars_used"`
 	TotalDistanceKm  float64 `json:"total_distance_km"`
 	MaxDetourMin     float64 `json:"max_detour_min"`
 	AverageDetourMin float64 `json:"average_detour_min"`
-	LongestRiderMin  float64 `json:"longest_rider_min"` // longest time any rider spends in a car
-	FarDrivers       int     `json:"far_drivers"`       // driver home over 15 km from their riders' centre
-	BacktrackingCars int     `json:"backtracking_cars"` // a later stop undoes over 2 km of progress
+	LongestRiderMin  float64 `json:"longest_rider_min"`
+	FarDrivers       int     `json:"far_drivers"`
+	BacktrackingCars int     `json:"backtracking_cars"`
 	SplitHouseholds  int     `json:"split_households"`
-	// BurdenP95Min and BurdenMaxMin are driver detour minutes per rider served,
-	// the 95th percentile (nearest rank) and the worst car: a long excursion for
-	// two riders reads worse than a full van's.
-	BurdenP95Min float64 `json:"burden_p95_min"`
-	BurdenMaxMin float64 `json:"burden_max_min"`
-	// HomePassCars counts cars whose path comes within 2 km of the driver's
-	// home and then still has a rider more than 5 km from that home to serve.
-	HomePassCars int   `json:"home_pass_cars"`
-	TimedOut     bool  `json:"timed_out,omitempty"` // no plan within the production calculation timeout
-	SolveMs      int64 `json:"-"`                   // reported, never part of the committed baseline
+	BurdenP95Min     float64 `json:"burden_p95_min"`
+	BurdenMaxMin     float64 `json:"burden_max_min"`
+	HomePassCars     int     `json:"home_pass_cars"`
+	TimedOut         bool    `json:"timed_out,omitempty"`
+	SolveMs          int64   `json:"-"`
 }
 
-// Measure summarises a plan. Distances and times are the planner's own
-// estimates, so they compare like with like across planner versions.
+const (
+	farDriverKm         = 15
+	backtrackKm         = 2
+	homePassProximityKm = 2
+	homePassRiderKm     = 5
+	burdenPercentile    = 0.95
+)
+
 func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int64) Metrics {
 	m := Metrics{SolveMs: solveMs}
 	homes := map[string]map[int64]struct{}{}
@@ -50,7 +50,7 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 			}
 		}
 		if riders > 0 {
-			burdens = append(burdens, route.DetourSecs/60/float64(riders))
+			burdens = append(burdens, detourMinutesPerRider(route.DetourSecs, riders))
 		}
 		var lat, lng float64
 		var radii []float64
@@ -75,7 +75,7 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 			homes[key][int64(i)] = struct{}{}
 		}
 		n := float64(len(route.Stops))
-		if route.Driver != nil && haversineKm(route.Driver.GetCoords(), models.Coordinates{Lat: lat / n, Lng: lng / n}) > 15 {
+		if route.Driver != nil && haversineKm(route.Driver.GetCoords(), models.Coordinates{Lat: lat / n, Lng: lng / n}) > farDriverKm {
 			m.FarDrivers++
 		}
 		if backtracks(radii, result.Mode == models.RouteModePickup) {
@@ -87,7 +87,7 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 	}
 	if len(burdens) > 0 {
 		sort.Float64s(burdens)
-		m.BurdenP95Min = burdens[int(math.Ceil(0.95*float64(len(burdens))))-1]
+		m.BurdenP95Min = nearestRank(burdens, burdenPercentile)
 		m.BurdenMaxMin = burdens[len(burdens)-1]
 	}
 	if m.CarsUsed > 0 {
@@ -105,11 +105,14 @@ func Measure(result *models.RoutingResult, venue models.Coordinates, solveMs int
 	return m
 }
 
-// passesHome reports whether the car's straight-line path (venue → riders, in
-// venue-to-riders order) comes within 2 km of the driver's home on some leg
-// while a rider more than 5 km from that home is still to be served, that
-// leg's destination included. The final leg to the driver's home is not a
-// leg here. Pickup routes are reversed into venue-to-riders order first.
+func detourMinutesPerRider(detourSecs float64, riders int) float64 {
+	return detourSecs / 60 / float64(riders)
+}
+
+func nearestRank(sorted []float64, percentile float64) float64 {
+	return sorted[int(math.Ceil(percentile*float64(len(sorted))))-1]
+}
+
 func passesHome(venue, home models.Coordinates, riders []models.Coordinates, pickup bool) bool {
 	ordered := riders
 	if pickup {
@@ -120,11 +123,11 @@ func passesHome(venue, home models.Coordinates, riders []models.Coordinates, pic
 	}
 	points := append([]models.Coordinates{venue}, ordered...)
 	for i := 0; i+1 < len(points); i++ {
-		if segmentDistanceKm(home, points[i], points[i+1]) > 2 {
+		if segmentDistanceKm(home, points[i], points[i+1]) > homePassProximityKm {
 			continue
 		}
 		for _, later := range points[i+1:] {
-			if haversineKm(home, later) > 5 {
+			if haversineKm(home, later) > homePassRiderKm {
 				return true
 			}
 		}
@@ -132,7 +135,6 @@ func passesHome(venue, home models.Coordinates, riders []models.Coordinates, pic
 	return false
 }
 
-// segmentDistanceKm measures distance to the shortest great-circle segment.
 func segmentDistanceKm(p, a, b models.Coordinates) float64 {
 	const radiusKm = 6371.0088
 	length := haversineKm(a, b) / radiusKm
@@ -153,16 +155,13 @@ func segmentDistanceKm(p, a, b models.Coordinates) float64 {
 	return radiusKm * math.Abs(math.Asin(math.Max(-1, math.Min(1, cross))))
 }
 
-// backtracks reports whether the stop sequence gives back more than 2 km of
-// progress: in dropoff a later stop should not be much nearer the venue than
-// an earlier one; in pickup the mirror.
 func backtracks(radii []float64, pickup bool) bool {
 	for i := range radii {
 		for j := i + 1; j < len(radii); j++ {
-			if pickup && radii[j] > radii[i]+2 {
+			if pickup && radii[j] > radii[i]+backtrackKm {
 				return true
 			}
-			if !pickup && radii[j] < radii[i]-2 {
+			if !pickup && radii[j] < radii[i]-backtrackKm {
 				return true
 			}
 		}

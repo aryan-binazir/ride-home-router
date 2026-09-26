@@ -16,8 +16,6 @@ import (
 	"testing"
 )
 
-// Distances are generated before measurement and are deliberately asymmetric.
-// Rounded points, tied costs and shared households exercise the public solver.
 type warmDistances struct {
 	indexes map[models.Coordinates]int
 	values  []distance.DistanceResult
@@ -65,8 +63,7 @@ func performanceFixture(n, drivers int, households bool) (routing.RoutingRequest
 			}
 			req.Participants = append(req.Participants, models.Participant{ID: int64(i + 1), Name: fmt.Sprintf("P%d", i+1), Address: address, Lat: point.Lat, Lng: point.Lng})
 		} else {
-			// Deliberately unsorted driver IDs preserve the initial request-order case.
-			req.Drivers = append(req.Drivers, models.Driver{ID: int64(n + drivers - i), Name: fmt.Sprintf("D%d", i-n+1), Lat: point.Lat, Lng: point.Lng, VehicleCapacity: (n+drivers-1)/drivers + 2})
+			req.Drivers = append(req.Drivers, models.Driver{ID: requestOrderDriverID(n, drivers, i), Name: fmt.Sprintf("D%d", i-n+1), Lat: point.Lat, Lng: point.Lng, VehicleCapacity: (n+drivers-1)/drivers + 2})
 		}
 		points = append(points, point)
 	}
@@ -89,6 +86,10 @@ func performanceFixture(n, drivers int, households bool) (routing.RoutingRequest
 		}
 	}
 	return req, source
+}
+
+func requestOrderDriverID(participants, drivers, index int) int64 {
+	return int64(participants + drivers - index)
 }
 
 func stopOrders(result *models.RoutingResult) [][]int64 {
@@ -145,7 +146,6 @@ func TestRoutingPreservesReferenceResults(t *testing.T) {
 				path := filepath.Join("testdata", "reference-"+name+".json")
 
 				if os.Getenv("UPDATE_ROUTING_REFERENCES") == "1" {
-					// A deliberate solver change: rewrite the references (see testdata/README.md).
 					if err := os.WriteFile(path, actual, 0o600); err != nil {
 						t.Fatal(err)
 					}
@@ -163,15 +163,9 @@ func TestRoutingPreservesReferenceResults(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				// Re-ordering a car on its own may differ from the whole-plan order
-				// in general; these fixtures are known to agree, and a divergence
-				// should be a decision, not a silent regeneration.
 				if edited := stopOrders(result); fmt.Sprint(edited) != fmt.Sprint(plannerOrder) {
 					t.Fatalf("edit flow re-ordered a reference car: planner %v, edited %v", plannerOrder, edited)
 				}
-				// The edit flow re-orders one car at a time; the plan summary is
-				// rebuilt here the way the planner builds it, so the fixture stays
-				// self-consistent.
 				result.Summary = summarize(result)
 				actual, err = json.MarshalIndent(result, "", "  ")
 				if err != nil {
@@ -270,9 +264,6 @@ func TestCalculationPreservesRoundedDistanceIdentity(t *testing.T) {
 	}
 }
 
-// A larger household fixture than the 12-rider references above: enough riders
-// that the assignment search relocates and swaps household blocks between cars.
-// It protects the exact plan through allocation-only refactors of the search.
 func TestRoutingPreservesMediumHouseholdReferenceResults(t *testing.T) {
 	discardRoutingLogs(t)
 	for _, mode := range []routing.RouteMode{routing.RouteModeDropoff, routing.RouteModePickup} {

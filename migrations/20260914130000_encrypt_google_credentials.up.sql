@@ -1,4 +1,3 @@
--- Fresh credential storage only; never discard or convert a configured key.
 BEGIN;
 LOCK TABLE google_maps_credentials IN ACCESS EXCLUSIVE MODE;
 DO $$

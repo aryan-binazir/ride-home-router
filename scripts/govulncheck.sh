@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Fails on vulnerabilities govulncheck reports as reachable from this code,
-# except advisory IDs listed in .govulncheck-ignore (one per line, with the
-# reason as a trailing comment). Requires jq.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ignored=$(grep -oE '^GO-[0-9]+-[0-9]+' .govulncheck-ignore 2>/dev/null | sort -u || true)

@@ -11,15 +11,6 @@ import (
 	"testing"
 )
 
-// This resource budget protects the public warm-cache calculation, independently
-// of its memo representation. Wall-clock performance belongs in benchmarks.
-// Budgets were raised on 2026-09-13 when the assignment search gained whole-car
-// driver swaps: on this fixture a swap is accepted, which costs one more search
-// iteration (about 2,100 objects). Lowered on 2026-09-19 when household blocks
-// in the search became index ranges over the stops instead of heap objects:
-// each block had cost a group struct plus a one-element member slice per
-// candidate move, and this fixture went from 9,088 objects to 4,900. Budgets
-// keep about a third of headroom over the measured count.
 func TestWarmCalculationAllocationBudget(t *testing.T) {
 	discardRoutingLogs(t)
 	req, source := performanceFixture(8, 3, false)
@@ -35,8 +26,6 @@ func TestWarmCalculationAllocationBudget(t *testing.T) {
 	}
 }
 
-// Exercise provider prewarming through the same public routing seam. The cache
-// supplies all requested pairs and returns an error for any unknown location.
 type warmProviderCache struct {
 	database.DistanceCacheRepository
 	warmDistances
@@ -62,7 +51,6 @@ func (s warmProviderCache) GetBatch(ctx context.Context, pairs []struct{ Origin,
 	return entries, nil
 }
 
-// Measured at 6,186 objects on 2026-09-19 after the household block change.
 func TestWarmProviderCalculationAllocationBudget(t *testing.T) {
 	discardRoutingLogs(t)
 	req, source := performanceFixture(8, 3, false)

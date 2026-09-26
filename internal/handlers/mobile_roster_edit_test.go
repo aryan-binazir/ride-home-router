@@ -186,7 +186,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				}
 				provider := &rosterTestGeocoder{result: &geocoding.GeocodingResult{Coords: models.Coordinates{Lat: 43, Lng: -70}}}
 				h.Geocoder = provider
-				// Malformed label input cannot clear a membership or persist other edits.
 				form.Set("name", "Should not save")
 				form.Set("label_ids", "broken")
 				rr = rosterEditHTTPRequest(t, h, kind, surface, id, form)
@@ -209,7 +208,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 						t.Fatalf("rejected edit changed driver = %#v, want %#v, err=%v", got, originalDriver, getErr)
 					}
 				}
-				// Omitted JSON labels retain membership; forms replace with an empty set.
 				form.Set("name", " Updated ")
 				form.Del("label_ids")
 				rr = rosterEditHTTPRequest(t, h, kind, surface, id, form)
@@ -225,7 +223,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				} else {
 					assertRosterEditLabels(t, h, kind, id)
 				}
-				// An explicit empty JSON array also replaces. Every adapter geocodes a changed address.
 				form["label_ids"] = []string{}
 				form.Set("address", "Changed address")
 				rr = rosterEditHTTPRequest(t, h, kind, surface, id, form)

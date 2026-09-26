@@ -19,13 +19,10 @@ import (
 	"strings"
 )
 
-// Handler owns the HTTP layer's dependencies.
 type Handler struct {
-	DB       database.DataStore
-	Geocoder geocoding.Geocoder
-	Router   routing.Router
-	// Measurer measures finished routes with the provider after planning. Nil
-	// means the legacy matrix engine, whose planning metrics are shown directly.
+	DB            database.DataStore
+	Geocoder      geocoding.Geocoder
+	Router        routing.Router
 	Measurer      routing.Measurer
 	Renderer      *templates.Renderer
 	RouteSession  *routesession.Store
@@ -33,12 +30,10 @@ type Handler struct {
 	PlanDraft     *plandraft.Store
 }
 
-// ErrorResponse is the API error envelope.
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`
 }
 
-// ErrorDetail describes an API error.
 type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`

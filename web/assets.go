@@ -6,8 +6,6 @@ import (
 	"io/fs"
 )
 
-// AssetURL changes whenever an embedded asset changes, preventing browsers and
-// CDNs from pairing a new page with an old stylesheet or script.
 func AssetURL(name string) string {
 	return assetURLs[name]
 }

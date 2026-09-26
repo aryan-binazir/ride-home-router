@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	claimCooldown = 30 * time.Second
+	resumeSlack   = 5 * time.Second
+)
+
 func TestPersistentImportResumesAfterWorkerShutdownAndCommitsOnce(t *testing.T) {
 	url := postgrestest.DatabaseURL(t)
 	a, err := postgres.New(t.Context(), url)
@@ -50,8 +55,7 @@ func TestPersistentImportResumesAfterWorkerShutdownAndCommitsOnce(t *testing.T) 
 	}}
 	second := NewPersistentStore(t.Context(), fast, b, b.Workflows(), b.ImportJobs())
 	defer second.Close()
-	// Recovery allows the 30-second lease cooldown plus one idle polling interval.
-	deadline := time.Now().Add(65 * time.Second)
+	deadline := time.Now().Add(claimCooldown + geocoderIdleInterval + resumeSlack)
 	for {
 		snapshot, ok, err := second.Load(t.Context(), created.ID)
 		if err != nil || !ok {
@@ -153,5 +157,20 @@ func TestPersistentImportProviderDeadlineRemainsRetryable(t *testing.T) {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func TestGeocodeProgressStaysRunningWhileARowNeedsGeocoding(t *testing.T) {
+	pending := geocodeProgress(1, 1, []Row{{NeedsGeocoding: true}})
+	if !pending.Running || pending.Done != 1 || pending.Total != 1 {
+		t.Fatalf("progress = %+v, want running with the job counts", pending)
+	}
+	finished := geocodeProgress(1, 1, []Row{{}})
+	if finished.Running {
+		t.Fatalf("finished rows reported running: %+v", finished)
+	}
+	inFlight := geocodeProgress(0, 2, nil)
+	if !inFlight.Running {
+		t.Fatalf("unfinished jobs reported idle: %+v", inFlight)
 	}
 }

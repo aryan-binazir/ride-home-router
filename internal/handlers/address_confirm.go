@@ -3,12 +3,12 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 )
 
-// AddressConfirmSuffix is the path tail for accepting a guessed address.
 const AddressConfirmSuffix = "/address/confirm"
 
 func addressConfirmID(path, prefix string) (int64, bool) {
@@ -17,8 +17,6 @@ func addressConfirmID(path, prefix string) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
-// HandleConfirmParticipantAddress handles POST /api/v1/participants/{id}/address/confirm.
-// It accepts the geocoder's candidate as the rider's address and marks it confirmed.
 func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http.Request) {
 	id, ok := addressConfirmID(r.URL.Path, "/api/v1/participants/")
 	if !ok {
@@ -39,8 +37,8 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 		return
 	}
 	if err != nil {
-		//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or repository errors.
-		log.Printf("[ERROR] Failed to confirm participant address: id=%d err=%v", id, err)
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to confirm participant address: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -48,7 +46,7 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 		h.handleInternalError(w, r, err)
 		return
 	}
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or repository errors.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Confirmed participant address: id=%d", id)
 	if !h.isHTMX(r) {
 		response, err := h.participantResponse(r.Context(), participant)
@@ -73,7 +71,6 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 	h.renderTemplate(w, "participant_list", view)
 }
 
-// HandleConfirmDriverAddress handles POST /api/v1/drivers/{id}/address/confirm.
 func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Request) {
 	id, ok := addressConfirmID(r.URL.Path, "/api/v1/drivers/")
 	if !ok {
@@ -94,8 +91,8 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err != nil {
-		//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or repository errors.
-		log.Printf("[ERROR] Failed to confirm driver address: id=%d err=%v", id, err)
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+		log.Printf("[ERROR] Failed to confirm driver address: id=%d err=%s", id, logutil.SafeString(err.Error()))
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -103,7 +100,7 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 		h.handleInternalError(w, r, err)
 		return
 	}
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or repository errors.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Confirmed driver address: id=%d", id)
 	if !h.isHTMX(r) {
 		response, err := h.driverResponse(r.Context(), driver)
@@ -128,11 +125,9 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 	h.renderTemplate(w, "driver_list", view)
 }
 
-// confirmedAddress adopts the geocoder's label when it has one; the typed
-// text stays when a record predates match tracking.
-func confirmedAddress(address, matched string) (string, string) {
-	if strings.TrimSpace(matched) != "" {
-		address = matched
+func confirmedAddress(typed, geocoderLabel string) (string, string) {
+	if strings.TrimSpace(geocoderLabel) != "" {
+		typed = geocoderLabel
 	}
-	return address, models.AddressMatchConfirmed
+	return typed, models.AddressMatchConfirmed
 }

@@ -12,22 +12,18 @@ import (
 	"strings"
 )
 
-// DriverListResponse represents the list response
 type DriverListResponse struct {
 	Drivers []DriverResponse `json:"drivers"`
 	Total   int              `json:"total"`
 }
 
-// DriverResponse represents a driver API response.
 type DriverResponse struct {
 	models.Driver
 	LabelIDs []int64 `json:"label_ids"`
 }
 
-// HandleListDrivers handles GET /api/v1/drivers
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] GET /api/v1/drivers:")
 
 	drivers, err := h.DB.Drivers().List(r.Context(), search)
@@ -67,7 +63,6 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleListDeletedDrivers handles GET /api/v1/drivers/deleted.
 func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/drivers/deleted")
 
@@ -105,7 +100,6 @@ func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// HandleGetDriver handles GET /api/v1/drivers/{id}
 func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -139,7 +133,6 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// HandleCreateDriver handles POST /api/v1/drivers
 func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            string  `json:"name"`
@@ -221,7 +214,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] POST /api/v1/drivers: capacity=%d", req.VehicleCapacity)
 	driver, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createDriver(r.Context(), driverEdit{
 		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
@@ -252,7 +245,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Created driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
@@ -273,13 +266,10 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Creation committed the validated label IDs atomically with the person.
-	// A response must not depend on another read that can fail after that commit.
-	uniqueLabelIDs, _ := uniquePositiveIDs(labelIDs)
-	h.writeJSON(w, http.StatusCreated, DriverResponse{Driver: *driver, LabelIDs: uniqueLabelIDs})
+	committedLabelIDs, _ := uniquePositiveIDs(labelIDs)
+	h.writeJSON(w, http.StatusCreated, DriverResponse{Driver: *driver, LabelIDs: committedLabelIDs})
 }
 
-// HandleUpdateDriver handles PUT /api/v1/drivers/{id}
 func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
@@ -435,7 +425,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Updated driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
 		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
@@ -465,7 +455,6 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// HandleDeleteDriver handles DELETE /api/v1/drivers/{id}
 func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -511,7 +500,6 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandleRestoreDriver handles POST /api/v1/drivers/restore.
 func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
@@ -521,7 +509,7 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] POST /api/v1/drivers/restore: id=%d", id)
 	if err := h.DB.Drivers().Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
@@ -551,7 +539,6 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandleDriverForm handles GET /api/v1/drivers/new and GET /api/v1/drivers/{id}/edit
 func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
 	idStr = strings.TrimSuffix(idStr, "/edit")

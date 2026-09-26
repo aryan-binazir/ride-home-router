@@ -31,7 +31,6 @@ func createTestDriver(t *testing.T, store *postgres.Store, name string) *models.
 	return driver
 }
 
-// execSQL runs raw SQL against the test schema for fault injection.
 func execSQL(t *testing.T, databaseURL, query string) {
 	t.Helper()
 	ctx := context.Background()

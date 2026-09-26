@@ -12,7 +12,6 @@ import (
 	"testing"
 )
 
-// twoCarMobileFixture builds a balanced two-car plan under the default engine.
 func twoCarMobileFixture(t *testing.T) (*Handler, *stubMeasurer, *http.Cookie, routesession.Snapshot) {
 	t.Helper()
 	store := routesession.NewStore(routeEditDistanceCalculator{})
@@ -93,7 +92,6 @@ func TestMobileMoveMeasuresOnlyChangedCarsOnRedirect(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", response.Code, body)
 	}
-	// Car 0 is now empty (nothing to measure or show), car 1 carries both riders: one route + one baseline request.
 	if measurer.count() != 2 {
 		t.Fatalf("measured %d requests, want 2 for the changed car", measurer.count())
 	}
@@ -109,7 +107,6 @@ func TestMobileMoveMeasuresOnlyChangedCarsOnRedirect(t *testing.T) {
 	if !cleared {
 		t.Fatal("routes page did not clear the queued timings")
 	}
-	// A refresh spends nothing.
 	again := getMobileRoutes(t, handler, cookie)
 	if again.Code != http.StatusOK || measurer.count() != 2 {
 		t.Fatalf("refresh status=%d measured=%d", again.Code, measurer.count())

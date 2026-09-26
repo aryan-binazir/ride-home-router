@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-// CalculateRoutesRequest is the route calculation payload.
 type CalculateRoutesRequest struct {
 	ParticipantIDs     []int64 `json:"participant_ids"`
 	DriverIDs          []int64 `json:"driver_ids"`
@@ -27,7 +26,6 @@ type CalculateRoutesRequest struct {
 	Mode               string  `json:"mode"`
 }
 
-// routeIntakePolicy names the observable differences kept for endpoint compatibility.
 type routeIntakePolicy struct {
 	validateSelectionsFirst  bool
 	alwaysRenderResultsHTML  bool
@@ -128,7 +126,6 @@ func routeFormValidationMessage(err error) string {
 	return messageInvalidFormData
 }
 
-// HandleCalculateRoutes handles POST /api/v1/routes/calculate
 func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) {
 	var req CalculateRoutesRequest
 
@@ -136,7 +133,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("[HTTP] POST /api/v1/routes/calculate: form_parse_error err=%v", err)
-			// Preserve the existing JSON response for malformed initial HTMX forms.
 			h.handleValidationError(w, r, messageInvalidFormData)
 			return
 		}
@@ -163,7 +159,6 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// HandleCalculateRoutesWithOrgVehicles handles POST /api/v1/routes/calculate-with-org-vehicles.
 func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: form_parse_error err=%v", err)
@@ -259,7 +254,6 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		message := routeCalculationValidationMessage(outcome.Err)
 		staleEntity := errors.Is(outcome.Err, errSomeParticipantsNotFound) || errors.Is(outcome.Err, errSomeDriversNotFound)
 		if policy.staleEntityErrorsUseJSON && staleEntity {
-			// Preserve the initial endpoint's existing JSON response for stale HTMX selections.
 			h.handleValidationError(w, r, message)
 		} else {
 			h.handleValidationErrorHTMX(w, r, message)

@@ -24,7 +24,6 @@ var googleKeyPanel = template.Must(template.New("google-key").Parse(`<section id
 </div>
 </section>`))
 
-// HandleGoogleMapsKey exposes only status and write operations, never the saved key.
 func (h *Handler) HandleGoogleMapsKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !access.IsAdmin(r.Context()) {
@@ -41,7 +40,6 @@ func (h *Handler) HandleGoogleMapsKey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 	case http.MethodPut:
-		// Secrets are accepted only in the body. Query strings can enter access logs.
 		if r.URL.RawQuery != "" {
 			reject("Invalid request", http.StatusBadRequest)
 			return

@@ -1,7 +1,3 @@
-// RETIRED: the standalone /m/ mobile site is no longer served. server.go redirects
-// every /m/ URL to the responsive desktop pages, which are the only mobile UI.
-// This file and its siblings (mobile_*.go, web/templates/mobile, mobile.css,
-// mobile.js) are scheduled for deletion. Do not extend or restyle them.
 package handlers
 
 import (
@@ -94,18 +90,16 @@ type mobileRoute struct {
 	ParentText  string
 	PreviewURL  string
 	ETAs        []string
-	// Timing is this response's measurement for the car; nil Route means no numbers.
-	Timing RouteTiming
+	Timing      RouteTiming
 }
 
 type mobileRoutesView struct {
 	Patch bool
 	mobileBaseView
-	Snapshot  routesession.Snapshot
-	EventDate string
-	Notes     string
-	Routes    []mobileRoute
-	// ShowAggregates is true only when every occupied car was measured in this response.
+	Snapshot       routesession.Snapshot
+	EventDate      string
+	Notes          string
+	Routes         []mobileRoute
 	ShowAggregates bool
 	Attribution    bool
 }

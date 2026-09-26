@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	xlsxUnzipSizeLimit    = 64 << 20
-	xlsxUnzipXMLSizeLimit = 8 << 20
-	// MaxFormulaMetadataXMLBytes limits inflated XLSX metadata.
+	xlsxUnzipSizeLimit               = 64 << 20
+	xlsxUnzipXMLSizeLimit            = 8 << 20
 	MaxFormulaMetadataXMLBytes int64 = 32 << 20
 
 	formulaMetadataWarning = "Formula information could not be read from this workbook; values calculated by formulas may not be flagged."
@@ -29,7 +28,6 @@ const (
 
 var errInvalidUTF8 = errors.New("invalid UTF-8")
 
-// Parse reads a CSV or XLSX roster into a normalized grid.
 func Parse(r io.Reader, format Format, sheet string) (*Grid, error) {
 	if r == nil {
 		return nil, errors.New("roster file is empty")
@@ -47,7 +45,6 @@ func Parse(r io.Reader, format Format, sheet string) (*Grid, error) {
 	}
 }
 
-// Sheets lists XLSX sheets with visible rows.
 func Sheets(r io.Reader) (names []string, err error) {
 	if r == nil {
 		return nil, errors.New("roster file is empty")

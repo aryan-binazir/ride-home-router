@@ -16,7 +16,6 @@ const (
 	maxImportPanelFormBytes int64 = 1 << 20
 )
 
-// wantsImportPanel needs view=panel because JSON uploads also set HX-Request.
 func (h *Handler) wantsImportPanel(r *http.Request) bool {
 	return h.isHTMX(r) && r.URL.Query().Get("view") == importPanelViewValue
 }
@@ -88,8 +87,7 @@ type importSheetsView struct {
 }
 
 type importCommitView struct {
-	Message string
-	// GuessedWarning is shown only when the geocoder guessed some addresses.
+	Message         string
 	GuessedWarning  string
 	IsDriver        bool
 	ListElementID   string
@@ -185,9 +183,6 @@ func importMappingColumns(mapping importer.Mapping) []importMappingBinding {
 	}
 }
 
-// importMappingFromForm reads one dropdown per file column. The panel form is
-// authoritative for every column, so an unlisted column is ignored and no
-// ambiguity survives the round trip.
 func importMappingFromForm(r *http.Request, snapshot importer.Snapshot) (importer.Mapping, []string) {
 	isDriver := snapshot.Kind == importer.KindDriver
 	assignments := make([]importer.FieldColumn, 0, len(snapshot.Grid.Headers))
@@ -271,13 +266,7 @@ func importPreviewPage(snapshot importer.Snapshot, offset int) importPreviewView
 		})
 	}
 
-	// Geocoding can make a previously selected row unselectable.
-	selectedCount := 0
-	for i, row := range snapshot.Rows {
-		if i < len(snapshot.Selected) && snapshot.Selected[i] && len(row.Errors) == 0 {
-			selectedCount++
-		}
-	}
+	selectedCount := selectedImportableRowCount(snapshot)
 	geocoding := snapshot.GeocodeProgress.Running
 
 	return importPreviewView{
@@ -297,6 +286,16 @@ func importPreviewPage(snapshot importer.Snapshot, offset int) importPreviewView
 			Disabled:  geocoding || selectedCount == 0 || snapshot.Status != importer.StatusPreviewing,
 		},
 	}
+}
+
+func selectedImportableRowCount(snapshot importer.Snapshot) int {
+	count := 0
+	for i, row := range snapshot.Rows {
+		if i < len(snapshot.Selected) && snapshot.Selected[i] && len(row.Errors) == 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func importRowCoordinates(row importer.Row) string {
@@ -322,7 +321,6 @@ func importRowState(row importer.Row) string {
 	}
 }
 
-// importGuessedNote is the preview note for an address the geocoder only guessed.
 func importGuessedNote(matched string) string {
 	return "Google couldn't find this exactly. Matched to: " + matched + ". Check this."
 }
@@ -346,8 +344,6 @@ func importCommitMessage(result importer.CommitResult) string {
 	return fmt.Sprintf("%d imported, %d updated, %d skipped", result.Created, result.Updated, result.NotSelected)
 }
 
-// importGuessedWarning tells people to check addresses the geocoder guessed;
-// empty when every address matched exactly.
 func importGuessedWarning(result importer.CommitResult) string {
 	switch {
 	case result.Guessed <= 0:

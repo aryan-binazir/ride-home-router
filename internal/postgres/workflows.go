@@ -122,7 +122,6 @@ func (r *workflowRepository) Delete(ctx context.Context, kind, id string) error 
 	return err
 }
 
-// CleanupWorkflows deletes a bounded batch; concurrent sweepers skip busy rows.
 func (s *Store) CleanupWorkflows(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_sessions WHERE (kind,id) IN (SELECT kind,id FROM workflow_sessions WHERE expires_at<clock_timestamp() ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT 100)`)
 	return err

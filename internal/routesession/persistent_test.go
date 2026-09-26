@@ -164,7 +164,6 @@ func TestPersistentRouteConflictDoesNotOverwriteOtherInstance(t *testing.T) {
 	if _, err = b.ResetContext(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
-	// A separate plan stays usable while the first calculation is blocked.
 	other, err := b.CreateContext(t.Context(), routesession.CreateInput{RouteTime: "07:00", Mode: models.RouteModePickup})
 	if err != nil {
 		t.Fatal(err)

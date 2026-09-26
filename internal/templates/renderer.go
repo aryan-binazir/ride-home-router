@@ -27,7 +27,6 @@ var mobilePageNames = []string{
 	"people.html", "person_form.html", "places.html", "place_form.html", "history.html", "history_detail.html", "error.html",
 }
 
-// Renderer loads and executes the application's page and partial templates.
 type Renderer struct {
 	partials       *template.Template
 	pages          map[string]*template.Template
@@ -35,7 +34,6 @@ type Renderer struct {
 	mobilePartials *template.Template
 }
 
-// New loads and precompiles all required templates from templatesFS.
 func New(templatesFS fs.FS) (*Renderer, error) {
 	base := template.New("").Funcs(templateutil.FuncMap())
 
@@ -127,9 +125,7 @@ func New(templatesFS fs.FS) (*Renderer, error) {
 	return renderer, nil
 }
 
-// Render executes name with data into w.
 func (r *Renderer) Render(w io.Writer, name string, data any) error {
-	// Named page blocks execute directly; never render a page to extract HTML.
 	if pageName, block, partial := strings.Cut(name, "#"); partial {
 		page := r.pages[pageName]
 		if page == nil {

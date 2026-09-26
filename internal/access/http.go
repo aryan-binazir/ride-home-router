@@ -10,7 +10,6 @@ import (
 	"slices"
 )
 
-// Register adds authentication and admin-only access management to the router.
 // The entire router must still be wrapped with Protect.
 func (a *Access) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sign-in", func(w http.ResponseWriter, r *http.Request) {
@@ -159,13 +158,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 		reject("The service is temporarily unavailable. Try again in a minute.", http.StatusServiceUnavailable)
 		return
 	}
-	// An email promoted through the environment is not editable in this UI.
-	visible := make([]string, 0, len(emails))
-	for _, email := range emails {
-		if !a.admins[email] {
-			visible = append(visible, email)
-		}
-	}
+	visible := nonAdminEmails(emails, a.admins)
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = accessPanel.Execute(w, struct {
@@ -176,4 +169,14 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"emails": visible})
+}
+
+func nonAdminEmails(emails []string, admins map[string]bool) []string {
+	visible := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if !admins[email] {
+			visible = append(visible, email)
+		}
+	}
+	return visible
 }

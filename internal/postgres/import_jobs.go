@@ -42,7 +42,6 @@ func (r *importJobRepository) Rows(ctx context.Context, id string) ([]database.I
 	return importRows(ctx, r.db, id)
 }
 
-// RowsByIndices fetches a job's rows without materializing the rest of its import.
 func (r *importJobRepository) RowsByIndices(ctx context.Context, id string, indices []int) ([]database.ImportRow, error) {
 	if len(indices) == 0 {
 		return nil, nil
@@ -114,8 +113,6 @@ func (r *importJobRepository) Progress(ctx context.Context, id string) (int, int
 	return done, total, err
 }
 
-// Summary avoids downloading row payloads for a progress-only response. Both
-// aggregates share a statement snapshot, including atomic Finish updates.
 func (r *importJobRepository) Summary(ctx context.Context, id string) (database.ImportProgress, error) {
 	var progress database.ImportProgress
 	err := r.db.QueryRowContext(ctx, `

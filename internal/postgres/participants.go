@@ -104,7 +104,7 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 				p.GeocodedAt = now
 			}
 			err := tx.QueryRowContext(ctx, insertParticipant,
-				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, now, p.GeocodedAt, p.MatchedAddress, addressMatchOrDefault(p.AddressMatch),
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, now, p.GeocodedAt, p.MatchedAddress, addressMatchOrVerified(p.AddressMatch),
 			).Scan(&id)
 			return id, err
 		},
@@ -114,7 +114,7 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, updated_at = $6, geocoded_at = $8,
 				    matched_address = $9, address_match = $10
 				WHERE id = $7 AND deleted_at IS NULL`,
-				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID, p.GeocodedAt, p.MatchedAddress, addressMatchOrDefault(p.AddressMatch))
+				p.Name, p.Address, p.AddressName, p.Lat, p.Lng, now, p.ID, p.GeocodedAt, p.MatchedAddress, addressMatchOrVerified(p.AddressMatch))
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, p *models.Participant, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
@@ -122,7 +122,7 @@ func (r *participantRepository) writes() rosterWriteCore[models.Participant] {
 				SET address_name = COALESCE(NULLIF($1, ''), address_name), updated_at = $2,
 				    matched_address = $4, address_match = $5
 				WHERE id = $3 AND deleted_at IS NULL`,
-				p.AddressName, now, id, p.MatchedAddress, addressMatchOrDefault(p.AddressMatch))
+				p.AddressName, now, id, p.MatchedAddress, addressMatchOrVerified(p.AddressMatch))
 		},
 		fields: func(p *models.Participant) rosterFields {
 			return rosterFields{id: &p.ID, createdAt: &p.CreatedAt, updatedAt: &p.UpdatedAt}
@@ -158,7 +158,6 @@ func (r *participantRepository) Restore(ctx context.Context, id int64) error {
 	return r.writes().restore(ctx, id)
 }
 
-// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
 func (r *participantRepository) UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE participants SET lat = $1, lng = $2, geocoded_at = $3 WHERE id = $4 AND address = $5 AND deleted_at IS NULL`, coords.Lat, coords.Lng, geocodedAt, id, address)
 	if err != nil {

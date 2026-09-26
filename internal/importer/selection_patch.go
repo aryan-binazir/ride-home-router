@@ -6,7 +6,6 @@ import (
 	"ride-home-router/internal/database"
 )
 
-// applySelectionPatch validates the entire delta before changing any selection.
 func applySelectionPatch(selected []bool, patch map[int]bool) error {
 	for index := range patch {
 		if index < 0 || index >= len(selected) {
@@ -19,7 +18,6 @@ func applySelectionPatch(selected []bool, patch map[int]bool) error {
 	return nil
 }
 
-// SelectRowsPatch changes only submitted rows in one workflow transaction.
 func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bool) (Snapshot, error) {
 	err := s.records.Transact(ctx, "import", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		var h importHeader

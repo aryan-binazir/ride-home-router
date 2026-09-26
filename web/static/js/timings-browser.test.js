@@ -19,8 +19,6 @@ test('preserveTimings keeps on-screen timings only for cars whose itinerary did 
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-timings-'));
     try {
         const previous = `<div class="routes-container" data-session-id="s1">${card(0, 10, [1, 2], 'measured', 60)}${card(1, 11, [3], 'measured', 90)}</div>`;
-        // After the edit: car 0 was re-measured with new values, car 1 is unchanged but stale,
-        // and car 2 is a new itinerary that has never been measured.
         const response = `<div class="routes-container" data-session-id="s1">${card(0, 10, [1], 'measured', 45)}${card(1, 11, [3], 'stale', 0)}${card(2, 12, [2], 'stale', 0)}</div>`;
         const fixture = `<!doctype html><html><body><div id="results-section">${previous}</div><pre id="evidence">pending</pre>
 <script>${fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8')}</script><script>

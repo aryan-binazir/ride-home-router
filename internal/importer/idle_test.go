@@ -66,8 +66,7 @@ func (j *recoveringJobs) Claim(context.Context, string, time.Duration) (database
 	if time.Now().Before(j.available) || !j.finished.IsZero() {
 		return database.ImportJob{}, false, nil
 	}
-	// An exhausted job left by a crash still needs finalization, with no new API call.
-	return database.ImportJob{SessionID: "recovery", Rows: []int{0}, Attempts: 4}, true, nil
+	return database.ImportJob{SessionID: "recovery", Rows: []int{0}, Attempts: maxGeocodeRounds + 1}, true, nil
 }
 
 func (j *recoveringJobs) RowsByIndices(context.Context, string, []int) ([]database.ImportRow, error) {

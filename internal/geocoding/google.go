@@ -49,10 +49,8 @@ func (g *googleGeocoder) reserve(ctx context.Context, sku database.UsageSKU) err
 	return nil
 }
 
-// NewGoogleGeocoder geocodes with the Google Geocoding API and suggests
-// addresses with Places Autocomplete, sharing one cross-instance cooldown gate.
-// NewGoogleGeocoder builds the production geocoder. usage meters every attempt;
-// it may be nil only in tests.
+// NewGoogleGeocoder shares one cross-instance cooldown gate.
+// usage meters every attempt; it may be nil only in tests.
 func NewGoogleGeocoder(apiKey KeyFunc, gate RateGate, usage UsageReserver) Geocoder {
 	g := newGoogleGeocoder(apiKey, gate, &http.Client{Timeout: geocoderClientTimeout}, googleGeocodeURL, googleAutocompleteURL)
 	g.usage = usage
@@ -78,10 +76,6 @@ type googleGeocodeResponse struct {
 	} `json:"results"`
 }
 
-// googleGuessed reports an answer Google did not match exactly: either it
-// flagged the match as partial, or it placed the result somewhere less precise
-// than a rooftop or an interpolated address range. A missing location_type is
-// treated as precise, so responses without the field stay verified.
 func googleGuessed(partialMatch bool, locationType string) bool {
 	if partialMatch {
 		return true
@@ -94,8 +88,6 @@ func googleGuessed(partialMatch bool, locationType string) bool {
 	}
 }
 
-// ErrNotConfigured means the Google Maps key is missing, rejected, or its
-// project cannot bill; administrators fix it in Settings or the Cloud console.
 var ErrNotConfigured = errors.New("geocoding: Google Maps API key is not configured")
 
 func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*GeocodingResult, error) {
@@ -118,16 +110,15 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		log.Printf("[ERROR] Google geocode outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Reason: "provider request failed", Cause: newProviderTransportError(err)}
+		return nil, &ErrGeocodingFailed{Reason: "provider request failed", Cause: newRedactedTransportError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	var decoded googleGeocodeResponse
 	decodeErr := decodeGoogle(resp.Body, &decoded)
 	if decoded.Status == "" {
-		// No recognisable Google status: fall back to the HTTP status.
 		if resp.StatusCode != http.StatusOK {
-			if err := g.deferProvider(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
+			if err := g.recordSharedCooldown(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
 				return nil, err
 			}
 			log.Printf("[ERROR] Google geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
@@ -140,7 +131,6 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
 	}
 	if decodeErr != nil {
-		// A recognised status with an unreadable body must not pass as a result.
 		log.Printf("[ERROR] Google geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
 	}
@@ -154,7 +144,7 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		return nil, &ErrGeocodingFailed{Reason: "provider not configured", Cause: ErrNotConfigured, Configuration: true}
 	case "OVER_QUERY_LIMIT":
 		log.Printf("[ERROR] Google geocode outcome=quota duration=%s", time.Since(started).Round(time.Millisecond))
-		if err := g.deferProvider(ctx, http.StatusTooManyRequests, resp.Header.Get("Retry-After")); err != nil {
+		if err := g.recordSharedCooldown(ctx, http.StatusTooManyRequests, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
 		return nil, &ErrGeocodingFailed{Reason: "provider quota exceeded", HTTPStatus: http.StatusTooManyRequests, RetryAfter: googleQuotaCooldown, Temporary: true}
@@ -178,7 +168,7 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 	return &GeocodingResult{
 		Coords:           models.Coordinates{Lat: *loc.Lat, Lng: *loc.Lng},
 		DisplayName:      result.FormattedAddress,
-		FormattedAddress: googleAddressLabel(result.FormattedAddress),
+		FormattedAddress: withoutUSCountrySuffix(result.FormattedAddress),
 		Guessed:          googleGuessed(result.PartialMatch, result.Geometry.LocationType),
 	}, nil
 }
@@ -207,8 +197,7 @@ func (g *googleGeocoder) wait(ctx context.Context) error {
 	return nil
 }
 
-// deferProvider records a shared cooldown when Google asks every instance to back off.
-func (g *googleGeocoder) deferProvider(ctx context.Context, status int, retryAfter string) error {
+func (g *googleGeocoder) recordSharedCooldown(ctx context.Context, status int, retryAfter string) error {
 	if g.gate == nil || (status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable) {
 		return nil
 	}
@@ -218,8 +207,7 @@ func (g *googleGeocoder) deferProvider(ctx context.Context, status int, retryAft
 	return nil
 }
 
-// googleAddressLabel drops the country suffix Google appends to US addresses.
-func googleAddressLabel(formatted string) string {
+func withoutUSCountrySuffix(formatted string) string {
 	label := strings.TrimSpace(formatted)
 	for _, suffix := range []string{", USA", ", United States"} {
 		label = strings.TrimSuffix(label, suffix)
@@ -281,7 +269,7 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		log.Printf("[ERROR] Google search outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &ErrGeocodingFailed{Reason: "provider request failed", Cause: newProviderTransportError(err)}
+		return nil, &ErrGeocodingFailed{Reason: "provider request failed", Cause: newRedactedTransportError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -291,7 +279,7 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 		log.Printf("[ERROR] Google search outcome=denied status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
 		return nil, &ErrGeocodingFailed{Reason: "provider not configured", Cause: ErrNotConfigured, Configuration: true}
 	default:
-		if err := g.deferProvider(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
+		if err := g.recordSharedCooldown(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
 		log.Printf("[ERROR] Google search outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
@@ -309,7 +297,7 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 		if suggestion.PlacePrediction == nil {
 			continue
 		}
-		label := googleAddressLabel(suggestion.PlacePrediction.Text.Text)
+		label := withoutUSCountrySuffix(suggestion.PlacePrediction.Text.Text)
 		if label == "" {
 			continue
 		}
@@ -322,13 +310,11 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 	return results, nil
 }
 
-// decodeGoogle reports body transport faults as retryable and JSON faults as permanent,
-// without carrying provider text into the error chain.
 func decodeGoogle(body io.Reader, dst any) error {
 	reader := &bodyReader{Reader: io.LimitReader(body, googleBodyLimit)}
 	err := json.NewDecoder(reader).Decode(dst)
 	if reader.Err != nil {
-		return newProviderTransportError(reader.Err)
+		return newRedactedTransportError(reader.Err)
 	}
 	if err != nil {
 		return errors.New("invalid JSON")
@@ -336,8 +322,6 @@ func decodeGoogle(body io.Reader, dst any) error {
 	return nil
 }
 
-// googleKeyRejected recognises Places' HTTP 400 for a malformed or revoked key
-// (status INVALID_ARGUMENT, reason API_KEY_INVALID) without keeping its text.
 func googleKeyRejected(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusBadRequest {
 		return false

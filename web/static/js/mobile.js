@@ -1,4 +1,3 @@
-// RETIRED: script for the unreachable /m/ mobile site. Scheduled for deletion; do not edit.
 (() => {
     let selectedSeats;
     let knownSeats = 0;
@@ -70,12 +69,7 @@
         form.querySelectorAll('button[type="submit"]').forEach(button => {
             if (button.disabled) return;
             button.dataset.submitLabel = button.textContent;
-            // Retain successful-control data when a submitter has a name.
-            if (button === event.submitter && button.name) {
-                const input = document.createElement('input');
-                input.type = 'hidden'; input.name = button.name; input.value = button.value;
-                input.dataset.submitValue = 'true'; form.appendChild(input);
-            }
+            if (button === event.submitter) retainNamedSubmitter(form, button);
             button.disabled = true;
             button.textContent = action === '/m/calculate' ? 'Calculating…'
                 : action === '/m/routes/save' ? 'Saving…' : action?.startsWith('/m/routes/') ? 'Updating…' : 'Saving…';
@@ -96,6 +90,21 @@
         submitting.clear();
     });
 
+    function retainNamedSubmitter(form, button) {
+        if (!button.name) return;
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = button.name;
+        input.value = button.value;
+        input.dataset.submitValue = 'true';
+        form.appendChild(input);
+    }
+    function claimVanWithoutSeatCount(assignment, vans) {
+        if (assignment?.value) vans.add(assignment.value);
+    }
+    function lowerDriverIdOwnsSharedVan(a, b) {
+        return Number(a.id) - Number(b.id);
+    }
     function countKnownSeats(defaults = false) {
         let total = 0;
         const picker = document.getElementById?.('mobile-driver-picker');
@@ -105,7 +114,7 @@
         picker.querySelectorAll('input[type="hidden"][name="driver_ids"]').forEach(input => {
             const assignment = picker.querySelector(`input[name="org_vehicle_${input.value}"]`);
             if (input.dataset.capacity === undefined) {
-                if (assignment?.value) vans.add(assignment.value);
+                claimVanWithoutSeatCount(assignment, vans);
                 return;
             }
             drivers.push({id: input.value, capacity: Number(input.dataset.capacity),
@@ -119,9 +128,7 @@
             drivers.push({id: checkbox.value, capacity: Number(checkbox.dataset.capacity || 0),
                 van: option?.value, vanCapacity: Number(option?.dataset.capacity)});
         });
-        // Keep van ownership stable when a filter moves a selected driver into
-        // hidden inputs. Unknown initial hidden capacities stay in the server total.
-        drivers.sort((a, b) => Number(a.id) - Number(b.id));
+        drivers.sort(lowerDriverIdOwnsSharedVan);
         for (const driver of drivers) {
             total += driver.van && !vans.has(driver.van) ? driver.vanCapacity : driver.capacity;
             if (driver.van) vans.add(driver.van);
@@ -146,15 +153,18 @@
         count.textContent = `${selectedSeats} seat${selectedSeats === 1 ? '' : 's'} selected`;
     });
 
-    async function copyText(source) {
-        if (navigator.clipboard?.writeText) {
-            try {
-                await navigator.clipboard.writeText(source.value);
-                return true;
-            } catch (_) {
-                // Plain HTTP and denied permissions fall through to the legacy copy path.
-            }
+    async function copyWithClipboard(source) {
+        if (!navigator.clipboard?.writeText) return false;
+        try {
+            await navigator.clipboard.writeText(source.value);
+            return true;
+        } catch (_) {
+            return false;
         }
+    }
+
+    async function copyText(source) {
+        if (await copyWithClipboard(source)) return true;
 
         const wasHidden = source.hidden === true;
         try {
@@ -176,9 +186,7 @@
         }
     }
 
-    // Filter responses carry request-time selections. Merge the current form
-    // immediately before swapping so edits made during the request survive.
-    document.addEventListener('htmx:beforeSwap', event => {
+    function preserveEditsMadeDuringFilter(event) {
         const detail = event.detail;
         if (detail.target?.id === 'mobile-location-results' && detail.shouldSwap) {
             const form = detail.target.closest('#mobile-location-picker');
@@ -246,7 +254,8 @@
             }
         }
         detail.serverResponse = results.outerHTML;
-    });
+    }
+    document.addEventListener('htmx:beforeSwap', preserveEditsMadeDuringFilter);
 
     document.addEventListener('change', event => {
         const checkbox = event.target;

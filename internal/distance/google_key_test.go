@@ -65,7 +65,6 @@ func TestGoogleMapsKeyDatabaseReplacementAndDeletion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Warm the actual cache, then delete. Missing credentials must fail before cached distances.
 	if _, err := calculator.GetDistance(t.Context(), a, b); err != nil {
 		t.Fatal(err)
 	}

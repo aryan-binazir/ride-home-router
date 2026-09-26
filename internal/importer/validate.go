@@ -11,7 +11,6 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// Validate maps every row and copies mapping errors onto each result.
 func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 	if g == nil {
 		return nil
@@ -126,7 +125,7 @@ func validateCapacity(row *Row, cells []string, m Mapping, kind Kind) {
 	}
 	if m.CapacityColumn == UnmappedColumn {
 		row.Capacity = DefaultCapacity
-		row.CapacityDefaulted = true
+		row.CapacityUnmapped = true
 		row.addWarning(fmt.Sprintf("capacity column is not mapped; new drivers get capacity %d and existing drivers keep theirs", DefaultCapacity))
 		return
 	}
@@ -154,7 +153,6 @@ func mappedCell(cells []string, column int) string {
 	return cells[column]
 }
 
-// DuplicateKey returns the roster key, or blank for incomplete rows.
 func DuplicateKey(name, address string) string {
 	return models.RosterKey(name, address)
 }

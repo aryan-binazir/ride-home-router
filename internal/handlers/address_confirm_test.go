@@ -28,12 +28,10 @@ func TestRosterEditorRecordsAddressMatch(t *testing.T) {
 	if created.AddressMatch != models.AddressMatchGuessed || created.MatchedAddress != "12 Oak Street, Raleigh, NC 27601" {
 		t.Fatalf("created = %#v", created)
 	}
-	// Editing without changing the address keeps the status.
 	same, err := editor.updateParticipant(ctx, created, participantEdit{Name: "Renamed", Address: created.Address})
 	if err != nil || same.AddressMatch != models.AddressMatchGuessed {
 		t.Fatalf("same-address update = %#v, %v", same, err)
 	}
-	// A new address is re-evaluated from the fresh lookup.
 	editor.geocoder = h.Geocoder
 	fixed, err := editor.updateParticipant(ctx, same, participantEdit{Name: "Renamed", Address: "1 Verified Way"})
 	if err != nil || fixed.AddressMatch != models.AddressMatchVerified {

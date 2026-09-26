@@ -7,7 +7,6 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// workflowWrites explicitly shares the transaction with workflow consumption.
 type workflowWrites struct {
 	db *sql.DB
 	tx *sql.Tx

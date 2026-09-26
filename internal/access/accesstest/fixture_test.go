@@ -22,7 +22,6 @@ func TestFixtureUsesRealClerkVerification(t *testing.T) {
 	valid := f.Admin()
 	check := func(token string, want int) {
 		t.Helper()
-		// Each case verifies Clerk directly, independent of a previously cached identity.
 		gate, err := access.New(f.Config(), closedStore{})
 		if err != nil {
 			t.Fatal(err)

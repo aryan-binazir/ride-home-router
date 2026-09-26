@@ -29,8 +29,6 @@ func TestLatestVersionMatchesNewestEmbeddedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LatestVersion() error = %v", err)
 	}
-	// Keep this literal independent of LatestVersion so every new migration
-	// requires an explicit readiness expectation update.
 	if version != 20260917120000 {
 		t.Fatalf("LatestVersion() = %d, want 20260917120000", version)
 	}
@@ -565,6 +563,13 @@ func assertSoftDeleteColumns(t *testing.T, db *sql.DB, want bool) {
 	}
 }
 
+func clearCredentialStorageForLaterMigrations(t *testing.T, connection *pgx.Conn) {
+	t.Helper()
+	if _, err := connection.Exec(t.Context(), `DELETE FROM google_maps_credentials`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
 	for range 8 {
@@ -596,10 +601,7 @@ func TestDownPreservesConfiguredGoogleMapsKey(t *testing.T) {
 	if err := connection.QueryRow(t.Context(), `SELECT count(*) FROM google_maps_credentials`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("credential count=%d err=%v", count, err)
 	}
-	// The new encryption schema also refuses existing plaintext; this deployment starts empty.
-	if _, err := connection.Exec(t.Context(), `DELETE FROM google_maps_credentials`); err != nil {
-		t.Fatal(err)
-	}
+	clearCredentialStorageForLaterMigrations(t, connection)
 	if err := migrations.Run(t.Context(), databaseURL); err != nil {
 		t.Fatal(err)
 	}
@@ -656,22 +658,21 @@ func TestCredentialEncryptionMigrationPreservesUnexpectedKeys(t *testing.T) {
 		t.Run(direction, func(t *testing.T) {
 			db, migrator := openMigrator(t)
 			insertSQL, readSQL, target := `INSERT INTO google_maps_credentials(id,encrypted_api_key) VALUES(1,$1)`, `SELECT encrypted_api_key FROM google_maps_credentials`, uint(20260913150000)
-			secret := "v1:" + strings.Repeat("a", 40)
+			storedValue := "v1:" + strings.Repeat("a", 40)
 			if direction == "up" {
 				if err := migrator.Migrate(20260913150000); err != nil {
 					t.Fatal(err)
 				}
-				// #nosec G101 -- Deliberately fake credential for the migration preservation test.
-				insertSQL, readSQL, target, secret = `INSERT INTO google_maps_credentials(id,api_key) VALUES(1,$1)`, `SELECT api_key FROM google_maps_credentials`, 20260914130000, "unexpected-plaintext-credential"
+				insertSQL, readSQL, target, storedValue = `INSERT INTO google_maps_credentials(id,api_key) VALUES(1,$1)`, `SELECT api_key FROM google_maps_credentials`, 20260914130000, "unexpected-plaintext-credential"
 			}
-			if _, err := db.ExecContext(t.Context(), insertSQL, secret); err != nil {
+			if _, err := db.ExecContext(t.Context(), insertSQL, storedValue); err != nil {
 				t.Fatal(err)
 			}
 			if err := migrator.Migrate(target); err == nil || !strings.Contains(err.Error(), "Delete the configured Google Maps credential") {
 				t.Fatalf("populated storage migration: %v", err)
 			}
 			var got string
-			if err := db.QueryRowContext(t.Context(), readSQL).Scan(&got); err != nil || got != secret {
+			if err := db.QueryRowContext(t.Context(), readSQL).Scan(&got); err != nil || got != storedValue {
 				t.Fatal("migration discarded a credential")
 			}
 		})

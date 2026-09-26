@@ -121,7 +121,6 @@ func (r *activityLocationRepository) Restore(ctx context.Context, id int64) erro
 	return rowsAffectedOrNotFound(result)
 }
 
-// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
 func (r *activityLocationRepository) UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE activity_locations SET lat = $1, lng = $2, geocoded_at = $3 WHERE id = $4 AND address = $5 AND deleted_at IS NULL`, coords.Lat, coords.Lng, geocodedAt, id, address)
 	if err != nil {

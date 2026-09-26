@@ -27,7 +27,6 @@ func TestVerifiedAdminEmailPersistenceAndFailure(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	// Use the same public HTTP handler as production, with signed cookies.
 	request := func(method string, origin bool) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequestWithContext(t.Context(), method, "http://localhost:8080/api/v1/settings", strings.NewReader(`{"use_miles":true}`))
@@ -55,7 +54,6 @@ func TestVerifiedAdminEmailPersistenceAndFailure(t *testing.T) {
 	if emails != "admin@example.test" {
 		t.Fatalf("recorded emails %q; want only verified configured admin", emails)
 	}
-	// Fresh identity lookups reject lost verification without deleting history.
 	f.User("admin", []string{"unrelated@example.test"}, []string{"admin@example.test"})
 	f.Session("unverified_session", "admin", "active")
 	token = f.Token("admin", "unverified_session")
@@ -77,7 +75,6 @@ func TestVerifiedAdminEmailPersistenceAndFailure(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("denied request created admin email record: %d", count)
 	}
-	// Force a persistence failure after valid identity verification.
 	if _, err := conn.Exec(t.Context(), `ALTER TABLE verified_admin_emails RENAME TO unavailable_admin_emails`); err != nil {
 		t.Fatal(err)
 	}

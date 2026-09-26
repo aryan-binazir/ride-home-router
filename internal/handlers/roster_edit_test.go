@@ -84,8 +84,6 @@ func TestRosterEditorDriverRetainsCoordinatesAndLabelIntent(t *testing.T) {
 	}
 }
 
-// The provider is an external boundary. Recording its request proves the editor
-// keeps exact address comparison, the caller's context and the existing retry policy.
 type rosterTestGeocoder struct {
 	stubGeocoder
 	addresses []string
@@ -127,8 +125,8 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 			}
 			provider := &rosterTestGeocoder{result: &geocoding.GeocodingResult{Coords: models.Coordinates{Lat: 42, Lng: -71}}}
 			editor.geocoder = provider
-			// Even whitespace-only address changes are significant to this module.
-			edit.Address = "Old address "
+			addressWithOnlyTrailingSpace := "Old address "
+			edit.Address = addressWithOnlyTrailingSpace
 			if kind == "participant" {
 				participant, err = editor.updateParticipant(ctx, participant, edit)
 			} else {
@@ -137,7 +135,7 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(provider.addresses) != 1 || provider.addresses[0] != "Old address " || provider.ctx != ctx || provider.retries != 3 {
+			if len(provider.addresses) != 1 || provider.addresses[0] != addressWithOnlyTrailingSpace || provider.ctx != ctx || provider.retries != 3 {
 				t.Fatalf("provider = %#v", provider)
 			}
 			if kind == "participant" && (participant.Lat != 42 || participant.Lng != -71) {

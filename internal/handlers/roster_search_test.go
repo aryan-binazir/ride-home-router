@@ -66,8 +66,6 @@ func TestPageRosterPreservesSQLResultsAndSearch(t *testing.T) {
 	}
 }
 
-// Roster refreshes after an edit carry the active search term, so the
-// re-rendered page must stay filtered instead of showing the full roster.
 func TestRosterRefreshAfterUpdateKeepsSearch(t *testing.T) {
 	h, store := newTestPageHandler(t)
 	zelda, err := store.Participants().Create(t.Context(), &models.Participant{Name: "Zelda", Address: "123 Maple Avenue", AddressName: "Community Center"})

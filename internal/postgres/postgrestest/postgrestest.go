@@ -1,4 +1,3 @@
-// Package postgrestest provides schema-isolated, migrated Postgres stores for tests.
 package postgrestest
 
 import (
@@ -18,10 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// EncryptionKey is a synthetic key for isolated database tests only.
 const EncryptionKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
 
-// EnvVar names the connection string tests use; unset skips database tests.
 const EnvVar = "TEST_DATABASE_URL"
 
 var (
@@ -30,7 +27,6 @@ var (
 	unsafeSchemaChars  = regexp.MustCompile(`[^a-z0-9_]+`)
 )
 
-// Open returns a migrated store in a schema owned by this test.
 func Open(t testing.TB) *postgres.Store {
 	t.Helper()
 	store, err := postgres.New(context.Background(), DatabaseURL(t))
@@ -48,7 +44,6 @@ func Open(t testing.TB) *postgres.Store {
 	return store
 }
 
-// OpenURL opens a second store on an existing test schema, emulating another replica.
 func OpenURL(t testing.TB, databaseURL string) *postgres.Store {
 	t.Helper()
 	store, err := postgres.New(context.Background(), databaseURL)
@@ -66,7 +61,6 @@ func OpenURL(t testing.TB, databaseURL string) *postgres.Store {
 	return store
 }
 
-// DatabaseURL returns a migrated test schema that is dropped after the test.
 func DatabaseURL(t testing.TB) string {
 	t.Helper()
 	databaseURL := UnmigratedDatabase(t)
@@ -76,7 +70,6 @@ func DatabaseURL(t testing.TB) string {
 	return databaseURL
 }
 
-// UnmigratedDatabase returns an empty test schema that is dropped after the test.
 func UnmigratedDatabase(t testing.TB) string {
 	t.Helper()
 	base := strings.TrimSpace(os.Getenv(EnvVar))

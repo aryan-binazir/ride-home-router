@@ -19,7 +19,6 @@ type participantFacts struct {
 	bearing   float64
 }
 
-// Metadata is populated before search and read-only for its entire lifetime.
 func (rc *routeContext) prepareParticipants(participants []*models.Participant) {
 	rc.participants = make(map[*models.Participant]participantFacts, len(participants))
 	for _, p := range participants {
@@ -63,8 +62,6 @@ func newRouteContext(distanceCalc distance.Lookup, instituteCoords models.Coordi
 	}
 }
 
-// The solve memo returns values without allocating a pointer for every edge.
-// Direct route editing retains its original provider lookup sequence.
 func (rc routeContext) distanceValue(ctx context.Context, origin, destination models.Coordinates) (distance.DistanceResult, error) {
 	if lookup, ok := rc.distanceCalc.(interface {
 		distanceValue(context.Context, models.Coordinates, models.Coordinates) (distance.DistanceResult, error)
@@ -202,7 +199,6 @@ func (rc routeContext) groupInsertionDeltaRiderScoreFrom(ctx context.Context, dr
 	return after - before, nil
 }
 
-// applyMetrics copies stop-order metrics into display fields.
 func (rc routeContext) applyMetrics(route *models.CalculatedRoute, metrics *routeMetrics) {
 	for i := range route.Stops {
 		route.Stops[i].Order = i
@@ -245,8 +241,6 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.Lookup, ins
 	return nil
 }
 
-// OptimizeRouteOrder uses the participant-first lexicographic objective,
-// then refreshes the route's metrics.
 func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
 	if route == nil {
 		return fmt.Errorf("route is required")

@@ -18,10 +18,8 @@ import (
 )
 
 const (
-	// MaxImportUploadBytes is the maximum size of a complete multipart import request.
 	MaxImportUploadBytes int64 = 10 << 20
-	// MaxImportJSONBytes is the maximum size of an import JSON request body.
-	MaxImportJSONBytes int64 = 1 << 20
+	MaxImportJSONBytes   int64 = 1 << 20
 )
 
 const importMultipartMemory = 1 << 20
@@ -91,7 +89,6 @@ type importSnapshotJSON struct {
 	CommitResult    importCommitResultJSON    `json:"commit_result"`
 }
 
-// HandleCreateImport handles POST /api/v1/imports.
 func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	status := http.StatusInternalServerError
@@ -208,7 +205,6 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, status, newImportSnapshotJSON(snapshot))
 }
 
-// HandleImportSession handles all /api/v1/imports/{id} routes.
 func (h *Handler) HandleImportSession(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	status := http.StatusInternalServerError

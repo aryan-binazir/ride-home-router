@@ -313,7 +313,6 @@ func (r *eventRepository) Delete(ctx context.Context, id int64) error {
 	return rowsAffectedOrNotFound(result)
 }
 
-// FindByRouteSessionID resolves a retried save without loading route snapshots.
 func (r *eventRepository) FindByRouteSessionID(ctx context.Context, sessionID string) (*models.Event, error) {
 	event, err := scanEvent(r.db.QueryRowContext(ctx, `SELECT id, event_date, notes, mode, created_at, route_session_id FROM events WHERE route_session_id = $1`, sessionID))
 	if errors.Is(err, sql.ErrNoRows) {

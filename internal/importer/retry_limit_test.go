@@ -75,14 +75,13 @@ func TestPersistentGeocodeRoundLimit(t *testing.T) {
 				return nil, &geocoding.ErrGeocodingFailed{Temporary: true}
 			}
 			for round := 1; round <= 4; round++ {
-				// Reopen storage each round to verify the budget isn't process-local.
-				replica := postgrestest.OpenURL(t, url)
-				job, ok, err := replica.ImportJobs().Claim(t.Context(), fmt.Sprint(round), time.Minute)
+				reopened := postgrestest.OpenURL(t, url)
+				job, ok, err := reopened.ImportJobs().Claim(t.Context(), fmt.Sprint(round), time.Minute)
 				if err != nil || !ok || job.Attempts != round {
 					t.Fatalf("round %d claim: %+v %v %v", round, job, ok, err)
 				}
 				if round > tc.crashRounds {
-					s := &Store{geocoder: g, durableJobs: replica.ImportJobs()}
+					s := &Store{geocoder: g, durableJobs: reopened.ImportJobs()}
 					err := s.processJob(t.Context(), job)
 					if round < 3 && !tc.permanent {
 						if err == nil {
@@ -92,14 +91,13 @@ func TestPersistentGeocodeRoundLimit(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				done, _, err := replica.ImportJobs().Progress(t.Context(), "retry")
+				done, _, err := reopened.ImportJobs().Progress(t.Context(), "retry")
 				if err != nil {
 					t.Fatal(err)
 				}
 				if done == 1 {
 					break
 				}
-				// Advance the lease/cooldown locally instead of sleeping between rounds.
 				if _, err := conn.Exec(t.Context(), "UPDATE import_jobs SET claimed_until=clock_timestamp()-interval '1 second'"); err != nil {
 					t.Fatal(err)
 				}

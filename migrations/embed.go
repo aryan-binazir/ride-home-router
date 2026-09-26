@@ -1,4 +1,3 @@
-// Package migrations owns and applies the embedded Postgres schema.
 package migrations
 
 import (
@@ -34,7 +33,6 @@ const (
 //go:embed *.sql
 var files embed.FS
 
-// LatestVersion returns the newest embedded migration version.
 func LatestVersion() (uint, error) {
 	driver, err := iofs.New(files, ".")
 	if err != nil {
@@ -56,7 +54,6 @@ func LatestVersion() (uint, error) {
 	}
 }
 
-// Run applies pending migrations to the URL's search path.
 func Run(ctx context.Context, databaseURL string) error {
 	return withMigrator(ctx, databaseURL, func(migrator *migrate.Migrate, _ source.Driver) error {
 		if err := migrator.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
@@ -66,8 +63,7 @@ func Run(ctx context.Context, databaseURL string) error {
 	})
 }
 
-// Version returns the current migration version and dirty state. An
-// unmigrated database reports version zero and dirty false.
+// An unmigrated database reports version zero and dirty false.
 func Version(ctx context.Context, databaseURL string) (version uint, dirty bool, err error) {
 	database, err := openDatabase(ctx, databaseURL)
 	if err != nil {
@@ -77,7 +73,6 @@ func Version(ctx context.Context, databaseURL string) (version uint, dirty bool,
 	return VersionFromDB(ctx, database)
 }
 
-// VersionFromDB returns the migration state using an existing connection pool.
 func VersionFromDB(ctx context.Context, database *sql.DB) (version uint, dirty bool, err error) {
 	var currentSchema sql.NullString
 	var exists bool
@@ -152,8 +147,7 @@ func preflightDown(ctx context.Context, databaseURL string, migrator *migrate.Mi
 		return fmt.Errorf("refuse down: migration state is dirty at version %d; repair or restore the database before retrying", version)
 	}
 
-	// Refuse before golang-migrate marks the previous version dirty. Keep the
-	// SQL guard too, for other migration runners and concurrent credential writes.
+	// Refuse before golang-migrate marks the previous version dirty.
 	if version == 20260912210000 || version == 20260914130000 {
 		db, err := openDatabase(ctx, databaseURL)
 		if err != nil {

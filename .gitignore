@@ -1,7 +1,3 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
 /bin/
 .gocache/
 *.exe
@@ -10,42 +6,31 @@
 *.so
 *.dylib
 
-# Test binary, built with `go test -c`
 *.test
 
-# Code coverage profiles and other test artifacts
 *.out
 coverage.*
 *.coverprofile
 profile.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# Go workspace file
 go.work
 go.work.sum
 
-# env file
 .env
 .env.*
 !.env.example
 !.env.sample
 
-# Editor/IDE
 .idea/
 .vscode/
 .DS_Store
 
-# SQLite files from pre-Postgres builds hold real names and addresses
 *.db
 *.db-wal
 *.db-shm
 *.sqlite
 *.sqlite3
 
-# scratch files
 _scratch/
 
-# Local agent config and worktrees never belong in the repo.
 .claude/

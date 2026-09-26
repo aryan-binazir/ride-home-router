@@ -16,19 +16,14 @@ type rosterFields struct {
 	updatedAt *time.Time
 }
 
-// rosterWriteCore owns the transaction sequences shared by participant and
-// driver writes. Entity-specific SQL stays in each repository.
 type rosterWriteCore[T any] struct {
-	db        *sql.DB
-	noun      string
-	table     string
-	labels    membershipTable
-	key       func(*T) string
-	insert    func(context.Context, *sql.Tx, *T, time.Time) (int64, error)
-	updateRow func(context.Context, *sql.Tx, *T, time.Time) (sql.Result, error)
-	// importUpdate applies the import-mutable fields of entity to the existing
-	// row id. Name, address, and coordinates are never overwritten by imports.
-	// Zero rows affected means the row was deleted since the key snapshot.
+	db           *sql.DB
+	noun         string
+	table        string
+	labels       membershipTable
+	key          func(*T) string
+	insert       func(context.Context, *sql.Tx, *T, time.Time) (int64, error)
+	updateRow    func(context.Context, *sql.Tx, *T, time.Time) (sql.Result, error)
 	importUpdate func(context.Context, *sql.Tx, int64, *T, time.Time) (sql.Result, error)
 	fields       func(*T) rosterFields
 }
@@ -51,7 +46,7 @@ func (w rosterWriteCore[T]) upsertBatch(ctx context.Context, entities []*T) (dat
 }
 
 func (w rosterWriteCore[T]) upsertBatchTx(ctx context.Context, tx *sql.Tx, entities []*T) (database.BatchUpsertResult, error) {
-	if err := lockRoster(ctx, tx, w.table); err != nil {
+	if err := serializeRosterWrites(ctx, tx, w.table); err != nil {
 		return database.BatchUpsertResult{}, err
 	}
 	existing, err := rosterKeys(ctx, tx, w.table)
@@ -85,13 +80,11 @@ func (w rosterWriteCore[T]) upsertBatchTx(ctx context.Context, tx *sql.Tx, entit
 				result.Updated++
 				continue
 			}
-			// The matched row was deleted concurrently; fall through and insert.
 		}
 		id, err := w.insert(ctx, tx, entity, now)
 		if err != nil {
 			return database.BatchUpsertResult{}, fmt.Errorf("failed to create %s in batch: %w", w.noun, err)
 		}
-		// Later rows with the same key update this row instead of inserting again.
 		if key != "" {
 			existing[key] = id
 		}
@@ -117,7 +110,7 @@ func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, lab
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := lockRoster(ctx, tx, w.table); err != nil {
+	if err := serializeRosterWrites(ctx, tx, w.table); err != nil {
 		return nil, err
 	}
 	now := time.Now()
@@ -145,8 +138,7 @@ func (w rosterWriteCore[T]) updateWithLabels(ctx context.Context, entity *T, lab
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Identity edits serialize with import upserts, which snapshot roster keys.
-	if err := lockRoster(ctx, tx, w.table); err != nil {
+	if err := serializeRosterWrites(ctx, tx, w.table); err != nil {
 		return nil, err
 	}
 	now := time.Now()
@@ -186,15 +178,13 @@ func (w rosterWriteCore[T]) restore(ctx context.Context, id int64) error {
 	return rowsAffectedOrNotFound(result)
 }
 
-// lockRoster keeps duplicate checks and roster writes in one serial order.
-func lockRoster(ctx context.Context, tx *sql.Tx, table string) error {
+func serializeRosterWrites(ctx context.Context, tx *sql.Tx, table string) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "ride-home-router:"+table); err != nil {
 		return fmt.Errorf("failed to lock %s for writing: %w", table, err)
 	}
 	return nil
 }
 
-// rosterKeys maps each normalized name+address key in a roster table to its row ID.
 func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]int64, error) {
 	var query string
 	switch table {
@@ -211,43 +201,40 @@ func rosterKeys(ctx context.Context, tx *sql.Tx, table string) (map[string]int64
 	}
 	defer func() { _ = rows.Close() }()
 
-	keys := make(map[string]int64)
+	oldestIDByKey := make(map[string]int64)
 	for rows.Next() {
 		var id int64
 		var name, address string
 		if err := rows.Scan(&id, &name, &address); err != nil {
 			return nil, fmt.Errorf("failed to scan %s duplicate: %w", table, err)
 		}
-		// Pre-existing duplicates resolve to the oldest row.
 		if key := models.RosterKey(name, address); key != "" {
-			if _, seen := keys[key]; !seen {
-				keys[key] = id
+			if _, seen := oldestIDByKey[key]; !seen {
+				oldestIDByKey[key] = id
 			}
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate %s duplicates: %w", table, err)
 	}
-	return keys, nil
+	return oldestIDByKey, nil
 }
 
-// PurgeDeletedRoster hard-deletes roster rows soft-deleted over 30 days ago, a bounded batch per table.
-// Snapshot roster IDs deliberately have no foreign keys to the live roster.
-// Label memberships cascade; settings' selected location is set to null.
 func (s *Store) PurgeDeletedRoster(ctx context.Context) error {
-	for _, table := range []string{"participants", "drivers", "activity_locations"} {
-		//nolint:gosec // G202: table names are fixed above, never supplied by a request.
-		_, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE id IN (SELECT id FROM `+table+` WHERE deleted_at<clock_timestamp()-interval '30 days' ORDER BY deleted_at,id FOR UPDATE SKIP LOCKED LIMIT 100) AND deleted_at<clock_timestamp()-interval '30 days'`)
-		if err != nil {
+	queries := []string{
+		`DELETE FROM participants WHERE id IN (SELECT id FROM participants WHERE deleted_at<clock_timestamp()-interval '30 days' ORDER BY deleted_at,id FOR UPDATE SKIP LOCKED LIMIT 100) AND deleted_at<clock_timestamp()-interval '30 days'`,
+		`DELETE FROM drivers WHERE id IN (SELECT id FROM drivers WHERE deleted_at<clock_timestamp()-interval '30 days' ORDER BY deleted_at,id FOR UPDATE SKIP LOCKED LIMIT 100) AND deleted_at<clock_timestamp()-interval '30 days'`,
+		`DELETE FROM activity_locations WHERE id IN (SELECT id FROM activity_locations WHERE deleted_at<clock_timestamp()-interval '30 days' ORDER BY deleted_at,id FOR UPDATE SKIP LOCKED LIMIT 100) AND deleted_at<clock_timestamp()-interval '30 days'`,
+	}
+	for _, query := range queries {
+		if _, err := s.db.ExecContext(ctx, query); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// addressMatchOrDefault stores a blank status as verified so callers that
-// never geocoded (tests, legacy paths) satisfy the CHECK constraint.
-func addressMatchOrDefault(status string) string {
+func addressMatchOrVerified(status string) string {
 	if status == "" {
 		return models.AddressMatchVerified
 	}

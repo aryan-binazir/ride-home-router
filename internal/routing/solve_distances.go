@@ -13,9 +13,7 @@ const MaxUncachedDistancePairs = distance.MaxUncachedDistancePairs
 
 var ErrTooManyDistancePairs = distance.ErrTooManyDistancePairs
 
-// prepareSolveDistances prewarms and memoizes one solve's directed pairs.
 func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {
-	// Provider-free sources skip the quadratic pair enumeration entirely.
 	if local, ok := source.(interface{ NoPrewarm() bool }); !ok || !local.NoPrewarm() {
 		pairs, err := collectSolveDistancePairs(ctx, normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)
 		if err != nil {
@@ -39,7 +37,6 @@ func collectSolveDistancePairs(ctx context.Context, mode RouteMode, institute mo
 		return nil, err
 	}
 
-	// Round each location once; pair enumeration is quadratic in locations.
 	type point struct {
 		coords models.Coordinates
 		key    [2]uint64
@@ -49,8 +46,6 @@ func collectSolveDistancePairs(ctx context.Context, mode RouteMode, institute mo
 		return point{coords: coords, key: [2]uint64{key[0], key[1]}}
 	}
 	institutePoint := preparePoint(institute)
-	// Bound the capacity hint so large requests do not trigger an excessive
-	// eager allocation. Count unique rounded points for shared households.
 	participantKeys := make(map[[2]uint64]struct{}, len(participants))
 	for i := range participants {
 		if err := ctx.Err(); err != nil {
@@ -65,16 +60,13 @@ func collectSolveDistancePairs(ctx context.Context, mode RouteMode, institute mo
 		}
 		driverKeys[preparePoint(drivers[i].GetCoords()).key] = struct{}{}
 	}
-	n, d := min(len(participantKeys), 1024), min(len(driverKeys), 1024)
-	hint := min(n*n+n*d+d, 1<<20)
+	n, d := min(len(participantKeys), pairHintLocationCap), min(len(driverKeys), pairHintLocationCap)
+	hint := min(n*n+n*d+d, pairHintCap)
 	seen := make(map[solvePairKey]struct{}, hint)
 	pairs := make([]distance.DistancePair, 0, hint)
 
 	addPair := func(origin, dest point) {
-		// Float comparison intentionally treats signed zeros as the same point
-		// and NaNs as different, matching distance.SamePoint.
-		if math.Float64frombits(origin.key[0]) == math.Float64frombits(dest.key[0]) &&
-			math.Float64frombits(origin.key[1]) == math.Float64frombits(dest.key[1]) {
+		if distance.SamePoint(origin.coords, dest.coords) {
 			return
 		}
 		key := solvePairKey{origin.key[0], origin.key[1], dest.key[0], dest.key[1]}
@@ -156,15 +148,18 @@ func collectSolveDistancePairs(ctx context.Context, mode RouteMode, institute mo
 	return pairs, nil
 }
 
-// solveDistanceLookup is isolated to one synchronous routing solve.
 type solveDistanceLookup struct {
 	source distance.Lookup
 	values map[solvePairKey]distance.DistanceResult
 }
 
-// Numeric keys preserve the persistent key's rounding and signed zero while
-// avoiding formatting on every search edge. All NaN spellings share one key.
 type solvePairKey [4]uint64
+
+const (
+	pairHintLocationCap = 1024
+	pairHintCap         = 1 << 20
+	canonicalNaNBits    = 0x7ff8000000000000
+)
 
 func makeSolvePairKey(origin, dest models.Coordinates) solvePairKey {
 	values := [4]float64{origin.Lat, origin.Lng, dest.Lat, dest.Lng}
@@ -172,7 +167,7 @@ func makeSolvePairKey(origin, dest models.Coordinates) solvePairKey {
 	for i, value := range values {
 		value = models.RoundCoordinate(value)
 		if math.IsNaN(value) {
-			key[i] = 0x7ff8000000000000
+			key[i] = canonicalNaNBits
 		} else {
 			key[i] = math.Float64bits(value)
 		}

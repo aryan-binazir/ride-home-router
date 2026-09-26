@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// Timing statuses drive what a route card shows. Only "measured" carries numbers.
 const (
 	timingMeasured    = "measured"
 	timingStale       = "stale"
@@ -29,22 +28,17 @@ const (
 	messageTimingsPaused      = "Unavailable until within capacity."
 	messageTimingsEmpty       = "No riders assigned."
 
-	// measurementReserve keeps time to persist and render after measuring;
-	// measurementFloor is the least budget worth spending a request on.
 	measurementReserve = 2 * time.Second
 	measurementFloor   = 3 * time.Second
 	measurementTimeout = 30 * time.Second
 )
 
-// RouteTiming is one car's provider-measured route for the current response.
-// Route is nil unless Status is "measured"; nothing here is ever persisted.
 type RouteTiming struct {
 	Status  string
 	Message string
 	Route   *models.CalculatedRoute
 }
 
-// RouteTimingJSON is the API shape of RouteTiming.
 type RouteTimingJSON struct {
 	Status                     string    `json:"status"`
 	Message                    string    `json:"message,omitempty"`
@@ -58,7 +52,6 @@ type RouteTimingJSON struct {
 	StopDistanceFromPrevMeters []float64 `json:"stop_distance_from_prev_meters,omitempty"`
 }
 
-// allRouteIndexes lists every route index of the snapshot.
 func allRouteIndexes(snapshot routesession.Snapshot) []int {
 	indexes := make([]int, len(snapshot.Routes))
 	for i := range indexes {
@@ -67,14 +60,10 @@ func allRouteIndexes(snapshot routesession.Snapshot) []int {
 	return indexes
 }
 
-// routeTimings measures the requested cars for this response. With the legacy
-// matrix engine (no Measurer) the planner's own metrics are the measurement.
 func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapshot, indexes []int) []RouteTiming {
 	timings := make([]RouteTiming, len(snapshot.Routes))
 	for i := range timings {
 		timings[i] = RouteTiming{Status: timingStale, Message: messageTimingsStale}
-		// Templates hide every car's numbers while the plan is out of balance,
-		// so no car is measured (or billed) until it is balanced again.
 		if snapshot.IsOutOfBalance {
 			timings[i] = RouteTiming{Status: timingPaused, Message: messageTimingsPaused}
 		} else if len(snapshot.Routes[i].Stops) == 0 {
@@ -106,7 +95,6 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 	measurementDeadline := time.Now().Add(measurementTimeout)
 	if deadline, ok := ctx.Deadline(); ok {
 		if time.Until(deadline) < measurementReserve+measurementFloor {
-			// Too little budget left to measure anything: reserve nothing.
 			for _, index := range wanted {
 				timings[index] = RouteTiming{Status: timingFailed, Message: messageTimingsFailed}
 			}
@@ -117,7 +105,6 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 			measurementDeadline = reserved
 		}
 	}
-	// The shared budget includes waiting for a provider slot, not only network I/O.
 	measureCtx, cancel := context.WithDeadline(ctx, measurementDeadline)
 	defer cancel()
 	var institute models.Coordinates
@@ -149,30 +136,25 @@ func timingFailure(err error) RouteTiming {
 	}
 }
 
-// zeroMetrics strips every planning number from the route in place; the stops
-// slice is copied so shared snapshot data is untouched.
-func zeroMetrics(route *models.CalculatedRoute) {
+func detachAndZeroMetrics(route *models.CalculatedRoute) {
 	stops := make([]models.RouteStop, len(route.Stops))
 	copy(stops, route.Stops)
 	route.Stops = stops
 	routing.ZeroRouteMetrics(route)
 }
 
-// itineraryRoutes returns the snapshot routes without any metric values.
 func (h *Handler) itineraryRoutes(routes []models.CalculatedRoute) []models.CalculatedRoute {
 	if h.Measurer == nil {
 		return routes
 	}
 	out := make([]models.CalculatedRoute, len(routes))
 	for i, route := range routes {
-		zeroMetrics(&route)
+		detachAndZeroMetrics(&route)
 		out[i] = route
 	}
 	return out
 }
 
-// itinerarySummary keeps counts and drops planning distances unless every
-// occupied car was measured in this response.
 func (h *Handler) itinerarySummary(summary models.RoutingSummary, timings []RouteTiming) (models.RoutingSummary, bool) {
 	if h.Measurer == nil {
 		return summary, true
@@ -184,7 +166,6 @@ func (h *Handler) itinerarySummary(summary models.RoutingSummary, timings []Rout
 			continue
 		}
 		if timing.Status != timingMeasured {
-			// Aggregates over a subset of cars would mislead: keep counts only.
 			return out, false
 		}
 		used++
@@ -217,7 +198,6 @@ func timingsJSON(timings []RouteTiming) []RouteTimingJSON {
 	return out
 }
 
-// buildTimedRouteResultsView renders a snapshot with this response's timings.
 func (h *Handler) buildTimedRouteResultsView(snapshot routesession.Snapshot, timings []RouteTiming) RouteResultsView {
 	view := buildRouteResultsView(snapshot)
 	view.Routes = h.itineraryRoutes(snapshot.Routes)

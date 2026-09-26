@@ -199,12 +199,8 @@ func (c *routeCalculation) loadAssignedOrgVehicles(ctx context.Context, assignme
 	return vehicleMap, nil
 }
 
-// refreshBudget bounds the best-effort coordinate refresh inside the solve budget.
 const refreshBudget = 5 * time.Second
 
-// refreshCoordinates re-geocodes stale coordinates before planning, once per
-// distinct address. It is best effort: any failure keeps the existing
-// coordinates, logs counts only, and never blocks the calculation.
 func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants []models.Participant, drivers []models.Driver, location *models.ActivityLocation) {
 	if c.geocoder == nil {
 		return
@@ -249,7 +245,6 @@ func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants 
 	if len(order) == 0 {
 		return
 	}
-	// Refresh must never eat the calculation budget: give it a short deadline.
 	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
 	defer cancel()
 	var refreshed, failed atomic.Int32

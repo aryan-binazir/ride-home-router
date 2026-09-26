@@ -9,8 +9,6 @@ const {once} = require('node:events');
 const {pathToFileURL} = require('node:url');
 const browser = process.env.BROWSER_TEST_BINARY;
 
-// The planner Go test also invokes this file with --browser-cdp. Unlike
-// --dump-dom, CDP gives the fixture a viewport and runs animation frames.
 async function runBrowserCDP([executable, file, width, height, selector]) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-cdp-'));
     const child = spawn(executable, [

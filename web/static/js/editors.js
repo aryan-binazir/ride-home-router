@@ -1,4 +1,3 @@
-// One transient server-rendered editor. No catalogs or application data cache.
 (() => {
     let generation = 0;
     const requests = new WeakMap();
@@ -22,13 +21,17 @@
             requests.set(event.detail.xhr, {generation, sessionId: sessionId(), editorRequest, routeRequest});
         }
     });
+    function staleTransientEditor(request, swapTarget) {
+        const transientChoice = swapTarget?.id === 'route-editor' || swapTarget?.matches?.('.van-assignment-inline') || swapTarget?.id === 'event-activity-location-select';
+        return request.editorRequest && transientChoice && request.generation !== generation;
+    }
+    function staleRouteSession(request) {
+        return request.routeRequest && request.sessionId !== sessionId();
+    }
     document.addEventListener('htmx:beforeSwap', event => {
         const request = requests.get(event.detail.xhr);
-        const target = event.detail.target;
-        // Closing/replacing an editor cancels transient choices, not a route
-        // mutation already committed by the server. Session ownership still applies.
-        const transient = target?.id === 'route-editor' || target?.matches?.('.van-assignment-inline') || target?.id === 'event-activity-location-select';
-        if (request && ((transient && request.editorRequest && request.generation !== generation) || (request.routeRequest && request.sessionId !== sessionId()))) {
+        const swapTarget = event.detail.target;
+        if (request && (staleTransientEditor(request, swapTarget) || staleRouteSession(request))) {
             event.detail.shouldSwap = false;
         }
     });
@@ -56,7 +59,6 @@
         }
         if (event.detail.target?.id !== 'route-editor' || !target()?.firstElementChild) return;
         if (!dialog().open) dialog().showModal();
-        // Focus the title on paging/search rather than stealing a typed query.
         const heading = target().querySelector('h2');
         if (heading) { heading.tabIndex = -1; heading.focus(); }
     });
