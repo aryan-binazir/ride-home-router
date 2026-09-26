@@ -11,12 +11,11 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 	"time"
-
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 
 	"github.com/jackc/pgx/v5"
 )

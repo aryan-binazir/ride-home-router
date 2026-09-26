@@ -4,11 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"testing"
-
-	"ride-home-router/internal/models"
 )
 
 func TestRosterSearchRendersSQLMatches(t *testing.T) {

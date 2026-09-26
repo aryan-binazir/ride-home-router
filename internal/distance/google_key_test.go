@@ -5,13 +5,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"sync"
-	"testing"
-
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
+	"strings"
+	"sync"
+	"testing"
 )
 
 func TestGoogleMapsKeyDatabaseReplacementAndDeletion(t *testing.T) {

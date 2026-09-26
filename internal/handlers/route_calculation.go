@@ -4,16 +4,15 @@ import (
 	"context"
 	"errors"
 	"log"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 type routeCalculationKind int

@@ -7,12 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"testing"
-
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 )
 
 func TestDesktopRosterGeocodeFailureShowsSafeToast(t *testing.T) {

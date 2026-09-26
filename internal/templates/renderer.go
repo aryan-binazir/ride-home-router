@@ -6,9 +6,8 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"strings"
-
 	"ride-home-router/internal/templateutil"
+	"strings"
 )
 
 var pageNames = []string{

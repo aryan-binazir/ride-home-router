@@ -5,11 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/postgres/postgrestest"
+	"strings"
+	"testing"
 )
 
 func TestAccessSettingsCookieManagement(t *testing.T) {

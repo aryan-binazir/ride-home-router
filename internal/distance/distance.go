@@ -2,7 +2,6 @@ package distance
 
 import (
 	"context"
-
 	"ride-home-router/internal/models"
 )
 

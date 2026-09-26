@@ -12,12 +12,11 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"ride-home-router/internal/access"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"ride-home-router/internal/access"
 
 	jose "github.com/go-jose/go-jose/v3"
 )

@@ -13,14 +13,13 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 )
 
 const (

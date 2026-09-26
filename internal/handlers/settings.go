@@ -5,12 +5,11 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {

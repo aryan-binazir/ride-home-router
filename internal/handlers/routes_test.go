@@ -8,10 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strconv"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -20,6 +16,9 @@ import (
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
+	"strconv"
+	"strings"
+	"testing"
 )
 
 type captureRouter struct {

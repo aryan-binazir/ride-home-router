@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"testing"
-	"time"
-
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
+	"testing"
+	"time"
 )
 
 func TestRosterEditorParticipantRetainsCoordinatesAndLabelIntent(t *testing.T) {

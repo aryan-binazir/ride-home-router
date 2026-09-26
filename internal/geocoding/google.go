@@ -8,11 +8,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strings"
+	"time"
 )
 
 const (

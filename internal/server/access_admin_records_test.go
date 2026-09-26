@@ -4,11 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/postgres/postgrestest"
+	"strings"
+	"testing"
 
 	"github.com/jackc/pgx/v5"
 )

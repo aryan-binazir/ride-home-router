@@ -5,10 +5,9 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"slices"
-
 	"ride-home-router/internal/logutil"
 	"ride-home-router/web"
+	"slices"
 )
 
 // The entire router must still be wrapped with Protect.

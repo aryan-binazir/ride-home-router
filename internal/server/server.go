@@ -11,10 +11,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"runtime/debug"
-	"strings"
-	"time"
-
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
@@ -30,6 +26,9 @@ import (
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
 	"ride-home-router/web"
+	"runtime/debug"
+	"strings"
+	"time"
 )
 
 type Server struct {

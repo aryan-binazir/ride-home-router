@@ -4,11 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"testing"
-	"time"
-
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/access/accesstest"
+	"testing"
+	"time"
 )
 
 type closedStore struct{}

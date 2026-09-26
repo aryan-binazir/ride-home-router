@@ -3,12 +3,11 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
+	"sync"
+	"time"
 )
 
 type rosterEditor struct {

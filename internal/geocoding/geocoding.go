@@ -8,11 +8,10 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
-
-	"ride-home-router/internal/models"
 )
 
 type GeocodingResult struct {

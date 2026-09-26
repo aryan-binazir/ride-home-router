@@ -3,11 +3,10 @@ package handlers
 import (
 	"log"
 	"net/http"
-	"strings"
-
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
+	"strings"
 )
 
 type routeFeedbackView struct {

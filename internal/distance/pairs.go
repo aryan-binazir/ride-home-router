@@ -2,7 +2,6 @@ package distance
 
 import (
 	"fmt"
-
 	"ride-home-router/internal/models"
 )
 

@@ -4,10 +4,9 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
-
-	"ride-home-router/internal/models"
 )
 
 type vehicleEditorView struct {

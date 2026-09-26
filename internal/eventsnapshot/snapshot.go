@@ -2,7 +2,6 @@ package eventsnapshot
 
 import (
 	"errors"
-
 	"ride-home-router/internal/models"
 )
 

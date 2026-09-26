@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-
 	"ride-home-router/internal/models"
 )
 

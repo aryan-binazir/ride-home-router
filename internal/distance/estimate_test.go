@@ -3,9 +3,8 @@ package distance
 import (
 	"context"
 	"math"
-	"testing"
-
 	"ride-home-router/internal/models"
+	"testing"
 )
 
 func TestEstimatorScalesStraightLineDistanceWithoutProviderCalls(t *testing.T) {

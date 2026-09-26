@@ -4,11 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"testing"
-
 	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/postgres/postgrestest"
+	"testing"
 )
 
 type observedUpload struct{ reads int }

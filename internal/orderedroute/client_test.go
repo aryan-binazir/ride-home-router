@@ -9,14 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 )
 
 type recordedRequest struct {

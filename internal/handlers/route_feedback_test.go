@@ -8,9 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
-	"testing"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
@@ -18,6 +15,8 @@ import (
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
+	"strings"
+	"testing"
 
 	"github.com/jackc/pgx/v5"
 )
