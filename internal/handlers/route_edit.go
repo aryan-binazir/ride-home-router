@@ -4,11 +4,12 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
-	"strconv"
 )
 
 const maxParticipantMovesPerBatch = 64
@@ -149,25 +150,22 @@ func (h *Handler) HandleGetRouteSession(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	// A restored session shows its itinerary; timings are fetched per car on demand.
+	h.writeRouteItinerary(w, r, snapshot)
+}
+
+func (h *Handler) writeRouteItinerary(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot) {
 	h.writeRouteSession(w, r, snapshot, nil)
 }
 
-// writeRouteSession renders a snapshot, measuring only the cars in indexes.
-func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, indexes []int) {
-	timings := h.routeTimings(r.Context(), snapshot, indexes)
+func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, measureIndexes []int) {
+	timings := h.routeTimings(r.Context(), snapshot, measureIndexes)
 	if h.isHTMX(r) {
 		view := h.buildTimedRouteResultsView(snapshot, timings)
 		view.ReviewerFeedback = h.collectsReviewerNotes(r)
-		// A global capacity transition changes every card's timing/copy state.
-		// Missing/invalid client state safely falls back to a complete view.
-		// Crossing to two cars enables actions on the first car. The full-view
-		// client path also preserves that unchanged car's already measured timings.
-		addingSecond := len(snapshot.Routes) == 2 && r.URL.Path == "/api/v1/routes/edit/add-driver"
-		if !addingSecond && r.Header.Get("X-Route-Fragment") == "true" && r.Header.Get("X-Route-Balance") == strconv.FormatBool(snapshot.IsOutOfBalance) {
+		if routeResultsAreFragment(r, snapshot) {
 			view.Partial = true
-			view.RenderIndexes = make(map[int]bool, len(indexes))
-			for _, index := range indexes {
+			view.RenderIndexes = make(map[int]bool, len(measureIndexes))
+			for _, index := range measureIndexes {
 				view.RenderIndexes[index] = true
 			}
 			h.renderTemplate(w, "route_updates", view)
@@ -177,6 +175,17 @@ func (h *Handler) writeRouteSession(w http.ResponseWriter, r *http.Request, snap
 		return
 	}
 	h.writeJSON(w, http.StatusOK, h.routeCalculationResponse(snapshot, timings))
+}
+
+func routeResultsAreFragment(r *http.Request, snapshot routesession.Snapshot) bool {
+	if addingSecondDriver(r.URL.Path, len(snapshot.Routes)) {
+		return false
+	}
+	return r.Header.Get("X-Route-Fragment") == "true" && r.Header.Get("X-Route-Balance") == strconv.FormatBool(snapshot.IsOutOfBalance)
+}
+
+func addingSecondDriver(path string, routeCount int) bool {
+	return routeCount == 2 && path == "/api/v1/routes/edit/add-driver"
 }
 
 func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request, err error) {
@@ -204,8 +213,6 @@ func (h *Handler) handleRouteSessionError(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// HandleRouteTimings measures one car of an existing session on demand, for
-// restored sessions and cars whose timings were not refreshed after an edit.
 func (h *Handler) HandleRouteTimings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SessionID  string `json:"session_id"`

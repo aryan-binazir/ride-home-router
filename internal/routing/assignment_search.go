@@ -10,11 +10,12 @@ import (
 	"sync/atomic"
 )
 
-const assignmentBatchSize = 32
+const (
+	assignmentBatchSize       = 32
+	maxExtraAssignmentWorkers = 3
+)
 
-// Extra workers never queue behind another calculation. Its caller can always
-// evaluate inline, and at most three additional search goroutines run process-wide.
-var assignmentWorkerSlots = make(chan struct{}, 3)
+var assignmentWorkerSlots = make(chan struct{}, maxExtraAssignmentWorkers)
 
 var errUncachedCandidate = errors.New("candidate needs a serial distance lookup")
 
@@ -59,9 +60,6 @@ func (candidate assignmentCandidate) evaluate(ctx context.Context, rc routeConte
 	return assignmentEvaluation{stops: stops, score: score, err: err}
 }
 
-// Each batch owns its child context and joins all workers before returning.
-// Workers can only read memoized distances. The coordinator handles cache misses
-// later, in candidate order, without changing the source's serial contract.
 func evaluateAssignmentBatch(parent context.Context, rc routeContext, routes map[int64]*balancedRoute, metrics map[int64]routeObjectiveMetrics, driverIDs []int64, candidates []assignmentCandidate) []assignmentEvaluation {
 	results := make([]assignmentEvaluation, len(candidates))
 	extra := 0
@@ -73,7 +71,6 @@ func evaluateAssignmentBatch(parent context.Context, rc routeContext, routes map
 		}
 	}
 	if extra == 0 {
-		// No speculation or extra allocations when another solve owns the slots.
 		for i, candidate := range candidates {
 			results[i] = candidate.evaluate(parent, rc, routes, metrics, driverIDs)
 			if results[i].err != nil {
@@ -91,7 +88,6 @@ func evaluateAssignmentBatch(parent context.Context, rc routeContext, routes map
 			<-assignmentWorkerSlots
 		}
 	}()
-	// The mutable memo and all route state remain untouched until the batch joins.
 	local := rc
 	local.distanceCalc = cachedSolveDistances{lookup: rc.distanceCalc.(*solveDistanceLookup)}
 	var next atomic.Int64

@@ -10,13 +10,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"reflect"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/postgres/postgrestest"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -74,8 +75,6 @@ func startAccessServer(t *testing.T, databaseURL string, f *accesstest.Fixture) 
 	return s, "http://" + addr
 }
 
-// Capture complete sorted table contents, including counts, settings, approval rows,
-// workflow payloads and import jobs. This catches updates as well as insertions.
 func accessDatabaseSnapshot(t *testing.T, conn *pgx.Conn) map[string]string {
 	t.Helper()
 	rows, err := conn.Query(t.Context(), `SELECT tablename FROM pg_tables WHERE schemaname=current_schema() ORDER BY tablename`)
@@ -184,7 +183,6 @@ func TestAccessAcrossInstancesAndRevocation(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("multipart import: %d %s", status, body)
 	}
-	// Retired mobile forms cannot mutate data even for approved accounts.
 	status, body, _ = h.request(a, "POST", "/m/plan/when", member, "route_time=06%3A45&mode=pickup", "application/x-www-form-urlencoded", nil)
 	if status != 405 {
 		t.Fatalf("retired draft: %d %s", status, body)
@@ -207,7 +205,6 @@ func TestAccessAcrossInstancesAndRevocation(t *testing.T) {
 	if !reflect.DeepEqual(before, accessDatabaseSnapshot(t, conn)) {
 		t.Fatal("denied revoked identity changed database")
 	}
-	// Regrant the same token, then revoke its live Clerk session without re-signing.
 	status, body, _ = h.request(b, "POST", "/api/v1/access", admin, `{"email":"member@example.test"}`, "", nil)
 	if status != 200 {
 		t.Fatalf("regrant: %d %s", status, body)
@@ -216,7 +213,6 @@ func TestAccessAcrossInstancesAndRevocation(t *testing.T) {
 	if status != 200 {
 		t.Fatalf("regrant not live: %d %s", status, body)
 	}
-	// A new revoked identity has no cached active status on either instance.
 	member = f.Token("member", "revoked_member_session")
 	f.Session("revoked_member_session", "member", "revoked")
 	before = accessDatabaseSnapshot(t, conn)
@@ -249,8 +245,6 @@ func accessImportBody(t *testing.T) (string, string) {
 	return body.String(), w.FormDataContentType()
 }
 
-// Discover every mux registration, requiring literal patterns so new computed
-// registrations cannot silently fall outside this security test.
 func accessRoutePaths(t *testing.T) []string {
 	t.Helper()
 	paths := map[string]bool{}
@@ -332,7 +326,6 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 	f.Fail("/v1/sessions/service_failure", 503)
 	_, base := startAccessServer(t, databaseURL, f)
 	h := accessHTTP{t, &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	// Seed protected data so response assertions are not vacuous.
 	status, body, _ := h.request(base, "POST", "/api/v1/labels", admin, `{"name":"protected matrix secret"}`, "", nil)
 	if status != 201 {
 		t.Fatalf("seed: %d %s", status, body)
@@ -383,7 +376,6 @@ func TestAccessDenialRouteMatrix(t *testing.T) {
 			before := accessDatabaseSnapshot(t, conn)
 			for _, path := range paths {
 				for _, method := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
-					// These exact read-only paths are deliberately public. Their writes are tested.
 					if (method == "GET" || method == "HEAD") && (path == "/healthz" || path == "/sign-in" || path == "/auth/config" || path == "/api/v1/health" || path == "/api/v1/ready" || (strings.HasPrefix(path, "/static/") && !strings.Contains(path, "..") && !strings.Contains(path, "%2e"))) {
 						continue
 					}

@@ -911,7 +911,6 @@ func createTestEvent(t *testing.T, store *postgres.Store, eventDate, notes strin
 	return created
 }
 
-// createLegacyEvent seeds the incomplete version 1 snapshot format.
 func createLegacyEvent(t *testing.T, store *postgres.Store) {
 	t.Helper()
 	orgVehicleID := int64(5)

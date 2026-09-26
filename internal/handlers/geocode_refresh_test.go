@@ -108,7 +108,6 @@ func TestCalculateRefreshesExpiredCoordinates(t *testing.T) {
 }
 
 func TestCalculateRefreshFailuresKeepPreviousCoordinatesAndStillPlan(t *testing.T) {
-	// Refresh is best effort: a failed lookup never blocks planning or changes the row.
 	for _, tc := range []struct {
 		name string
 		err  error

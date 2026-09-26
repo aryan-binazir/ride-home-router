@@ -8,7 +8,6 @@ const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
 const browser = process.env.BROWSER_TEST_BINARY;
-// Opt in to real DOM events and native requestSubmit without packages or a server.
 for (const outcome of ['token', 'missing', 'rejected']) {
     for (const submitter of [true, false]) {
         test(`mobile auth refresh=${outcome}, explicit submitter=${submitter}`, { skip: !browser }, () => {
@@ -38,7 +37,6 @@ const button = document.getElementById('save');
 const fields = () => Array.from(form.elements).filter(input => !input.hasAttribute('data-submit-value')).map(input => ({name: input.name, value: input.value, checked: input.checked}));
 const controls = () => Array.from(form.querySelectorAll('select'), input => input.disabled);
 const initialFields = fields();
-// The injected SDK loads as a real script; only configuration and Clerk are synthetic.
 window.Clerk = {
  load: async () => { setTimeout(run, 0); },
  session: {getToken: options => {
@@ -56,7 +54,6 @@ window.fetch = async url => {
  if (url !== '/auth/config') throw new Error('Unexpected network request');
  return {ok: true, json: async () => ({scriptURL: 'data:text/javascript,window.syntheticSDKLoaded%3Dtrue', publishableKey: 'synthetic'})};
 };
-// Runs only after auth permits propagation. Prevent navigation before recording data.
 window.addEventListener('submit', event => {
  if (event.defaultPrevented) return;
  event.preventDefault();
@@ -74,7 +71,6 @@ function run() {
   if (${submitter}) form.requestSubmit(button);
   else form.requestSubmit();
   evidence.beforeRefresh = {final: evidence.final.length, disabled: controls(), fields: fields()};
-  // A second attempt during refresh must not start another refresh or final POST.
   if (${submitter}) form.requestSubmit(button);
   else form.requestSubmit();
   setTimeout(() => {

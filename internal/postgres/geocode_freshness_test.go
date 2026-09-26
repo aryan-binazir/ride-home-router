@@ -121,7 +121,6 @@ func TestImportsRetainLookupTime(t *testing.T) {
 	if err != nil || len(ds) != 1 || !ds[0].GeocodedAt.Equal(lookup) {
 		t.Fatalf("driver import=%#v %v", ds, err)
 	}
-	// Duplicate imports preserve coordinates, so must also preserve their age.
 	if _, err := s.Participants().UpsertBatch(ctx, []*models.Participant{{Name: "Rider", Address: "Home", Lat: 3, Lng: 4, GeocodedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}

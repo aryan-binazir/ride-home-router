@@ -45,7 +45,6 @@ func TestSharedGeocodingCooldownHonorsOtherInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = b.Close() }()
-	// Google imposes no per-second pacing: consecutive waits pass immediately.
 	for range 3 {
 		if err = a.GeocodingGate().Wait(t.Context()); err != nil {
 			t.Fatal(err)

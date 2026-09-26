@@ -72,7 +72,6 @@ func TestDurableImportUsesLatestSelectionAndCommitsCountsOnce(t *testing.T) {
 		t.Fatalf("first row was already a duplicate at preview: %+v", preview.Rows[0])
 	}
 	waitDurableImport(t, s, preview.ID)
-	// The duplicate appears after preview, so commit must use current roster keys.
 	if _, err := db.Participants().Create(t.Context(), &models.Participant{Name: " First ", Address: "1 MAIN ST", Lat: 40, Lng: -73}); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +145,6 @@ func TestDurableGeocodeDedupFailureAndGuessedAddress(t *testing.T) {
 	if finished.Selected[2] || len(finished.Rows[2].Errors) == 0 || finished.Rows[2].HasCoordinates || !finished.Rows[3].AddressGuessed {
 		t.Fatalf("failed/guessed rows = %+v %+v", finished.Rows[2], finished.Rows[3])
 	}
-	// A client may select a failed row. Commit must still exclude it.
 	selected := append([]bool(nil), finished.Selected...)
 	selected[2] = true
 	selection, err := s.SelectRowsContext(t.Context(), preview.ID, selected)

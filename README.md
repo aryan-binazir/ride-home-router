@@ -90,7 +90,7 @@ Run exactly `migrate` as the pre-deploy command; failure must block deployment. 
 make migrate
 make migrate-version
 make migrate-create name=add_route_notes
-make migrate-down CONFIRM=yes  # destructive, fixed local database only
+make migrate-down CONFIRM=yes
 ```
 
 Keep applied SQL immutable; add paired migrations. Generated down files remain disabled until implemented. Migration commands need no Clerk configuration. The runner serializes migrations and refuses dirty state or missing/disabled/comment-only rollbacks. `migrate down --confirm` targets `DATABASE_URL`; require a verified backup and compatible application rollback.
@@ -100,9 +100,9 @@ For dirty state, inspect `schema_migrations`, the failed SQL and actual schema. 
 ## Verify
 
 ```sh
-make check       # lint, module checks, vet, JS and Go race tests; needs test DB
-make check-unit  # same, skips database tests
-make eval        # planner regression suite; several minutes
+make check
+make check-unit
+make eval
 ```
 
 Set `BROWSER_TEST_BINARY` to Chrome/Chromium to enable browser tests; otherwise they skip. No running app or npm dependencies required. `make eval` compares synthetic rosters against a committed baseline and writes `_scratch/planner-eval-report.md`. Run it locally for planner-related changes; passing establishes no material regression, not optimal routes. This repository has no CI. Agents must complete the local pre-merge checks in [AGENTS.md](AGENTS.md).

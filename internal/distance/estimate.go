@@ -4,21 +4,18 @@ import (
 	"context"
 	"errors"
 	"math"
+
 	"ride-home-router/internal/models"
 )
 
-// Estimator constants are fixed source values. They are deliberately never
-// fitted to provider results, which Google's terms forbid deriving content from.
 const (
-	estimateEarthRadiusMeters = 6371000.0
-	estimateRoadFactor        = 1.3
-	estimateSpeedMetersPerSec = 11.18 // 25 mph
+	estimateEarthRadiusMeters      = 6371000.0
+	estimateRoadFactor             = 1.3
+	estimateSpeed25MPHMetersPerSec = 11.18
 )
 
 var errInvalidCoordinates = errors.New("distance: invalid coordinates")
 
-// estimator approximates road distance from straight-line distance so the
-// solver can plan without any provider calls.
 type estimator struct{}
 
 // NewEstimator returns a provider-free distance source.
@@ -40,7 +37,7 @@ func (estimator) GetDistance(ctx context.Context, origin, dest models.Coordinate
 		return &DistanceResult{}, nil
 	}
 	meters := haversineMeters(origin, dest) * estimateRoadFactor
-	return &DistanceResult{DistanceMeters: meters, DurationSecs: meters / estimateSpeedMetersPerSec}, nil
+	return &DistanceResult{DistanceMeters: meters, DurationSecs: meters / estimateSpeed25MPHMetersPerSec}, nil
 }
 
 func validCoordinate(c models.Coordinates) bool {

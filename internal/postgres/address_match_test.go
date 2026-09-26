@@ -41,7 +41,6 @@ func TestParticipantAddressMatchRoundTrip(t *testing.T) {
 		t.Fatalf("List() = %#v, %v", list, err)
 	}
 
-	// A re-import of the same name and address carries the new lookup's verdict.
 	result, err := store.Participants().UpsertBatch(ctx, []*models.Participant{{
 		Name: "Guess", Address: "12 Oak Street, Raleigh, NC 27601", Lat: 35.7, Lng: -78.6,
 		MatchedAddress: "12 Oak Street, Raleigh, NC 27601", AddressMatch: models.AddressMatchVerified,
@@ -51,7 +50,7 @@ func TestParticipantAddressMatchRoundTrip(t *testing.T) {
 	}
 	got, err = store.Participants().GetByID(ctx, guessed.ID)
 	if err != nil || got.AddressMatch != models.AddressMatchVerified {
-		t.Fatalf("GetByID() after import = %#v, %v", got, err)
+		t.Fatalf("re-import of the same name and address = %#v, %v, want verified", got, err)
 	}
 }
 

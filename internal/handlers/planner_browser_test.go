@@ -15,8 +15,6 @@ import (
 	"time"
 )
 
-// Render the real templates and run the real CSS and planner swap listener.
-// No server, Google calls, or database is needed for these layout regressions.
 func TestPlannerBrowserContainment(t *testing.T) {
 	browser := os.Getenv("BROWSER_TEST_BINARY")
 	if browser == "" {
@@ -64,7 +62,6 @@ func TestPlannerBrowserContainment(t *testing.T) {
 	}
 	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/htmx.min.js")+`"></script>`, "<script>"+read("js/htmx.min.js")+"</script>")
 	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
-	// Exercise the exact viewport sizes that the planner must contain.
 	for _, size := range [][2]int{{1000, 850}, {1440, 1100}, {2000, 1500}, {390, 1044}} {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
 			dir, err := os.MkdirTemp("/tmp", "rhr-layout-")
@@ -115,8 +112,6 @@ window.addEventListener('load',()=>{
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 			defer cancel()
-			// The CDP runner sets the actual viewport before loading the page.
-			// Chromium --dump-dom can evaluate this fixture with a zero-sized viewport.
 			//nolint:gosec // Fixed test runner; browser is an explicit test-only executable.
 			cmd := exec.CommandContext(ctx, "node", "../../web/static/js/frontend-browser.test.js", "--browser-cdp", browser, file, fmt.Sprint(size[0]), fmt.Sprint(size[1]), "#qa-result")
 			cmd.WaitDelay = 2 * time.Second

@@ -3,31 +3,26 @@ package eventsnapshot
 
 import (
 	"errors"
+
 	"ride-home-router/internal/models"
 )
 
 var (
-	// ErrRoutesRequired indicates that no route contains any stops.
-	ErrRoutesRequired = errors.New("routes are required")
-	// ErrDriverRequired indicates that a route has no assigned driver.
-	ErrDriverRequired = errors.New("each route must include a driver")
-	// ErrParticipantRequired indicates that a route stop has no participant.
+	ErrRoutesRequired      = errors.New("routes are required")
+	ErrDriverRequired      = errors.New("each route must include a driver")
 	ErrParticipantRequired = errors.New("each route stop must include a participant")
-	// ErrMixedModes indicates that the saved routes do not share one mode.
-	ErrMixedModes = errors.New("all routes must use the same mode")
+	ErrMixedModes          = errors.New("all routes must use the same mode")
 )
 
 // SnapshotVersion 3 stores itineraries without provider metrics.
 const SnapshotVersion = 3
 
-// Snapshot contains the immutable routes and summary persisted for an event.
 type Snapshot struct {
 	Mode    models.RouteMode
 	Routes  []models.EventRoute
 	Summary models.EventSummary
 }
 
-// Build validates a live routing result and converts it to an event snapshot.
 func Build(result models.RoutingResult) (Snapshot, error) {
 	mode, err := models.ParseRouteMode(string(result.Mode))
 	if err != nil {
@@ -52,8 +47,6 @@ func Build(result models.RoutingResult) (Snapshot, error) {
 		if routeMode != mode {
 			return Snapshot{}, ErrMixedModes
 		}
-		// Version 3 snapshots are itineraries only: provider distances and
-		// durations are not stored, so history shows who rides with whom.
 		eventRoute := models.EventRoute{
 			RouteOrder:        len(snapshot.Routes),
 			DriverID:          route.Driver.ID,

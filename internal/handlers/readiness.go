@@ -9,7 +9,6 @@ import (
 
 const readinessTimeout = 2 * time.Second
 
-// HandleReadinessCheck handles GET /api/v1/ready.
 func (h *Handler) HandleReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
 	defer cancel()

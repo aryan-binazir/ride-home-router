@@ -8,14 +8,8 @@ import (
 	"time"
 )
 
-// geocodingThrottle is the provider_throttles row shared by Google Geocoding and
-// Places Autocomplete. Google enforces quotas per project, so the gate only
-// propagates cooldowns (429/503 or quota responses) across instances; it never
-// paces requests itself.
 const geocodingThrottle = "google_geocoding"
 
-// ProviderGate shares a provider cooldown across imports and interactive searches.
-// It never holds a database connection while waiting.
 type ProviderGate struct{ db *sql.DB }
 
 func (s *Store) GeocodingGate() *ProviderGate { return &ProviderGate{db: s.db} }

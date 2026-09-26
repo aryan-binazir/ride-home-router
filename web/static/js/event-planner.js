@@ -10,19 +10,11 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
     'use strict';
 
-    // The planner's one source of truth for "are the routes on screen still the
-    // routes these inputs produce?". Inputs live in the DOM, the draft lives in
-    // localStorage and the routes live in a server session; comparing a
-    // fingerprint of the route-defining inputs against the fingerprint captured
-    // when the routes were calculated is the only rule that ties them together.
     function createPlannerState({ readFingerprint, storage, onChange }) {
         const LEGACY_ACTIVE_SESSION_KEY = 'ride-home-router:active-session-id';
         const ACTIVE_SESSION_KEY = 'ride-home-router:active-session:v2';
         let restoreController = null;
         let restoreFingerprint = null;
-        // Keyed by the request's XHR because a plan calculation and a capacity
-        // recalculation can overlap; a swap we cannot attribute to a request is
-        // committed as unattributable, which lands it stale rather than saveable.
         const UNATTRIBUTED_CALCULATION = '\u0000unattributed';
         const calculationFingerprints = new WeakMap();
         let calculationGeneration = 0;
@@ -63,8 +55,6 @@
         let savedSessionId = null;
         let calculatedFingerprint = null;
 
-        // The fingerprint rides with the session id so a restored session is
-        // verified against the inputs that produced it rather than assumed current.
         function saveActiveSession(id, fingerprint) {
             try {
                 storage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({ id, fingerprint }));
@@ -103,14 +93,11 @@
             abortRestore();
             restoreController = new AbortController();
             restoreFingerprint = readFingerprint();
-            // Legacy sessions use the restored draft's inputs, as before.
             const requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
             return {
                 signal: restoreController.signal,
                 commit: id => markCalculated(id, requestedFingerprint),
                 finish() {
-                    // Preserve the original unconditional finalization, including
-                    // when an older aborted restore finishes after a newer start.
                     restoreController = null;
                     restoreFingerprint = null;
                 },
@@ -135,8 +122,6 @@
             };
         }
 
-        // Staleness wins over savedness: a saved session whose inputs then moved
-        // is stale, and reverting the inputs returns it to saved, never current.
         function statusForInputs(fingerprint) {
             const current = fingerprint === undefined ? readFingerprint() : fingerprint;
             if (current !== calculatedFingerprint) return 'stale';
@@ -160,13 +145,11 @@
             return getSnapshot();
         }
 
-        // fingerprint is the one captured when the calculation was requested, so
-        // inputs edited while the request was in flight land as stale, not current.
-        function markCalculated(id, fingerprint) {
+        function markCalculated(id, fingerprintAtRequest) {
             if (!id) return clear();
 
             sessionId = id;
-            calculatedFingerprint = fingerprint === undefined ? readFingerprint() : fingerprint;
+            calculatedFingerprint = fingerprintAtRequest === undefined ? readFingerprint() : fingerprintAtRequest;
             status = statusForInputs();
             notifyChange();
             return getSnapshot();
@@ -179,20 +162,16 @@
             return settle(statusForInputs());
         }
 
-        // Callers that have already read the inputs pass the fingerprint in
-        // rather than paying for a second scan of the roster.
         function inputsChanged(fingerprint) {
             const current = fingerprint === undefined ? readFingerprint() : fingerprint;
             if (restoreController && restoreFingerprint !== current) {
                 abortRestore();
-                // The stored session belonged to the inputs just replaced.
                 clear();
             }
             return refresh(current);
         }
 
         function refresh(fingerprint) {
-            // 'empty' has nothing to compare against.
             if (status === 'empty') return getSnapshot();
 
             return settle(statusForInputs(fingerprint));
@@ -205,8 +184,6 @@
         };
     }
 
-    // Every results render replaces the save form, so carry the operator's own
-    // entries across it. Server defaults win when nothing was entered.
     function snapshotSaveFields(scope) {
         const eventDate = scope.querySelector('input[name="event_date"]');
         const notes = scope.querySelector('textarea[name="notes"]');
@@ -228,7 +205,6 @@
         if (saved.eventDate !== null) {
             if (eventDate) {
                 eventDate.value = saved.eventDate;
-                // applyLocalEventDate leaves user-edited dates alone.
                 eventDate.dataset.userEdited = '1';
             }
         }
@@ -258,15 +234,6 @@
 
     const SAVE_EVENT_ENDPOINT = '/api/v1/events';
 
-    // The single render for #results-section on the manual edit and restore
-    // paths. innerHTML plus htmx.process does not fire HTMX's swap/settle
-    // events, so those paths must carry the entered save fields, apply the local
-    // date and refresh the pane explicitly. The native HTMX calculate swap does
-    // the same work from its own beforeSwap/afterSwap/afterSettle listeners.
-    // Measured timings exist only in the response that fetched them. When an
-    // edit re-renders the pane, cars whose driver and ordered riders did not
-    // change keep the timing block already on screen; this copies markup within
-    // the page and never sends those values anywhere.
     function preserveTimings(previous, html, doc) {
         if (!previous || !doc || typeof doc.createElement !== 'function') return html;
         const template = doc.createElement('template');
@@ -309,20 +276,14 @@
         return preserved > 0 ? template.innerHTML : html;
     }
 
-    // The formatters mirror the Go template helpers so browser-computed totals
-    // read exactly like server-rendered ones.
-    // Go's %.2f rounds an exact tie to even (8.125 → 8.12) where toFixed rounds
-    // it up. A double is an exact two-decimal tie only when it is an odd
-    // multiple of 1/8 (x.125, x.375, x.625, x.875); anything else, like 2.635,
-    // is not exactly a tie in binary and toFixed already matches Go.
     function toFixedLikeGo(value) {
         const eighths = value * 8;
-        if (Number.isInteger(eighths) && eighths % 2 !== 0) {
-            const scaled = value * 100;
-            const floor = Math.floor(scaled);
-            return ((floor % 2 === 0 ? floor : floor + 1) / 100).toFixed(2);
-        }
-        return value.toFixed(2);
+        const exactOddEighth = Number.isInteger(eighths) && eighths % 2 !== 0;
+        if (!exactOddEighth) return value.toFixed(2);
+        const scaled = value * 100;
+        const floor = Math.floor(scaled);
+        const roundHalfToEven = floor % 2 === 0 ? floor : floor + 1;
+        return (roundHalfToEven / 100).toFixed(2);
     }
 
     function formatDistance(meters, useMiles) {
@@ -337,9 +298,6 @@
         return `${mins}m ${secs}s`;
     }
 
-    // Plan totals exist only when every occupied car has timings. The server
-    // can only add up the cars it measured in one response, so once cars have
-    // been measured one at a time the page adds up what is already on screen.
     function summarizeMeasuredCards(cards, useMiles) {
         let occupied = 0;
         let totalMeters = 0;
@@ -374,14 +332,13 @@
         }));
         const summary = summarizeMeasuredCards(cards, container.dataset.useMiles === 'true');
         if (!summary) return false;
-        // Only placeholders are filled; a total the server rendered stays as is.
-        const write = (key, value) => {
+        const fillSummaryPlaceholder = (key, value) => {
             const element = container.querySelector(`[data-summary="${key}"]`);
             if (element && element.textContent.trim() === '—') element.textContent = value;
         };
-        write('total-distance', summary.totalDistance);
-        write('max-detour', summary.maxDetour);
-        write('average-detour', summary.averageDetour);
+        fillSummaryPlaceholder('total-distance', summary.totalDistance);
+        fillSummaryPlaceholder('max-detour', summary.maxDetour);
+        fillSummaryPlaceholder('average-detour', summary.averageDetour);
         return true;
     }
 
@@ -433,10 +390,7 @@
                 reportError(html, errorHeader);
                 return false;
             }
-            if (getActiveSessionId() !== requestedSessionId) {
-                // The request succeeded, but its HTML no longer owns the view.
-                return true;
-            }
+            if (getActiveSessionId() !== requestedSessionId) return true;
 
             renderResults(html);
             return true;
@@ -487,11 +441,8 @@
             try {
                 flushed = await moves.flush(requestedSessionId);
             } finally {
-                // Each flushed move re-renders the pane; installRouteResults carries
-                // the typed date and notes onto the replacement form.
                 const candidate = getActiveSessionId() === requestedSessionId ? findLiveSaveForm() : null;
                 liveForm = candidate && getSaveFormSessionId(candidate) === requestedSessionId ? candidate : null;
-                // requestSubmit re-enters the capture listener, so unlock first.
                 savesInFlight.delete(requestedSessionId);
             }
 
@@ -591,9 +542,8 @@
         const resolvedLocations = locations.map(getLocationValue);
         if (resolvedLocations.some(location => !location) || resolvedLocations.length < 2) return [];
 
-        // Copied navigation is commonly opened on a phone, which supports
-        // three intermediate waypoints. The desktop preview keeps its overview.
-        const legSize = options.navigation === true ? 4 : resolvedLocations.length - 1;
+        const NAVIGATE_WAYPOINT_LIMIT = 3;
+        const legSize = options.navigation === true ? NAVIGATE_WAYPOINT_LIMIT + 1 : resolvedLocations.length - 1;
         const urls = [];
         for (let start = 0; start < resolvedLocations.length - 1;) {
             const end = Math.min(start + legSize, resolvedLocations.length - 1);
@@ -824,8 +774,6 @@
             onPendingChange();
         }
 
-        // Manual edits form barriers between move batches, so every request
-        // follows the order in which the coordinator made the edits.
         function enqueueAction(sessionId, action) {
             return new Promise(resolve => {
                 queue.push({ session_id: sessionId, action, resolve });
@@ -945,26 +893,34 @@
     }
 
     function bootBrowser() {
-        function extractErrorMessage(response, errorHeader) {
-            if (errorHeader) {
-                try {
-                    const message = JSON.parse(errorHeader).showToast?.message;
-                    if (typeof message === 'string') response = message;
-                } catch (_) { /* Fall back to the response body. */ }
+        function toastMessage(errorHeader) {
+            if (!errorHeader) return undefined;
+            try {
+                return JSON.parse(errorHeader).showToast?.message;
+            } catch (_) {
+                return undefined;
             }
+        }
+        function errorBodyMessage(response) {
+            try {
+                const json = JSON.parse(response);
+                return json.error?.message || json.message || '';
+            } catch (_) {
+                return /<[^>]+>/.test(response) ? undefined : null;
+            }
+        }
+        function extractErrorMessage(response, errorHeader) {
+            const toasted = toastMessage(errorHeader);
+            if (typeof toasted === 'string') response = toasted;
             const fallback = 'An error occurred. Please try again.';
             if (typeof response !== 'string') return fallback;
             let message = response;
             const alert = response.match(/<div[^>]*class="alert[^"]*"[^>]*>([^<]+)</);
             if (alert) message = alert[1];
             else {
-                try {
-                    const json = JSON.parse(response);
-                    message = json.error?.message || json.message || '';
-                } catch (_) {
-                    // Proxy pages are not useful error messages.
-                    if (/<[^>]+>/.test(response)) return fallback;
-                }
+                const parsed = errorBodyMessage(response);
+                if (parsed === undefined) return fallback;
+                if (parsed !== null) message = parsed;
             }
             if (typeof message !== 'string') return fallback;
             message = message.trim();
@@ -1082,8 +1038,6 @@
             routeHandoff.populateEtas(document.querySelector('.routes-container'));
         }
 
-        // A render replaces the whole pane, so both the ETAs and the stale
-        // affordance have to be reapplied to the fresh markup.
         function refreshResultsView() {
             refreshEtas();
             applyPlanStateAffordance(plannerState.getSnapshot().status);
@@ -1172,8 +1126,6 @@
             const form = evt.target;
             if (!isSaveEventForm(form)) return;
 
-            // requestSubmit and Enter both bypass a disabled submit button, so the
-            // state object, not the DOM, is what actually blocks a stale save.
             const planState = plannerState.refresh();
             if (!planState.canSave) {
                 evt.preventDefault();
@@ -1278,7 +1230,6 @@
             return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
         }
 
-        // Fetches Google timings for one car of a restored or edited plan.
         async function showRouteTimings(button) {
             const sessionId = getSessionId();
             const card = button && button.closest ? button.closest('.route-card') : null;
@@ -1353,7 +1304,7 @@
 
         const EVENT_PLANNER_DRAFT_KEY = 'ride-home-router:event-planner-draft:v1';
         const EVENT_PLANNER_MODES = new Set(['dropoff', 'pickup']);
-        let isRestoringEventPlannerDraft = false;
+        let deferPlannerSync = false;
         let plannerRestoreFailed = false;
         let swappedSaveFields = null;
 
@@ -1361,8 +1312,6 @@
             stale: 'Plan changed — recalculate routes before copying or saving them.',
             saved: 'Event saved. Recalculate to plan another event.',
         };
-        // Stale plans lock copy, edit and save. Saved plans lock edit and save.
-        // Preview can inspect either snapshot, but waits while edits are pending.
         const SESSION_ACTION_CONTROLS = '[data-session-action]';
         const PLAN_STATE_LOCKS = {
             stale: '[data-session-action="copy"], [data-session-action="edit"], [data-session-action="feedback"], [data-session-action="save"]',
@@ -1380,12 +1329,9 @@
         function setSessionActionsLocked(container, lockSelector, reason) {
             container.querySelectorAll(SESSION_ACTION_CONTROLS).forEach(control => {
                 if (lockSelector && control.matches(lockSelector)) {
-                    // Controls the server already disabled (over capacity) stay
-                    // disabled, and keep their own explanation.
                     if (control.disabled) return;
                     control.disabled = true;
                     control.dataset.planLocked = '1';
-                    // The banner scrolls with the route list; the header buttons do not.
                     control.setAttribute('title', reason);
                     return;
                 }
@@ -1398,7 +1344,6 @@
 
         function applyPlanStateAffordance(status) {
             const resultsSection = document.getElementById('results-section');
-            // The no-routes and capacity-shortage partials have no session to lock.
             const container = resultsSection ? resultsSection.querySelector('.routes-container') : null;
             if (!container) return;
 
@@ -1412,9 +1357,6 @@
             setSessionActionsLocked(container, lockedActions, message);
         }
 
-        // The draft and the fingerprint read the same inputs once, so they cannot
-        // drift apart. Search text and label filters change what is listed, not
-        // what was routed, so they stay out of the fingerprint.
         function readPlannerInputs() {
             const form = getEventForm();
             if (!form) return null;
@@ -1452,8 +1394,6 @@
 
         const plannerState = createPlannerState({
             readFingerprint: readPlannerFingerprint,
-            // Keep localStorage access inside the lifecycle's best-effort try
-            // blocks, including browsers that deny access to the property itself.
             storage: {
                 getItem: key => window.localStorage.getItem(key),
                 setItem: (key, value) => window.localStorage.setItem(key, value),
@@ -1489,7 +1429,6 @@
                 const sanitizedKeys = Object.keys(sanitized);
                 const assignmentsChanged = assignmentKeys.length !== sanitizedKeys.length
                     || sanitizedKeys.some(key => String(assignments[key]) !== sanitized[key]);
-                // Persist the repair so later reads cannot revive the stale conflict.
                 if (assignmentsChanged) {
                     parsed.vanAssignments = sanitized;
                     window.localStorage.setItem(EVENT_PLANNER_DRAFT_KEY, JSON.stringify(parsed));
@@ -1514,7 +1453,7 @@
         }
 
         function saveEventPlannerDraft() {
-            if (isRestoringEventPlannerDraft || plannerRestoreFailed) return;
+            if (deferPlannerSync || plannerRestoreFailed) return;
 
             const inputs = readPlannerInputs();
             const fingerprint = readPlannerFingerprint(inputs);
@@ -1558,7 +1497,7 @@
             const form = getEventForm();
             if (!draft || !form) return;
 
-            isRestoringEventPlannerDraft = true;
+            deferPlannerSync = true;
             form.inert = true;
             const calculate = document.getElementById('calculate-btn');
             if (calculate) calculate.disabled = true;
@@ -1618,13 +1557,11 @@
                 restored = true;
             } finally {
                 plannerRestoreFailed = !restored;
-                // A failed restore must leave Clear all reachable; calculation
-                // remains blocked so a partially restored draft cannot be saved.
                 form.inert = false;
                 if (calculate) calculate.disabled = !restored;
                 updateRouteTimeCopy();
                 ensureDefaultRouteTime();
-                isRestoringEventPlannerDraft = false;
+                deferPlannerSync = false;
             }
         }
 
@@ -1889,7 +1826,7 @@
             const list = document.getElementById(listId);
             if (!list) return;
             if (list.dataset?.pageSource) {
-                if (!isRestoringEventPlannerDraft) void requestPlannerPicker(list.dataset.pageSource);
+                if (!deferPlannerSync) void requestPlannerPicker(list.dataset.pageSource);
                 return;
             }
 
@@ -1909,7 +1846,6 @@
         }
 
         function filterSelectList(input, listId) {
-            // Search text is not part of the draft or the fingerprint.
             const kind = document.getElementById(listId)?.dataset?.pageSource;
             if (kind) {
                 clearTimeout(pickerSearchTimers.get(kind));
@@ -1977,9 +1913,7 @@
             const form = getEventForm();
             plannerState.invalidateCalculations();
             participantMoveBatcher.discardFor(getSessionId());
-            // Suppress per-step draft writes so the reset lands as one change; the
-            // draft and the planner state are settled once, at the end.
-            isRestoringEventPlannerDraft = true;
+            deferPlannerSync = true;
             try {
                 document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
                     cb.checked = false;
@@ -2012,7 +1946,6 @@
                         input.checked = input.value === 'dropoff';
                     });
                     const defaultMode = form.querySelector('input[name="mode"][value="dropoff"]');
-                    // The delegated change listener owns the route-time copy.
                     if (defaultMode) defaultMode.dispatchEvent(new Event('change', { bubbles: true }));
                 }
                 const resultsSection = document.getElementById('results-section');
@@ -2023,7 +1956,7 @@
                 renderVanAssignmentsPanel();
                 updateEventStats();
             } finally {
-                isRestoringEventPlannerDraft = false;
+                deferPlannerSync = false;
             }
             clearEventPlannerDraft();
             swappedSaveFields = null;
@@ -2034,7 +1967,7 @@
         }
 
         function validateBeforeCalculate() {
-            if (isRestoringEventPlannerDraft || plannerRestoreFailed) return false;
+            if (deferPlannerSync || plannerRestoreFailed) return false;
             const participants = getCheckedInputs('.participant-checkbox');
             const drivers = getCheckedInputs('.driver-checkbox');
             const activityLocation = document.querySelector('select[name="activity_location_id"]');
@@ -2069,15 +2002,16 @@
             return true;
         }
 
+        function stackedPlannerLayout() {
+            return !window.matchMedia('(min-width: 821px)').matches;
+        }
+
         function scrollResultsIntoView(target) {
             if (!target || target.id !== 'results-section') return;
 
             const hasVisibleResults = target.children.length > 0 && !target.querySelector('.calculate-indicator');
             if (!hasVisibleResults) return;
-
-            // Desktop results already occupy their own pane. Only the stacked
-            // narrow layout needs to bring newly calculated routes into view.
-            if (window.matchMedia('(min-width: 821px)').matches) return;
+            if (!stackedPlannerLayout()) return;
 
             const anchor = document.getElementById('calculate-btn');
             const scrollTarget = anchor || target;
@@ -2130,7 +2064,6 @@
 
             const restore = plannerState.beginRestore(session);
 
-            // This same-origin HTML uses the same trusted templates as HTMX swaps.
             return (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
                 signal: AbortSignal.any([restore.signal, AbortSignal.timeout(15000)])
@@ -2178,17 +2111,8 @@
             }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
                 .finally(() => document.documentElement?.classList.remove('planner-restoring'));
 
-            // The capacity-shortage pane recalculates from its own hidden copy of
-            // the plan plus its own van assignments, so the routes it returns
-            // belong to that payload, not to whatever the plan form now says.
-            // Mirror its van assignments back into the plan form and fingerprint
-            // the payload itself, so a plan edited in between lands stale.
-            function readCapacityShortageFingerprint(recalcForm) {
-                const hidden = name => Array.from(recalcForm.querySelectorAll(`input[name="${name}"]`))
-                    .map(input => input.value);
-                const single = name => recalcForm.querySelector(`input[name="${name}"]`);
+            function mirrorCapacityShortageVans(recalcForm) {
                 const vanAssignments = {};
-
                 recalcForm.querySelectorAll('.org-vehicle-select').forEach(source => {
                     const target = document.getElementById(`van-assignment-${source.dataset.driverId}`);
                     if (target && !target.disabled) {
@@ -2200,14 +2124,20 @@
                     if (source.value) vanAssignments[source.dataset.driverId] = source.value;
                 });
                 handleVanAssignmentChange();
+                return vanAssignments;
+            }
 
+            function readCapacityShortageFingerprint(recalcForm) {
+                const hidden = name => Array.from(recalcForm.querySelectorAll(`input[name="${name}"]`))
+                    .map(input => input.value);
+                const single = name => recalcForm.querySelector(`input[name="${name}"]`);
                 return fingerprintInputs({
                     activityLocationId: single('activity_location_id')?.value || '',
                     participantIds: hidden('participant_ids'),
                     driverIds: hidden('driver_ids'),
                     mode: single('mode')?.value || 'dropoff',
                     routeTime: single('route_time')?.value || '',
-                    vanAssignments,
+                    vanAssignments: mirrorCapacityShortageVans(recalcForm),
                 });
             }
 
@@ -2240,9 +2170,6 @@
                 }
             });
 
-            // The native calculate swap is a results replacement too, so it does
-            // installRouteResults' three jobs from htmx's own lifecycle events:
-            // snapshot here, restore in afterSwap, applyLocalEventDate in afterSettle.
             document.body.addEventListener('htmx:beforeSwap', function(event) {
                 const target = event.detail && event.detail.target;
                 if (!target || target.id !== 'results-section') return;
@@ -2252,14 +2179,11 @@
                     return;
                 }
 
-                // A saved event's date and notes belong to that event, not the next one.
                 if (plannerState.getSnapshot().hasBeenSaved) {
                     swappedSaveFields = null;
                     return;
                 }
 
-                // A capacity-shortage pane has no save fields. Keep the values
-                // captured from the preceding route results until routes return.
                 swappedSaveFields = snapshotSaveFields(target) || swappedSaveFields;
             });
 
@@ -2269,7 +2193,6 @@
 
                 if (target.id === 'results-section') {
                     if (swappedSaveFields && restoreSaveFields(target, swappedSaveFields)) {
-                        // Runs before htmx:afterSettle stamps the local date.
                         swappedSaveFields = null;
                     }
                     scrollResultsIntoView(target);
@@ -2322,13 +2245,11 @@
     }
 
 
-    // Avoid the UTC date shift caused by toISOString.
     function localISODate(date) {
         const pad = value => String(value).padStart(2, '0');
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
-    // Set the browser's date on load, route results, session restore, and swaps.
     function applyLocalEventDate(scope, now = new Date()) {
         if (!scope || typeof scope.querySelectorAll !== 'function') return 0;
         const inputs = scope.querySelectorAll('input[type="date"][name="event_date"]');

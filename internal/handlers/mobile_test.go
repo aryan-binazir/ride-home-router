@@ -247,9 +247,8 @@ func TestMobileCalculateDiscardsRoutesWhenDraftChangesDuringSolve(t *testing.T) 
 
 	oldestSession := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	time.Sleep(time.Millisecond)
-	// Leave one slot open: 1 oldest + 254 fillers + the calculated session = 256.
-	// After the stale session is deleted, the probe below must not evict oldestSession.
-	for range routesession.MaxConcurrentSessions - 2 {
+	occupiedByOldestAndCalculated := 2
+	for range routesession.MaxConcurrentSessions - occupiedByOldestAndCalculated {
 		mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{})
 	}
 
@@ -1056,6 +1055,7 @@ func TestMobilePickerPostsRejectExpiredDraftWithoutApplyingPartialState(t *testi
 	}
 	expiredCookie := mobileTestCookie("0123456789abcdef0123456789abcdef")
 	wantMessage := "Your saved plan expired. Start a new plan below."
+	routeTimeOutsideQuarterHourDefault := "07:07"
 
 	tests := []struct {
 		name   string
@@ -1066,9 +1066,7 @@ func TestMobilePickerPostsRejectExpiredDraftWithoutApplyingPartialState(t *testi
 		{name: "location", path: "/m/plan/location", values: url.Values{"location_id": {fmt.Sprint(location.ID)}}, post: handler.HandleMobileLocation},
 		{name: "riders", path: "/m/plan/riders", values: url.Values{"participant_ids": {"101"}}, post: handler.HandleMobileRiders},
 		{name: "drivers", path: "/m/plan/drivers", values: url.Values{"driver_ids": {"201"}}, post: handler.HandleMobileDrivers},
-		// 07:07 can never be a fresh draft's default, which is the current time
-		// rounded up to a quarter hour; 18:30 could, so the test failed around 18:30 UTC.
-		{name: "when", path: "/m/plan/when", values: url.Values{"route_time": {"07:07"}, "mode": {"pickup"}}, post: handler.HandleMobileWhen},
+		{name: "when", path: "/m/plan/when", values: url.Values{"route_time": {routeTimeOutsideQuarterHourDefault}, "mode": {"pickup"}}, post: handler.HandleMobileWhen},
 	}
 
 	for _, test := range tests {
@@ -1083,7 +1081,7 @@ func TestMobilePickerPostsRejectExpiredDraftWithoutApplyingPartialState(t *testi
 				t.Fatal("expired submission did not issue a fresh draft cookie")
 			}
 			draft, ok := handler.PlanDraft.Get(cookies[0].Value)
-			if !ok || draft.LocationID != 0 || len(draft.ParticipantIDs) != 0 || len(draft.DriverIDs) != 0 || draft.Mode != string(models.RouteModeDropoff) || draft.RouteTime == "07:07" {
+			if !ok || draft.LocationID != 0 || len(draft.ParticipantIDs) != 0 || len(draft.DriverIDs) != 0 || draft.Mode != string(models.RouteModeDropoff) || draft.RouteTime == routeTimeOutsideQuarterHourDefault {
 				t.Fatalf("fresh draft was partially updated: %#v found=%v", draft, ok)
 			}
 		})

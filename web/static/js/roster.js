@@ -1,14 +1,13 @@
-// Paging keeps only selected IDs locally, never rows or a choice catalog.
 (() => {
-    const selections = new Map();
+    const selectedIds = new Map();
     const timers = new Map();
     const originalCount = window.updateBulkSelectionCount;
     const originalClear = window.clearTableSelection;
     const originalFilter = window.filterTable;
     const formFor = kind => document.querySelector(`[data-roster-kind="${kind}"]`);
     const selectedFor = kind => {
-        if (!selections.has(kind)) selections.set(kind, new Set());
-        return selections.get(kind);
+        if (!selectedIds.has(kind)) selectedIds.set(kind, new Set());
+        return selectedIds.get(kind);
     };
     function capture(kind) {
         const selected = selectedFor(kind);
@@ -75,8 +74,6 @@
     });
 })();
 
-// Address match dialog: explains whether the geocoder matched an address
-// exactly, and lets people accept its guess or open the edit form.
 (() => {
     if (typeof document === 'undefined') return;
     let dialog = null;

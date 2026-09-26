@@ -14,7 +14,6 @@
                 if (!response.ok) throw new Error('Settings unavailable');
                 return response.text();
             }));
-            // These fragments come from the same trusted templates used by HTMX.
             sections.forEach(([id], index) => {
                 document.getElementById(id).innerHTML = html[index];
                 htmx.process(document.getElementById(id));

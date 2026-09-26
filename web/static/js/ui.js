@@ -118,6 +118,14 @@ function handleTableSwap(event) {
   reapplyTableFilter(targetId);
 }
 
+function toastType(xhr) {
+  try {
+    return JSON.parse(xhr?.getResponseHeader?.('HX-Trigger') || '{}').showToast?.type;
+  } catch (_) {
+    return undefined;
+  }
+}
+
 if (typeof document !== 'undefined') {
   const failedImportSelections = new Set();
   document.addEventListener('htmx:beforeRequest', event => {
@@ -130,8 +138,6 @@ if (typeof document !== 'undefined') {
   }, true);
   document.addEventListener('change', event => {
     if (!event.target.matches?.('#import-selection-form input[name="selected"]')) return;
-    // A new checkbox edit explicitly authorizes a write, including one queued
-    // behind a poll that replaces this form. Synthetic form retries do not.
     failedImportSelections.delete(event.target.form.getAttribute('hx-put'));
   }, true);
   document.addEventListener('htmx:afterSettle', handleTableSwap, true);
@@ -146,10 +152,7 @@ if (typeof document !== 'undefined') {
     if (form?.id === 'import-selection-form') {
       const key = form.getAttribute('hx-put');
       let successful = event.detail.successful;
-      try {
-        const trigger = JSON.parse(event.detail.xhr?.getResponseHeader?.('HX-Trigger') || '{}');
-        successful &&= trigger.showToast?.type !== 'error';
-      } catch (_) { /* An absent or unrelated trigger does not change the status. */ }
+      successful &&= toastType(event.detail.xhr) !== 'error';
       if (successful) failedImportSelections.delete(key);
       else failedImportSelections.add(key);
     }
@@ -178,9 +181,6 @@ if (typeof document !== 'undefined') {
       input.toggleAttribute('checked', choices.get(input.value));
     });
     if (!changed) return;
-    // A poll may repair a selection request displaced by its swap, but must
-    // never retry a failed write. The next user change or Import includes the
-    // preserved choices and provides an explicit retry.
     if (!failedImportSelections.has(selection.getAttribute('hx-put'))) {
       selection.dataset.persistSelection = 'true';
     }
@@ -367,7 +367,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
 
   window.showConfirmDialog = showConfirmDialog;
 
-  function shouldEnhanceSelects() {
+  function linuxThemeNeedsCustomSelects() {
     const platform = (navigator.platform || "").toLowerCase();
     const uaPlatform = (navigator.userAgentData && navigator.userAgentData.platform
       ? navigator.userAgentData.platform
@@ -375,7 +375,6 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     ).toLowerCase();
     const ua = (navigator.userAgent || "").toLowerCase();
 
-    // Replace native selects only where Linux themes make them inconsistent.
     return platform.includes("linux") || uaPlatform.includes("linux") || ua.includes("linux");
   }
 
@@ -539,7 +538,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
 
   function initAll(root) {
     const scope = root || document;
-    if (!shouldEnhanceSelects()) return;
+    if (!linuxThemeNeedsCustomSelects()) return;
     scope.querySelectorAll(".ui-select").forEach(initSelect);
   }
 
@@ -614,8 +613,6 @@ function toggleEventDetail(eventItem, eventId, toggle) {
         const address = suggestion.dataset.address;
         input.value = address;
         suggestionsContainer.innerHTML = "";
-
-        // Avoid an input event, which would restart the search.
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
 
@@ -665,7 +662,6 @@ function toggleEventDetail(eventItem, eventId, toggle) {
       try {
         window.localStorage.setItem(PLAN_PANE_STORAGE_KEY, String(prefersCollapsed));
       } catch {
-        // Storage may be unavailable in private browsing or hardened browsers.
       }
       applyState();
     });

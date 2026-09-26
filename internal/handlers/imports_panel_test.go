@@ -420,7 +420,6 @@ func startImportPanelSession(t *testing.T, handler *Handler, contents string, ki
 	return importPanelSessionID(t, recorder.Body.String())
 }
 
-// importPanelSessionID reads the session ID from the fragment's HTMX URLs.
 func importPanelSessionID(t *testing.T, fragment string) string {
 	t.Helper()
 	const prefix = "/api/v1/imports/"
@@ -530,12 +529,9 @@ func TestImportPanelCommitUsesFinalCheckboxesWithoutSelectionRequest(t *testing.
 			mapped := httptest.NewRecorder()
 			handler.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
 			waitForImportHTTPGeocoding(t, handler, id)
-			// The earlier checkbox PUT never reached the server. Commit still
-			// includes the current form, including no keys when all are unchecked.
 			committed := httptest.NewRecorder()
 			handler.HandleImportSession(committed, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", selected))
 			assertPanelFragment(t, committed)
-			// A delayed selection request cannot change the committed batch.
 			lateSelection := httptest.NewRecorder()
 			handler.HandleImportSession(lateSelection, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection?view=panel", url.Values{"selected": {"0", "1"}}))
 			listed := httptest.NewRecorder()

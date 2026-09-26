@@ -1,7 +1,3 @@
-// RETIRED: the standalone /m/ mobile site is no longer served. server.go redirects
-// every /m/ URL to the responsive desktop pages, which are the only mobile UI.
-// This file and its siblings (mobile_*.go, web/templates/mobile, mobile.css,
-// mobile.js) are scheduled for deletion. Do not extend or restyle them.
 package handlers
 
 import (
@@ -11,7 +7,6 @@ import (
 	"ride-home-router/internal/routesession"
 )
 
-// mobilePlanInputs excludes session ownership and revision bookkeeping from edits.
 type mobilePlanInputs struct {
 	LocationID       int64
 	ParticipantIDs   []int64
@@ -21,8 +16,6 @@ type mobilePlanInputs struct {
 	Mode             string
 }
 
-// mobilePlanLifecycle owns the relationship between a draft's inputs and its routes.
-// Calculation, persistence, and roster availability policy stay with their callers.
 type mobilePlanLifecycle struct {
 	drafts   *plandraft.Store
 	sessions *routesession.Store
@@ -32,9 +25,6 @@ func (h *Handler) mobilePlan() mobilePlanLifecycle {
 	return mobilePlanLifecycle{drafts: h.PlanDraft, sessions: h.RouteSession}
 }
 
-// EditInputs invalidates even an edit that leaves input values unchanged, as the
-// existing pickers do. The callback runs under the draft lock and must only edit
-// inputs. Session deletion happens after the draft lock has been released.
 func (l mobilePlanLifecycle) EditInputsContext(ctx context.Context, id string, edit func(*mobilePlanInputs)) (plandraft.Draft, error) {
 	displacedSessionID := ""
 	draft, err := l.drafts.Edit(ctx, id, func(d *plandraft.Draft) {
@@ -69,9 +59,6 @@ const (
 	mobilePlanExpired
 )
 
-// AdoptCalculation accepts only a result for the original, unchanged draft.
-// A losing result is deleted without touching a competing winner. Keep the
-// existing failure-path reads: Get and Snapshot also refresh their stores' TTLs.
 func (l mobilePlanLifecycle) AdoptCalculationContext(ctx context.Context, id string, original plandraft.Draft, sessionID string) (mobilePlanAdoption, error) {
 	displaced, ok, err := l.drafts.Attach(ctx, id, original.Revision, sessionID)
 	if err != nil {
@@ -102,8 +89,7 @@ func (l mobilePlanLifecycle) AdoptCalculationContext(ctx context.Context, id str
 	return mobilePlanAdopted, nil
 }
 
-// ReleaseSavedSessionContext never detaches a newer calculation.
-func (l mobilePlanLifecycle) ReleaseSavedSessionContext(ctx context.Context, id, sessionID string) error {
+func (l mobilePlanLifecycle) ReleaseSavedSessionIfCurrent(ctx context.Context, id, sessionID string) error {
 	_, err := l.drafts.Detach(ctx, id, sessionID)
 	return err
 }

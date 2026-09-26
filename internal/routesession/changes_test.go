@@ -36,14 +36,12 @@ func TestSnapshotChangesReportNetMovesAndSwaps(t *testing.T) {
 	}
 	assertChanges(t, moved, "A moved from D1 to D2.")
 
-	// Moving the rider back leaves no net change to explain.
 	back, err := store.ApplyMoves(context.Background(), created.ID, []Move{{ParticipantID: 1, FromRouteIndex: 1, ToRouteIndex: 0, InsertAtPosition: -1}}, ApplyMovesOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertChanges(t, back)
 
-	// Reordering stops within one car is not a change.
 	reordered, err := store.ApplyMoves(context.Background(), created.ID, []Move{{ParticipantID: 2, FromRouteIndex: 0, ToRouteIndex: 0, InsertAtPosition: 0}}, ApplyMovesOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +52,6 @@ func TestSnapshotChangesReportNetMovesAndSwaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Riders who changed driver only because of the swap are not listed again.
 	assertChanges(t, swapped, "D1 and D2 swapped routes.")
 
 	added, err := store.AddDriver(context.Background(), created.ID, 12)

@@ -2,10 +2,10 @@ package distance
 
 import (
 	"fmt"
+
 	"ride-home-router/internal/models"
 )
 
-// DistancePair is a directed origin-destination pair for cache prewarming.
 type DistancePair struct {
 	Origin      models.Coordinates
 	Destination models.Coordinates

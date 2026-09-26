@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
+	"testing"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -16,9 +20,6 @@ import (
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
-	"strconv"
-	"strings"
-	"testing"
 )
 
 type captureRouter struct {
@@ -504,8 +505,6 @@ func TestRouteCalculationEndpoints_InvalidActivityLocationMessage(t *testing.T) 
 }
 
 func TestRouteCalculationEndpoints_PreserveMalformedFormResponses(t *testing.T) {
-	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
-	// not the desired HTMX error experience.
 	tests := []struct {
 		name            string
 		path            string
@@ -1014,8 +1013,6 @@ func TestHandleCalculateRoutesWithOrgVehicles_RejectsStaleSelectedEntitiesBefore
 }
 
 func TestHandleCalculateRoutes_HTMXStaleSelectedEntitiesReturnJSONWithToast(t *testing.T) {
-	// Compatibility pin: the initial endpoint's JSON response is existing behavior,
-	// not the desired HTMX error experience.
 	handler, store := newTestRouteHandler(t)
 	ctx := context.Background()
 

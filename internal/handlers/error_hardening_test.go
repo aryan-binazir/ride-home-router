@@ -287,7 +287,7 @@ func TestMobileLabelsOutageRetryRetainsMemberships(t *testing.T) {
 		t.Fatal("missing retry form")
 	}
 	h.DB = store
-	values.Del("label_ids") // Failed lookup rendered no label controls.
+	dropLabelIDsMissingFromFailedRender(values)
 	retry := postMobileForm(t, nil, html.UnescapeString(match[1]), values, h.HandleMobileParticipantForm)
 	if retry.Code != 303 {
 		t.Fatalf("retry: %d %s", retry.Code, retry.Body.String())
@@ -296,4 +296,8 @@ func TestMobileLabelsOutageRetryRetainsMemberships(t *testing.T) {
 	if err != nil || len(labels) != 1 || labels[0].ID != label.ID {
 		t.Fatalf("labels lost: %v %v", labels, err)
 	}
+}
+
+func dropLabelIDsMissingFromFailedRender(values url.Values) {
+	values.Del("label_ids")
 }

@@ -8,8 +8,11 @@ import (
 	"testing"
 )
 
-// fakeMeasurer answers each request with legs of (100 m, 60 s) per hop and
-// records the point sequences it was asked for.
+const (
+	fakeLegMeters = 100
+	fakeLegSecs   = 60
+)
+
 type fakeMeasurer struct {
 	requests []orderedroute.Request
 	fail     map[string]error
@@ -25,7 +28,7 @@ func (f *fakeMeasurer) Measure(_ context.Context, requests []orderedroute.Reques
 			continue
 		}
 		for range len(request.Points) - 1 {
-			results[i].Legs = append(results[i].Legs, orderedroute.Leg{DistanceMeters: 100, DurationSecs: 60})
+			results[i].Legs = append(results[i].Legs, orderedroute.Leg{DistanceMeters: fakeLegMeters, DurationSecs: fakeLegSecs})
 		}
 	}
 	return results
@@ -52,7 +55,6 @@ func TestMeasureRoutesCollapsesHouseholdsAndAssemblesMetrics(t *testing.T) {
 	if len(results) != 1 || results[0].Err != nil {
 		t.Fatalf("MeasureRoutes() = %+v", results)
 	}
-	// One route request (institute → household → solo → driver home = 4 points) plus one baseline (institute → driver home).
 	if len(measurer.requests) != 2 {
 		t.Fatalf("requests = %d, want route + baseline", len(measurer.requests))
 	}

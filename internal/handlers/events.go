@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-// EventListResponse represents the list response.
 type EventListResponse struct {
 	Events []EventWithSummary `json:"events"`
 	Total  int                `json:"total"`
@@ -26,7 +25,6 @@ type EventListResponse struct {
 	Offset int                `json:"offset"`
 }
 
-// EventWithSummary combines event and summary for list view.
 type EventWithSummary struct {
 	ID        int64                `json:"id"`
 	EventDate time.Time            `json:"event_date"`
@@ -35,7 +33,6 @@ type EventWithSummary struct {
 	Summary   *models.EventSummary `json:"summary,omitempty"`
 }
 
-// EventListViewData backs the history partial and page.
 type EventListViewData struct {
 	Events         []EventWithSummary `json:"events"`
 	Total          int                `json:"total"`
@@ -49,7 +46,6 @@ type EventListViewData struct {
 
 const defaultEventListPageSize = 20
 
-// CreateEventRequest represents the request to create an event.
 type CreateEventRequest struct {
 	EventDate string `json:"event_date"`
 	Notes     string `json:"notes"`
@@ -78,7 +74,6 @@ func (h *Handler) handleEventValidationError(w http.ResponseWriter, r *http.Requ
 	return true
 }
 
-// EventDetailResponse represents the detailed event response.
 type EventDetailResponse struct {
 	ID          int64                       `json:"id"`
 	EventDate   time.Time                   `json:"event_date"`
@@ -88,19 +83,16 @@ type EventDetailResponse struct {
 	Summary     *models.EventSummary        `json:"summary"`
 }
 
-// AssignmentGroupedByDriver groups stops by driver for legacy-compatible responses.
 type AssignmentGroupedByDriver struct {
-	DriverName        string `json:"driver_name"`
-	DriverAddress     string `json:"driver_address"`
-	DriverAddressName string `json:"driver_address_name,omitempty"`
-	OrgVehicleID      int64  `json:"org_vehicle_id,omitempty"`
-	OrgVehicleName    string `json:"org_vehicle_name,omitempty"`
-	// MetricsComplete is false for itinerary-only snapshots, which have no distances to show.
-	MetricsComplete bool             `json:"metrics_complete"`
-	Stops           []AssignmentStop `json:"stops"`
+	DriverName        string           `json:"driver_name"`
+	DriverAddress     string           `json:"driver_address"`
+	DriverAddressName string           `json:"driver_address_name,omitempty"`
+	OrgVehicleID      int64            `json:"org_vehicle_id,omitempty"`
+	OrgVehicleName    string           `json:"org_vehicle_name,omitempty"`
+	MetricsComplete   bool             `json:"metrics_complete"`
+	Stops             []AssignmentStop `json:"stops"`
 }
 
-// AssignmentStop represents a single saved stop in legacy-compatible responses.
 type AssignmentStop struct {
 	RouteOrder             int     `json:"route_order"`
 	ParticipantName        string  `json:"participant_name"`
@@ -109,7 +101,6 @@ type AssignmentStop struct {
 	DistanceFromPrevMeters float64 `json:"distance_from_prev_meters"`
 }
 
-// EventDetailViewData backs the history detail partial.
 type EventDetailViewData struct {
 	Routes               []models.EventRoute         `json:"routes"`
 	Assignments          []AssignmentGroupedByDriver `json:"assignments"`
@@ -118,7 +109,6 @@ type EventDetailViewData struct {
 	UseLegacyAssignments bool                        `json:"use_legacy_assignments"`
 }
 
-// HandleListEvents handles GET /api/v1/events.
 func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	limit := defaultEventListPageSize
 	offset := 0
@@ -161,7 +151,6 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleGetEvent handles GET /api/v1/events/{id}.
 func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -212,7 +201,6 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleCreateEvent handles POST /api/v1/events.
 func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
 
@@ -367,7 +355,6 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 	return created, len(snapshot.Routes), nil
 }
 
-// HandleDeleteEvent handles DELETE /api/v1/events/{id}.
 func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -501,7 +488,6 @@ func routesNeedLegacyDetail(routes []models.EventRoute) bool {
 	return false
 }
 
-// HandleHealthCheck handles GET /api/v1/health.
 func (h *Handler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	status := "ok"
 	dbStatus := "connected"

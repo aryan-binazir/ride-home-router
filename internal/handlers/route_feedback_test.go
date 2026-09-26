@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"testing"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
@@ -15,8 +18,6 @@ import (
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
-	"strings"
-	"testing"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -232,7 +233,6 @@ func TestHandleCreateEvent_FeedbackFailureStillCommitsEventAndSession(t *testing
 
 func newRouteFeedbackHandler(t *testing.T) (*Handler, *postgres.Store, *pgx.Conn) {
 	t.Helper()
-	// Model a deployment configured with TRUST_CF_ACCESS_HEADER=true.
 	routefeedback.SetTrustCFAccessHeader(true)
 	t.Cleanup(func() { routefeedback.SetTrustCFAccessHeader(false) })
 	databaseURL := postgrestest.DatabaseURL(t)
@@ -471,8 +471,6 @@ func requestRouteFeedback(handler *Handler, method, target, form, authenticatedE
 	return rr
 }
 
-// moveFeedbackRider moves rider 10 to the second car through the HTMX edit
-// endpoint and returns the rendered route results.
 func moveFeedbackRider(t *testing.T, handler *Handler, sessionID, authenticatedEmail string) string {
 	t.Helper()
 	payload := `{"session_id":"` + sessionID + `","moves":[{"participant_id":10,"from_route_index":0,"to_route_index":1,"insert_at_position":-1}]}`

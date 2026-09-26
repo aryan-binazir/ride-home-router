@@ -9,13 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 )
 
 type recordedRequest struct {
@@ -23,7 +24,6 @@ type recordedRequest struct {
 	body           map[string]any
 }
 
-// fakeRoutes answers every request with one leg per hop of a fixed size.
 func fakeRoutes(t *testing.T, legMeters float64, legSecs int) (*httptest.Server, *[]recordedRequest, *sync.Mutex) {
 	t.Helper()
 	var mu sync.Mutex
@@ -99,8 +99,9 @@ func TestMeasureSendsEssentialsRequestAndDecodesLegs(t *testing.T) {
 }
 
 func TestMeasureChunksLongRoutesAtTenIntermediates(t *testing.T) {
-	cases := map[int]int{3: 1, 12: 1, 13: 2, 23: 2, 24: 3, 52: 5} // points → requests
-	for n, wantRequests := range cases {
+	cases := []struct{ points, requests int }{{3, 1}, {12, 1}, {13, 2}, {23, 2}, {24, 3}, {52, 5}}
+	for _, tc := range cases {
+		n, wantRequests := tc.points, tc.requests
 		server, seen, mu := fakeRoutes(t, 500, 60)
 		reserved := 0
 		client := newClient(staticKey("k"), func(_ context.Context, c int) error { reserved += c; return nil }, server.Client(), server.URL)
@@ -171,7 +172,7 @@ func TestMeasureFailsClosedWithoutKeyAndHidesSecretsInErrors(t *testing.T) {
 
 func TestMeasureRejectsMalformedResponsesAndBoundsConcurrency(t *testing.T) {
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"routes":[{"legs":[{"distanceMeters":5,"duration":"5s"}]}]}`) // one leg for two hops
+		_, _ = io.WriteString(w, `{"routes":[{"legs":[{"distanceMeters":5,"duration":"5s"}]}]}`)
 	}))
 	t.Cleanup(bad.Close)
 	client := newClient(staticKey("k"), func(context.Context, int) error { return nil }, bad.Client(), bad.URL)

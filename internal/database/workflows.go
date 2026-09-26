@@ -16,16 +16,12 @@ var ErrInvalidWorkflowSelection = errors.New("invalid import selection")
 
 var ErrWorkflowConflict = errors.New("workflow changed; reload and try again")
 
-// WorkflowRecord is a versioned, expiring snapshot. Revision protects work
-// calculated outside a transaction from overwriting a newer result.
 type WorkflowRecord struct {
 	Data     []byte
 	Revision int64
 	Consumed bool
 }
 
-// WorkflowRepository coordinates short state changes across application instances.
-// Update callbacks must not perform network calls or access another workflow.
 type WorkflowWrites interface {
 	StageImport(context.Context, string, []ImportRow, []ImportJob) error
 	ImportRows(context.Context, string) ([]ImportRow, error)
@@ -36,6 +32,7 @@ type WorkflowWrites interface {
 	UpsertDrivers(context.Context, []*models.Driver) (BatchUpsertResult, error)
 }
 
+// Update and Transact callbacks must not perform network calls or access another workflow.
 type WorkflowRepository interface {
 	Transact(context.Context, string, string, time.Duration, func(*WorkflowRecord, WorkflowWrites) error) error
 	Create(context.Context, string, string, []byte, time.Duration) error
@@ -45,7 +42,6 @@ type WorkflowRepository interface {
 	Delete(context.Context, string, string) error
 }
 
-// Import rows and geocoding jobs are stored separately from the session header.
 type ImportRow struct {
 	Index    int
 	Data     []byte
@@ -61,7 +57,6 @@ type ImportJob struct {
 	Attempts int
 }
 
-// ImportProgress counts jobs and rows from one database snapshot.
 type ImportProgress struct {
 	Done, Total             int
 	RowCount, SelectedCount int

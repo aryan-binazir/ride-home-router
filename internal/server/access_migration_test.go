@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 	"reflect"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 	"time"
+
+	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/postgres/postgrestest"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -51,7 +52,6 @@ func TestAccessMigrationBetweenClerkInstances(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close(context.Background()) }()
-	// Historical admins are persistence evidence only; never seed admission through SQL.
 	history := func() map[string]time.Time {
 		t.Helper()
 		rows, err := conn.Query(t.Context(), `SELECT email, first_verified_at FROM verified_admin_emails ORDER BY email`)
@@ -127,7 +127,6 @@ func TestAccessMigrationBetweenClerkInstances(t *testing.T) {
 		if !reflect.DeepEqual(recorded, history()) {
 			t.Fatal("same admin email duplicated or first verification changed across Clerk instances")
 		}
-		// Restart with the same Clerk instance but a different environment admin.
 		if err := s.Shutdown(t.Context()); err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +147,6 @@ func TestAccessMigrationBetweenClerkInstances(t *testing.T) {
 		request(restarted, "GET", "/api/v1/access", admin, "", 403)
 		request(restarted, "POST", "/api/v1/access", admin, `{"email":"unknown@gmail.com"}`, 403)
 		request(restarted, "DELETE", "/api/v1/access", replacement, `{"email":"admin@example.test"}`, 200)
-		// Preserve history for the next instance's idempotency assertion.
 		recorded = history()
 	}
 }

@@ -4,10 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"testing"
+
 	"ride-home-router/internal/access/accesstest"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/postgres/postgrestest"
-	"testing"
 )
 
 type observedUpload struct{ reads int }
@@ -17,8 +18,6 @@ func (b *observedUpload) Close() error               { return nil }
 
 func TestUnauthenticatedImportDoesNotReadRequestBody(t *testing.T) {
 	f := accesstest.New(t)
-	// Drive the mounted production handler with an instrumented body to prove
-	// rejection happens before any application body read, not just before writes.
 	s, err := New(t.Context(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t), Auth: f.Config()})
 	if err != nil {
 		t.Fatal(err)

@@ -7,15 +7,13 @@ import (
 	"strings"
 )
 
-// Change kinds describe one net difference between the proposed and current routes.
 const (
 	ChangeParticipantMoved = "participant_moved"
 	ChangeDriversSwapped   = "drivers_swapped"
 	ChangeDriverReplaced   = "driver_replaced"
 )
 
-// RouteChange is one net edit between the proposed routes and the current
-// routes. Names are for display only; feedback records keep the IDs.
+// RouteChange names are for display only; feedback records keep the IDs.
 type RouteChange struct {
 	Kind            string
 	ParticipantID   int64
@@ -26,7 +24,6 @@ type RouteChange struct {
 	ToDriverName    string
 }
 
-// Description renders the change for the reviewer.
 func (c RouteChange) Description() string {
 	switch c.Kind {
 	case ChangeParticipantMoved:
@@ -39,7 +36,6 @@ func (c RouteChange) Description() string {
 	return ""
 }
 
-// SetReviewerNote stores the reviewer's explanation of the session's edits.
 func (s *Store) SetReviewerNote(ctx context.Context, id, note string) (Snapshot, error) {
 	return s.update(ctx, id, func(state *session) (Snapshot, error) {
 		state.reviewerNote = strings.TrimSpace(note)
@@ -47,9 +43,6 @@ func (s *Store) SetReviewerNote(ctx context.Context, id, note string) (Snapshot,
 	})
 }
 
-// routeChanges lists the net edits from original to current. Driver swaps
-// are reported once, and riders who changed driver only because of a swap are
-// not reported again. Reordering stops within a route is not a change.
 func routeChanges(original, current []models.CalculatedRoute) []RouteChange {
 	changes := make([]RouteChange, 0)
 	swapped := make(map[int]bool)

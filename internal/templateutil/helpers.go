@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"ride-home-router/internal/models"
-	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"time"
+
+	"ride-home-router/internal/models"
+	"ride-home-router/web"
 )
 
 const (
@@ -16,14 +17,10 @@ const (
 	metersPerKilometer = 1000.0
 )
 
-// FuncMap returns the shared template helper functions used in production and tests.
 func FuncMap() template.FuncMap {
 	return template.FuncMap{
-		"asset": web.AssetURL,
-		// Keep stored calendar dates stable across server time zones.
-		"formatDate": func(t time.Time) string {
-			return t.UTC().Format("2006-01-02")
-		},
+		"asset":      web.AssetURL,
+		"formatDate": formatCalendarDateUTC,
 		"formatDeletedAt": func(t *time.Time) string {
 			if t == nil {
 				return ""
@@ -132,4 +129,8 @@ func FuncMap() template.FuncMap {
 			return names
 		},
 	}
+}
+
+func formatCalendarDateUTC(t time.Time) string {
+	return t.UTC().Format("2006-01-02")
 }

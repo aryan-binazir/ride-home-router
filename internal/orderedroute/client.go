@@ -1,6 +1,4 @@
-// Package orderedroute measures a finished, ordered car route with the Google
-// Routes API. Each request is billed per call, so the app can afford to
-// measure every car of every plan while staying inside the free tier.
+// Package orderedroute measures a finished, ordered car route with the Google Routes API.
 package orderedroute
 
 import (
@@ -13,26 +11,26 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"ride-home-router/internal/distance"
+	"ride-home-router/internal/models"
 )
 
 const (
-	defaultEndpoint = "https://routes.googleapis.com/directions/v2:computeRoutes"
-	// Essentials pricing allows at most 10 intermediate waypoints per request:
-	// 12 points (origin, 10 stops, destination) and 11 legs.
-	maxPointsPerRequest   = 12
-	maxConcurrentRequests = 16
-	perCallTimeout        = 5 * time.Second
-	responseBodyLimit     = 1 << 20
-	fieldMask             = "routes.legs.distanceMeters,routes.legs.duration"
+	defaultEndpoint                    = "https://routes.googleapis.com/directions/v2:computeRoutes"
+	essentialsMaxIntermediateWaypoints = 10
+	routeEndpoints                     = 2
+	maxPointsPerRequest                = essentialsMaxIntermediateWaypoints + routeEndpoints
+	maxConcurrentRequests              = 16
+	perCallTimeout                     = 5 * time.Second
+	responseBodyLimit                  = 1 << 20
+	fieldMask                          = "routes.legs.distanceMeters,routes.legs.duration"
 )
 
-// ErrNotConfigured means no Google Maps key is available.
 var ErrNotConfigured = errors.New("orderedroute: Google Maps API key is not configured")
 
 // Request is one ordered route: origin, stops in order, destination. Requests
@@ -116,8 +114,6 @@ func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 		}
 	}
 
-	// Each group (a car) reserves its attempts together, so a nearly exhausted
-	// month still measures as many whole cars as the allowance permits.
 	groups := make(map[string][]int)
 	var order []string
 	for i, request := range requests {
@@ -173,11 +169,9 @@ func (c *Client) currentKey(ctx context.Context) (string, error) {
 	return key, nil
 }
 
-// measureRoute splits the point sequence into chunks that share one endpoint,
-// so the concatenated legs cover every hop exactly once.
 func (c *Client) measureRoute(ctx context.Context, key string, points []models.Coordinates) ([]Leg, error) {
 	legs := make([]Leg, 0, len(points)-1)
-	for start := 0; start < len(points)-1; start += maxPointsPerRequest - 1 {
+	for start := 0; start < len(points)-1; start = advanceSharingEndpoint(start) {
 		end := min(start+maxPointsPerRequest, len(points))
 		chunk, err := c.computeRoute(ctx, key, points[start:end])
 		if err != nil {
@@ -189,6 +183,10 @@ func (c *Client) measureRoute(ctx context.Context, key string, points []models.C
 		return nil, errors.New("orderedroute: provider returned an unexpected number of legs")
 	}
 	return legs, nil
+}
+
+func advanceSharingEndpoint(start int) int {
+	return start + maxPointsPerRequest - 1
 }
 
 type latLng struct {
@@ -256,7 +254,7 @@ func (c *Client) computeRoute(ctx context.Context, key string, points []models.C
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		log.Printf("[ROUTES] measure outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
-		return nil, &transportError{cause: unwrapURLError(err)}
+		return nil, &redactedTransportError{cause: unwrapURLError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -305,11 +303,10 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("orderedroute: provider returned HTTP %d", e.Status)
 }
 
-// transportError hides request URLs, which carry coordinates, from error text.
-type transportError struct{ cause error }
+type redactedTransportError struct{ cause error }
 
-func (e *transportError) Error() string { return "orderedroute: provider request failed" }
-func (e *transportError) Unwrap() error { return e.cause }
+func (e *redactedTransportError) Error() string { return "orderedroute: provider request failed" }
+func (e *redactedTransportError) Unwrap() error { return e.cause }
 
 func unwrapURLError(err error) error {
 	for {

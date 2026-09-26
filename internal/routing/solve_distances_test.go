@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// recordingSolveSource records calls made through the public routing seam.
 type recordingSolveSource struct {
 	stableDistanceCalculator
 	prewarmPairsCalls int

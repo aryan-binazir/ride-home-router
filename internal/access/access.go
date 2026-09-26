@@ -233,9 +233,7 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 				return
 			}
 		}
-		// Cookie-authenticated writes require an explicit matching origin. Bearer
-		// clients need no CSRF token; browsers cannot add this header cross-origin.
-		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && r.Header.Get("Authorization") == "" {
+		if cookieAuthenticatedMutation(r) {
 			origin := r.Header.Get("Origin")
 			u, err := url.Parse(origin)
 			if err != nil || !a.parties[origin] || u.Host != r.Host {
@@ -244,8 +242,6 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 				return
 			}
 		}
-		// These records preserve verified addresses across Clerk instance moves.
-		// They never confer authority and are written only after all auth checks.
 		if admin && cacheMiss {
 			if err := a.store.RecordAdminEmails(ctx, adminEmails); err != nil {
 				log.Print("[ERROR] auth verified admin email persistence failed")
@@ -255,16 +251,22 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 	})
 }
 
-// Clerk 404 means the session/user no longer exists; other API/transport errors
-// indicate an unavailable identity service, not evidence that the user signed out.
 func clerkFailureStatus(err error) int {
-	var apiErr *clerk.APIErrorResponse
-	if errors.As(err, &apiErr) && apiErr.HTTPStatusCode == http.StatusNotFound {
+	if clerkNotFound(err) {
 		log.Print("[AUTH] denied: Clerk session or user not found")
 		return http.StatusUnauthorized
 	}
 	log.Print("[ERROR] auth Clerk lookup unavailable")
 	return http.StatusServiceUnavailable
+}
+
+func clerkNotFound(err error) bool {
+	var apiErr *clerk.APIErrorResponse
+	return errors.As(err, &apiErr) && apiErr.HTTPStatusCode == http.StatusNotFound
+}
+
+func cookieAuthenticatedMutation(r *http.Request) bool {
+	return r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && r.Header.Get("Authorization") == ""
 }
 
 func deny(w http.ResponseWriter, r *http.Request, status int) {
@@ -287,7 +289,6 @@ func deny(w http.ResponseWriter, r *http.Request, status int) {
 	http.Error(w, http.StatusText(status), status)
 }
 
-// identity caches only verified Backend API results, never JWT email claims.
 func (a *Access) identity(ctx context.Context, sessionID, userID string) (cachedIdentity, bool, int) {
 	a.cacheMu.Lock()
 	cached, hit := a.identities[sessionID]
@@ -298,10 +299,7 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 		}
 		return cached, false, 0
 	}
-	// A fixed set of gates coalesces same-identity misses without an unbounded waiter map.
-	hash := fnv.New64a()
-	_, _ = hash.Write([]byte(sessionID))
-	gate := a.identityGates[hash.Sum64()%uint64(len(a.identityGates))]
+	gate := a.sessionLookupGate(sessionID)
 	select {
 	case gate <- struct{}{}:
 		defer func() { <-gate }()
@@ -361,4 +359,10 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 		return cachedIdentity{}, true, http.StatusUnauthorized
 	}
 	return identity, true, 0
+}
+
+func (a *Access) sessionLookupGate(sessionID string) chan struct{} {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(sessionID))
+	return a.identityGates[hash.Sum64()%uint64(len(a.identityGates))]
 }

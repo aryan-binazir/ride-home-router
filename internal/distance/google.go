@@ -13,13 +13,14 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 )
 
 const (
@@ -235,7 +236,6 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	return results, nil
 }
 
-// MaxUncachedDistancePairs bounds the elements one calculation can request.
 const MaxUncachedDistancePairs = 60000
 
 var (
@@ -246,13 +246,32 @@ var (
 
 type prewarmBlock struct{ origins, destinations []models.Coordinates }
 
+func sealScheduledPairs(missing map[string]bool, block prewarmBlock) {
+	for _, origin := range block.origins {
+		for _, dest := range block.destinations {
+			delete(missing, PairCacheKey(origin, dest))
+		}
+	}
+}
+
+func requestedMatrixElements(block prewarmBlock) int {
+	return len(block.origins) * len(block.destinations)
+}
+
+func redactAPIKey(err error, apiKey string) {
+	if failure, ok := errors.AsType[*ErrDistanceCalculationFailed](err); ok {
+		failure.Reason = strings.ReplaceAll(failure.Reason, apiKey, "[redacted]")
+	}
+	if failure, ok := errors.AsType[*googleHTTPError](err); ok {
+		failure.Body = strings.ReplaceAll(failure.Body, apiKey, "[redacted]")
+	}
+}
+
 func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePair) error {
 	if len(pairs) == 0 {
 		return nil
 	}
 	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
-	// Reuse the persistent keys during hydration, including the retry after
-	// waiting for another provider calculation to fill the cache.
 	cacheKeys := make([]string, 0, len(pairs))
 	seen := make(map[string]bool, len(pairs))
 	for _, pair := range pairs {
@@ -308,7 +327,6 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	// Calculations ahead of us may have filled these entries while we waited.
 	if err := hydrate(); err != nil {
 		return err
 	}
@@ -350,25 +368,16 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 				}
 			}
 			if !merged {
-				// Earlier blocks are final. Do not schedule their pairs again
-				// when a later origin expands the next block's destinations.
 				if len(blocks) > 0 {
-					previous := blocks[len(blocks)-1]
-					for _, origin := range previous.origins {
-						for _, dest := range previous.destinations {
-							delete(missing, PairCacheKey(origin, dest))
-						}
-					}
+					sealScheduledPairs(missing, blocks[len(blocks)-1])
 				}
 				blocks = append(blocks, prewarmBlock{origins: []models.Coordinates{origins[key]}, destinations: chunk})
 			}
 		}
 	}
-	// Matrix self-elements can be unavoidable when packing almost identical rows.
-	// Count them too, so billed elements remain bounded by the same ceiling.
 	billed := 0
 	for _, block := range blocks {
-		billed += len(block.origins) * len(block.destinations)
+		billed += requestedMatrixElements(block)
 	}
 	if billed > MaxUncachedDistancePairs {
 		blocks = nil
@@ -566,16 +575,7 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 	if err != nil {
 		return nil, err
 	}
-	// Provider error details can echo credentials. Never pass the key into
-	// application error responses, logs or persisted workflow failures.
-	defer func() {
-		if failure, ok := errors.AsType[*ErrDistanceCalculationFailed](resultErr); ok {
-			failure.Reason = strings.ReplaceAll(failure.Reason, apiKey, "[redacted]")
-		}
-		if failure, ok := errors.AsType[*googleHTTPError](resultErr); ok {
-			failure.Body = strings.ReplaceAll(failure.Body, apiKey, "[redacted]")
-		}
-	}()
+	defer func() { redactAPIKey(resultErr, apiKey) }()
 
 	body, err := json.Marshal(googleMatrixRequest{
 		Origins:           makeGoogleOrigins(origins),

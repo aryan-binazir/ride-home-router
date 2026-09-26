@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"testing"
+
+	"ride-home-router/internal/database"
+	"ride-home-router/internal/models"
 )
 
 func TestDesktopRosterGeocodeFailureShowsSafeToast(t *testing.T) {
@@ -53,7 +54,6 @@ func rosterRequest(h *Handler, kind, method, path string, htmx bool) *httptest.R
 	}
 	request := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(values.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// Roster adapters use the HTMX request header to select form decoding.
 	request.Header.Set("HX-Request", "true")
 	if !htmx {
 		request = httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(`{"name":"Test Person","address":"1 Original Road","vehicle_capacity":4}`))
@@ -76,7 +76,6 @@ func rosterRequest(h *Handler, kind, method, path string, htmx bool) *httptest.R
 	return response
 }
 
-// Fault injection stays at the database boundary; writes use the real store.
 type rosterRefreshFailureStore struct {
 	database.DataStore
 	participants database.ParticipantRepository

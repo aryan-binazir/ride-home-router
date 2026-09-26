@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// Moving one rider moves everyone at the same address with them, so a manual
-// edit never splits a household the planner kept together.
 func TestApplyMovesMovesTheWholeHousehold(t *testing.T) {
 	store := routesession.NewStore(calculator{})
 	t.Cleanup(store.Close)
@@ -42,7 +40,6 @@ func TestApplyMovesMovesTheWholeHousehold(t *testing.T) {
 		t.Fatalf("destination stops = %v, want the household together at the front", got)
 	}
 
-	// A household that overflows the destination still moves as a unit; the plan is flagged out of balance, as a single overflowing rider is.
 	full := mustCreate(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{Driver: &models.Driver{ID: 1, Name: "From", VehicleCapacity: 4}, EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: sibling1}, {Participant: sibling2}}},

@@ -1,7 +1,3 @@
-// RETIRED: the standalone /m/ mobile site is no longer served. server.go redirects
-// every /m/ URL to the responsive desktop pages, which are the only mobile UI.
-// This file and its siblings (mobile_*.go, web/templates/mobile, mobile.css,
-// mobile.js) are scheduled for deletion. Do not extend or restyle them.
 package handlers
 
 import (
@@ -273,7 +269,6 @@ func curatedMobileQueryError(message string) string {
 	}
 }
 
-// mobileSavedReturnPath retains the validated local destination and its query.
 func mobileSavedReturnPath(r *http.Request, fallback, kind string) string {
 	target, _ := url.Parse(mobileReturnPath(r, fallback))
 	query := target.Query()

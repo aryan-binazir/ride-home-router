@@ -259,7 +259,6 @@ func TestUpsertBatchUpdatesMutableFieldsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("driver after upsert = %#v, want capacity 7, address name Work, coordinates preserved", gotDriver)
 	}
 
-	// Capacity 0 means the import had no capacity column: keep the existing value, default new drivers.
 	batch := []*models.Driver{
 		{Name: "John Doe", Address: "2 Main St", Lat: 41, Lng: -74},
 		{Name: "New Driver", Address: "3 Main St", Lat: 42, Lng: -75},

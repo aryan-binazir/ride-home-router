@@ -10,7 +10,6 @@ import (
 	"strings"
 )
 
-// HandleAddressSearch handles GET /api/v1/address-search
 func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	// Require HTMX so another site cannot spend the Google Places quota through this endpoint.
 	if !h.isHTMX(r) {

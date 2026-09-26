@@ -18,7 +18,6 @@ var fieldOrder = []Field{
 
 var requiredFields = []Field{FieldName, FieldAddress}
 
-// FieldColumn binds one roster field to a zero-based grid column.
 type FieldColumn struct {
 	Field  Field
 	Column int
@@ -33,8 +32,6 @@ type MappingTransition struct {
 	MissingRequired []Field
 }
 
-// AutoMap maps exact normalized header aliases and leaves ambiguous aliases
-// unmapped.
 func AutoMap(headers []string) Mapping {
 	m := NewMapping()
 	claimed := make(map[int]bool)
@@ -65,7 +62,6 @@ func AutoMap(headers []string) Mapping {
 	return m
 }
 
-// NewMapping returns a mapping with every field unbound.
 func NewMapping() Mapping {
 	return Mapping{
 		NameColumn:        UnmappedColumn,
@@ -194,9 +190,6 @@ func knownField(field Field) bool {
 	}
 }
 
-// NormalizeRosterText applies the normalization used for header matching and
-// address grouping during geocoding.
-// Duplicate detection uses models.RosterKey.
 func NormalizeRosterText(value string) string {
 	return models.NormalizeRosterField(value)
 }

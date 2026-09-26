@@ -13,8 +13,6 @@ import (
 	"testing"
 )
 
-// Selecting more riders than the planner accepts names the limit instead of
-// blaming the form.
 func TestCalculateOverLimitSelectionNamesTheLimit(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 	form := url.Values{"activity_location_id": {"1"}, "route_time": {"18:30"}, "mode": {"dropoff"}, "driver_ids": {"1"}}
@@ -31,8 +29,6 @@ func TestCalculateOverLimitSelectionNamesTheLimit(t *testing.T) {
 	}
 }
 
-// A car with nobody in it is labelled as empty rather than shown as a measured
-// zero-length trip.
 func TestEmptyCarIsLabelledEmptyNotMeasured(t *testing.T) {
 	store := routesession.NewStore(routeEditDistanceCalculator{})
 	t.Cleanup(store.Close)

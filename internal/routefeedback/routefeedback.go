@@ -3,10 +3,11 @@ package routefeedback
 
 import (
 	"net/http"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routesession"
 	"strings"
 	"sync/atomic"
+
+	"ride-home-router/internal/models"
+	"ride-home-router/internal/routesession"
 )
 
 const (
@@ -32,7 +33,6 @@ func Build(snapshot routesession.CommitSnapshot) Record {
 		Participants: participantsFromRoutes(snapshot.Original),
 	}
 	if snapshot.ActivityLocation != nil {
-		// Coordinates are provider content with a 30-day allowance; feedback keeps IDs only.
 		input.Activity = Activity{ID: snapshot.ActivityLocation.ID}
 	}
 	for _, driver := range snapshot.SelectedDrivers {
@@ -59,7 +59,6 @@ var trustCFAccessHeader atomic.Bool
 // SetTrustCFAccessHeader enables attribution only behind a trusted Cloudflare Access proxy.
 func SetTrustCFAccessHeader(trust bool) { trustCFAccessHeader.Store(trust) }
 
-// ShouldCapture reports whether the request belongs to the configured SME.
 func ShouldCapture(r *http.Request, settings *models.Settings) (string, bool) {
 	if !trustCFAccessHeader.Load() || r == nil || settings == nil {
 		return "", false
@@ -99,8 +98,6 @@ func routesFrom(routes []models.CalculatedRoute) []Route {
 		if route.Driver == nil || len(route.Stops) == 0 {
 			continue
 		}
-		// Feedback records the itinerary only; provider distances and durations
-		// are never stored.
 		feedbackRoute := Route{DriverID: route.Driver.ID, ParticipantIDs: make([]int64, 0, len(route.Stops))}
 		if route.OrgVehicleID != 0 {
 			feedbackRoute.OrgVehicleID = new(route.OrgVehicleID)

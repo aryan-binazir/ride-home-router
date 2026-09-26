@@ -10,14 +10,6 @@ import (
 	"testing"
 )
 
-// Phase 2 ordering used to try only block reversals, which leaves pickup
-// routes that collect a nearby rider first, drive far out, and carry them back
-// past their own street. Moving one household block to another position must
-// also be tried. Both searches are greedy, so from the same start they can end
-// at different local optima; on single cars the relocation search must win
-// more often than it loses (its real value shows at whole-plan level in the
-// evaluation suite: pickup backtracking cars 36 -> 12 with it on), and every
-// accepted move is a strict improvement by construction.
 func TestStopOrderingWithRelocationsUsuallyFindsBetterOrders(t *testing.T) {
 	rng := rand.New(rand.NewPCG(2026, 913)) //nolint:gosec // Seeded test data.
 	institute := models.Coordinates{Lat: 0, Lng: 0}

@@ -785,7 +785,6 @@ func TestSwapDriversRefreshesOtherDirtyRoutesBeforeCopyAndCommit(t *testing.T) {
 			if err != nil || swapped.IsOutOfBalance {
 				t.Fatalf("swap should restore capacity: %v, unbalanced=%v", err, swapped.IsOutOfBalance)
 			}
-			// The remaining route travels 0 -> 4 -> 5, with one second per meter.
 			if got := swapped.Routes[2]; got.RouteDurationSecs != 5000 || got.Stops[0].CumulativeDurationSecs != 4000 {
 				t.Fatalf("unswapped route metrics: duration=%v, rider ETA=%v; want 5000 and 4000", got.RouteDurationSecs, got.Stops[0].CumulativeDurationSecs)
 			}

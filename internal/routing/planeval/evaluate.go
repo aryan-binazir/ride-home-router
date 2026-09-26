@@ -12,24 +12,19 @@ import (
 	"time"
 )
 
-// SolveTimeout mirrors the server's calculation timeout (routeSolveTimeout in
-// internal/handlers): a plan that takes longer never reaches a user.
 const SolveTimeout = 30 * time.Second
 
-// Result is one planner run: a scenario, a seed and a mode.
 type Result struct {
-	Key      string  `json:"key"` // scenario/mode/seed
-	Scenario string  `json:"scenario"`
-	Mode     string  `json:"mode"`
-	Seed     uint64  `json:"seed"`
-	Riders   int     `json:"riders"`
-	Drivers  int     `json:"drivers"`
-	Metrics  Metrics `json:"metrics"`
-	// WorstCars helps a reviewer judge a plan; it is not part of the baseline.
+	Key       string    `json:"key"`
+	Scenario  string    `json:"scenario"`
+	Mode      string    `json:"mode"`
+	Seed      uint64    `json:"seed"`
+	Riders    int       `json:"riders"`
+	Drivers   int       `json:"drivers"`
+	Metrics   Metrics   `json:"metrics"`
 	WorstCars []CarNote `json:"-"`
 }
 
-// CarNote is one car described the way a coordinator would read it.
 type CarNote struct {
 	Driver       string
 	DriverRegion Region
@@ -39,9 +34,6 @@ type CarNote struct {
 	DetourMin    float64
 }
 
-// Run plans every scenario for each seed in both modes with a fresh router,
-// each solve under the production timeout. A solve that times out is recorded
-// as such rather than failing the run, so the baseline can say so honestly.
 func Run(ctx context.Context, newRouter func() routing.Router, scenarios []Scenario, seeds uint64) ([]Result, error) {
 	results := make([]Result, 0, len(scenarios)*int(seeds)*2) //nolint:gosec // Small counts.
 	for _, scenario := range scenarios {
@@ -76,7 +68,6 @@ func Run(ctx context.Context, newRouter func() routing.Router, scenarios []Scena
 	return results, nil
 }
 
-// worstCars lists the n cars with the largest detour, described plainly.
 func worstCars(plan *models.RoutingResult, n int) []CarNote {
 	notes := make([]CarNote, 0, len(plan.Routes))
 	for _, route := range plan.Routes {
@@ -104,8 +95,6 @@ func worstCars(plan *models.RoutingResult, n int) []CarNote {
 	return notes
 }
 
-// Report is the markdown a reviewer reads after a run: the per-scenario
-// comparison, then every run's numbers and its worst cars.
 func Report(baseline, current []Result) string {
 	var b strings.Builder
 	b.WriteString("# Planner evaluation\n\n## Compared with the baseline\n\n```\n")
@@ -123,8 +112,6 @@ func Report(baseline, current []Result) string {
 	return b.String()
 }
 
-// validPlan rejects a plan that looks cheap because it is wrong: every rider
-// exactly once, and no car over its capacity.
 func validPlan(plan *models.RoutingResult, roster Roster) error {
 	seen := make(map[int64]int, len(roster.Participants))
 	for _, route := range plan.Routes {
@@ -149,21 +136,18 @@ func validPlan(plan *models.RoutingResult, roster Roster) error {
 	return nil
 }
 
-// Tolerances: a change must not make any run worse than this on any metric.
-// Solve time is reported, not gated, because it depends on the machine; a
-// timeout is gated because production would show the user an error.
 const (
-	distanceTolerance  = 0.01 // relative
-	detourToleranceMin = 2.0
-	riderToleranceMin  = 2.0
-	burdenP95Tolerance = 1.0 // minutes per rider
-	burdenMaxTolerance = 2.0
-	homePassTolerance  = 1    // cars; 0 for the Durham-driver shapes
-	countTolerance     = 0.10 // relative, at least one: far drivers, backtracking cars
+	distanceRelativeTolerance = 0.01
+	detourToleranceMin        = 2.0
+	riderToleranceMin         = 2.0
+	burdenP95ToleranceMin     = 1.0
+	burdenMaxToleranceMin     = 2.0
+	homePassTolerance         = 1
+	countRelativeTolerance    = 0.10
 )
 
 func countAllowance(base int) int {
-	return max(1, int(math.Ceil(float64(base)*countTolerance)))
+	return max(1, int(math.Ceil(float64(base)*countRelativeTolerance)))
 }
 
 func indexByKey(results []Result) map[string]Result {
@@ -174,8 +158,6 @@ func indexByKey(results []Result) map[string]Result {
 	return byKey
 }
 
-// Compare lists every run where the current plan is materially worse than the
-// baseline. An empty list means the change is acceptable everywhere.
 func Compare(baseline, current []Result) []string {
 	if len(current) == 0 {
 		return []string{"no runs to compare"}
@@ -223,9 +205,9 @@ func Compare(baseline, current []Result) []string {
 			continue
 		}
 		if b.TimedOut {
-			continue // planned where the baseline could not: an improvement
+			continue
 		}
-		if c.TotalDistanceKm > b.TotalDistanceKm*(1+distanceTolerance)+0.05 {
+		if c.TotalDistanceKm > b.TotalDistanceKm*(1+distanceRelativeTolerance)+0.05 {
 			add("total distance %.1f -> %.1f km", b.TotalDistanceKm, c.TotalDistanceKm)
 		}
 		if c.MaxDetourMin > b.MaxDetourMin+detourToleranceMin {
@@ -243,10 +225,10 @@ func Compare(baseline, current []Result) []string {
 		if c.SplitHouseholds > 0 {
 			add("split households %d", c.SplitHouseholds)
 		}
-		if c.BurdenP95Min > b.BurdenP95Min+burdenP95Tolerance {
+		if c.BurdenP95Min > b.BurdenP95Min+burdenP95ToleranceMin {
 			add("burden p95 %.2f -> %.2f min/rider", b.BurdenP95Min, c.BurdenP95Min)
 		}
-		if c.BurdenMaxMin > b.BurdenMaxMin+burdenMaxTolerance {
+		if c.BurdenMaxMin > b.BurdenMaxMin+burdenMaxToleranceMin {
 			add("burden max %.2f -> %.2f min/rider", b.BurdenMaxMin, c.BurdenMaxMin)
 		}
 		allowed := homePassTolerance
@@ -263,7 +245,6 @@ func Compare(baseline, current []Result) []string {
 	return regressions
 }
 
-// Table renders the results for a human: one line per run.
 func Table(results []Result) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%-32s %-7s %4s %5s %5s %9s %8s %8s %8s %4s %4s %4s %7s %7s %5s %7s\n", "scenario", "mode", "seed", "rider", "drvr", "km", "maxdet", "avgdet", "rider", "far", "back", "hh", "b95", "bmax", "home", "ms")
@@ -278,8 +259,6 @@ func Table(results []Result) string {
 	return b.String()
 }
 
-// Summary compares current results with the baseline per scenario, so an
-// improvement is visible as numbers rather than an absence of failures.
 func Summary(baseline, current []Result) string {
 	base := indexByKey(baseline)
 	type agg struct {
@@ -315,7 +294,6 @@ func Summary(baseline, current []Result) string {
 			a.curTimeouts++
 		}
 		if b.TimedOut || c.TimedOut {
-			// A timeout has no plan to add up; totals compare only planned runs.
 			continue
 		}
 		a.baseKm += b.TotalDistanceKm

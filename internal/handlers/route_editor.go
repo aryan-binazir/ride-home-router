@@ -34,8 +34,6 @@ type routeEditorView struct {
 	ReturnURL     string
 }
 
-// HandleRouteEditor renders only the requested page of route-edit choices.
-// Opening/searching an editor never measures or changes an itinerary.
 func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 	mobile := strings.HasPrefix(r.URL.Path, "/m/")
 	validationError := func(message string) {
@@ -143,8 +141,6 @@ func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleRouteEditorAction is the ordinary form fallback. JavaScript submissions
-// still use the desktop edit queue and its guarded, targeted responses.
 func (h *Handler) HandleRouteEditorAction(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
@@ -198,8 +194,6 @@ func (h *Handler) HandleRouteEditorAction(w http.ResponseWriter, r *http.Request
 	action(w, request)
 }
 
-// HandleMobileRouteEditorAction keeps the existing validated mobile mutations
-// authoritative while sharing a single choice form for all editor actions.
 func (h *Handler) HandleMobileRouteEditorAction(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)

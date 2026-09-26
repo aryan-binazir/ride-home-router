@@ -99,8 +99,6 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 		return Snapshot{}, false, err
 	}
 	snapshot := Snapshot{ID: id, Kind: header.Kind, Filename: header.Filename, Grid: header.Grid.grid(), Mapping: header.Mapping, Status: header.Status, Failure: header.Failure, CommitResult: header.Result}
-	// Read progress first: a finishing job may make this poll conservative,
-	// but it cannot enable commit while the returned rows are still pending.
 	done, total, err := s.durableJobs.Progress(ctx, id)
 	if err != nil {
 		return Snapshot{}, false, err
@@ -113,8 +111,19 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	snapshot.GeocodeProgress = GeocodeProgress{Done: done, Total: total, Running: done < total}
+	snapshot.GeocodeProgress = geocodeProgress(done, total, snapshot.Rows)
 	return snapshot, true, nil
+}
+
+func geocodeProgress(done, total int, rows []Row) GeocodeProgress {
+	running := done < total
+	for i := range rows {
+		if rows[i].NeedsGeocoding {
+			running = true
+			break
+		}
+	}
+	return GeocodeProgress{Done: done, Total: total, Running: running}
 }
 
 // LoadProgress extends the same sliding expiry as Load, without fetching rows.
@@ -156,7 +165,6 @@ func decodeImportRows(stored []database.ImportRow) ([]Row, []bool, error) {
 	return rows, selected, nil
 }
 
-// ApplyMapping validates the staged grid and starts geocoding work.
 func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (Snapshot, error) {
 	record, err := s.records.Load(ctx, "import", id, s.ttl)
 	if errors.Is(err, database.ErrNotFound) {
@@ -215,13 +223,16 @@ func (s *Store) ApplyMapping(ctx context.Context, id string, mapping Mapping) (S
 	if err != nil {
 		return Snapshot{}, err
 	}
-	// A buffered wake coalesces concurrent mappings without blocking on geocoding.
+	s.coalesceGeocoderWake()
+	result, _, err := s.Load(ctx, id)
+	return result, err
+}
+
+func (s *Store) coalesceGeocoderWake() {
 	select {
 	case s.workerWake <- struct{}{}:
 	default:
 	}
-	result, _, err := s.Load(ctx, id)
-	return result, err
 }
 
 func (s *Store) SelectRowsContext(ctx context.Context, id string, selected []bool) (Snapshot, error) {
@@ -318,9 +329,8 @@ func (s *Store) CancelContext(ctx context.Context, id string) (bool, error) {
 func (s *Store) durableWorker(ctx context.Context) {
 	defer close(s.workerDone)
 	const activeInterval = 250 * time.Millisecond
-	const idleLimit = 30 * time.Second
 	delay := activeInterval
-	timer := time.NewTimer(0) // Recover persisted jobs immediately on startup.
+	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
 		select {
@@ -353,13 +363,11 @@ func (s *Store) durableWorker(ctx context.Context) {
 			timer.Reset(delay)
 		} else {
 			timer.Reset(delay)
-			delay = min(delay*2, idleLimit)
+			delay = min(delay*2, geocoderIdleInterval)
 		}
 	}
 }
 
-// Each claim reserves a round durably, including interrupted rounds. A later
-// claim can finalize exhausted work after a crash without calling Google again.
 const maxGeocodeRounds = 3
 
 func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
@@ -399,7 +407,6 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 	if err != nil {
 		return err
 	}
-	// A partial or mismatched subset must never mark a job complete.
 	wanted := make(map[int]struct{}, len(job.Rows))
 	for _, index := range job.Rows {
 		if index < 0 {

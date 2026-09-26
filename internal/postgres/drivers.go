@@ -108,7 +108,7 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				capacity = models.DefaultVehicleCapacity
 			}
 			err := tx.QueryRowContext(ctx, insertDriver,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now, d.GeocodedAt, d.MatchedAddress, addressMatchOrDefault(d.AddressMatch),
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, capacity, now, now, d.GeocodedAt, d.MatchedAddress, addressMatchOrVerified(d.AddressMatch),
 			).Scan(&id)
 			if err == nil {
 				d.VehicleCapacity = capacity
@@ -121,7 +121,7 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				SET name = $1, address = $2, address_name = NULLIF($3, ''), lat = $4, lng = $5, vehicle_capacity = $6, updated_at = $7, geocoded_at = $9,
 				    matched_address = $10, address_match = $11
 				WHERE id = $8 AND deleted_at IS NULL`,
-				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID, d.GeocodedAt, d.MatchedAddress, addressMatchOrDefault(d.AddressMatch))
+				d.Name, d.Address, d.AddressName, d.Lat, d.Lng, d.VehicleCapacity, now, d.ID, d.GeocodedAt, d.MatchedAddress, addressMatchOrVerified(d.AddressMatch))
 		},
 		importUpdate: func(ctx context.Context, tx *sql.Tx, id int64, d *models.Driver, now time.Time) (sql.Result, error) {
 			return tx.ExecContext(ctx, `
@@ -130,7 +130,7 @@ func (r *driverRepository) writes() rosterWriteCore[models.Driver] {
 				    vehicle_capacity = CASE WHEN $2 > 0 THEN $2 ELSE vehicle_capacity END,
 				    updated_at = $3, matched_address = $5, address_match = $6
 				WHERE id = $4 AND deleted_at IS NULL`,
-				d.AddressName, d.VehicleCapacity, now, id, d.MatchedAddress, addressMatchOrDefault(d.AddressMatch))
+				d.AddressName, d.VehicleCapacity, now, id, d.MatchedAddress, addressMatchOrVerified(d.AddressMatch))
 		},
 		fields: func(d *models.Driver) rosterFields {
 			return rosterFields{id: &d.ID, createdAt: &d.CreatedAt, updatedAt: &d.UpdatedAt}
@@ -166,7 +166,6 @@ func (r *driverRepository) Restore(ctx context.Context, id int64) error {
 	return r.writes().restore(ctx, id)
 }
 
-// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
 func (r *driverRepository) UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE drivers SET lat = $1, lng = $2, geocoded_at = $3 WHERE id = $4 AND address = $5 AND deleted_at IS NULL`, coords.Lat, coords.Lng, geocodedAt, id, address)
 	if err != nil {

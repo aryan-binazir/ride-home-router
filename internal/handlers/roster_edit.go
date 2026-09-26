@@ -3,15 +3,14 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
-	"sync"
-	"time"
 )
 
-// rosterEditor accepts validated, normalized edits. Adapters own validation and
-// existing-record lookup so their error precedence remains unchanged.
 type rosterEditor struct {
 	db       database.DataStore
 	geocoder geocoding.Geocoder
@@ -20,13 +19,9 @@ type rosterEditor struct {
 type participantEdit struct {
 	Name, Address, AddressName string
 	LabelIDs                   []int64
-	// SetLabels distinguishes an omitted JSON field from an explicit replacement.
-	// Creates always attach LabelIDs.
-	SetLabels bool
+	SetLabels                  bool
 }
 
-// Serialize the live identity check and create across HTTP handlers in this process.
-// Database-wide enforcement remains a repository concern.
 var rosterCreateMu sync.Mutex
 
 type rosterDuplicateError struct{ name string }

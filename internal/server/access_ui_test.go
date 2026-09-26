@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
+
+	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestAccessSettingsCookieManagement(t *testing.T) {
@@ -60,7 +61,6 @@ func TestAccessSettingsCookieManagement(t *testing.T) {
 	if w.Code != 403 || strings.Contains(w.Body.String(), "member@example.test") {
 		t.Fatalf("member access list %d %s", w.Code, w.Body.String())
 	}
-	// HTMX sends DELETE form parameters in the query string by default.
 	w = request("DELETE", "/api/v1/access?"+url.Values{"email": {"member@example.test"}}.Encode(), admin, "", true)
 	if w.Code != 200 || strings.Contains(w.Body.String(), "member@example.test") {
 		t.Fatalf("remove HTMX %d %s", w.Code, w.Body.String())

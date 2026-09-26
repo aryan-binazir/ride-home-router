@@ -8,7 +8,6 @@ const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
 const browser = process.env.BROWSER_TEST_BINARY;
-// This opt-in check needs a browser, but no npm packages or running app server.
 for (const kind of ['rider', 'driver']) {
     for (const hidden of [false, true]) {
         test(`mobile ${kind} filter keeps edits made while loading, hidden=${hidden}`, { skip: !browser }, () => {
@@ -47,8 +46,6 @@ document.addEventListener('DOMContentLoaded',()=>{htmx.config.selfRequestsOnly=f
 </script></body></html>`;
                 const file = path.join(directory, 'fixture.html');
                 fs.writeFileSync(file, fixture);
-                // Hosted runners can spend over 20 seconds on a cold browser launch/exit.
-                // The page still has only 2 seconds of virtual time to satisfy the assertions.
                 const output = execFileSync(browser, ['--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', `--user-data-dir=${directory}/profile`, '--dump-dom', '--virtual-time-budget=2000', pathToFileURL(file).href], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 2 * 1024 * 1024 });
                 const result = JSON.parse(output.match(/<pre id="evidence">(.*?)<\/pre>/s)?.[1] || 'null');
                 assert.deepEqual(result?.selected, ['1'], 'the latest selection must survive replacing filtered controls');

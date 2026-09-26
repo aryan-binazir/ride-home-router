@@ -23,7 +23,6 @@ func TestGoogleUsageReservesUntilTheMonthlyCeiling(t *testing.T) {
 	if err := ledger.Reserve(t.Context(), database.UsageSKURoutes, 1); !errors.Is(err, database.ErrUsageExhausted) {
 		t.Fatalf("sixth reserve = %v, want ErrUsageExhausted", err)
 	}
-	// Other SKUs have their own allowance.
 	if err := ledger.Reserve(t.Context(), database.UsageSKUGeocoding, 3); err != nil {
 		t.Fatalf("geocoding reserve: %v", err)
 	}
@@ -85,14 +84,12 @@ func TestGoogleUsageConcurrentReplicasNeverExceedTheCeiling(t *testing.T) {
 func TestGoogleUsageDefaultCeilingsAndSeeding(t *testing.T) {
 	db := postgrestest.Open(t)
 	ledger := db.GoogleUsage()
-	// Without SetCeiling the built-in application ceiling applies.
 	if err := ledger.Reserve(t.Context(), database.UsageSKURoutes, database.UsageDefaultCeiling); err != nil {
 		t.Fatalf("reserving the whole default ceiling: %v", err)
 	}
 	if err := ledger.Reserve(t.Context(), database.UsageSKURoutes, 1); !errors.Is(err, database.ErrUsageExhausted) {
 		t.Fatalf("one past the default ceiling = %v", err)
 	}
-	// Seeding records usage that happened before the ledger existed this month.
 	if err := ledger.Seed(t.Context(), database.UsageSKUAutocomplete, 7000); err != nil {
 		t.Fatal(err)
 	}

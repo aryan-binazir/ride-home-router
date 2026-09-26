@@ -152,14 +152,10 @@ type CapacityShortageView struct {
 }
 
 type RouteResultsView struct {
-	// Partial restricts card rendering to RenderIndexes; full views render all cards.
-	Partial       bool
-	RenderIndexes map[int]bool
-	// Timings holds this response's measured copy of each route, or why it has none.
-	Timings []RouteTiming
-	// ShowAggregates is true only when every occupied car was measured in this response.
-	ShowAggregates bool
-	// Attribution is true when Google-measured values appear on the page.
+	Partial          bool
+	RenderIndexes    map[int]bool
+	Timings          []RouteTiming
+	ShowAggregates   bool
 	Attribution      bool
 	Routes           []models.CalculatedRoute
 	OverCapacity     []bool
@@ -172,7 +168,6 @@ type RouteResultsView struct {
 	IsEditing        bool
 	UnusedDrivers    []models.Driver
 	Mode             string
-	// ReviewerFeedback offers the configured reviewer the "Give feedback" dialog.
 	ReviewerFeedback bool
 }
 
@@ -187,6 +182,5 @@ type RouteCalculationResponse struct {
 	Summary   models.RoutingSummary    `json:"summary"`
 	SessionID string                   `json:"session_id"`
 	Mode      models.RouteMode         `json:"mode"`
-	// Timings carries provider-measured values for this response only.
-	Timings []RouteTimingJSON `json:"timings,omitempty"`
+	Timings   []RouteTimingJSON        `json:"timings,omitempty"`
 }

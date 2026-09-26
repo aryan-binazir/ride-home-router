@@ -13,7 +13,6 @@ import (
 	"slices"
 )
 
-// Region is where a person lives, at the granularity the operator plans in.
 type Region string
 
 const (
@@ -34,7 +33,6 @@ type centroid struct {
 	Street string
 }
 
-// Approximate residential neighbourhood centres, spread with a 1 km Gaussian.
 var centroids = []centroid{
 	{"Trinity Park", Durham, 36.011, -78.911, "Monmouth Ave"},
 	{"Hope Valley", Durham, 35.946, -78.957, "Dover Rd"},
@@ -53,13 +51,11 @@ var centroids = []centroid{
 	{"Morrisville", Raleigh, 35.828, -78.837, "Morrisville Carpenter Rd"},
 }
 
-// DurhamVenue and ChapelHillVenue are the two activity locations scenarios use.
 var (
 	DurhamVenue     = models.Coordinates{Lat: 35.996, Lng: -78.899}
 	ChapelHillVenue = models.Coordinates{Lat: 35.913, Lng: -79.056}
 )
 
-// RegionOf returns the region of the nearest neighbourhood centre.
 func RegionOf(c models.Coordinates) Region {
 	best, bestKm := centroids[0], math.Inf(1)
 	for _, n := range centroids {
@@ -70,21 +66,17 @@ func RegionOf(c models.Coordinates) Region {
 	return best.Region
 }
 
-// Scenario describes one roster shape. Drivers are generated until their seats
-// reach Riders×SeatFactor, so no scenario is generous with seats. Households
-// are pairs at one address, which is how the planner recognises them.
 type Scenario struct {
 	Name       string
 	Riders     int
 	RiderMix   Mix
-	DriverMix  Mix     // nil: drivers live where riders live
-	Vans       float64 // share of drivers with 7 to 9 seats
-	Households float64 // share of riders who share a home with one other rider (pairs)
-	SeatFactor float64 // seats per rider, e.g. 1.08; 0 means 1.08
+	DriverMix  Mix
+	Vans       float64
+	Households float64
+	SeatFactor float64
 	Venue      models.Coordinates
 }
 
-// Roster is one generated population ready for the planner.
 type Roster struct {
 	Participants []models.Participant
 	Drivers      []models.Driver
@@ -96,23 +88,19 @@ var (
 	lastNames  = []string{"Bennett", "Carter", "Davis", "Evans", "Flores", "Garcia", "Harris", "Irving", "Johnson", "Kim", "Lewis", "Martin", "Nguyen", "Ortiz", "Patel", "Quinn", "Rivera", "Singh", "Turner", "Walker", "Young", "Brooks", "Campbell", "Diaz", "Foster", "Gray", "Hughes", "Kelly", "Lopez", "Morgan"}
 )
 
-// Generate builds the roster for a scenario and seed. The same inputs always
-// produce the same roster.
 func Generate(s Scenario, seed uint64) Roster {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(s.Name))
 	rng := rand.New(rand.NewPCG(seed, h.Sum64())) //nolint:gosec // Deterministic synthetic data, not security material.
 	seatFactor := s.SeatFactor
 	if seatFactor == 0 {
-		seatFactor = 1.08
+		seatFactor = defaultSeatFactor
 	}
 	venue := s.Venue
 	if venue == (models.Coordinates{}) {
 		venue = DurhamVenue
 	}
-	// A pair is created with probability p per home; the share of riders in
-	// pairs is then 2p/(1+p), so p = h/(2-h) gives the requested share h.
-	pairChance := s.Households / (2 - s.Households)
+	pairChance := pairProbability(s.Households)
 	riderPick := picker(s.RiderMix)
 	driverPick := riderPick
 	if s.DriverMix != nil {
@@ -132,17 +120,21 @@ func Generate(s Scenario, seed uint64) Roster {
 	for i := 0; float64(seats) < float64(s.Riders)*seatFactor; i++ {
 		c := driverPick(rng)
 		lat, lng := jitter(rng, c)
-		capacity := 4
+		capacity := standardSeats
 		switch r := rng.Float64(); {
 		case r < s.Vans:
-			capacity = 7 + rng.IntN(3)
-		case r < s.Vans+0.15:
-			capacity = 3
+			capacity = vanMinSeats + rng.IntN(vanExtraSeatChoices)
+		case r < s.Vans+smallCarShare:
+			capacity = smallCarSeats
 		}
 		roster.Drivers = append(roster.Drivers, models.Driver{ID: int64(i + 1), Name: name(rng), Address: fmt.Sprintf("%d %s, %s, NC", 2000+i*5, c.Street, c.Region), Lat: lat, Lng: lng, VehicleCapacity: capacity})
 		seats += capacity
 	}
 	return roster
+}
+
+func pairProbability(householdShare float64) float64 {
+	return householdShare / (2 - householdShare)
 }
 
 func picker(mix Mix) func(*rand.Rand) centroid {
@@ -175,12 +167,22 @@ func picker(mix Mix) func(*rand.Rand) centroid {
 	}
 }
 
-// jitter spreads a point around a centre with a 1 km Gaussian, capped at 2 km.
+const (
+	defaultSeatFactor   = 1.08
+	standardSeats       = 4
+	smallCarSeats       = 3
+	smallCarShare       = 0.15
+	vanMinSeats         = 7
+	vanExtraSeatChoices = 3
+	kmPerDegreeLatitude = 111.195
+	jitterCapKm         = 2
+)
+
 func jitter(rng *rand.Rand, c centroid) (float64, float64) {
 	for {
-		x, y := rng.NormFloat64(), rng.NormFloat64()
-		if x*x+y*y <= 4 {
-			return c.Lat + y/111.195, c.Lng + x/(111.195*math.Cos(c.Lat*math.Pi/180))
+		eastKm, northKm := rng.NormFloat64(), rng.NormFloat64()
+		if eastKm*eastKm+northKm*northKm <= jitterCapKm*jitterCapKm {
+			return c.Lat + northKm/kmPerDegreeLatitude, c.Lng + eastKm/(kmPerDegreeLatitude*math.Cos(c.Lat*math.Pi/180))
 		}
 	}
 }
@@ -196,8 +198,6 @@ func haversineKm(a, b models.Coordinates) float64 {
 	return 2 * r * math.Asin(math.Sqrt(h))
 }
 
-// Scenarios is the suite: the roster shapes the operator actually sees, at
-// several sizes, plus the shapes that exposed problems in field tests.
 func Scenarios() []Scenario {
 	chCarrboro := Mix{ChapelHill: 45, Carrboro: 40, Durham: 15}
 	carrboroDurham := Mix{Carrboro: 45, Durham: 55}
@@ -219,14 +219,10 @@ func Scenarios() []Scenario {
 	}
 	list = append(list,
 		Scenario{Name: "raleigh-heavy-100", Riders: 100, RiderMix: Mix{Raleigh: 75, Durham: 25}, Households: 0.1},
-		// Riders in Chapel Hill and Carrboro, drivers mostly in Durham: the field-test Carrboro problem.
 		Scenario{Name: "drivers-in-durham-100", Riders: 100, RiderMix: Mix{ChapelHill: 40, Carrboro: 40, Durham: 20}, DriverMix: Mix{Durham: 80, ChapelHill: 10, Carrboro: 10}, Households: 0.1},
 		Scenario{Name: "drivers-in-durham-300", Riders: 300, RiderMix: Mix{ChapelHill: 40, Carrboro: 40, Durham: 20}, DriverMix: Mix{Durham: 80, ChapelHill: 10, Carrboro: 10}, Households: 0.1},
 		Scenario{Name: "vans-300", Riders: 300, RiderMix: triangle, Vans: 0.3, Households: 0.1},
 		Scenario{Name: "vans-500", Riders: 500, RiderMix: triangle, Vans: 0.3, Households: 0.1},
-		// Seats barely cover riders and many households: the bearing-sweep seed
-		// fails on some seeds and the round-robin fallback is slow and poor. This
-		// is recorded in the baseline on purpose; a seed-phase fix must show here.
 		Scenario{Name: "tight-seats-500", Riders: 500, RiderMix: triangle, SeatFactor: 1.02, Households: 0.18},
 		Scenario{Name: "chapel-hill-venue-100", Riders: 100, RiderMix: Mix{ChapelHill: 50, Carrboro: 30, Durham: 20}, Households: 0.1, Venue: ChapelHillVenue},
 	)

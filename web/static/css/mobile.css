@@ -1,4 +1,3 @@
-/* RETIRED: styles for the unreachable /m/ mobile site. Scheduled for deletion; the responsive desktop CSS in style.css is the only mobile UI. */
 :root {
   color-scheme: light dark;
   --m-bg: #f6f7f8;
@@ -153,7 +152,6 @@ button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height
   * { scroll-behavior: auto !important; }
 }
 
-/* The same confirmation dialog is used on desktop and mobile. */
 .confirm-overlay { display: none; position: fixed; inset: 0; z-index: 100; place-items: center; padding: 20px; background: rgb(0 0 0 / 46%); }
 .confirm-overlay.is-open { display: grid; }
 .confirm-dialog { width: min(100%, 390px); border-radius: 12px; background: var(--m-card); color: var(--m-ink); overflow: hidden; }
@@ -167,7 +165,6 @@ button.htmx-request { opacity: .6; cursor: progress; }
 .confirm-dialog-actions .btn { border: 1px solid var(--m-line); border-radius: 8px; background: var(--m-card); color: var(--m-ink); }
 .confirm-dialog-actions .btn-danger { background: var(--m-danger); color: var(--m-card); }
 
-/* Google Maps Platform attribution for address suggestions shown without a map. */
 .address-attribution {
   display: flex;
   justify-content: flex-end;
@@ -178,7 +175,6 @@ button.htmx-request { opacity: .6; cursor: progress; }
   width: auto;
 }
 
-/* A desktop visitor should not have to scroll a long route list to leave. */
 .mobile-desktop-switch { display: none; }
 @media (min-width: 821px) and (hover: hover) and (pointer: fine) {
   .mobile-desktop-switch { display: block; margin-bottom: 16px; }

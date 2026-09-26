@@ -15,15 +15,23 @@ type labelRepository struct {
 	db *sql.DB
 }
 
-// membershipTable limits interpolated SQL names to two fixed values.
-type membershipTable struct {
-	table, ownerColumn, ownerTable string
-}
+type membershipTable int
 
-var (
-	participantLabels = membershipTable{table: "participant_labels", ownerColumn: "participant_id", ownerTable: "participants"}
-	driverLabels      = membershipTable{table: "driver_labels", ownerColumn: "driver_id", ownerTable: "drivers"}
+const (
+	participantLabels membershipTable = iota + 1
+	driverLabels
 )
+
+func (m membershipTable) identifiers() (table, ownerColumn, ownerTable string) {
+	switch m {
+	case participantLabels:
+		return "participant_labels", "participant_id", "participants"
+	case driverLabels:
+		return "driver_labels", "driver_id", "drivers"
+	default:
+		panic("roster membership table is not participant or driver labels")
+	}
+}
 
 const labelWithCounts = `
 	SELECT l.id, l.name,
@@ -176,12 +184,13 @@ func (r *labelRepository) ListLabelIDsForDrivers(ctx context.Context) (map[int64
 }
 
 func (r *labelRepository) listLabelsForOwner(ctx context.Context, m membershipTable, ownerID int64) ([]models.Label, error) {
+	table, ownerColumn, _ := m.identifiers()
 	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT l.id, l.name, l.created_at, l.updated_at
 		FROM labels l
 		INNER JOIN %s membership ON membership.label_id = l.id
 		WHERE membership.%s = $1
-		ORDER BY l.name`, m.table, m.ownerColumn), ownerID)
+		ORDER BY l.name`, table, ownerColumn), ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query owner labels: %w", err)
 	}
@@ -204,13 +213,15 @@ func (r *labelRepository) setMemberships(ctx context.Context, m membershipTable,
 }
 
 func replaceLabelMemberships(ctx context.Context, tx *sql.Tx, m membershipTable, ownerID int64, labelIDs []int64) error {
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s = $1`, m.table, m.ownerColumn), ownerID); err != nil {
+	table, ownerColumn, _ := m.identifiers()
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s = $1`, table, ownerColumn), ownerID); err != nil {
 		return fmt.Errorf("failed to clear label memberships: %w", err)
 	}
 	return insertLabelMemberships(ctx, tx, m, ownerID, labelIDs)
 }
 
 func insertLabelMemberships(ctx context.Context, tx *sql.Tx, m membershipTable, ownerID int64, labelIDs []int64) error {
+	table, ownerColumn, _ := m.identifiers()
 	seen := make(map[int64]struct{}, len(labelIDs))
 	for _, labelID := range labelIDs {
 		if labelID <= 0 {
@@ -220,7 +231,7 @@ func insertLabelMemberships(ctx context.Context, tx *sql.Tx, m membershipTable, 
 			continue
 		}
 		seen[labelID] = struct{}{}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s (label_id, %s) VALUES ($1, $2)`, m.table, m.ownerColumn), labelID, ownerID); err != nil {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s (label_id, %s) VALUES ($1, $2)`, table, ownerColumn), labelID, ownerID); err != nil {
 			return fmt.Errorf("failed to insert label membership: %w", err)
 		}
 	}
@@ -243,10 +254,11 @@ func (r *labelRepository) addMemberships(ctx context.Context, m membershipTable,
 	if err := validateLiveOwners(ctx, tx, m, ids); err != nil {
 		return err
 	}
+	table, ownerColumn, _ := m.identifiers()
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (label_id, %s)
 		SELECT $1, owner FROM unnest($2::bigint[]) AS owner
-		ON CONFLICT DO NOTHING`, m.table, m.ownerColumn), labelID, ids); err != nil {
+		ON CONFLICT DO NOTHING`, table, ownerColumn), labelID, ids); err != nil {
 		return fmt.Errorf("failed to add label memberships: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -271,7 +283,8 @@ func (r *labelRepository) removeMemberships(ctx context.Context, m membershipTab
 	if err := validateLiveOwners(ctx, tx, m, ids); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE label_id = $1 AND %s = ANY($2)`, m.table, m.ownerColumn), labelID, ids); err != nil {
+	table, ownerColumn, _ := m.identifiers()
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE label_id = $1 AND %s = ANY($2)`, table, ownerColumn), labelID, ids); err != nil {
 		return fmt.Errorf("failed to remove label memberships: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -281,7 +294,8 @@ func (r *labelRepository) removeMemberships(ctx context.Context, m membershipTab
 }
 
 func validateLiveOwners(ctx context.Context, tx *sql.Tx, m membershipTable, ownerIDs []int64) error {
-	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ANY($1) AND deleted_at IS NULL FOR SHARE`, m.ownerTable), ownerIDs)
+	_, _, ownerTable := m.identifiers()
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ANY($1) AND deleted_at IS NULL FOR SHARE`, ownerTable), ownerIDs)
 	if err != nil {
 		return fmt.Errorf("failed to validate label membership owners: %w", err)
 	}
@@ -301,7 +315,8 @@ func validateLiveOwners(ctx context.Context, tx *sql.Tx, m membershipTable, owne
 }
 
 func (r *labelRepository) listLabelIDsForOwners(ctx context.Context, m membershipTable) (map[int64][]int64, error) {
-	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`SELECT %s, label_id FROM %s ORDER BY %s, label_id`, m.ownerColumn, m.table, m.ownerColumn))
+	table, ownerColumn, _ := m.identifiers()
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`SELECT %s, label_id FROM %s ORDER BY %s, label_id`, ownerColumn, table, ownerColumn))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query label IDs: %w", err)
 	}

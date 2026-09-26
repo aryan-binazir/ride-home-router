@@ -4,9 +4,10 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
+
+	"ride-home-router/internal/models"
 )
 
 type vehicleEditorView struct {
@@ -23,7 +24,6 @@ type vehicleEditorView struct {
 	NextURL     string
 }
 
-// HandleVehicleAssignments resolves only saved selections, not the vehicle catalog.
 func (h *Handler) HandleVehicleAssignments(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
@@ -71,8 +71,6 @@ func (h *Handler) HandleVehicleAssignments(w http.ResponseWriter, r *http.Reques
 	h.renderTemplate(w, "vehicle_assignments", views)
 }
 
-// HandleVehicleEditor renders a bounded catalog or one chosen vehicle control.
-// This edits the submitted plan form, never the roster or a stored route session.
 func (h *Handler) HandleVehicleEditor(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)

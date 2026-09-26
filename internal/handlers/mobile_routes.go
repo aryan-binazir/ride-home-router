@@ -1,7 +1,3 @@
-// RETIRED: the standalone /m/ mobile site is no longer served. server.go redirects
-// every /m/ URL to the responsive desktop pages, which are the only mobile UI.
-// This file and its siblings (mobile_*.go, web/templates/mobile, mobile.css,
-// mobile.js) are scheduled for deletion. Do not extend or restyle them.
 package handlers
 
 import (
@@ -46,11 +42,8 @@ func (h *Handler) HandleMobileRoutes(w http.ResponseWriter, r *http.Request) {
 	h.renderMobileRoutesTimed(w, r, snapshot, http.StatusOK, r.URL.Query().Get("error"), "", "", h.takeQueuedTimings(w, r, snapshot))
 }
 
-// mobileTimingsCookie carries the cars a calculation or edit changed across
-// its redirect, so the routes page measures them once and a refresh spends nothing.
 const mobileTimingsCookie = "rhr_mobile_timings"
 
-// queueTimings remembers which cars the next routes page should measure.
 func (h *Handler) queueTimings(w http.ResponseWriter, r *http.Request, sessionID string, indexes []int) {
 	if len(indexes) == 0 {
 		return
@@ -66,7 +59,6 @@ func (h *Handler) queueTimings(w http.ResponseWriter, r *http.Request, sessionID
 	})
 }
 
-// takeQueuedTimings consumes the queued cars for this session and clears the cookie.
 func (h *Handler) takeQueuedTimings(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot) []int {
 	cookie, err := r.Cookie(mobileTimingsCookie)
 	if err != nil {
@@ -92,8 +84,6 @@ func (h *Handler) renderMobileRoutes(w http.ResponseWriter, r *http.Request, sna
 	h.renderMobileRoutesTimed(w, r, snapshot, status, message, date, notes, nil)
 }
 
-// renderMobileRoutesTimed measures only the cars in indexes for this response;
-// every other car shows its itinerary with a "Show timings" action.
 func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request, snapshot routesession.Snapshot, status int, message, date, notes string, indexes []int) {
 	timings := h.routeTimings(r.Context(), snapshot, indexes)
 	view := mobileRoutesView{EventDate: date, Notes: notes, mobileBaseView: newMobileBase(r, mobileRoutesTitle(snapshot.Mode), "plan", message), Snapshot: snapshot}
@@ -109,13 +99,10 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 	for _, index := range renderIndexes {
 		route := snapshot.Routes[index]
 		if view.Patch && addingSecond && index == 0 {
-			// Only the edit controls changed. Leave measured ETAs and copy text
-			// on the existing card, rather than rebuilding or caching them.
 			view.Routes = append(view.Routes, mobileRoute{ActionsOnly: true, Index: index, Route: route})
 			continue
 		}
 		timing := timings[index]
-		// The template reads an ETA per stop, so unmeasured cars carry blanks.
 		etas := make([]string, len(route.Stops))
 		if timing.Route != nil {
 			etas = mobileETAs(snapshot, *timing.Route)
@@ -143,12 +130,10 @@ func (h *Handler) renderMobileRoutesTimed(w http.ResponseWriter, r *http.Request
 	h.renderMobileTemplateStatus(w, r, status, "mobile/routes.html", view)
 }
 
-// HandleMobileRouteTimings measures one car on demand and re-renders the routes screen.
 func (h *Handler) HandleMobileRouteTimings(w http.ResponseWriter, r *http.Request) {
 	logMobileRequest(r)
 	if h.isHTMX(r) {
-		// The form swaps only its own car, so a redirect must move the whole page.
-		w = &htmxRedirectWriter{ResponseWriter: w}
+		w = fullPageHTMXRedirect(w)
 	}
 	_, sessionID, ok := h.mobileRouteSession(w, r)
 	if !ok {
@@ -317,13 +302,12 @@ func (h *Handler) HandleMobileSave(w http.ResponseWriter, r *http.Request) {
 		h.renderMobileRoutes(w, r, snapshot, status, message, date, r.FormValue("notes"))
 		return
 	}
-	if err := h.mobilePlan().ReleaseSavedSessionContext(r.Context(), id, sessionID); err != nil {
+	if err := h.mobilePlan().ReleaseSavedSessionIfCurrent(r.Context(), id, sessionID); err != nil {
 		log.Printf("[MOBILE] Saved event but draft release failed: %v", err)
 	}
 	http.Redirect(w, r, fmt.Sprintf("/m/history/%d", created.ID), http.StatusSeeOther)
 }
 
-// mobileRouteSession binds a submitted action to the routes its form displayed.
 func (h *Handler) mobileRouteSession(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	id, draft, _, loadErr := h.mobileDraft(w, r)
 	if loadErr != nil {
@@ -360,8 +344,6 @@ func mobileETAs(snapshot routesession.Snapshot, route models.CalculatedRoute) []
 	return values
 }
 
-// formatMobileHandoff builds the shareable text. etas are only present when
-// this response measured the car; saved events never include them.
 func formatMobileHandoff(snapshot routesession.Snapshot, route models.CalculatedRoute, parents bool, etas []string) string {
 	var b strings.Builder
 	locationName, locationAddress := "Activity location", ""
@@ -422,7 +404,10 @@ func formatSavedMobileHandoff(route models.EventRoute, parents bool) string {
 	if !parents && route.DriverHandoff != "" {
 		return route.DriverHandoff
 	}
-	// Legacy events did not retain the original location and timing context.
+	return formatRosterMobileHandoff(route, parents)
+}
+
+func formatRosterMobileHandoff(route models.EventRoute, parents bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Driver: %s\n", route.DriverName)
 	if !parents {
@@ -497,13 +482,13 @@ func mobileMapsPreviewURL(snapshot routesession.Snapshot, route models.Calculate
 	return "https://www.google.com/maps/dir/?" + query.Encode()
 }
 
+const maxIntermediateMapsWaypoints = 3
+
 func mobileMapsURLs(snapshot routesession.Snapshot, route models.CalculatedRoute) []string {
 	points := mobileMapsPoints(snapshot, route)
-	// Mobile browsers support three intermediate waypoints per Maps URL.
-	// Each later leg starts at the preceding leg's destination.
 	var links []string
 	for start := 0; start < len(points)-1; {
-		end := min(start+4, len(points)-1)
+		end := min(start+maxIntermediateMapsWaypoints+1, len(points)-1)
 		query := url.Values{"api": {"1"}, "travelmode": {"driving"}, "dir_action": {"navigate"}, "destination": {points[end]}}
 		if start > 0 {
 			query.Set("origin", points[start])
@@ -544,8 +529,10 @@ func (h *Handler) redirectSavedMobileEvent(w http.ResponseWriter, r *http.Reques
 	return true
 }
 
-// htmxRedirectWriter turns a plain redirect into an HX-Redirect so htmx
-// navigates instead of swapping the redirected page into a fragment target.
+func fullPageHTMXRedirect(w http.ResponseWriter) http.ResponseWriter {
+	return &htmxRedirectWriter{ResponseWriter: w}
+}
+
 type htmxRedirectWriter struct {
 	http.ResponseWriter
 	redirected bool

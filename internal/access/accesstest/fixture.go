@@ -12,11 +12,12 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"ride-home-router/internal/access"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"ride-home-router/internal/access"
 
 	jose "github.com/go-jose/go-jose/v3"
 )
@@ -39,7 +40,6 @@ type Fixture struct {
 	secret   string
 }
 
-// New creates an isolated RSA key. Config accepts any number of admin emails.
 func New(t testing.TB) *Fixture {
 	t.Helper()
 	f := NewInstance(t, "fixture.clerk.accounts.dev")
@@ -94,7 +94,6 @@ func (f *Fixture) User(id string, verified, unverified []string, overrides ...ma
 	f.users[id] = value
 }
 
-// Session replaces a session, allowing revoked, expired, or mismatched identities.
 func (f *Fixture) Session(id, userID, status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -142,7 +141,6 @@ func (f *Fixture) Token(userID, sessionID string, overrides ...map[string]any) s
 	return token
 }
 
-// Admin provisions a default verified administrator and returns its signed token.
 func (f *Fixture) Admin() string {
 	f.User("user_admin", []string{"admin@example.test"}, nil)
 	f.Session("sess_admin", "user_admin", "active")

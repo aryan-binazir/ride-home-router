@@ -21,6 +21,7 @@ const (
 	defaultSessionTTL    = 30 * time.Minute
 	defaultCommitTimeout = 60 * time.Second
 	geocodeMaxRetries    = 3
+	geocoderIdleInterval = 30 * time.Second
 )
 
 var (
@@ -34,7 +35,6 @@ var (
 	ErrTooManyGeocodeAddresses = errors.New("import exceeds the geocoding address limit")
 )
 
-// Status is the lifecycle state of an import staging session.
 type Status string
 
 const (
@@ -45,23 +45,19 @@ const (
 	StatusFailed     Status = "failed"
 )
 
-// GeocodeProgress describes the serial geocoding job for a session.
 type GeocodeProgress struct {
 	Done    int
 	Total   int
 	Running bool
 }
 
-// CommitResult summarizes the terminal batch operation.
 type CommitResult struct {
 	Created     int
 	Updated     int
 	NotSelected int
-	// Guessed counts written rows whose address the geocoder only guessed.
-	Guessed int
+	Guessed     int
 }
 
-// Snapshot is a concurrency-safe copy of an import session.
 type Snapshot struct {
 	ID              string
 	Kind            Kind
@@ -76,7 +72,6 @@ type Snapshot struct {
 	CommitResult    CommitResult
 }
 
-// ProgressSnapshot holds only the counts and state needed by the progress panel.
 type ProgressSnapshot struct {
 	ID                      string
 	Status                  Status
@@ -84,7 +79,6 @@ type ProgressSnapshot struct {
 	RowCount, SelectedCount int
 }
 
-// Store coordinates durable import staging and its background geocoding worker.
 type Store struct {
 	records      database.WorkflowRepository
 	durableJobs  database.ImportJobRepository
@@ -102,7 +96,6 @@ func (s *Store) Commit(ctx context.Context, id string, selection []bool) (Commit
 	return s.commitPersistent(ctx, id, selection, nil)
 }
 
-// Close stops the background worker after its active geocoding call returns.
 func (s *Store) Close() {
 	s.closeOnce.Do(func() { s.workerCancel(); <-s.workerDone })
 }
@@ -132,6 +125,15 @@ func (s *Store) listExisting(ctx context.Context, kind Kind) ([]Existing, error)
 	default:
 		return nil, fmt.Errorf("unsupported roster kind %q", kind)
 	}
+}
+
+const vehicleCapacityChosenByUpsert = 0
+
+func vehicleCapacityForUpsert(row Row) int {
+	if row.CapacityUnmapped {
+		return vehicleCapacityChosenByUpsert
+	}
+	return row.Capacity
 }
 
 func createBatch(ctx context.Context, kind Kind, rows []Row, selected []bool, w database.WorkflowWrites) (CommitResult, error) {
@@ -170,12 +172,8 @@ func createBatch(ctx context.Context, kind Kind, rows []Row, selected []bool, w 
 		batch := make([]*models.Driver, len(indices))
 		for i, rowIndex := range indices {
 			row := rows[rowIndex]
-			capacity := row.Capacity
-			if row.CapacityDefaulted {
-				capacity = 0 // UpsertBatch keeps an existing driver's capacity and defaults new ones.
-			}
 			batch[i] = &models.Driver{
-				Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt, VehicleCapacity: capacity,
+				Name: row.Name, Address: row.Address, AddressName: row.AddressName, Lat: row.Lat, Lng: row.Lng, GeocodedAt: row.GeocodedAt, VehicleCapacity: vehicleCapacityForUpsert(row),
 				MatchedAddress: row.MatchedAddress, AddressMatch: models.AddressMatchFor(row.AddressGuessed),
 			}
 		}
@@ -264,7 +262,6 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// geocodeFailureMessage preserves actionable setup failures without exposing provider details.
 func geocodeFailureMessage(err error) string {
 	if errors.Is(err, database.ErrUsageExhausted) {
 		return "The app's Google usage limit has been reached. Ask an administrator to check usage before uploading the file again."

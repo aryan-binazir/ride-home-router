@@ -1,2 +1,1 @@
 -- ride-home-router: down migration disabled
--- Baseline rollback is intentionally unsupported. Fix forward or restore a verified backup.

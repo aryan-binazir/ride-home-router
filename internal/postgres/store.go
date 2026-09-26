@@ -1,4 +1,3 @@
-// Package postgres implements database.DataStore on PostgreSQL.
 package postgres
 
 import (
@@ -25,13 +24,11 @@ const (
 	connMaxIdleTime = 5 * time.Minute
 )
 
-// Store is a PostgreSQL-backed data store for a migrated schema.
 type Store struct {
 	db               *sql.DB
 	credentialCipher *credentials.Cipher
 }
 
-// New opens a connection pool to databaseURL and verifies it is reachable.
 func New(ctx context.Context, databaseURL string) (*Store, error) {
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
@@ -46,7 +43,6 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		}
 	}
 	db := stdlib.OpenDB(*config)
-	// Bound the pool for managed Postgres connection limits.
 	db.SetMaxOpenConns(maxOpenConns)
 	db.SetMaxIdleConns(maxOpenConns)
 	db.SetConnMaxLifetime(connMaxLifetime)
@@ -61,13 +57,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// Close releases the connection pool.
 func (s *Store) Close() error { return s.db.Close() }
 
-// HealthCheck verifies the database connection.
 func (s *Store) HealthCheck(ctx context.Context) error { return s.db.PingContext(ctx) }
 
-// ReadinessCheck verifies that the database schema matches this build.
 func (s *Store) ReadinessCheck(ctx context.Context) error {
 	expected, err := migrations.LatestVersion()
 	if err != nil {
@@ -116,7 +109,6 @@ func (s *Store) DistanceCache() database.DistanceCacheRepository {
 
 func (s *Store) Labels() database.LabelRepository { return &labelRepository{db: s.db} }
 
-// rowsAffectedOrNotFound maps a zero-row write to database.ErrNotFound.
 func rowsAffectedOrNotFound(result sql.Result) error {
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -128,7 +120,6 @@ func rowsAffectedOrNotFound(result sql.Result) error {
 	return nil
 }
 
-// mapUniqueViolation turns a Postgres unique violation into database.ErrDuplicate.
 func mapUniqueViolation(err error) error {
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation {
 		return database.ErrDuplicate

@@ -9,7 +9,6 @@ import (
 	"ride-home-router/internal/orderedroute"
 )
 
-// Measurer measures ordered routes with the provider; see orderedroute.Client.
 type Measurer interface {
 	Measure(ctx context.Context, requests []orderedroute.Request) []orderedroute.Result
 }
@@ -33,7 +32,7 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 	results := make([]RouteMeasurement, len(indexes))
 	requests := make([]orderedroute.Request, 0, 2*len(indexes))
 	type plan struct {
-		waypointOfStop []int // stop index → waypoint index (0-based among household stops)
+		waypointOfStop []int
 		routeID        string
 		baselineID     string
 	}
@@ -52,8 +51,6 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 			continue
 		}
 		if len(route.Stops) == 0 {
-			// An empty car has nothing to measure; its planning numbers must not
-			// pass as a measurement either.
 			route.Mode = mode
 			ZeroRouteMetrics(&route)
 			results[i].Route = route
@@ -81,7 +78,6 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 		group := fmt.Sprintf("car-%d", index)
 		plans[i] = plan{waypointOfStop: waypointOfStop, routeID: fmt.Sprintf("route-%d", index)}
 		requests = append(requests, orderedroute.Request{ID: plans[i].routeID, Group: group, Points: points})
-		// A driver who lives at the activity location has a zero baseline; skip the call.
 		if origin, destination := rc.origin(route.Driver), rc.destination(route.Driver); !distance.SamePoint(origin, destination) {
 			plans[i].baselineID = fmt.Sprintf("baseline-%d", index)
 			requests = append(requests, orderedroute.Request{ID: plans[i].baselineID, Group: group, Points: []models.Coordinates{origin, destination}})
@@ -128,9 +124,6 @@ func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coor
 	return results
 }
 
-// assembleMeasuredMetrics folds waypoint legs back onto stops. Household
-// siblings after the first receive zero incremental distance and identical
-// cumulative values.
 func assembleMeasuredMetrics(legs []orderedroute.Leg, baseline orderedroute.Leg, waypointOfStop []int, stopCount int) (*routeMetrics, error) {
 	waypoints := 0
 	if stopCount > 0 {

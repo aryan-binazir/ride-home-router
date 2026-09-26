@@ -6,16 +6,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/orderedroute"
 	"ride-home-router/internal/plandraft"
-	"strings"
-	"sync"
-	"testing"
 )
 
-// stubMeasurer answers every hop with 60 s / 1000 m, or fails every request.
+const (
+	stubLegDistanceMeters = 1000
+	stubLegDurationSecs   = 60
+)
+
 type stubMeasurer struct {
 	mu       sync.Mutex
 	requests [][]models.Coordinates
@@ -34,7 +40,7 @@ func (m *stubMeasurer) Measure(_ context.Context, requests []orderedroute.Reques
 			continue
 		}
 		for range len(request.Points) - 1 {
-			results[i].Legs = append(results[i].Legs, orderedroute.Leg{DistanceMeters: 1000, DurationSecs: 60})
+			results[i].Legs = append(results[i].Legs, orderedroute.Leg{DistanceMeters: stubLegDistanceMeters, DurationSecs: stubLegDurationSecs})
 		}
 	}
 	return results
@@ -42,7 +48,6 @@ func (m *stubMeasurer) Measure(_ context.Context, requests []orderedroute.Reques
 
 func (m *stubMeasurer) count() int { m.mu.Lock(); defer m.mu.Unlock(); return len(m.requests) }
 
-// A digit run that random hex session ids are astronomically unlikely to contain.
 const estimatorSentinel = "424242"
 
 func measuredCalculateFixture(t *testing.T) (*Handler, *stubMeasurer, url.Values) {
@@ -60,7 +65,6 @@ func measuredCalculateFixture(t *testing.T) (*Handler, *stubMeasurer, url.Values
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The planner's result carries estimator numbers that must never reach a user.
 	handler.Router = &captureRouter{result: &models.RoutingResult{
 		Routes: []models.CalculatedRoute{{
 			Driver: driver, EffectiveCapacity: 4, Mode: "dropoff", RouteDurationSecs: 424242.75, TotalDistanceMeters: 424242.75, DetourSecs: 424242.75,
@@ -100,8 +104,7 @@ func TestHandleCalculateRoutes_RendersMeasuredTimingsNeverEstimates(t *testing.T
 	if strings.Contains(body, estimatorSentinel) {
 		t.Fatalf("estimator numbers leaked into the page:\n%s", body)
 	}
-	// Institute → rider → driver home = two 60 s legs; baseline is one leg.
-	for _, want := range []string{`data-timings="measured"`, `data-route-duration-secs="120"`, `data-stop-cumulative-duration-secs="60"`, `google-maps-attribution`, `Current estimates for this itinerary`} {
+	for _, want := range []string{`data-timings="measured"`, `data-route-duration-secs="` + strconv.Itoa(2*stubLegDurationSecs) + `"`, `data-stop-cumulative-duration-secs="` + strconv.Itoa(stubLegDurationSecs) + `"`, `google-maps-attribution`, `Current estimates for this itinerary`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
 		}
@@ -133,7 +136,7 @@ func TestHandleCalculateRoutes_JSONHidesEstimatesAndReportsTimings(t *testing.T)
 	if len(decoded.Routes) != 1 || decoded.Routes[0].RouteDurationSecs != 0 || len(decoded.Routes[0].Stops) != 1 {
 		t.Fatalf("routes = %+v, want itinerary with zeroed metrics", decoded.Routes)
 	}
-	if len(decoded.Timings) != 1 || decoded.Timings[0].Status != "measured" || decoded.Timings[0].RouteDurationSecs != 120 {
+	if len(decoded.Timings) != 1 || decoded.Timings[0].Status != "measured" || decoded.Timings[0].RouteDurationSecs != 2*stubLegDurationSecs {
 		t.Fatalf("timings = %+v", decoded.Timings)
 	}
 }
@@ -158,7 +161,6 @@ func TestHandleCalculateRoutes_ExhaustedUsageKeepsThePlanWithoutTimings(t *testi
 
 func TestRouteTimingsPauseEveryCarWhilePlanIsOutOfBalance(t *testing.T) {
 	handler, measurer, form := measuredCalculateFixture(t)
-	// Two riders in a one-seat car put the plan out of balance.
 	second, err := handler.DB.Participants().Create(context.Background(), &models.Participant{Name: "Rider Two", Address: "9 Rider Rd", Lat: 40.11, Lng: -73.91})
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +190,6 @@ func TestRouteSessionTimingsMeasureOnlyTheRequestedCar(t *testing.T) {
 	sessionID := body[start : start+strings.Index(body[start:], `"`)]
 	before := measurer.count()
 
-	// A restored session shows the itinerary and fetches nothing.
 	restore := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+sessionID, nil)
 	restore.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()

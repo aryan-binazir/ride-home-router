@@ -25,8 +25,6 @@ func pickerWindow(total, requested int) (start, end, next, previous int) {
 	return
 }
 
-// HandlePlannerPicker renders one bounded roster page and compact selected
-// values outside it. It never changes a stored plan or computes routes.
 func (h *Handler) HandlePlannerPicker(w http.ResponseWriter, r *http.Request) {
 	kind := strings.TrimPrefix(r.URL.Path, "/api/v1/planner/")
 	if kind != "drivers" && kind != "participants" {

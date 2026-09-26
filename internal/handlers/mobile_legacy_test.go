@@ -22,7 +22,7 @@ func (l mobilePlanLifecycle) AdoptCalculation(id string, draft plandraft.Draft, 
 }
 
 func (l mobilePlanLifecycle) ReleaseSavedSession(id, sessionID string) {
-	if err := l.ReleaseSavedSessionContext(context.Background(), id, sessionID); err != nil {
+	if err := l.ReleaseSavedSessionIfCurrent(context.Background(), id, sessionID); err != nil {
 		panic(err)
 	}
 }

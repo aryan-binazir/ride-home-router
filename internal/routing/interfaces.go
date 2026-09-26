@@ -6,7 +6,6 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// RouteMode defines the direction of the route calculation.
 type RouteMode = models.RouteMode
 
 const (
@@ -21,7 +20,6 @@ func normalizeRouteMode(mode RouteMode) RouteMode {
 	return mode
 }
 
-// RoutingRequest contains the input for route calculation
 type RoutingRequest struct {
 	InstituteCoords models.Coordinates
 	Participants    []models.Participant
@@ -29,12 +27,10 @@ type RoutingRequest struct {
 	Mode            RouteMode
 }
 
-// Router provides route optimization
 type Router interface {
 	CalculateRoutes(ctx context.Context, req *RoutingRequest) (*models.RoutingResult, error)
 }
 
-// ErrRoutingFailed is returned when no valid route solution exists
 type ErrRoutingFailed struct {
 	Reason            string
 	UnassignedCount   int

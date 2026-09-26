@@ -5,12 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"sync"
 	"testing"
+
+	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres"
+	"ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestGoogleMapsKeyDatabaseReplacementAndDeletion(t *testing.T) {
@@ -65,7 +66,6 @@ func TestGoogleMapsKeyDatabaseReplacementAndDeletion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Warm the actual cache, then delete. Missing credentials must fail before cached distances.
 	if _, err := calculator.GetDistance(t.Context(), a, b); err != nil {
 		t.Fatal(err)
 	}

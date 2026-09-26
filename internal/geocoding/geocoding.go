@@ -8,13 +8,13 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
+
+	"ride-home-router/internal/models"
 )
 
-// GeocodingResult contains the result of a geocoding operation
 type GeocodingResult struct {
 	Coords           models.Coordinates
 	DisplayName      string
@@ -25,7 +25,6 @@ type GeocodingResult struct {
 	Guessed bool
 }
 
-// Label returns the address text shown in search suggestions.
 func (r GeocodingResult) Label() string {
 	if strings.TrimSpace(r.FormattedAddress) != "" {
 		return r.FormattedAddress
@@ -33,7 +32,6 @@ func (r GeocodingResult) Label() string {
 	return r.DisplayName
 }
 
-// Geocoder provides address-to-coordinates conversion
 type Geocoder interface {
 	Geocode(ctx context.Context, address string) (*GeocodingResult, error)
 	GeocodeWithRetry(ctx context.Context, address string, maxRetries int) (*GeocodingResult, error)
@@ -42,7 +40,6 @@ type Geocoder interface {
 
 var ErrNoGeocodingResults = errors.New("geocoding: no results found")
 
-// ErrGeocodingFailed is returned when an address cannot be geocoded
 type ErrGeocodingFailed struct {
 	Reason     string
 	Cause      error
@@ -63,12 +60,11 @@ func (e *ErrGeocodingFailed) Unwrap() error {
 	return e.Cause
 }
 
-// Retryable distinguishes temporary provider or pacing failures from invalid addresses.
 func (e *ErrGeocodingFailed) Retryable() bool {
 	if e.Temporary || e.Configuration {
 		return true
 	}
-	if _, ok := errors.AsType[*providerTransportError](e.Cause); ok {
+	if _, ok := errors.AsType[*redactedTransportError](e.Cause); ok {
 		return true
 	}
 	return isRetryableStatus(e.HTTPStatus)
@@ -93,7 +89,6 @@ const (
 	maxRetryAfter         = 15 * time.Minute
 )
 
-// retryBaseDelay is the first backoff step; tests shorten it.
 var retryBaseDelay = time.Second
 
 func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geocode func(context.Context, string) (*GeocodingResult, error)) (*GeocodingResult, error) {
@@ -109,8 +104,6 @@ func geocodeWithRetry(ctx context.Context, address string, maxRetries int, geoco
 	return result, nil
 }
 
-// withRetry runs attempt up to maxRetries times (bounded by maxAttempts),
-// backing off only for failures that are worth repeating within the request.
 func withRetry(ctx context.Context, maxRetries int, attempt func(context.Context) error) error {
 	var lastErr error
 	started := time.Now()
@@ -144,12 +137,11 @@ func withRetry(ctx context.Context, maxRetries int, attempt func(context.Context
 	return lastErr
 }
 
-// providerTransportError hides request URLs (which carry addresses and keys) from error text.
-type providerTransportError struct {
+type redactedTransportError struct {
 	Cause error
 }
 
-func newProviderTransportError(cause error) *providerTransportError {
+func newRedactedTransportError(cause error) *redactedTransportError {
 	for {
 		var urlErr *url.Error
 		if !errors.As(cause, &urlErr) {
@@ -157,18 +149,17 @@ func newProviderTransportError(cause error) *providerTransportError {
 		}
 		cause = urlErr.Err
 	}
-	return &providerTransportError{Cause: cause}
+	return &redactedTransportError{Cause: cause}
 }
 
-func (e *providerTransportError) Error() string {
+func (e *redactedTransportError) Error() string {
 	return e.Cause.Error()
 }
 
-func (e *providerTransportError) Unwrap() error {
+func (e *redactedTransportError) Unwrap() error {
 	return e.Cause
 }
 
-// bodyReader records transport failures that surface while decoding a response body.
 type bodyReader struct {
 	io.Reader
 	Err error

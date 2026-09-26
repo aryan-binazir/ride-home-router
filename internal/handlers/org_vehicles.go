@@ -23,7 +23,6 @@ func parseOrgVehicleID(path string) (int64, error) {
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
-// HandleListOrgVehicles handles GET /api/v1/org-vehicles
 func (h *Handler) HandleListOrgVehicles(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/org-vehicles")
 	vehicles, err := h.DB.OrganizationVehicles().List(r.Context())
@@ -36,7 +35,6 @@ func (h *Handler) HandleListOrgVehicles(w http.ResponseWriter, r *http.Request) 
 	h.writeJSON(w, http.StatusOK, vehicles)
 }
 
-// HandleCreateOrgVehicle handles POST /api/v1/org-vehicles
 func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string `json:"name"`
@@ -84,7 +82,6 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 	log.Printf("[HTTP] POST /api/v1/org-vehicles: capacity=%d", req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
@@ -110,7 +107,6 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	h.writeJSON(w, http.StatusCreated, createdVehicle)
 }
 
-// HandleGetOrgVehicle handles GET /api/v1/org-vehicles/{id}
 func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
@@ -142,7 +138,6 @@ func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, vehicle)
 }
 
-// HandleOrgVehicleForm handles GET /api/v1/org-vehicles/{id}/edit
 func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
@@ -163,7 +158,6 @@ func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
 	h.renderTemplate(w, "org_vehicle_form", OrgVehicleFormView{OrgVehicle: vehicle})
 }
 
-// HandleUpdateOrgVehicle handles PUT /api/v1/org-vehicles/{id}
 func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
@@ -215,7 +209,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] PUT /api/v1/org-vehicles/%d: capacity=%d", id, req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
@@ -248,7 +242,6 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 	h.writeJSON(w, http.StatusOK, updatedVehicle)
 }
 
-// HandleDeleteOrgVehicle handles DELETE /api/v1/org-vehicles/{id}
 func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
@@ -258,7 +251,7 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] DELETE /api/v1/org-vehicles/%d", id)
 
 	if err := h.DB.OrganizationVehicles().Delete(r.Context(), id); err != nil {

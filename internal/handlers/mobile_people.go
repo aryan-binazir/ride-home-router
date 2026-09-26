@@ -1,7 +1,3 @@
-// RETIRED: the standalone /m/ mobile site is no longer served. server.go redirects
-// every /m/ URL to the responsive desktop pages, which are the only mobile UI.
-// This file and its siblings (mobile_*.go, web/templates/mobile, mobile.css,
-// mobile.js) are scheduled for deletion. Do not extend or restyle them.
 package handlers
 
 import (
@@ -109,14 +105,7 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 	if err != nil {
 		if r.Method == http.MethodPost {
 			view := mobilePersonSubmittedView(r, kind, nil, messageGenericInternalError)
-			// Labels cannot be rendered during this outage. Carry the submitted selection
-			// into the retry so an absent checkbox group cannot clear memberships.
-			query := url.Values{"label_ids": r.Form["label_ids"]}
-			if target := mobileReturnPath(r, ""); target != "" {
-				query.Set("return", target)
-			}
-			action := url.URL{Path: r.URL.Path, RawQuery: query.Encode()}
-			view.Action = action.String()
+			view.Action = mobilePersonFormActionPreservingLabels(r)
 			h.renderMobileTemplateStatus(w, r, http.StatusInternalServerError, "mobile/person_form.html", view)
 			return
 		}
@@ -187,6 +176,15 @@ func (h *Handler) mobilePersonForm(w http.ResponseWriter, r *http.Request, kind 
 		}
 	}
 	h.renderTemplate(w, "mobile/person_form.html", view)
+}
+
+func mobilePersonFormActionPreservingLabels(r *http.Request) string {
+	query := url.Values{"label_ids": r.Form["label_ids"]}
+	if target := mobileReturnPath(r, ""); target != "" {
+		query.Set("return", target)
+	}
+	action := url.URL{Path: r.URL.Path, RawQuery: query.Encode()}
+	return action.String()
 }
 
 func mobilePersonSubmittedView(r *http.Request, kind string, labels []models.Label, message string) mobilePersonFormView {

@@ -448,8 +448,8 @@ func TestReviewerNotesSettingIsAdminOnlyAndDefaultsOn(t *testing.T) {
 		t.Fatal("non-admin settings page exposes the reviewer notes checkbox")
 	}
 
-	// The admin form omits the checkbox when it is unchecked.
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader("use_miles=on&sme_email=sme%40example.com"))
+	uncheckedReviewerNotesForm := "use_miles=on&sme_email=sme%40example.com"
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader(uncheckedReviewerNotesForm))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
 	rr := httptest.NewRecorder()
@@ -469,7 +469,6 @@ func TestReviewerNotesSettingIsAdminOnlyAndDefaultsOn(t *testing.T) {
 		t.Fatalf("checked box status=%d settings=%+v err=%v", rr.Code, settings, err)
 	}
 
-	// Non-admins cannot touch it, and their ordinary saves leave it alone.
 	req = httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/settings", strings.NewReader(`{"collect_reviewer_notes":false}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr = httptest.NewRecorder()

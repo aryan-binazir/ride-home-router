@@ -72,9 +72,8 @@ type Snapshot struct {
 	IsEditing           bool
 	OverCapacity        []bool
 	IsOutOfBalance      bool
-	// Changes lists the net edits since calculation; ReviewerNote explains them.
-	Changes      []RouteChange
-	ReviewerNote string
+	Changes             []RouteChange
+	ReviewerNote        string
 }
 
 // CommitSnapshot is a deep copy of a live route session that callbacks may mutate safely.
@@ -92,7 +91,6 @@ type CommitSnapshot struct {
 	ReviewerNote      string
 }
 
-// RoutingResult returns an independent event-persistence payload for the final routes.
 func (s CommitSnapshot) RoutingResult() models.RoutingResult {
 	return models.RoutingResult{
 		Routes:  copyRoutes(s.Final),
@@ -194,7 +192,7 @@ func (s *Store) evictOldestSessionLocked() string {
 
 func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options ApplyMovesOptions) (Snapshot, error) {
 	return s.update(ctx, id, func(state *session) (Snapshot, error) {
-		before := routeKeys(state.currentRoutes)
+		before := routeIdentity(state.currentRoutes)
 
 		backupRoutes := copyRoutes(state.currentRoutes)
 		backupDirty := copyDirty(state.dirtyRouteIndexes)
@@ -227,7 +225,7 @@ func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options
 
 func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (Snapshot, error) {
 	return s.update(ctx, id, func(state *session) (Snapshot, error) {
-		before := routeKeys(state.currentRoutes)
+		before := routeIdentity(state.currentRoutes)
 		if first < 0 || first >= len(state.currentRoutes) || second < 0 || second >= len(state.currentRoutes) {
 			return Snapshot{}, ErrInvalidRouteIndex
 		}
@@ -258,8 +256,8 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 			}
 		}
 		for _, index := range []int{first, second} {
-			if _, wasDirty := backupDirty[index]; wasDirty && !unbalanced {
-				continue // Optimization already refreshed this route's metrics.
+			if dirtyRouteAlreadyOptimized(backupDirty, index, unbalanced) {
+				continue
 			}
 			if err := s.recalculateRoute(ctx, state, &state.currentRoutes[index]); err != nil {
 				rollback()
@@ -272,7 +270,7 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 
 func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snapshot, error) {
 	return s.update(ctx, id, func(state *session) (Snapshot, error) {
-		before := routeKeys(state.currentRoutes)
+		before := routeIdentity(state.currentRoutes)
 		var driver *models.Driver
 		for i := range state.selectedDrivers {
 			if state.selectedDrivers[i].ID == driverID {
@@ -300,8 +298,6 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 	})
 }
 
-// commitMemory persists under the session lock. The callback must not call
-// Store methods; lock waiters cannot cancel.
 func (s *Store) commitMemory(ctx context.Context, id string, persist func(context.Context, CommitSnapshot, database.WorkflowWrites) error) error {
 	state, err := s.lockSession(id)
 	if err != nil {
@@ -533,18 +529,8 @@ func applyMove(state *session, move Move, from int) error {
 	if stopIndex < 0 {
 		return ErrParticipantNotFound
 	}
-	// Everyone at the moved rider's address travels with them, in their
-	// current order, so an edit never splits a household.
 	household := routing.HouseholdKey(fromRoute.Stops[stopIndex].Participant)
-	moving := make([]models.RouteStop, 0, 1)
-	remaining := make([]models.RouteStop, 0, len(fromRoute.Stops))
-	for _, stop := range fromRoute.Stops {
-		if stop.Participant != nil && routing.HouseholdKey(stop.Participant) == household {
-			moving = append(moving, models.RouteStop{Participant: stop.Participant})
-		} else {
-			remaining = append(remaining, stop)
-		}
-	}
+	moving, remaining := detachHousehold(fromRoute.Stops, household)
 	fromRoute.Stops = remaining
 	if move.InsertAtPosition < 0 || move.InsertAtPosition >= len(toRoute.Stops) {
 		toRoute.Stops = append(toRoute.Stops, moving...)
@@ -556,9 +542,28 @@ func applyMove(state *session, move Move, from int) error {
 	return nil
 }
 
-// routeKeys identifies each car by driver and ordered riders, so a mutation can
-// report exactly which cars need fresh timings.
-func routeKeys(routes []models.CalculatedRoute) []string {
+func detachHousehold(stops []models.RouteStop, household string) (moving, remaining []models.RouteStop) {
+	moving = make([]models.RouteStop, 0, 1)
+	remaining = make([]models.RouteStop, 0, len(stops))
+	for _, stop := range stops {
+		if stop.Participant != nil && routing.HouseholdKey(stop.Participant) == household {
+			moving = append(moving, models.RouteStop{Participant: stop.Participant})
+		} else {
+			remaining = append(remaining, stop)
+		}
+	}
+	return moving, remaining
+}
+
+func dirtyRouteAlreadyOptimized(dirtyBefore map[int]struct{}, index int, unbalanced bool) bool {
+	if unbalanced {
+		return false
+	}
+	_, wasDirty := dirtyBefore[index]
+	return wasDirty
+}
+
+func routeIdentity(routes []models.CalculatedRoute) []string {
 	keys := make([]string, len(routes))
 	for i, route := range routes {
 		var b strings.Builder
@@ -572,7 +577,7 @@ func routeKeys(routes []models.CalculatedRoute) []string {
 }
 
 func changedRoutes(before []string, routes []models.CalculatedRoute) []int {
-	after := routeKeys(routes)
+	after := routeIdentity(routes)
 	changed := make([]int, 0)
 	for i, key := range after {
 		if i >= len(before) || before[i] != key {

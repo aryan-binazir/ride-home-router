@@ -52,7 +52,6 @@ func DecodeJSON(r *http.Request, dst any) error {
 	return json.NewDecoder(r.Body).Decode(dst)
 }
 
-// LoopbackHostnames returns the hostnames accepted for local-only requests.
 func LoopbackHostnames() []string {
 	return slices.Clone(loopbackHostnames[:])
 }

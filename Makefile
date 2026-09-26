@@ -1,5 +1,3 @@
-# Local development uses the Podman Postgres on port 5434 by default.
-
 POSTGRES_CONTAINER ?= ride-home-router-postgres
 POSTGRES_PORT ?= 5434
 LOCAL_DATABASE_URL := postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/ride_home_router?sslmode=disable
@@ -41,7 +39,6 @@ verify:
 vet:
 	go vet ./...
 
-# test-unit clears TEST_DATABASE_URL to skip database tests.
 test:
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
@@ -50,10 +47,6 @@ test-unit:
 	node --test web/static/js/*.test.js
 	TEST_DATABASE_URL= go test -race -count=1 ./...
 
-# eval runs the planner evaluation suite: every synthetic roster shape, three
-# seeds, both modes, against internal/routing/planeval/testdata/baseline.json.
-# It takes several minutes. UPDATE_PLANNER_BASELINE=1 rewrites the baseline
-# after a deliberate planner change.
 eval:
 	@mkdir -p _scratch
 	PLANNER_EVAL=1 PLANNER_EVAL_REPORT=$(CURDIR)/_scratch/planner-eval-report.md go test -count=1 ./internal/routing/planeval -run TestPlannerEvaluation -v -timeout 45m

@@ -7,7 +7,6 @@ import (
 )
 
 func TestMetricContractGreatCircleSegment(t *testing.T) {
-	// The shortest segment crosses the date line and passes through home.
 	home := models.Coordinates{Lat: 0, Lng: 180}
 	a := models.Coordinates{Lat: 0, Lng: 179}
 	b := models.Coordinates{Lat: 0, Lng: -179}
@@ -53,29 +52,23 @@ func TestMetricContractUnroundedNearestRankAndGate(t *testing.T) {
 
 func TestHomePassBoundaries(t *testing.T) {
 	venue := models.Coordinates{Lat: 0, Lng: 0}
-	km := func(k float64) float64 { return k / 111.195 } // degrees of latitude
-	// Home 1.99 km north of the venue->first-rider leg (inside the 2 km limit).
-	home := models.Coordinates{Lat: km(1.99), Lng: 0}
-	// The first rider 4.5 km east of the venue is about 4.9 km from home: not
-	// "more than 5 km", so no pass even though the leg passes home.
-	if passesHome(venue, home, []models.Coordinates{{Lat: 0, Lng: km(4.5)}}, false) {
+	latitudeDegrees := func(k float64) float64 { return k / kmPerDegreeLatitude }
+	home := models.Coordinates{Lat: latitudeDegrees(1.99), Lng: 0}
+	if passesHome(venue, home, []models.Coordinates{{Lat: 0, Lng: latitudeDegrees(4.5)}}, false) {
 		t.Fatal("a rider within 5 km of home does not make a pass")
 	}
-	// The venue->first-rider leg itself counts, and its destination counts as a
-	// later rider: 5.0 km east of the venue is about 5.4 km from home.
-	if !passesHome(venue, home, []models.Coordinates{{Lat: 0, Lng: km(5)}}, false) {
+	if !passesHome(venue, home, []models.Coordinates{{Lat: 0, Lng: latitudeDegrees(5)}}, false) {
 		t.Fatal("venue->first-rider leg within 2 km of home with the destination over 5 km away must count")
 	}
-	if passesHome(venue, models.Coordinates{Lat: km(2.05), Lng: 0}, []models.Coordinates{{Lat: 0, Lng: km(5)}}, false) {
+	if passesHome(venue, models.Coordinates{Lat: latitudeDegrees(2.05), Lng: 0}, []models.Coordinates{{Lat: 0, Lng: latitudeDegrees(5)}}, false) {
 		t.Fatal("2.05 km from the leg is outside the 2 km threshold")
 	}
-	// Endpoint clamp: a point beyond the segment's end measures to the endpoint.
-	a, b := models.Coordinates{Lat: 0, Lng: 0}, models.Coordinates{Lat: 0, Lng: km(1)}
-	beyond := models.Coordinates{Lat: 0, Lng: km(3)}
+	a, b := models.Coordinates{Lat: 0, Lng: 0}, models.Coordinates{Lat: 0, Lng: latitudeDegrees(1)}
+	beyond := models.Coordinates{Lat: 0, Lng: latitudeDegrees(3)}
 	if got := segmentDistanceKm(beyond, a, b); math.Abs(got-2) > 0.01 {
 		t.Fatalf("beyond-end distance = %.3f km, want 2", got)
 	}
-	cross := models.Coordinates{Lat: km(1.5), Lng: km(0.5)}
+	cross := models.Coordinates{Lat: latitudeDegrees(1.5), Lng: latitudeDegrees(0.5)}
 	if got := segmentDistanceKm(cross, a, b); math.Abs(got-1.5) > 0.01 {
 		t.Fatalf("cross-track distance = %.3f km, want 1.5", got)
 	}

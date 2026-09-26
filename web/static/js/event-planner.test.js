@@ -37,7 +37,6 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
 });
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
-    // toISOString reports the next date in zones west of UTC at this time.
     const lateEvening = new Date(2026, 2, 14, 23, 30);
     assert.equal(localISODate(lateEvening), '2026-03-14');
     assert.equal(localISODate(new Date(2026, 0, 5, 0, 10)), '2026-01-05');
@@ -692,7 +691,6 @@ test('saving with queued moves submits the replacement form the flush rendered',
     const harness = createRouteSessionHarness({
         getLiveForm: () => liveForm,
         flush: async () => {
-            // installRouteResults carries the typed fields across each render.
             liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', sessionId: 'session-a' });
             return true;
         },
@@ -924,8 +922,6 @@ test('driver copy shows friendly location names while Maps keeps real coordinate
 });
 
 
-// --- Minimal DOM good enough to boot the planner --------------------------
-
 class HTMLFormElement {}
 
 const SELECTOR_TOKEN = /^(?:([a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:=["']([^"']*)["'])?\]|:([\w-]+))/;
@@ -1072,7 +1068,6 @@ function domNode(tagName, props = {}) {
     return node;
 }
 
-// Models the server render: the old nodes go away and fresh ones take their place.
 function replaceOnRender(target, buildFields) {
     Object.defineProperty(target, 'innerHTML', {
         set() {
@@ -1111,8 +1106,6 @@ function storedSessionId(planner) {
 
 const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8');
 
-// Boots the real planner against the fixture below so the invalidation rule is
-// exercised end to end, not through a re-implementation of it.
 function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null, restoreStatus = 200 } = {}) {
     const initialSessionId = storedSession?.id || legacySessionId || 'session-1';
     const participants = ['1', '2'].map(value => domNode('input', {
@@ -1169,7 +1162,6 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         attributes: { 'hx-post': '/api/v1/events' },
         children: [domNode('input', { name: 'session_id', value: initialSessionId })],
     });
-    // The server re-renders the save fields from its own defaults every time.
     function renderServerSaveFields() {
         saveForm.querySelectorAll('input[name="event_date"], textarea[name="notes"]')
             .forEach(field => field.remove());
@@ -1197,7 +1189,6 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
     });
     let renderedSessionCount = 0;
     const resultsSection = domNode('div', { id: 'results-section', children: [routesContainer] });
-    // Manual edits re-render the same session's markup; an empty render clears it.
     Object.defineProperty(resultsSection, 'innerHTML', {
         set(html) {
             this.children.forEach(child => { child.parentNode = null; });
@@ -1206,7 +1197,6 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         },
     });
 
-    // The capacity-shortage pane's own recalculation form.
     const recalcVanSelect = domNode('select', {
         classes: ['org-vehicle-select'],
         dataset: { driverId: '10' },
@@ -1316,7 +1306,6 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
             scheduledCallbacks.clear();
             for (const callback of callbacks) await callback();
         },
-        // The restore fetch resolves over a few microtask turns.
         async settleRestore() {
             for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
         },
@@ -1328,9 +1317,6 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
             body.appendChild(saveResult);
             body.dispatchEvent(Object.assign(fakeEvent('htmx:afterSwap'), { detail: { target: saveResult } }));
         },
-        // The full htmx lifecycle: request, snapshot, server render, swap, settle.
-        // htmx reuses one detail object per request, so the same xhr identifies
-        // the calculation from beforeRequest through afterSwap.
         startCalculation(xhr = {}, elt = { id: 'calculate-btn' }) {
             body.dispatchEvent(Object.assign(fakeEvent('htmx:beforeRequest'), { detail: { elt, xhr } }));
             return xhr;
@@ -1467,7 +1453,6 @@ test('reverting a route-defining input re-enables saving without touching server
     assert.deepEqual({
         whileStale,
         saveDisabled: planner.saveButton.disabled,
-        // Disabled by the server for being over capacity; staleness must not clear that.
         copyDisabled: planner.outOfBalanceCopy.disabled,
         bannerHidden: planner.banner.hidden,
     }, {
@@ -1642,7 +1627,6 @@ test('planner lifecycle invalidates old requests without invalidating overlappin
 
     assert.equal(state.shouldSwapCalculation(oldRequest), false);
     assert.equal(state.getSnapshot().sessionId, 'current-session');
-    // Reusing a consumed request cannot recover its original attribution.
     state.commitCalculation(currentRequest, 'unattributed-session');
     assert.equal(state.getSnapshot().canSave, false);
 });
@@ -1666,7 +1650,6 @@ test('planner state stays stale until a recalculation and never leaves saved for
     commitCalculation(state, 'session-1', 'plan-a');
     fingerprint = 'plan-b';
     const afterEdit = state.refresh();
-    // A calculation requested before the edit still lands stale.
     commitCalculation(state, 'session-2', 'plan-a');
     const afterLateSwap = state.getSnapshot();
     fingerprint = 'plan-b';
@@ -1674,7 +1657,6 @@ test('planner state stays stale until a recalculation and never leaves saved for
     state.markSaved();
     fingerprint = 'plan-c';
     const afterSavedEdit = state.refresh();
-    // Reverting the edit must not hand back a second save of the same session.
     fingerprint = 'plan-b';
     const afterSavedRevert = state.refresh();
 
@@ -1773,7 +1755,6 @@ test('a saved event locks re-saving and editing but leaves copying live', () => 
         storedSession: storedSessionId(planner),
     };
 
-    // Editing the plan after saving is stale, not saved: copying is wrong too.
     planner.driver.checked = false;
     planner.change(planner.driver);
 
@@ -1855,7 +1836,6 @@ test('a capacity-shortage recalculation adopts its own van assignments before fi
     planner.calculate({ elt: { id: 'recalc-form' } });
     const afterRecalc = { saveDisabled: planner.saveButton.disabled, vanValue: planner.vanSelect.value };
 
-    // The plan form now describes the routes, so editing it still goes stale.
     planner.vanSelect.value = '';
     planner.context.handleVanAssignmentChange();
 
@@ -1921,7 +1901,6 @@ test('a capacity-shortage recalculation of a superseded plan is not saveable', (
     const planner = bootPlanner();
 
     planner.calculate();
-    // The recalc form still carries both participants; the plan form no longer does.
     planner.participants[1].checked = false;
     planner.change(planner.participants[1]);
     planner.calculate({ elt: { id: 'recalc-form' } });
@@ -1942,7 +1921,6 @@ test('overlapping calculations each commit their own fingerprint', () => {
     const first = {};
     const second = {};
 
-    // Both requests start; the plan changes between them.
     planner.startCalculation(first);
     planner.participants[1].checked = false;
     planner.change(planner.participants[1]);

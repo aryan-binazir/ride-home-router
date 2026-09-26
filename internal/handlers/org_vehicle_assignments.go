@@ -18,8 +18,6 @@ const (
 
 var errSelectedVanNotFound = mobileFormError{selectedVanNotFoundMessage}
 
-// parseOrgVehicleAssignments returns submitted choices with validation errors so
-// failed input can be preserved. Callers must validate again before routing it.
 func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map[int64]int64, error) {
 	assignments := make(map[int64]int64)
 	if len(form) == 0 {
@@ -41,7 +39,6 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		}
 		assignmentKeys = append(assignmentKeys, key)
 	}
-	// Stable key validation avoids map-order-dependent errors for malformed forms.
 	slices.Sort(assignmentKeys)
 	for _, key := range assignmentKeys {
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)

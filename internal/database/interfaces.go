@@ -6,13 +6,11 @@ import (
 	"time"
 )
 
-// BatchUpsertResult reports the outcome of an atomic import batch.
 type BatchUpsertResult struct {
 	Created int
 	Updated int
 }
 
-// DataStore provides persistent application storage.
 type DataStore interface {
 	Close() error
 	HealthCheck(ctx context.Context) error
@@ -28,13 +26,12 @@ type DataStore interface {
 	Labels() LabelRepository
 }
 
-// RouteFeedbackRepository stores privacy-safe route analysis records.
 type RouteFeedbackRepository interface {
 	Create(ctx context.Context, record *models.RouteFeedbackRecord) error
 }
 
-// ParticipantRepository stores participants.
 type ParticipantRepository interface {
+	// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
 	UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error
 	List(ctx context.Context, search string) ([]models.Participant, error)
 	ListDeleted(ctx context.Context) ([]models.Participant, error)
@@ -51,8 +48,8 @@ type ParticipantRepository interface {
 	Restore(ctx context.Context, id int64) error
 }
 
-// DriverRepository stores drivers.
 type DriverRepository interface {
+	// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
 	UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error
 	List(ctx context.Context, search string) ([]models.Driver, error)
 	ListDeleted(ctx context.Context) ([]models.Driver, error)
@@ -69,7 +66,6 @@ type DriverRepository interface {
 	Restore(ctx context.Context, id int64) error
 }
 
-// LabelRepository stores labels and memberships.
 type LabelRepository interface {
 	List(ctx context.Context) ([]models.Label, error)
 	GetByID(ctx context.Context, id int64) (*models.Label, error)
@@ -89,9 +85,7 @@ type LabelRepository interface {
 	ListLabelIDsForDrivers(ctx context.Context) (map[int64][]int64, error)
 }
 
-// SettingsRepository stores shared settings.
 type SettingsRepository interface {
-	// GoogleMapsKey is server-only; never include it in the public Settings model.
 	GoogleMapsKey(ctx context.Context) (string, error)
 	GoogleMapsKeyConfigured(ctx context.Context) (bool, error)
 	SetGoogleMapsKey(ctx context.Context, key string) error
@@ -100,8 +94,8 @@ type SettingsRepository interface {
 	Update(ctx context.Context, s *models.Settings) error
 }
 
-// ActivityLocationRepository stores activity locations.
 type ActivityLocationRepository interface {
+	// UpdateCoordinates refuses to attach a lookup to an address edited while it ran.
 	UpdateCoordinates(ctx context.Context, id int64, address string, coords models.Coordinates, geocodedAt time.Time) error
 	List(ctx context.Context) ([]models.ActivityLocation, error)
 	ListDeleted(ctx context.Context) ([]models.ActivityLocation, error)
@@ -112,7 +106,6 @@ type ActivityLocationRepository interface {
 	Restore(ctx context.Context, id int64) error
 }
 
-// OrganizationVehicleRepository stores organization vehicles.
 type OrganizationVehicleRepository interface {
 	List(ctx context.Context) ([]models.OrganizationVehicle, error)
 	GetByID(ctx context.Context, id int64) (*models.OrganizationVehicle, error)
@@ -122,7 +115,6 @@ type OrganizationVehicleRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// EventRepository stores event history.
 type EventRepository interface {
 	List(ctx context.Context, limit, offset int) ([]models.Event, int, error)
 	GetSummariesByEventIDs(ctx context.Context, eventIDs []int64) (map[int64]*models.EventSummary, error)
@@ -131,7 +123,6 @@ type EventRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// DistanceCacheRepository stores route distances.
 type DistanceCacheRepository interface {
 	Get(ctx context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error)
 	GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error)

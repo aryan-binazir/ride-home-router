@@ -4,10 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access"
-	"ride-home-router/internal/access/accesstest"
 	"testing"
 	"time"
+
+	"ride-home-router/internal/access"
+	"ride-home-router/internal/access/accesstest"
 )
 
 type closedStore struct{}
@@ -22,7 +23,6 @@ func TestFixtureUsesRealClerkVerification(t *testing.T) {
 	valid := f.Admin()
 	check := func(token string, want int) {
 		t.Helper()
-		// Each case verifies Clerk directly, independent of a previously cached identity.
 		gate, err := access.New(f.Config(), closedStore{})
 		if err != nil {
 			t.Fatal(err)

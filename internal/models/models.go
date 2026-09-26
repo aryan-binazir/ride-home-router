@@ -9,17 +9,15 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// CoordinateMaxAge bounds reuse of Google-derived coordinates and distances.
 const CoordinateMaxAge = 30 * 24 * time.Hour
 
 const (
-	MaxNameLength        = 200
-	MaxAddressLength     = 500
-	MaxNotesLength       = 4000
-	MaxLabelNameLength   = 200
-	MaxAddressNameLength = 200
-	MinVehicleCapacity   = 1
-	// DefaultVehicleCapacity applies when an import supplies no capacity.
+	MaxNameLength          = 200
+	MaxAddressLength       = 500
+	MaxNotesLength         = 4000
+	MaxLabelNameLength     = 200
+	MaxAddressNameLength   = 200
+	MinVehicleCapacity     = 1
 	DefaultVehicleCapacity = 4
 	MaxVehicleCapacity     = 50
 )
@@ -35,11 +33,6 @@ func RosterKey(name, address string) string {
 	return name + "\x00" + address
 }
 
-// normalizeRosterKeyField treats name hyphens as formatting, so Anne-Marie
-// matches Anne Marie. Address hyphens and slashes remain meaningful because
-// 12-14 can identify two buildings and 1/2 can identify a fractional address.
-// Periods are deleted so J.R. matches JR, with the deliberate tradeoff that
-// 123.5 Main also matches 1235 Main.
 func normalizeRosterKeyField(value string, hyphensAsWhitespace bool) string {
 	original := value
 	normalized := strings.ToLower(norm.NFC.String(value))
@@ -71,13 +64,11 @@ func NormalizeRosterField(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
 
-// Coordinates represents a geographic point
 type Coordinates struct {
 	Lat float64 `json:"lat"`
 	Lng float64 `json:"lng"`
 }
 
-// RouteMode defines the direction of route calculation and rendering.
 type RouteMode string
 
 const (
@@ -99,21 +90,16 @@ func ParseRouteMode(value string) (RouteMode, error) {
 	}
 }
 
-// RoundCoordinate rounds a coordinate to 5 decimal places (approximately 1 meter precision).
-// This is used for consistent coordinate comparison across the codebase.
 func RoundCoordinate(coord float64) float64 {
 	return math.Round(coord*100000) / 100000
 }
 
-// AddressMatch records how closely the geocoder matched a stored address.
-// A guessed address stays flagged until a person confirms or corrects it.
 const (
 	AddressMatchVerified  = "verified"
 	AddressMatchGuessed   = "guessed"
 	AddressMatchConfirmed = "confirmed"
 )
 
-// AddressMatchFor maps a geocoder verdict onto a stored match status.
 func AddressMatchFor(guessed bool) string {
 	if guessed {
 		return AddressMatchGuessed
@@ -121,14 +107,11 @@ func AddressMatchFor(guessed bool) string {
 	return AddressMatchVerified
 }
 
-// Participant represents a person to be driven home
 type Participant struct {
-	GeocodedAt time.Time `json:"-"`
-	ID         int64     `json:"id"`
-	Name       string    `json:"name"`
-	Address    string    `json:"address"`
-	// MatchedAddress is the label the geocoder returned for Address; empty
-	// until an address has been looked up since match tracking existed.
+	GeocodedAt     time.Time  `json:"-"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Address        string     `json:"address"`
 	MatchedAddress string     `json:"matched_address,omitempty"`
 	AddressMatch   string     `json:"address_match,omitempty"`
 	AddressName    string     `json:"address_name"`
@@ -139,19 +122,15 @@ type Participant struct {
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 }
 
-// GetCoords returns the coordinates of the participant
 func (p *Participant) GetCoords() Coordinates {
 	return Coordinates{Lat: p.Lat, Lng: p.Lng}
 }
 
-// Driver represents a person who can drive participants home
 type Driver struct {
-	GeocodedAt time.Time `json:"-"`
-	ID         int64     `json:"id"`
-	Name       string    `json:"name"`
-	Address    string    `json:"address"`
-	// MatchedAddress is the label the geocoder returned for Address; empty
-	// until an address has been looked up since match tracking existed.
+	GeocodedAt      time.Time  `json:"-"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Address         string     `json:"address"`
 	MatchedAddress  string     `json:"matched_address,omitempty"`
 	AddressMatch    string     `json:"address_match,omitempty"`
 	AddressName     string     `json:"address_name"`
@@ -163,12 +142,10 @@ type Driver struct {
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 }
 
-// GetCoords returns the coordinates of the driver
 func (d *Driver) GetCoords() Coordinates {
 	return Coordinates{Lat: d.Lat, Lng: d.Lng}
 }
 
-// Label represents a reusable participant and/or driver cohort.
 type Label struct {
 	ID               int64     `json:"id"`
 	Name             string    `json:"name"`
@@ -178,7 +155,6 @@ type Label struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// ActivityLocation represents a location where activities take place
 type ActivityLocation struct {
 	GeocodedAt time.Time  `json:"-"`
 	ID         int64      `json:"id"`
@@ -189,12 +165,10 @@ type ActivityLocation struct {
 	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
 }
 
-// GetCoords returns the coordinates of the activity location
 func (a *ActivityLocation) GetCoords() Coordinates {
 	return Coordinates{Lat: a.Lat, Lng: a.Lng}
 }
 
-// OrganizationVehicle represents a vehicle owned by the organization
 type OrganizationVehicle struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
@@ -203,7 +177,6 @@ type OrganizationVehicle struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Settings holds application configuration
 type Settings struct {
 	InstituteAddress           string  `json:"institute_address"` // Deprecated: use SelectedActivityLocationID
 	InstituteLat               float64 `json:"institute_lat"`     // Deprecated: use SelectedActivityLocationID
@@ -211,27 +184,22 @@ type Settings struct {
 	SelectedActivityLocationID int64   `json:"selected_activity_location_id"`
 	UseMiles                   bool    `json:"use_miles"`
 	SMEEmail                   string  `json:"sme_email"`
-	// CollectReviewerNotes offers the reviewer a chance to explain route edits before saving.
-	CollectReviewerNotes bool `json:"collect_reviewer_notes"`
+	CollectReviewerNotes       bool    `json:"collect_reviewer_notes"`
 }
 
-// RouteFeedbackRecord is the event-linked payload used for offline route analysis.
 type RouteFeedbackRecord struct {
-	EventID       int64                `json:"event_id"`
-	SessionID     string               `json:"session_id"`
-	SMEEmail      string               `json:"sme_email"`
-	SchemaVersion int                  `json:"schema_version"`
-	Mode          RouteMode            `json:"mode"`
-	Input         RouteFeedbackInput   `json:"input"`
-	Proposed      []RouteFeedbackRoute `json:"proposed"`
-	Final         []RouteFeedbackRoute `json:"final"`
-	// Changes lists the net edits between Proposed and Final; ReviewerNote is the
-	// reviewer's free-form explanation of them.
-	Changes      []RouteFeedbackChange `json:"changes"`
-	ReviewerNote string                `json:"reviewer_note"`
+	EventID       int64                 `json:"event_id"`
+	SessionID     string                `json:"session_id"`
+	SMEEmail      string                `json:"sme_email"`
+	SchemaVersion int                   `json:"schema_version"`
+	Mode          RouteMode             `json:"mode"`
+	Input         RouteFeedbackInput    `json:"input"`
+	Proposed      []RouteFeedbackRoute  `json:"proposed"`
+	Final         []RouteFeedbackRoute  `json:"final"`
+	Changes       []RouteFeedbackChange `json:"changes"`
+	ReviewerNote  string                `json:"reviewer_note"`
 }
 
-// RouteFeedbackChange is one net edit, identified by IDs only.
 type RouteFeedbackChange struct {
 	Kind          string `json:"kind"`
 	ParticipantID int64  `json:"participant_id,omitempty"`
@@ -239,7 +207,6 @@ type RouteFeedbackChange struct {
 	ToDriverID    int64  `json:"to_driver_id,omitempty"`
 }
 
-// RouteFeedbackInput is the allowlisted solver input retained for analysis.
 type RouteFeedbackInput struct {
 	Activity     RouteFeedbackActivity      `json:"activity"`
 	Drivers      []RouteFeedbackDriver      `json:"drivers"`
@@ -277,7 +244,6 @@ type RouteFeedbackRoute struct {
 	DetourSecs          float64 `json:"detour_secs"`
 }
 
-// Event represents a historical event record
 type Event struct {
 	RouteSessionID string    `json:"-"`
 	ID             int64     `json:"id"`
@@ -287,7 +253,6 @@ type Event struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// EventRoute stores a saved route snapshot for a historical event.
 type EventRoute struct {
 	// Handoffs preserve exactly the instructions available when the event was saved.
 	DriverHandoff              string           `json:"driver_handoff,omitempty"`
@@ -314,7 +279,6 @@ type EventRoute struct {
 	Stops                      []EventRouteStop `json:"stops,omitempty"`
 }
 
-// EventRouteStop stores a saved participant stop snapshot for a historical event route.
 type EventRouteStop struct {
 	ID                       int64   `json:"id"`
 	EventRouteID             int64   `json:"event_route_id"`
@@ -329,7 +293,6 @@ type EventRouteStop struct {
 	CumulativeDurationSecs   float64 `json:"cumulative_duration_secs"`
 }
 
-// EventSummary contains aggregate stats for an event
 type EventSummary struct {
 	EventID             int64     `json:"event_id"`
 	TotalParticipants   int       `json:"total_participants"`
@@ -339,7 +302,6 @@ type EventSummary struct {
 	Mode                RouteMode `json:"mode"`
 }
 
-// RouteStop represents a single stop in a calculated route
 type RouteStop struct {
 	Order                    int          `json:"order"`
 	Participant              *Participant `json:"participant"`
@@ -349,7 +311,6 @@ type RouteStop struct {
 	CumulativeDurationSecs   float64      `json:"cumulative_duration_secs"`
 }
 
-// CalculatedRoute represents a single driver's route
 type CalculatedRoute struct {
 	Driver                     *Driver     `json:"driver"`
 	Stops                      []RouteStop `json:"stops"`
@@ -358,14 +319,13 @@ type CalculatedRoute struct {
 	TotalDistanceMeters        float64     `json:"total_distance_meters"`
 	OrgVehicleID               int64       `json:"org_vehicle_id,omitempty"`
 	OrgVehicleName             string      `json:"org_vehicle_name,omitempty"`
-	EffectiveCapacity          int         `json:"effective_capacity"` // Driver's capacity or org vehicle capacity
+	EffectiveCapacity          int         `json:"effective_capacity"`
 	BaselineDurationSecs       float64     `json:"baseline_duration_secs"`
 	RouteDurationSecs          float64     `json:"route_duration_secs"`
 	DetourSecs                 float64     `json:"detour_secs"`
 	Mode                       RouteMode   `json:"mode"`
 }
 
-// RoutingSummary contains aggregate stats for a routing calculation
 type RoutingSummary struct {
 	TotalParticipants          int     `json:"total_participants"`
 	TotalDriversUsed           int     `json:"total_drivers_used"`
@@ -378,14 +338,12 @@ type RoutingSummary struct {
 	AverageDetourSecs          float64 `json:"average_detour_secs"`
 }
 
-// RoutingResult contains the full result of a route calculation
 type RoutingResult struct {
 	Routes  []CalculatedRoute `json:"routes"`
 	Summary RoutingSummary    `json:"summary"`
 	Mode    RouteMode         `json:"mode"`
 }
 
-// DistanceCacheEntry represents a cached distance lookup
 type DistanceCacheEntry struct {
 	Origin         Coordinates `json:"origin"`
 	Destination    Coordinates `json:"destination"`

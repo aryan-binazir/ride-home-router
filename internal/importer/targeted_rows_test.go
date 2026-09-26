@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const workerBackoffBeforeWake = 2 * time.Second
+
 type boundedImportReads struct {
 	database.ImportJobRepository
 	rejectFullRows atomic.Bool
@@ -38,8 +40,7 @@ func TestPersistentGeocodingReadsOnlyItsAddressRows(t *testing.T) {
 	}}
 	s := NewPersistentStore(t.Context(), g, db, db.Workflows(), jobs)
 	defer s.Close()
-	// Let the empty worker back off before staging work; mapping must wake it.
-	time.Sleep(2 * time.Second)
+	time.Sleep(workerBackoffBeforeWake)
 	grid := testGrid(t, "name,address\nFirst,1 Shared St\n,Invalid row\nThird,1 Shared St\n")
 	created, err := s.CreateContext(t.Context(), KindParticipant, "shared.csv", grid)
 	if err != nil {

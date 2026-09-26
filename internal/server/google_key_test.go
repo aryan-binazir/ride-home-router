@@ -11,11 +11,12 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 	"time"
+
+	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/postgres/postgrestest"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -87,10 +88,7 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
 		if headers["Cookie"] != "" {
-			// The TCP listener uses a random port; send the configured browser
-			// host and origin so cookie requests exercise the real CSRF checks.
-			req.Host = "127.0.0.1"
-			req.Header.Set("Origin", accesstest.Origin)
+			pinLoopbackCSRF(req)
 		}
 		for name, value := range headers {
 			req.Header.Set(name, value)
@@ -105,7 +103,6 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		status, response, responseHeaders := res.StatusCode, string(data), res.Header
-		// Check headers too: errors and HTMX toasts must not echo submitted credentials.
 		exposed := response + fmt.Sprint(responseHeaders)
 		for _, key := range []string{firstKey, secondKey, envKey} {
 			if strings.Contains(exposed, key) || strings.Contains(exposed, key[:12]) {
@@ -288,7 +285,6 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 
 	t.Run("database failure stays generic", func(t *testing.T) {
 		put(t, b, second, secondKey)
-		// Only this test's isolated credential table is made unavailable; authentication still works.
 		if _, err := conn.Exec(t.Context(), `ALTER TABLE google_maps_credentials RENAME TO google_maps_credentials_unavailable`); err != nil {
 			t.Fatal(err)
 		}
@@ -331,6 +327,11 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 			t.Error("audit logs disclosed a credential")
 		}
 	}
+}
+
+func pinLoopbackCSRF(req *http.Request) {
+	req.Host = "127.0.0.1"
+	req.Header.Set("Origin", accesstest.Origin)
 }
 
 func TestStartupRequiresCredentialEncryptionKey(t *testing.T) {

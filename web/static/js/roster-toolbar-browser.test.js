@@ -15,8 +15,6 @@ function fixture(kind) {
     const singular = kind === 'drivers' ? 'driver' : 'participant';
     const template = fs.readFileSync(path.join(root, 'web/templates', `${kind}.html`), 'utf8');
     const rows = [1, 2, 3].map(id => `<tr data-search="person ${id}"${id === 3 ? ' class="hidden"' : ''}><td><input type="checkbox" data-bulk-row name="${singular}_ids" value="${id}"></td><td>Person ${id}</td></tr>`).join('');
-    // Keep the real section, form, toolbar and search markup. Render the Labels
-    // conditional as true, and replace only the server-rendered roster rows.
     const section = template.match(/<section\b[\s\S]*?<\/section>/)?.[0];
     assert.ok(section, `${kind} roster section exists`);
     assert.ok(section.includes(`{{template "${singular}_list" .}}`));
@@ -53,8 +51,6 @@ for (const kind of ['drivers', 'participants']) {
             const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-roster-toolbar-'));
             try {
                 fs.writeFileSync(path.join(directory, 'roster.html'), fixture(kind));
-                // Chromium may impose a minimum top-level window width. An iframe
-                // gives the real stylesheet an exact viewport, including 320px.
                 fs.writeFileSync(path.join(directory, 'fixture.html'), `<!doctype html><html><body style="margin:0"><iframe src="roster.html" style="display:block;border:0;width:${width}px;height:1000px" onload="document.getElementById('evidence').textContent=JSON.stringify(this.contentWindow.evidence)"></iframe><pre id="evidence" hidden>pending</pre></body></html>`);
                 const screenshots = path.join(root, '_scratch/roster-toolbar-browser');
                 fs.mkdirSync(screenshots, { recursive: true });

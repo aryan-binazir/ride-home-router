@@ -2557,7 +2557,6 @@ tfoot td {
 
 button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; cursor: progress; }
 
-/* Google Maps Platform attribution for address suggestions shown without a map. */
 .address-attribution {
   display: flex;
   justify-content: flex-end;
@@ -2568,7 +2567,6 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   width: auto;
 }
 
-/* Keep the plan compact; roster choices have their own accessible scroll surface. */
 .picker-summary { margin: 0 0 12px; }
 .planner-roster-dialog {
     width: min(760px, calc(100vw - 32px));
@@ -2600,7 +2598,6 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
     .roster-dialog-footer { font-size: 13px; }
 }
 
-/* Access management follows the spacing of the other Settings forms. */
 .access-approval-form { display: grid; gap: 12px; margin-top: 24px; }
 .access-approval-form label { margin: 0; }
 .access-approval-form .btn { justify-self: start; margin-top: 4px; }
@@ -2616,7 +2613,6 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 .import-file-help p { margin: 12px 0 0; }
 .import-file-help pre { margin: 8px 0 16px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); overflow-x: auto; white-space: pre; }
 
-/* One shared application shell at every screen size. */
 .appbar .nav { flex: 1; }
 .nav-toggle, .nav-backdrop, .nav-drawer-header { display: none; }
 .nav-sign-out { margin-left: auto; flex-shrink: 0; }
@@ -2734,7 +2730,6 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 .import-file-help { font-size: 13px; line-height: 1.5; }
 .import-sheet-example th { font-size: 13px; text-transform: none; letter-spacing: normal; }
 
-/* Address match marker: red for a geocoder guess, muted once verified or confirmed. */
 .address-cell {
   display: flex;
   gap: 6px;
@@ -2828,7 +2823,6 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   border-top: 1px solid var(--line-2);
 }
 
-/* .btn sets display, which would otherwise override the hidden attribute. */
-.address-match-dialog [hidden] {
+.address-match-dialog .btn[hidden] {
   display: none;
 }

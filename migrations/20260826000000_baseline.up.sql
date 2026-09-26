@@ -60,7 +60,6 @@ CREATE TABLE driver_labels (
 );
 CREATE INDEX idx_driver_labels_driver ON driver_labels (driver_id);
 
--- Single-row settings shared by every coordinator using this deployment.
 CREATE TABLE settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     selected_activity_location_id BIGINT REFERENCES activity_locations (id) ON DELETE SET NULL,
@@ -124,8 +123,6 @@ CREATE TABLE event_summaries (
     mode TEXT NOT NULL DEFAULT 'dropoff'
 );
 
--- Coordinates are rounded to five decimals before they are stored or looked up,
--- so exact double-precision equality is a stable cache key.
 CREATE TABLE distance_cache (
     origin_lat DOUBLE PRECISION NOT NULL,
     origin_lng DOUBLE PRECISION NOT NULL,

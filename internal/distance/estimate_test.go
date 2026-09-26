@@ -3,13 +3,13 @@ package distance
 import (
 	"context"
 	"math"
-	"ride-home-router/internal/models"
 	"testing"
+
+	"ride-home-router/internal/models"
 )
 
 func TestEstimatorScalesStraightLineDistanceWithoutProviderCalls(t *testing.T) {
 	estimator := NewEstimator()
-	// One degree of latitude is 111,194.9 m on a 6,371 km sphere.
 	result, err := estimator.GetDistance(context.Background(), models.Coordinates{Lat: 0, Lng: 0}, models.Coordinates{Lat: 1, Lng: 0})
 	if err != nil {
 		t.Fatalf("GetDistance() error = %v", err)

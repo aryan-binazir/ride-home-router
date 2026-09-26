@@ -65,11 +65,10 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 }
 
 func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
-	participants := []*models.Participant{
-		{ID: 1, Name: "Alice", Lat: 40.123450, Lng: -74.123450},
-		{ID: 2, Name: "Bob", Lat: 40.123454, Lng: -74.123454},     // Within rounding precision (rounds to same value)
-		{ID: 3, Name: "Charlie", Lat: 40.123550, Lng: -74.123550}, // Beyond rounding precision
-	}
+	alice := &models.Participant{ID: 1, Name: "Alice", Lat: 40.123450, Lng: -74.123450}
+	sameAfterRounding := &models.Participant{ID: 2, Name: "Bob", Lat: 40.123454, Lng: -74.123454}
+	beyondRounding := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123550, Lng: -74.123550}
+	participants := []*models.Participant{alice, sameAfterRounding, beyondRounding}
 
 	groups := groupParticipantsByAddress(participants)
 
@@ -677,9 +676,6 @@ func TestBalancedRouter_HeterogeneousCapacityNoncontiguousPackingUsesAllDrivers(
 		driverAtBearing(1, 0, 3),
 		driverAtBearing(2, 10, 2),
 	}
-	// The sweep alone cannot pack these households contiguously; whichever way
-	// the seed completes (repair or fallback), every driver is used and no
-	// household is split.
 
 	result, err := NewBalancedRouter(stableDistanceCalculator{}).CalculateRoutes(context.Background(), &RoutingRequest{
 		InstituteCoords: institute,
@@ -1375,7 +1371,7 @@ func TestInsertParticipantsAt(t *testing.T) {
 	tests := []struct {
 		name     string
 		pos      int
-		expected []string // Expected names in order
+		expected []string
 	}{
 		{
 			name:     "insert at beginning",
@@ -1419,7 +1415,7 @@ func TestCoordinateKey(t *testing.T) {
 	}{
 		{40.12345, -74.12345, 40.12345, -74.12345, true},
 		{40.12345, -74.12345, 40.12346, -74.12345, false},
-		{40.123456789, -74.123456789, 40.123456789, -74.123456789, true}, // Should match after formatting
+		{40.123456789, -74.123456789, 40.123456789, -74.123456789, true},
 	}
 
 	for i, tt := range tests {

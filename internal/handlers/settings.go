@@ -4,14 +4,15 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
+	"net/url"
+	"strconv"
+	"strings"
+
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
-	"strconv"
-	"strings"
 )
 
-// HandleGetSettings handles GET /api/v1/settings
 func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] GET /api/v1/settings")
 	settings, err := h.DB.Settings().Get(r.Context())
@@ -27,7 +28,6 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, settings)
 }
 
-// HandleUpdateSettings handles PUT /api/v1/settings
 func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SelectedActivityLocationID *int64  `json:"selected_activity_location_id"`
@@ -49,12 +49,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		req.UseMiles = r.FormValue("use_miles") == "on" || r.FormValue("use_miles") == "true"
-		if r.Form.Has("sme_email") {
-			value := r.FormValue("sme_email")
-			req.SMEEmail = &value
-			// The reviewer fields render together, so an absent checkbox means unchecked.
-			collect := r.FormValue("collect_reviewer_notes") == "on" || r.FormValue("collect_reviewer_notes") == "true"
-			req.CollectReviewerNotes = &collect
+		if email, collectNotes, submitted := reviewerFieldsFromForm(r.Form); submitted {
+			req.SMEEmail = &email
+			req.CollectReviewerNotes = &collectNotes
 		}
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -156,6 +153,14 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		settings.SMEEmail = ""
 	}
 	h.writeJSON(w, http.StatusOK, settings)
+}
+
+func reviewerFieldsFromForm(form url.Values) (email string, collectNotes bool, submitted bool) {
+	if !form.Has("sme_email") {
+		return "", false, false
+	}
+	checked := form.Get("collect_reviewer_notes")
+	return form.Get("sme_email"), checked == "on" || checked == "true", true
 }
 
 func (h *Handler) handleSelectedActivityLocationNotFound(w http.ResponseWriter, r *http.Request, id int64) {

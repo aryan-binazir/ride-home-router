@@ -10,12 +10,6 @@ import (
 	"time"
 )
 
-// With seats barely covering riders and many household pairs, the bearing
-// sweep used to give up and fall back to a slow, poor round-robin (about 85 s
-// and three times the normal driving). The seed must now produce a plan of
-// ordinary quality. Speed is gated separately by the evaluation suite under
-// the production timeout (make eval); here the limit only prevents a hang,
-// because the race detector on a loaded CI runner slows the solve many times.
 func TestTightSeatsSeedProducesAnOrdinaryPlan(t *testing.T) {
 	discardRoutingLogs(t)
 	var scenario planeval.Scenario
@@ -27,7 +21,7 @@ func TestTightSeatsSeedProducesAnOrdinaryPlan(t *testing.T) {
 	if scenario.Name == "" {
 		t.Fatal("tight-seats-500 scenario missing from the evaluation suite")
 	}
-	for _, seed := range []uint64{1, 3} { // the seeds that used to time out
+	for _, seed := range []uint64{1, 3} {
 		for _, mode := range []models.RouteMode{models.RouteModeDropoff, models.RouteModePickup} {
 			roster := planeval.Generate(scenario, seed)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

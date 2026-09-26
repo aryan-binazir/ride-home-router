@@ -18,6 +18,7 @@ func TestRosterKeyMatchesEquivalentSpellings(t *testing.T) {
 		{name: "backtick", leftName: "O`Brien", leftAddr: "1 Main St", rightName: "OBrien", rightAddr: "1 Main St"},
 		{name: "prime", leftName: "O′Brien", leftAddr: "1 Main St", rightName: "OBrien", rightAddr: "1 Main St"},
 		{name: "address period", leftName: "Jane Doe", leftAddr: "123 Main St.", rightName: "Jane Doe", rightAddr: "123 Main St"},
+		{name: "address decimal point", leftName: "Jane Doe", leftAddr: "123.5 Main", rightName: "Jane Doe", rightAddr: "1235 Main"},
 		{name: "name periods", leftName: "J.R. Smith", leftAddr: "1 Main St", rightName: "JR Smith", rightAddr: "1 Main St"},
 		{name: "name hyphen", leftName: "Anne-Marie", leftAddr: "1 Main St", rightName: "Anne Marie", rightAddr: "1 Main St"},
 		{name: "name en dash", leftName: "Anne–Marie", leftAddr: "1 Main St", rightName: "Anne Marie", rightAddr: "1 Main St"},

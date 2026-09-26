@@ -116,7 +116,6 @@ func serve(srv applicationServer, shutdown <-chan os.Signal) error {
 	return nil
 }
 
-// parseArgs rejects public listeners without an explicit host allowlist.
 func parseArgs(args []string) (options, error) {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -148,7 +147,7 @@ func parseArgs(args []string) (options, error) {
 		if host == "" {
 			continue
 		}
-		if !validAllowedHost(host) {
+		if !isBareHostnameOrIP(host) {
 			return options{}, fmt.Errorf("--allowed-hosts entry %q must be a bare hostname or IP without scheme, port, or path; the listener port and the scheme default are matched automatically", host)
 		}
 		opts.AllowedHosts = append(opts.AllowedHosts, host)
@@ -182,8 +181,7 @@ func parseArgs(args []string) (options, error) {
 
 var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
 
-// validAllowedHost accepts a DNS name or IP without a port.
-func validAllowedHost(host string) bool {
+func isBareHostnameOrIP(host string) bool {
 	if hostnamePattern.MatchString(host) {
 		return true
 	}
@@ -194,12 +192,7 @@ func validAllowedHost(host string) bool {
 	return net.ParseIP(host) != nil && !strings.Contains(host, ":")
 }
 
-// googleUsageSeed parses GOOGLE_USAGE_SEED, e.g. "routes=2026-09:7000,geocoding=2026-09:120".
-// Entries for any month other than the current Pacific-time month (Google's
-// billing calendar, matching the ledger) are ignored, so a seed left in the
-// environment cannot eat a later month's allowance.
-// usageLocation is Google's billing calendar for free monthly allowances.
-var usageLocation = mustLoadLocation("America/Los_Angeles")
+var googleFreeUsageBillingLocation = mustLoadLocation("America/Los_Angeles")
 
 func mustLoadLocation(name string) *time.Location {
 	loc, err := time.LoadLocation(name)
@@ -211,7 +204,7 @@ func mustLoadLocation(name string) *time.Location {
 
 func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
 	seeds := map[database.UsageSKU]int{}
-	month := now.In(usageLocation).Format("2006-01")
+	month := now.In(googleFreeUsageBillingLocation).Format("2006-01")
 	for entry := range strings.SplitSeq(value, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {

@@ -3,10 +3,11 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strings"
+
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
-	"strings"
 )
 
 type routeFeedbackView struct {
@@ -15,8 +16,6 @@ type routeFeedbackView struct {
 	Note      string
 }
 
-// collectsReviewerNotes reports whether this request may explain its route
-// edits: the setting is on and the request belongs to the configured reviewer.
 func (h *Handler) collectsReviewerNotes(r *http.Request) bool {
 	if strings.TrimSpace(r.Header.Get(routefeedback.AuthenticatedUserEmailHeader)) == "" {
 		return false
@@ -33,8 +32,6 @@ func (h *Handler) collectsReviewerNotes(r *http.Request) bool {
 	return ok
 }
 
-// HandleRouteFeedback handles GET and POST /api/v1/routes/feedback. GET renders
-// the reviewer's feedback dialog for a session; POST stores their note on it.
 func (h *Handler) HandleRouteFeedback(w http.ResponseWriter, r *http.Request) {
 	if !h.collectsReviewerNotes(r) {
 		h.handleHTMXErrorNoSwap(w, r, http.StatusForbidden, "FORBIDDEN", messageReviewerFeedbackUnavailable)
