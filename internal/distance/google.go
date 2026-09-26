@@ -947,7 +947,6 @@ func parseGoogleDurationSeconds(value string) (float64, error) {
 	return math.Round(seconds.Seconds()*1000) / 1000, nil
 }
 
-// IsTemporary identifies failures that may recover without changing a selection.
 func IsTemporary(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true

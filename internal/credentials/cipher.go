@@ -1,4 +1,3 @@
-// Package credentials seals server credentials with a separately managed key.
 package credentials
 
 import (
@@ -11,7 +10,6 @@ import (
 
 const prefix = "v1:"
 
-// Cipher is immutable and safe for concurrent use. The caller owns key provisioning.
 type Cipher struct{ aead cipher.AEAD }
 
 func New(encodedKey string) (*Cipher, error) {

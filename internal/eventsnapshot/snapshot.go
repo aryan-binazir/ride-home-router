@@ -1,4 +1,3 @@
-// Package eventsnapshot converts live routing results into immutable event history snapshots.
 package eventsnapshot
 
 import (

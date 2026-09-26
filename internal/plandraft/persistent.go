@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// NewPersistentStore keeps all cross-request draft state in shared storage.
 func NewPersistentStore(records database.WorkflowRepository) *Store {
 	if records == nil {
 		panic("plandraft: workflow repository is required")

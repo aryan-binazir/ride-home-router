@@ -1,4 +1,3 @@
-// Package access owns Clerk authentication and shared application admission.
 package access
 
 import (
@@ -24,10 +23,7 @@ import (
 	"github.com/clerk/clerk-sdk-go/v2/user"
 )
 
-// Config must be identical on every instance. No authentication bypass exists.
 type Config struct {
-	// HTTPClient optionally supplies the Clerk API transport for integration tests.
-	// Production leaves this nil to use the bounded HTTPS client.
 	HTTPClient        *http.Client
 	SecretKey         string
 	PublishableKey    string
@@ -36,7 +32,6 @@ type Config struct {
 	AdminEmails       string
 }
 
-// Store persists admission separately from Clerk identity and administrator status.
 type Store interface {
 	Approved(context.Context, []string) (bool, error)
 	ApprovedEmails(context.Context) ([]string, error)
@@ -179,7 +174,6 @@ func public(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/static/") && !strings.Contains(r.URL.Path, "..")
 }
 
-// Protect is the outer boundary around the entire router, including future routes.
 func (a *Access) Protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !public(r) || !strings.HasPrefix(r.URL.Path, "/static/") {

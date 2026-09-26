@@ -49,10 +49,8 @@ type Config struct {
 	CredentialEncryptionKey string
 	Auth                    access.Config
 	Addr                    string
-	// AllowedHosts lists proxy hostnames accepted in Host and Origin.
-	AllowedHosts []string
-	// DatabaseURL points to the migrated Postgres database to serve.
-	DatabaseURL string
+	AllowedHosts            []string
+	DatabaseURL             string
 	// RoutingEngine selects "estimate" (default: provider-free planning that is
 	// measured afterwards) or "matrix" (legacy Google distance matrix, kept only
 	// to compare route quality).
@@ -75,7 +73,6 @@ const (
 	serverMessageNotFound         = "Not found"
 )
 
-// New prepares a stopped server against an already-migrated database.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, errors.New("database URL is required")
@@ -223,7 +220,6 @@ func (s *Server) Errors() <-chan error {
 	return s.serveErrors
 }
 
-// Shutdown stops sessions, HTTP serving, and database access.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.cleanupCancel != nil {
 		s.cleanupCancel()

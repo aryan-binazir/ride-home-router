@@ -1,4 +1,3 @@
-// Package orderedroute measures a finished, ordered car route with the Google Routes API.
 package orderedroute
 
 import (
@@ -42,13 +41,11 @@ type Request struct {
 	Points []models.Coordinates
 }
 
-// Leg is the measured hop between two consecutive points.
 type Leg struct {
 	DistanceMeters float64
 	DurationSecs   float64
 }
 
-// Result carries the legs for one request, in point order, or its error.
 type Result struct {
 	ID   string
 	Legs []Leg
@@ -79,7 +76,6 @@ func newClient(key distance.APIKeyProvider, reserve Reserve, httpClient *http.Cl
 	return &Client{key: key, reserve: reserve, httpClient: httpClient, endpoint: endpoint, semaphore: make(chan struct{}, maxConcurrentRequests)}
 }
 
-// RequestsFor reports how many billable calls measuring these points takes.
 func RequestsFor(points int) int {
 	if points < 2 {
 		return 0

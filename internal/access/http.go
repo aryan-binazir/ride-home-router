@@ -11,7 +11,6 @@ import (
 	"ride-home-router/web"
 )
 
-// Register adds authentication and admin-only access management to the router.
 // The entire router must still be wrapped with Protect.
 func (a *Access) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sign-in", func(w http.ResponseWriter, r *http.Request) {

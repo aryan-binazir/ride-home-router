@@ -54,7 +54,6 @@ func LatestVersion() (uint, error) {
 	}
 }
 
-// Run applies pending migrations to the URL's search path.
 func Run(ctx context.Context, databaseURL string) error {
 	return withMigrator(ctx, databaseURL, func(migrator *migrate.Migrate, _ source.Driver) error {
 		if err := migrator.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {

@@ -45,8 +45,7 @@ type ErrGeocodingFailed struct {
 	Cause      error
 	HTTPStatus int
 	RetryAfter time.Duration
-	// Temporary marks provider conditions worth retrying within the request.
-	Temporary bool
+	Temporary  bool
 	// Configuration marks missing, rejected or unreadable credentials: imports
 	// retry later once an administrator fixes Settings, but no request retries.
 	Configuration bool
@@ -70,14 +69,12 @@ func (e *ErrGeocodingFailed) Retryable() bool {
 	return isRetryableStatus(e.HTTPStatus)
 }
 
-// CooldownError reports an excessive persisted deadline that was capped for recovery.
 type CooldownError struct{}
 
 func (*CooldownError) Error() string {
 	return "Address lookup is temporarily unavailable. Try again later."
 }
 
-// RateGate propagates provider cooldowns across application instances.
 type RateGate interface {
 	Wait(context.Context) error
 	Defer(context.Context, time.Duration) error

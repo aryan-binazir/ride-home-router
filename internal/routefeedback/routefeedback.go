@@ -1,4 +1,3 @@
-// Package routefeedback builds privacy-safe records for offline route analysis.
 package routefeedback
 
 import (
@@ -11,7 +10,6 @@ import (
 )
 
 const (
-	// SchemaVersion identifies the JSON payload contract stored in Postgres.
 	SchemaVersion = 1
 	// AuthenticatedUserEmailHeader is set by Cloudflare Access for authenticated requests.
 	AuthenticatedUserEmailHeader = "Cf-Access-Authenticated-User-Email"
@@ -56,7 +54,6 @@ func Build(snapshot routesession.CommitSnapshot) Record {
 
 var trustCFAccessHeader atomic.Bool
 
-// SetTrustCFAccessHeader enables attribution only behind a trusted Cloudflare Access proxy.
 func SetTrustCFAccessHeader(trust bool) { trustCFAccessHeader.Store(trust) }
 
 func ShouldCapture(r *http.Request, settings *models.Settings) (string, bool) {

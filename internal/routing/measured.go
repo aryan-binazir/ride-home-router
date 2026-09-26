@@ -22,10 +22,6 @@ type RouteMeasurement struct {
 	Err   error
 }
 
-// MeasureRoutes measures the selected routes once: contiguous household stops
-// share one waypoint, every car also gets a direct origin→destination baseline
-// for its detour, and legs are folded into the existing metric fields. Input
-// routes are not modified.
 func MeasureRoutes(ctx context.Context, measurer Measurer, institute models.Coordinates, mode RouteMode, routes []models.CalculatedRoute, indexes []int) []RouteMeasurement {
 	mode = normalizeRouteMode(mode)
 	rc := newRouteContext(nil, institute, mode)

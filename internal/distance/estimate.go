@@ -18,10 +18,8 @@ var errInvalidCoordinates = errors.New("distance: invalid coordinates")
 
 type estimator struct{}
 
-// NewEstimator returns a provider-free distance source.
 func NewEstimator() SolveSource { return estimator{} }
 
-// NoPrewarm reports that the solver may skip pair enumeration entirely.
 func (estimator) NoPrewarm() bool { return true }
 
 func (estimator) PrewarmPairs(context.Context, []DistancePair) error { return nil }

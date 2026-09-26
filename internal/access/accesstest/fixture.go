@@ -27,7 +27,6 @@ const (
 	Origin = "http://127.0.0.1"
 )
 
-// Fixture owns a signing key and mutable, concurrency-safe Clerk API state.
 type Fixture struct {
 	t        testing.TB
 	key      *rsa.PrivateKey
@@ -47,8 +46,6 @@ func New(t testing.TB) *Fixture {
 	return f
 }
 
-// NewInstance creates a Clerk instance with its own issuer, RSA key and API secret.
-// hostname is the bare Clerk frontend hostname, without a scheme or path.
 func NewInstance(t testing.TB, hostname string) *Fixture {
 	t.Helper()
 	secret := make([]byte, 32)
@@ -100,7 +97,6 @@ func (f *Fixture) Session(id, userID, status string) {
 	f.sessions[id] = map[string]any{"id": id, "object": "session", "user_id": userID, "status": status}
 }
 
-// Fail sets an HTTP failure for an exact /v1/users/id or /v1/sessions/id path; zero clears it.
 func (f *Fixture) Fail(path string, status int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -183,7 +179,6 @@ func (f *Fixture) RoundTrip(r *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
 }
 
-// BearerTransport authenticates application requests while preserving cookies and redirects.
 type BearerTransport struct {
 	Token string
 	Base  http.RoundTripper

@@ -17,7 +17,6 @@ import (
 	"unicode"
 )
 
-// BalancedRouter prioritizes driver use, corridor spread, then time tiers.
 type BalancedRouter struct {
 	distanceCalc distance.SolveSource
 }
@@ -1680,7 +1679,6 @@ func normalizeAddress(address string) string {
 	return strings.Join(normalized, " ")
 }
 
-// HouseholdKey identifies riders who share a home and therefore ride together.
 func HouseholdKey(participant *models.Participant) string { return householdKey(participant) }
 
 func householdKey(participant *models.Participant) string {

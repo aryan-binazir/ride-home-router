@@ -89,8 +89,6 @@ func googleGuessed(partialMatch bool, locationType string) bool {
 	}
 }
 
-// ErrNotConfigured means the Google Maps key is missing, rejected, or its
-// project cannot bill; administrators fix it in Settings or the Cloud console.
 var ErrNotConfigured = errors.New("geocoding: Google Maps API key is not configured")
 
 func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*GeocodingResult, error) {

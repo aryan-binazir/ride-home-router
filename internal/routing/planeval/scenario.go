@@ -1,7 +1,3 @@
-// Package planeval evaluates the route planner across many synthetic rosters of
-// different shapes, so a planner change has to hold up everywhere, not on one
-// roster. Rosters are deterministic per scenario and seed; nothing here talks
-// to Google.
 package planeval
 
 import (
@@ -22,7 +18,6 @@ const (
 	Raleigh    Region = "Raleigh/Cary"
 )
 
-// Mix is the share of people in each region, in any units; it is normalised.
 type Mix map[Region]float64
 
 type centroid struct {

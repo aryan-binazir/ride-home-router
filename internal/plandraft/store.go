@@ -18,7 +18,6 @@ const (
 	defaultCleanupInterval = 15 * time.Minute
 )
 
-// Draft is the server-side state shared by the mobile plan screens.
 type Draft struct {
 	LocationID       int64
 	ParticipantIDs   []int64
@@ -27,9 +26,8 @@ type Draft struct {
 	RouteTime        string
 	Mode             string
 	RouteSessionID   string
-	// Revision is assigned by the store and changes after every mutation.
-	Revision       uint64
-	lastAccessedAt time.Time
+	Revision         uint64
+	lastAccessedAt   time.Time
 }
 
 type Store struct {
@@ -131,8 +129,6 @@ func (s *Store) SetRouteSessionIDIfUnchanged(id string, expectedRevision uint64,
 	return displacedSessionID, true
 }
 
-// ClearRouteSessionIDIfCurrent clears the route session only when it still has
-// expectedSessionID.
 func (s *Store) ClearRouteSessionIDIfCurrent(id, expectedSessionID string) bool {
 	if expectedSessionID == "" {
 		return false

@@ -22,8 +22,6 @@ const (
 	MaxVehicleCapacity     = 50
 )
 
-// RosterKey returns the canonical exact-match key for a roster identity.
-// An empty key means either the name or address is blank.
 func RosterKey(name, address string) string {
 	name = normalizeRosterKeyField(name, true)
 	address = normalizeRosterKeyField(address, false)
@@ -78,7 +76,6 @@ const (
 
 var ErrInvalidRouteMode = errors.New("invalid route mode")
 
-// ParseRouteMode normalizes a route mode value, defaulting blank input to dropoff.
 func ParseRouteMode(value string) (RouteMode, error) {
 	switch strings.TrimSpace(value) {
 	case "", string(RouteModeDropoff):

@@ -241,8 +241,6 @@ func PopulateRouteMetrics(ctx context.Context, distanceCalc distance.Lookup, ins
 	return nil
 }
 
-// OptimizeRouteOrder uses the participant-first lexicographic objective,
-// then refreshes the route's metrics.
 func OptimizeRouteOrder(ctx context.Context, distanceCalc distance.Lookup, instituteCoords models.Coordinates, mode RouteMode, route *models.CalculatedRoute) error {
 	if route == nil {
 		return fmt.Errorf("route is required")

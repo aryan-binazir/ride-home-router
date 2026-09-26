@@ -19,7 +19,6 @@ func coordinatePointKey(coord models.Coordinates) string {
 	)
 }
 
-// SamePoint reports whether two coordinates share the cache's rounded identity.
 func SamePoint(a, b models.Coordinates) bool {
 	return models.RoundCoordinate(a.Lat) == models.RoundCoordinate(b.Lat) &&
 		models.RoundCoordinate(a.Lng) == models.RoundCoordinate(b.Lng)

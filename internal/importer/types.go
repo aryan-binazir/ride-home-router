@@ -1,4 +1,3 @@
-// Package importer parses and validates participant and driver roster files.
 package importer
 
 import (
