@@ -189,7 +189,8 @@ func (p *provider) api(w http.ResponseWriter, r *http.Request) {
 	if sid, ok := strings.CutPrefix(r.URL.Path, "/v1/sessions/"); ok {
 		identity, found := p.sessions[sid]
 		if !found {
-			http.NotFound(w, r)
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(w, map[string]any{"errors": []any{map[string]string{"code": "resource_not_found", "message": "Synthetic identity not found"}}})
 			return
 		}
 		writeJSON(w, map[string]string{"id": sid, "object": "session", "user_id": "user_" + identity, "status": "active"})
@@ -199,7 +200,8 @@ func (p *provider) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"id": "user_" + id, "object": "user", "email_addresses": []any{map[string]any{"id": "email_" + id, "email_address": id + "@example.test", "verification": map[string]string{"status": "verified"}}}})
 		return
 	}
-	http.NotFound(w, r)
+	w.WriteHeader(http.StatusNotFound)
+	writeJSON(w, map[string]any{"errors": []any{map[string]string{"code": "resource_not_found", "message": "Synthetic identity not found"}}})
 }
 
 type localTransport struct {
