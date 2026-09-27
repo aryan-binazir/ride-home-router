@@ -45,7 +45,7 @@ def process_start(pid):
 
 
 def alive(state):
-    return bool(state.get('pid') and process_start(state['pid']) == state.get('start'))
+    return bool(state.get('pid') and state.get('start') and process_start(state['pid']) == state['start'])
 
 
 def container(state, *args, capture=False):

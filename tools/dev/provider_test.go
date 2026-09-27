@@ -80,6 +80,7 @@ func TestRealGateRejectsInvalidCredentialsAndEnforcesApprovals(t *testing.T) {
 		{name: "wrong issuer", raw: wrongIssuer, path: "/protected", status: 401},
 		{name: "wrong authorized party", raw: wrongOrigin, path: "/protected", status: 401},
 		{name: "unknown session", raw: token("missing", time.Now().Add(time.Hour)), path: "/protected", status: 401},
+		{name: "malformed token", raw: "not-a-jwt", path: "/protected", status: 401},
 		{name: "anonymous", path: "/protected", status: 401},
 		{name: "wrong signature", raw: valid[:len(valid)-12] + "AAAAAAAAAAAA", path: "/protected", status: 401},
 		{name: "expired", raw: token("admin", time.Now().Add(-time.Hour)), path: "/protected", status: 401},
@@ -152,6 +153,26 @@ func TestProviderTransportRejectsUnexpectedDestinations(t *testing.T) {
 		if resp, err := transport.RoundTrip(r); err == nil {
 			_ = resp.Body.Close()
 			t.Fatalf("accepted %s", target)
+		}
+	}
+}
+
+func TestLoginAndRenewalRequireCapability(t *testing.T) {
+	p, err := newProvider("http://127.0.0.1:19876")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/__dev/session", "/__dev/token"} {
+		for _, capability := range []string{"", "wrong"} {
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(`{"identity":"admin"}`))
+			r.Host = "127.0.0.1:19876"
+			r.Header.Set("Origin", p.origin)
+			r.Header.Set("X-Dev-Capability", capability)
+			w := httptest.NewRecorder()
+			p.browser(w, r)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("%s accepted missing/wrong capability: %d", path, w.Code)
+			}
 		}
 	}
 }

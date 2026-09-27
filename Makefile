@@ -44,10 +44,12 @@ vet:
 	go vet ./...
 
 test:
+	python3 tools/dev/dev_test.py
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
 
 test-unit:
+	python3 tools/dev/dev_test.py
 	node --test web/static/js/*.test.js
 	TEST_DATABASE_URL= go test -race -count=1 ./...
 
