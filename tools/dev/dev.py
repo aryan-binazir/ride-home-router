@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Own one local development environment per canonical worktree path."""
 import base64
 import fcntl
 import hashlib
