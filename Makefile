@@ -12,6 +12,10 @@ export DATABASE_URL TEST_DATABASE_URL
 help:
 	@echo "Ride Home Router"
 	@echo ""
+	@echo "  make dev           Start this worktree's populated local environment"
+	@echo "  make dev-status    Show local login URLs and logs"
+	@echo "  make dev-stop      Stop this worktree's environment, preserving data"
+	@echo "  make dev-reset     Recreate only this worktree's local data"
 	@echo "  make serve         Migrate, then run the server on 127.0.0.1:$${PORT:-8080}"
 	@echo "  make build         Build bin/ride-home-router and bin/migrate (CGO_ENABLED=0)"
 	@echo "  make migrate       Apply pending migrations to DATABASE_URL"
@@ -131,3 +135,16 @@ postgres-down:
 
 psql:
 	podman exec -it $(POSTGRES_CONTAINER) psql -U postgres -d ride_home_router
+
+.PHONY: dev dev-status dev-stop dev-reset
+dev:
+	python3 tools/dev/dev.py start
+
+dev-status:
+	python3 tools/dev/dev.py status
+
+dev-stop:
+	python3 tools/dev/dev.py stop
+
+dev-reset:
+	python3 tools/dev/dev.py reset
