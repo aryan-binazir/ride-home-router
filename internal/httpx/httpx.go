@@ -3,6 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"mime"
 	"net"
 	"net/http"
@@ -49,7 +50,18 @@ func DecodeJSON(r *http.Request, dst any) error {
 	if !HasMediaType(r.Header.Get(HeaderContentType), MediaTypeJSON) {
 		return ErrJSONContentTypeRequired
 	}
-	return json.NewDecoder(r.Body).Decode(dst)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return errors.New("request body must contain a single JSON value")
+	}
+	return nil
 }
 
 func LoopbackHostnames() []string {
