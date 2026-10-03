@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"mime/multipart"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
@@ -711,5 +713,85 @@ func TestHealthzAllowsUnauthenticatedReadinessProbe(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("healthz with closed database = %d, want 503", w.Code)
+	}
+}
+
+type jsonBoundaryGeocoder struct{}
+
+func (jsonBoundaryGeocoder) Geocode(context.Context, string) (*geocoding.GeocodingResult, error) {
+	return &geocoding.GeocodingResult{Coords: models.Coordinates{Lat: 35.9, Lng: -78.9}}, nil
+}
+
+func (g jsonBoundaryGeocoder) GeocodeWithRetry(ctx context.Context, address string, _ int) (*geocoding.GeocodingResult, error) {
+	return g.Geocode(ctx, address)
+}
+
+func (jsonBoundaryGeocoder) Search(context.Context, string, int) ([]geocoding.GeocodingResult, error) {
+	return []geocoding.GeocodingResult{}, nil
+}
+
+func TestSetupRoutesRosterCreationRequiresSingleJSONValue(t *testing.T) {
+	for _, path := range []string{"/api/v1/participants", "/api/v1/drivers"} {
+		for _, suffix := range []string{` {}`, ` trailing-invalid-json`} {
+			t.Run(path+suffix, func(t *testing.T) {
+				mux := setupRoutes(&handlers.Handler{DB: postgrestest.Open(t), Geocoder: jsonBoundaryGeocoder{}}, web.Static)
+				body := `{"name":"Strict JSON person","address":"101 Synthetic Street","vehicle_capacity":4}`
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(body+suffix))
+				req.Header.Set("Content-Type", "application/json")
+				rejected := httptest.NewRecorder()
+				mux.ServeHTTP(rejected, req)
+				if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "VALIDATION_ERROR") {
+					t.Errorf("malformed create = %d %s, want 400 VALIDATION_ERROR", rejected.Code, rejected.Body.String())
+				}
+
+				roster := httptest.NewRecorder()
+				mux.ServeHTTP(roster, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+				var list struct {
+					Total int `json:"total"`
+				}
+				if roster.Code != http.StatusOK {
+					t.Fatalf("list = %d %s", roster.Code, roster.Body.String())
+				}
+				if err := json.Unmarshal(roster.Body.Bytes(), &list); err != nil {
+					t.Fatal(err)
+				}
+				if list.Total != 0 {
+					t.Errorf("roster total = %d, want no records after rejected input", list.Total)
+				}
+
+				req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(body+" \t\r\n"))
+				req.Header.Set("Content-Type", "application/json; charset=utf-8")
+				created := httptest.NewRecorder()
+				mux.ServeHTTP(created, req)
+				if created.Code != http.StatusCreated {
+					t.Fatalf("valid create = %d %s, want 201", created.Code, created.Body.String())
+				}
+				var person struct {
+					ID   int64  `json:"id"`
+					Name string `json:"name"`
+				}
+				if err := json.Unmarshal(created.Body.Bytes(), &person); err != nil {
+					t.Fatal(err)
+				}
+				if person.ID <= 0 || person.Name != "Strict JSON person" {
+					t.Fatalf("created person = %+v", person)
+				}
+				saved := httptest.NewRecorder()
+				mux.ServeHTTP(saved, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path+"/"+strconv.FormatInt(person.ID, 10), nil))
+				if saved.Code != http.StatusOK {
+					t.Fatalf("get saved person = %d %s", saved.Code, saved.Body.String())
+				}
+				var savedPerson struct {
+					ID   int64  `json:"id"`
+					Name string `json:"name"`
+				}
+				if err := json.Unmarshal(saved.Body.Bytes(), &savedPerson); err != nil {
+					t.Fatal(err)
+				}
+				if savedPerson.ID != person.ID || savedPerson.Name != "Strict JSON person" {
+					t.Fatalf("saved person = %+v", savedPerson)
+				}
+			})
+		}
 	}
 }
