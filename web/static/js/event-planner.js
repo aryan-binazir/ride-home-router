@@ -1357,6 +1357,8 @@
             setSessionActionsLocked(container, lockedActions, message);
         }
 
+        const planSelection = createPlanSelection();
+
         function readPlannerInputs() {
             const form = getEventForm();
             if (!form) return null;
@@ -1365,13 +1367,14 @@
             const selectedMode = form.querySelector('input[name="mode"]:checked');
             const routeTime = form.querySelector('input[name="route_time"]');
 
+            const selection = planSelection.read();
             return {
                 activityLocationId: activityLocation ? activityLocation.value : '',
-                participantIds: getCheckedInputs('.participant-checkbox').map(input => input.value),
-                driverIds: getCheckedInputs('.driver-checkbox').map(input => input.value),
+                participantIds: selection.participantIds,
+                driverIds: selection.driverIds,
                 mode: selectedMode ? selectedMode.value : 'dropoff',
                 routeTime: routeTime ? routeTime.value : '',
-                vanAssignments: getVanAssignments(),
+                vanAssignments: selection.vanAssignments,
             };
         }
 
@@ -1404,10 +1407,6 @@
                 applyPlanStateAffordance(state.status);
             },
         });
-
-        function getCheckedInputs(selector) {
-            return Array.from(document.querySelectorAll(selector)).filter(input => input.checked);
-        }
 
         function getEventForm() {
             return document.getElementById('event-form');
@@ -1443,7 +1442,7 @@
         function writeEventPlannerDraft(inputs) {
             if (!inputs) return;
 
-            const draft = Object.assign({}, inputs, { labelFilters: getPlannerLabelFilters() });
+            const draft = Object.assign({}, inputs, { labelFilters: planSelection.readFilters() });
 
             try {
                 window.localStorage.setItem(EVENT_PLANNER_DRAFT_KEY, JSON.stringify(draft));
@@ -1467,16 +1466,6 @@
             } catch (err) {
                 console.warn('Failed to clear event planner draft', err);
             }
-        }
-
-        function applyCheckedValues(selector, selectedValues) {
-            const values = new Set((selectedValues || []).map(String));
-            document.querySelectorAll(selector).forEach(input => {
-                const checked = values.has(String(input.value));
-                input.checked = checked;
-                const row = input.closest('.select-row');
-                if (row) row.classList.toggle('is-selected', checked);
-            });
         }
 
         async function restorePlannerLocation(id) {
@@ -1525,35 +1514,7 @@
                     routeTime.value = draft.routeTime;
                 }
 
-                for (const kind of ['participants', 'drivers']) {
-                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource && !await requestPlannerPicker(kind, 0, false, draft)) throw new Error('could not restore selected people');
-                }
-                applyCheckedValues('.participant-checkbox', draft.participantIds);
-                applyCheckedValues('.driver-checkbox', draft.driverIds);
-                applyPlannerLabelFilters(draft.labelFilters);
-                recomputeSelectListVisibility('participants-selection');
-                recomputeSelectListVisibility('drivers-selection');
-
-                renderVanAssignmentsPanel();
-
-                if (draft.vanAssignments && typeof draft.vanAssignments === 'object') {
-                    const body = new URLSearchParams();
-                    getCheckedInputs('.driver-checkbox').forEach(input => body.append('driver_ids', input.value));
-                    Object.entries(draft.vanAssignments).forEach(([id, vehicle]) => body.set(`org_vehicle_${id}`, String(vehicle)));
-                    if (Object.keys(draft.vanAssignments).length && !document.getElementById('drivers-selection')?.dataset?.pageSource) {
-                        const response = await (window.authFetch || fetch)('/api/v1/planner/vehicle-assignments', {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body, signal: AbortSignal.timeout(15000)});
-                        if (!response.ok) throw new Error('Vehicle assignment restoration failed');
-                        const template = document.createElement('template');
-                        template.innerHTML = await response.text();
-                        for (const control of template.content.querySelectorAll('.van-assignment-inline')) {
-                            const previous = document.getElementById(control.id);
-                            if (previous && form.contains(previous)) { previous.replaceWith(control); htmx.process(control); }
-                        }
-                    }
-                    handleVanAssignmentChange();
-                } else {
-                    updateEventStats();
-                }
+                await planSelection.restore(draft);
                 restored = true;
             } finally {
                 plannerRestoreFailed = !restored;
@@ -1621,291 +1582,414 @@
                 .replace(/'/g, '&#39;');
         }
 
-        function getVanAssignments() {
-            const assignments = {};
-            document.querySelectorAll('.van-assignment-select').forEach(select => {
-                if (!select.disabled && select.value) {
-                    assignments[select.dataset.driverId] = select.value;
-                }
-            });
-            return assignments;
-        }
+        function createPlanSelection() {
+            function getCheckedInputs(selector) {
+                return Array.from(document.querySelectorAll(selector)).filter(input => input.checked);
+            }
 
-        function updateVanSelectionOptions() {
-            const selects = document.querySelectorAll('.van-assignment-select');
-            const driverIds = Array.from(selects)
-                .filter(select => !select.disabled)
-                .map(select => select.dataset.driverId);
-            const sanitized = sanitizeVanAssignments(driverIds, getVanAssignments());
-            const assignedVehicles = new Map();
-
-            selects.forEach(select => {
-                if (!select.disabled) {
-                    select.value = sanitized[select.dataset.driverId] || '';
-                    if (select.value) {
-                        assignedVehicles.set(select.value, select.dataset.driverId);
+            function getVanAssignments() {
+                const assignments = {};
+                document.querySelectorAll('.van-assignment-select').forEach(select => {
+                    if (!select.disabled && select.value) {
+                        assignments[select.dataset.driverId] = select.value;
                     }
-                }
-            });
+                });
+                return assignments;
+            }
 
-            selects.forEach(select => {
-                Array.from(select.options).forEach(option => {
-                    if (!option.value) {
-                        option.disabled = false;
+            function updateVanSelectionOptions() {
+                const selects = document.querySelectorAll('.van-assignment-select');
+                const driverIds = Array.from(selects)
+                    .filter(select => !select.disabled)
+                    .map(select => select.dataset.driverId);
+                const sanitized = sanitizeVanAssignments(driverIds, getVanAssignments());
+                const assignedVehicles = new Map();
+
+                selects.forEach(select => {
+                    if (!select.disabled) {
+                        select.value = sanitized[select.dataset.driverId] || '';
+                        if (select.value) {
+                            assignedVehicles.set(select.value, select.dataset.driverId);
+                        }
+                    }
+                });
+
+                selects.forEach(select => {
+                    Array.from(select.options).forEach(option => {
+                        if (!option.value) {
+                            option.disabled = false;
+                            return;
+                        }
+
+                        const owner = assignedVehicles.get(option.value);
+                        option.disabled = !!owner && owner !== select.dataset.driverId;
+                    });
+                });
+            }
+
+            function handleVanAssignmentChange() {
+                updateVanSelectionOptions();
+                updateEventStats();
+                saveEventPlannerDraft();
+            }
+
+            function renderVanAssignmentsPanel() {
+                document.querySelectorAll('.driver-checkbox').forEach(checkbox => {
+                    const row = checkbox.closest('.select-row');
+                    const inline = row?.querySelector('.van-assignment-inline');
+                    const select = row?.querySelector('.van-assignment-select') || document.getElementById(`van-assignment-${checkbox.value}`);
+                    if (!select) return;
+                    row?.classList.toggle('has-van-assignment', checkbox.checked);
+                    inline?.classList.toggle('hidden', !checkbox.checked);
+                    select.disabled = !checkbox.checked;
+                    if (!checkbox.checked && select.value) {
+                        const option = new Option('Personal vehicle', '', true, true);
+                        option.dataset.capacity = checkbox.dataset.capacity;
+                        select.replaceChildren(option);
+                        const label = inline?.querySelector('.van-assignment-current');
+                        if (label) label.textContent = `Personal vehicle · ${checkbox.dataset.capacity} seats`;
+                    }
+                });
+                handleVanAssignmentChange();
+            }
+
+            function updateEventStats() {
+                const participants = getCheckedInputs('.participant-checkbox');
+                const drivers = getCheckedInputs('.driver-checkbox');
+
+                let totalCapacity = 0;
+                drivers.forEach(cb => {
+                    const select = document.getElementById(`van-assignment-${cb.value}`);
+                    if (select) {
+                        totalCapacity += parseInt(select.options[select.selectedIndex]?.dataset.capacity ?? cb.dataset.capacity, 10) || 0;
                         return;
                     }
-
-                    const owner = assignedVehicles.get(option.value);
-                    option.disabled = !!owner && owner !== select.dataset.driverId;
+                    totalCapacity += parseInt(cb.dataset.capacity, 10) || 0;
                 });
-            });
-        }
 
-        function handleVanAssignmentChange() {
-            updateVanSelectionOptions();
-            updateEventStats();
-            saveEventPlannerDraft();
-        }
+                const participantsCount = participants.length;
+                const driversCount = drivers.length;
 
-        function renderVanAssignmentsPanel() {
-            document.querySelectorAll('.driver-checkbox').forEach(checkbox => {
-                const row = checkbox.closest('.select-row');
-                const inline = row?.querySelector('.van-assignment-inline');
-                const select = row?.querySelector('.van-assignment-select') || document.getElementById(`van-assignment-${checkbox.value}`);
-                if (!select) return;
-                row?.classList.toggle('has-van-assignment', checkbox.checked);
-                inline?.classList.toggle('hidden', !checkbox.checked);
-                select.disabled = !checkbox.checked;
-                if (!checkbox.checked && select.value) {
-                    const option = new Option('Personal vehicle', '', true, true);
-                    option.dataset.capacity = checkbox.dataset.capacity;
-                    select.replaceChildren(option);
-                    const label = inline?.querySelector('.van-assignment-current');
-                    if (label) label.textContent = `Personal vehicle · ${checkbox.dataset.capacity} seats`;
+                const participantsCountEl = document.getElementById('participants-selected-count');
+                if (participantsCountEl) participantsCountEl.textContent = participantsCount;
+
+                const driversCountEl = document.getElementById('drivers-selected-count');
+                if (driversCountEl) driversCountEl.textContent = driversCount;
+
+                const seatsEl = document.getElementById('drivers-selected-seats');
+                if (seatsEl) seatsEl.textContent = totalCapacity;
+
+                for (const [kind, count] of Object.entries({participants: participantsCount, drivers: driversCount, seats: totalCapacity})) {
+                    document.querySelectorAll(`[data-picker-summary="${kind}"]`).forEach(el => { el.textContent = count; });
                 }
-            });
-            handleVanAssignmentChange();
-        }
 
-        function updateEventStats() {
-            const participants = getCheckedInputs('.participant-checkbox');
-            const drivers = getCheckedInputs('.driver-checkbox');
+                const statsEl = document.getElementById('selection-stats');
+                if (statsEl) {
+                    const parts = [];
+                    parts.push(`${participantsCount} participant${participantsCount === 1 ? '' : 's'}`);
+                    parts.push(`${driversCount} driver${driversCount === 1 ? '' : 's'}`);
+                    parts.push(`${totalCapacity} seat${totalCapacity === 1 ? '' : 's'}`);
+                    statsEl.textContent = parts.join(' • ');
 
-            let totalCapacity = 0;
-            drivers.forEach(cb => {
-                const select = document.getElementById(`van-assignment-${cb.value}`);
-                if (select) {
-                    totalCapacity += parseInt(select.options[select.selectedIndex]?.dataset.capacity ?? cb.dataset.capacity, 10) || 0;
-                    return;
+                    statsEl.classList.toggle('text-danger', participantsCount > totalCapacity && driversCount > 0);
+                    statsEl.classList.toggle('text-muted', !(participantsCount > totalCapacity && driversCount > 0));
                 }
-                totalCapacity += parseInt(cb.dataset.capacity, 10) || 0;
-            });
-
-            const participantsCount = participants.length;
-            const driversCount = drivers.length;
-
-            const participantsCountEl = document.getElementById('participants-selected-count');
-            if (participantsCountEl) participantsCountEl.textContent = participantsCount;
-
-            const driversCountEl = document.getElementById('drivers-selected-count');
-            if (driversCountEl) driversCountEl.textContent = driversCount;
-
-            const seatsEl = document.getElementById('drivers-selected-seats');
-            if (seatsEl) seatsEl.textContent = totalCapacity;
-
-            for (const [kind, count] of Object.entries({participants: participantsCount, drivers: driversCount, seats: totalCapacity})) {
-                document.querySelectorAll(`[data-picker-summary="${kind}"]`).forEach(el => { el.textContent = count; });
             }
 
-            const statsEl = document.getElementById('selection-stats');
-            if (statsEl) {
-                const parts = [];
-                parts.push(`${participantsCount} participant${participantsCount === 1 ? '' : 's'}`);
-                parts.push(`${driversCount} driver${driversCount === 1 ? '' : 's'}`);
-                parts.push(`${totalCapacity} seat${totalCapacity === 1 ? '' : 's'}`);
-                statsEl.textContent = parts.join(' • ');
-
-                statsEl.classList.toggle('text-danger', participantsCount > totalCapacity && driversCount > 0);
-                statsEl.classList.toggle('text-muted', !(participantsCount > totalCapacity && driversCount > 0));
+            function getActiveLabelFilters(listId) {
+                return Array.from(document.querySelectorAll(`.label-filter-chip[data-list-id="${listId}"].is-active`))
+                    .map(button => button.dataset.labelId);
             }
-        }
 
-        function getActiveLabelFilters(listId) {
-            return Array.from(document.querySelectorAll(`.label-filter-chip[data-list-id="${listId}"].is-active`))
-                .map(button => button.dataset.labelId);
-        }
+            function getPlannerLabelFilters() {
+                return {
+                    participants: getActiveLabelFilters('participants-selection'),
+                    drivers: getActiveLabelFilters('drivers-selection'),
+                };
+            }
 
-        function getPlannerLabelFilters() {
-            return {
-                participants: getActiveLabelFilters('participants-selection'),
-                drivers: getActiveLabelFilters('drivers-selection'),
-            };
-        }
+            function applyPlannerLabelFilters(filters) {
+                const participantFilters = Array.isArray(filters && filters.participants) ? filters.participants.map(String) : [];
+                const driverFilters = Array.isArray(filters && filters.drivers) ? filters.drivers.map(String) : [];
 
-        function applyPlannerLabelFilters(filters) {
-            const participantFilters = Array.isArray(filters && filters.participants) ? filters.participants.map(String) : [];
-            const driverFilters = Array.isArray(filters && filters.drivers) ? filters.drivers.map(String) : [];
+                setActiveLabelFilters('participants-selection', participantFilters);
+                setActiveLabelFilters('drivers-selection', driverFilters);
+            }
 
-            setActiveLabelFilters('participants-selection', participantFilters);
-            setActiveLabelFilters('drivers-selection', driverFilters);
-        }
+            function setActiveLabelFilters(listId, activeIDs) {
+                const active = new Set(activeIDs || []);
+                document.querySelectorAll(`.label-filter-chip[data-list-id="${listId}"]`).forEach(button => {
+                    const isActive = active.has(String(button.dataset.labelId));
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+            }
 
-        function setActiveLabelFilters(listId, activeIDs) {
-            const active = new Set(activeIDs || []);
-            document.querySelectorAll(`.label-filter-chip[data-list-id="${listId}"]`).forEach(button => {
-                const isActive = active.has(String(button.dataset.labelId));
-                button.classList.toggle('is-active', isActive);
-                button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-            });
-        }
+            const pickerRequests = new Map();
+            const pickerSearchTimers = new Map();
 
-        const pickerRequests = new Map();
-        const pickerSearchTimers = new Map();
-
-        async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null) {
-            if (!['participants', 'drivers'].includes(kind)) return false;
-            const current = document.getElementById(`${kind}-picker`);
-            if (!current) return false;
-            const name = kind === 'drivers' ? 'driver_ids' : 'participant_ids';
-            const key = kind === 'drivers' ? 'driverIds' : 'participantIds';
-            const inputs = restoreInputs || readPlannerInputs();
-            const sent = new Set(inputs[key] || []);
-            const values = new URLSearchParams({offset: String(offset), search: restoreInputs ? '' : document.getElementById(`${kind}-search`)?.value || ''});
-            for (const id of sent) values.append(name, id);
-            for (const [id, vehicle] of Object.entries(inputs.vanAssignments || {})) values.set(`org_vehicle_${id}`, vehicle);
-            for (const id of restoreInputs?.labelFilters?.[kind] || getActiveLabelFilters(`${kind}-selection`)) values.append('label_ids', id);
-            if (selectAll) values.set('select', 'all');
-            pickerRequests.get(kind)?.abort();
-            const controller = new AbortController();
-            pickerRequests.set(kind, controller);
-            try {
-                const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
-                const html = await response.text();
-                if (pickerRequests.get(kind) !== controller) return false;
-                if (!response.ok) { showRouteError(html, response.headers?.get('HX-Trigger')); return false; }
-                const template = document.createElement('template');
-                template.innerHTML = html;
-                const replacement = template.content.querySelector(`#${kind}-picker`);
-                if (!replacement) return false;
-                if (!restoreInputs) {
-                    const existing = new Map(Array.from(current.querySelectorAll(`input[name="${name}"]`), input => [input.value, input]));
-                    const incoming = new Map(Array.from(replacement.querySelectorAll(`input[name="${name}"]`), input => [input.value, input]));
-                    for (const [id, input] of existing) {
-                        if (input.checked === sent.has(id)) continue;
-                        let next = incoming.get(id);
-                        if (!next && input.checked) {
-                            next = input.cloneNode(true); next.hidden = true; replacement.append(next);
-                            if (kind === 'drivers') {
-                                const select = document.getElementById(`van-assignment-${id}`);
-                                if (select) { const holder = document.createElement('span'); holder.hidden = true; holder.id = `van-control-${id}`; holder.append(select.cloneNode(true)); replacement.append(holder); }
+            async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null) {
+                if (!['participants', 'drivers'].includes(kind)) return false;
+                const current = document.getElementById(`${kind}-picker`);
+                if (!current) return false;
+                const name = kind === 'drivers' ? 'driver_ids' : 'participant_ids';
+                const key = kind === 'drivers' ? 'driverIds' : 'participantIds';
+                const inputs = restoreInputs || readPlannerInputs();
+                const sent = new Set(inputs[key] || []);
+                const values = new URLSearchParams({offset: String(offset), search: restoreInputs ? '' : document.getElementById(`${kind}-search`)?.value || ''});
+                for (const id of sent) values.append(name, id);
+                for (const [id, vehicle] of Object.entries(inputs.vanAssignments || {})) values.set(`org_vehicle_${id}`, vehicle);
+                for (const id of restoreInputs?.labelFilters?.[kind] || getActiveLabelFilters(`${kind}-selection`)) values.append('label_ids', id);
+                if (selectAll) values.set('select', 'all');
+                pickerRequests.get(kind)?.abort();
+                const controller = new AbortController();
+                pickerRequests.set(kind, controller);
+                try {
+                    const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
+                    const html = await response.text();
+                    if (pickerRequests.get(kind) !== controller) return false;
+                    if (!response.ok) { showRouteError(html, response.headers?.get('HX-Trigger')); return false; }
+                    const template = document.createElement('template');
+                    template.innerHTML = html;
+                    const replacement = template.content.querySelector(`#${kind}-picker`);
+                    if (!replacement) return false;
+                    if (!restoreInputs) {
+                        const existing = new Map(Array.from(current.querySelectorAll(`input[name="${name}"]`), input => [input.value, input]));
+                        const incoming = new Map(Array.from(replacement.querySelectorAll(`input[name="${name}"]`), input => [input.value, input]));
+                        for (const [id, input] of existing) {
+                            if (input.checked === sent.has(id)) continue;
+                            let next = incoming.get(id);
+                            if (!next && input.checked) {
+                                next = input.cloneNode(true); next.hidden = true; replacement.append(next);
+                                if (kind === 'drivers') {
+                                    const select = document.getElementById(`van-assignment-${id}`);
+                                    if (select) { const holder = document.createElement('span'); holder.hidden = true; holder.id = `van-control-${id}`; holder.append(select.cloneNode(true)); replacement.append(holder); }
+                                }
+                            }
+                            if (next) next.checked = input.checked;
+                        }
+                        if (kind === 'drivers') {
+                            for (const select of current.querySelectorAll('.van-assignment-select')) {
+                                if (select.value === String(inputs.vanAssignments?.[select.dataset.driverId] || '')) continue;
+                                const next = replacement.querySelector(`#${select.id}`);
+                                if (next) { next.replaceChildren(...Array.from(select.options, option => option.cloneNode(true))); next.value = select.value; }
                             }
                         }
-                        if (next) next.checked = input.checked;
                     }
-                    if (kind === 'drivers') {
-                        for (const select of current.querySelectorAll('.van-assignment-select')) {
-                            if (select.value === String(inputs.vanAssignments?.[select.dataset.driverId] || '')) continue;
-                            const next = replacement.querySelector(`#${select.id}`);
-                            if (next) { next.replaceChildren(...Array.from(select.options, option => option.cloneNode(true))); next.value = select.value; }
-                        }
-                    }
+                    current.replaceWith(replacement);
+                    htmx.process(replacement);
+                    renderVanAssignmentsPanel();
+                    updateEventStats();
+                    saveEventPlannerDraft();
+                    return true;
+                } catch (error) {
+                    if (error.name !== 'AbortError') showToast('Could not load people. Please try again.', 'error');
+                    return false;
+                } finally { if (pickerRequests.get(kind) === controller) pickerRequests.delete(kind); }
+            }
+
+            function recomputeSelectListVisibility(listId) {
+                const list = document.getElementById(listId);
+                if (!list) return;
+                if (list.dataset?.pageSource) {
+                    if (!deferPlannerSync) void requestPlannerPicker(list.dataset.pageSource);
+                    return;
                 }
-                current.replaceWith(replacement);
-                htmx.process(replacement);
+
+                const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
+                const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+                const activeLabels = new Set(getActiveLabelFilters(listId));
+                const rows = list.querySelectorAll('.select-row');
+
+                rows.forEach(row => {
+                    const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
+                    const matchesSearch = query.length === 0 || haystack.includes(query);
+                    const rowLabels = (row.dataset.labels || '').trim();
+                    const labelIDs = rowLabels ? rowLabels.split(',').filter(Boolean) : [];
+                    const matchesLabels = activeLabels.size === 0 || labelIDs.some(id => activeLabels.has(id));
+                    row.classList.toggle('hidden', !(matchesSearch && matchesLabels));
+                });
+            }
+
+            function filterSelectList(input, listId) {
+                const kind = document.getElementById(listId)?.dataset?.pageSource;
+                if (kind) {
+                    clearTimeout(pickerSearchTimers.get(kind));
+                    pickerSearchTimers.set(kind, setTimeout(() => { pickerSearchTimers.delete(kind); void requestPlannerPicker(kind); }, 250));
+                    return;
+                }
+                recomputeSelectListVisibility(listId);
+            }
+
+            function toggleLabelFilter(button) {
+                const isActive = !button.classList.contains('is-active');
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                recomputeSelectListVisibility(button.dataset.listId);
+                saveEventPlannerDraft();
+            }
+
+            function clearPlannerFilters(listId) {
+                setActiveLabelFilters(listId, []);
+                const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
+                if (searchInput) searchInput.value = '';
+                recomputeSelectListVisibility(listId);
+                saveEventPlannerDraft();
+            }
+
+            function selectAllParticipants() {
+                if (document.getElementById('participants-selection')?.dataset?.pageSource) return requestPlannerPicker('participants', 0, true);
+                document.querySelectorAll('.participant-checkbox').forEach(cb => {
+                    const row = cb.closest('.select-row');
+                    if (row && row.classList.contains('hidden')) return;
+                    cb.checked = true;
+                    if (row) row.classList.add('is-selected');
+                });
+                updateEventStats();
+                saveEventPlannerDraft();
+            }
+
+            function selectAllDrivers() {
+                if (document.getElementById('drivers-selection')?.dataset?.pageSource) return requestPlannerPicker('drivers', 0, true);
+                document.querySelectorAll('.driver-checkbox').forEach(cb => {
+                    const row = cb.closest('.select-row');
+                    if (row && row.classList.contains('hidden')) return;
+                    cb.checked = true;
+                    if (row) row.classList.add('is-selected');
+                });
                 renderVanAssignmentsPanel();
                 updateEventStats();
                 saveEventPlannerDraft();
+            }
+
+            function applyCheckedValues(selector, selectedValues) {
+                const values = new Set((selectedValues || []).map(String));
+                document.querySelectorAll(selector).forEach(input => {
+                    const checked = values.has(String(input.value));
+                    input.checked = checked;
+                    const row = input.closest('.select-row');
+                    if (row) row.classList.toggle('is-selected', checked);
+                });
+            }
+
+            function read() {
+                return {
+                    participantIds: getCheckedInputs('.participant-checkbox').map(input => input.value),
+                    driverIds: getCheckedInputs('.driver-checkbox').map(input => input.value),
+                    vanAssignments: getVanAssignments(),
+                };
+            }
+
+            async function restore(draft) {
+                const form = getEventForm();
+                for (const kind of ['participants', 'drivers']) {
+                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource && !await requestPlannerPicker(kind, 0, false, draft)) throw new Error('could not restore selected people');
+                }
+                applyCheckedValues('.participant-checkbox', draft.participantIds);
+                applyCheckedValues('.driver-checkbox', draft.driverIds);
+                applyPlannerLabelFilters(draft.labelFilters);
+                recomputeSelectListVisibility('participants-selection');
+                recomputeSelectListVisibility('drivers-selection');
+
+                renderVanAssignmentsPanel();
+
+                if (draft.vanAssignments && typeof draft.vanAssignments === 'object') {
+                    const body = new URLSearchParams();
+                    getCheckedInputs('.driver-checkbox').forEach(input => body.append('driver_ids', input.value));
+                    Object.entries(draft.vanAssignments).forEach(([id, vehicle]) => body.set(`org_vehicle_${id}`, String(vehicle)));
+                    if (Object.keys(draft.vanAssignments).length && !document.getElementById('drivers-selection')?.dataset?.pageSource) {
+                        const response = await (window.authFetch || fetch)('/api/v1/planner/vehicle-assignments', {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body, signal: AbortSignal.timeout(15000)});
+                        if (!response.ok) throw new Error('Vehicle assignment restoration failed');
+                        const template = document.createElement('template');
+                        template.innerHTML = await response.text();
+                        for (const control of template.content.querySelectorAll('.van-assignment-inline')) {
+                            const previous = document.getElementById(control.id);
+                            if (previous && form.contains(previous)) { previous.replaceWith(control); htmx.process(control); }
+                        }
+                    }
+                    handleVanAssignmentChange();
+                } else {
+                    updateEventStats();
+                }
+            }
+
+            function clear(resetPlan) {
+                for (const request of pickerRequests.values()) request.abort();
+                pickerRequests.clear();
+                for (const timer of pickerSearchTimers.values()) clearTimeout(timer);
+                pickerSearchTimers.clear();
+                document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
+                    cb.checked = false;
+                    const row = cb.closest('.select-row');
+                    if (row) row.classList.remove('is-selected');
+                });
+                const form = getEventForm();
+                if (form) {
+                    setActiveLabelFilters('participants-selection', []);
+                    setActiveLabelFilters('drivers-selection', []);
+                    form.querySelectorAll('input[data-filter-role="search"]').forEach(input => {
+                        input.value = '';
+                    });
+                    recomputeSelectListVisibility('participants-selection');
+                    recomputeSelectListVisibility('drivers-selection');
+                }
+                resetPlan();
+                renderVanAssignmentsPanel();
+                updateEventStats();
+            }
+
+            function reload() {
+                for (const kind of ['participants', 'drivers']) {
+                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource) void requestPlannerPicker(kind);
+                }
+            }
+
+            function change(input) {
+                if (!input.classList.contains('driver-checkbox') && !input.classList.contains('participant-checkbox')) return false;
+                const row = input.closest('.select-row');
+                if (row) row.classList.toggle('is-selected', input.checked);
+                if (input.classList.contains('driver-checkbox')) renderVanAssignmentsPanel();
+                updateEventStats();
+                saveEventPlannerDraft();
                 return true;
-            } catch (error) {
-                if (error.name !== 'AbortError') showToast('Could not load people. Please try again.', 'error');
-                return false;
-            } finally { if (pickerRequests.get(kind) === controller) pickerRequests.delete(kind); }
-        }
-
-        function recomputeSelectListVisibility(listId) {
-            const list = document.getElementById(listId);
-            if (!list) return;
-            if (list.dataset?.pageSource) {
-                if (!deferPlannerSync) void requestPlannerPicker(list.dataset.pageSource);
-                return;
             }
 
-            const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
-            const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
-            const activeLabels = new Set(getActiveLabelFilters(listId));
-            const rows = list.querySelectorAll('.select-row');
-
-            rows.forEach(row => {
-                const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
-                const matchesSearch = query.length === 0 || haystack.includes(query);
-                const rowLabels = (row.dataset.labels || '').trim();
-                const labelIDs = rowLabels ? rowLabels.split(',').filter(Boolean) : [];
-                const matchesLabels = activeLabels.size === 0 || labelIDs.some(id => activeLabels.has(id));
-                row.classList.toggle('hidden', !(matchesSearch && matchesLabels));
-            });
-        }
-
-        function filterSelectList(input, listId) {
-            const kind = document.getElementById(listId)?.dataset?.pageSource;
-            if (kind) {
-                clearTimeout(pickerSearchTimers.get(kind));
-                pickerSearchTimers.set(kind, setTimeout(() => { pickerSearchTimers.delete(kind); void requestPlannerPicker(kind); }, 250));
-                return;
+            function initialize() {
+                document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
+                    const row = cb.closest('.select-row');
+                    if (row) row.classList.toggle('is-selected', cb.checked);
+                });
+                updateEventStats();
             }
-            recomputeSelectListVisibility(listId);
-        }
 
-        function toggleLabelFilter(button) {
-            const isActive = !button.classList.contains('is-active');
-            button.classList.toggle('is-active', isActive);
-            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-            recomputeSelectListVisibility(button.dataset.listId);
-            saveEventPlannerDraft();
-        }
+            function mirrorCapacityShortageVans(recalcForm) {
+                const vanAssignments = {};
+                recalcForm.querySelectorAll('.org-vehicle-select').forEach(source => {
+                    const target = document.getElementById(`van-assignment-${source.dataset.driverId}`);
+                    if (target && !target.disabled) {
+                        target.innerHTML = source.innerHTML;
+                        target.value = source.value;
+                        const label = target.closest('.van-assignment-inline')?.querySelector('.van-assignment-current');
+                        if (label) label.textContent = source.selectedOptions[0]?.textContent || 'Personal vehicle';
+                    }
+                    if (source.value) vanAssignments[source.dataset.driverId] = source.value;
+                });
+                handleVanAssignmentChange();
+                return vanAssignments;
+            }
 
-        function clearPlannerFilters(listId) {
-            setActiveLabelFilters(listId, []);
-            const searchInput = document.querySelector(`input[data-filter-role="search"][data-list-id="${listId}"]`);
-            if (searchInput) searchInput.value = '';
-            recomputeSelectListVisibility(listId);
-            saveEventPlannerDraft();
-        }
-
-        function clearAllPlannerFilters() {
-            clearPlannerFilters('participants-selection');
-            clearPlannerFilters('drivers-selection');
-        }
-
-        function selectAllParticipants() {
-            if (document.getElementById('participants-selection')?.dataset?.pageSource) return requestPlannerPicker('participants', 0, true);
-            document.querySelectorAll('.participant-checkbox').forEach(cb => {
-                const row = cb.closest('.select-row');
-                if (row && row.classList.contains('hidden')) return;
-                cb.checked = true;
-                if (row) row.classList.add('is-selected');
-            });
-            updateEventStats();
-            saveEventPlannerDraft();
-        }
-
-        function selectAllDrivers() {
-            if (document.getElementById('drivers-selection')?.dataset?.pageSource) return requestPlannerPicker('drivers', 0, true);
-            document.querySelectorAll('.driver-checkbox').forEach(cb => {
-                const row = cb.closest('.select-row');
-                if (row && row.classList.contains('hidden')) return;
-                cb.checked = true;
-                if (row) row.classList.add('is-selected');
-            });
-            renderVanAssignmentsPanel();
-            updateEventStats();
-            saveEventPlannerDraft();
+            return {
+                read, readFilters: getPlannerLabelFilters, restore, clear, reload,
+                change, initialize, refreshStats: updateEventStats,
+                mirrorCapacityShortageVans,
+                vanChanged: handleVanAssignmentChange,
+                search: filterSelectList, request: requestPlannerPicker,
+                toggleLabel: toggleLabelFilter, clearFilters: clearPlannerFilters,
+                selectAllParticipants, selectAllDrivers,
+            };
         }
 
         function clearSelections() {
-            for (const request of pickerRequests.values()) request.abort();
-            pickerRequests.clear();
-            for (const timer of pickerSearchTimers.values()) clearTimeout(timer);
-            pickerSearchTimers.clear();
             plannerRestoreFailed = false;
             if (getEventForm()) getEventForm().inert = false;
             const calculate = document.getElementById('calculate-btn');
@@ -1915,61 +1999,45 @@
             participantMoveBatcher.discardFor(getSessionId());
             deferPlannerSync = true;
             try {
-                document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
-                    cb.checked = false;
-                    const row = cb.closest('.select-row');
-                    if (row) row.classList.remove('is-selected');
-                });
-                if (form) {
-                    setActiveLabelFilters('participants-selection', []);
-                    setActiveLabelFilters('drivers-selection', []);
-                    form.querySelectorAll('input[data-filter-role="search"]').forEach(input => {
-                        input.value = '';
-                    });
-                    recomputeSelectListVisibility('participants-selection');
-                    recomputeSelectListVisibility('drivers-selection');
+                planSelection.clear(() => {
+                    if (form) {
+                        const routeTime = form.querySelector('input[name="route_time"]');
+                        if (routeTime) routeTime.value = getDefaultRouteTimeValue();
 
-                    const routeTime = form.querySelector('input[name="route_time"]');
-                    if (routeTime) routeTime.value = getDefaultRouteTimeValue();
-
-                    const activityLocation = form.querySelector('select[name="activity_location_id"]');
-                    if (activityLocation) {
-                        activityLocation.value = '';
-                        if (activityLocation.dataset?.onDemand) {
-                            activityLocation.innerHTML = '<option value="">Choose location</option>';
-                            activityLocation.closest('#event-activity-location-select')?.querySelector('p')?.remove();
+                        const activityLocation = form.querySelector('select[name="activity_location_id"]');
+                        if (activityLocation) {
+                            activityLocation.value = '';
+                            if (activityLocation.dataset?.onDemand) {
+                                activityLocation.innerHTML = '<option value="">Choose location</option>';
+                                activityLocation.closest('#event-activity-location-select')?.querySelector('p')?.remove();
+                            }
+                            activityLocation.dispatchEvent(new Event('change', { bubbles: true }));
                         }
-                        activityLocation.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
 
-                    form.querySelectorAll('input[name="mode"]').forEach(input => {
-                        input.checked = input.value === 'dropoff';
-                    });
-                    const defaultMode = form.querySelector('input[name="mode"][value="dropoff"]');
-                    if (defaultMode) defaultMode.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-                const resultsSection = document.getElementById('results-section');
-                const emptyResultsTemplate = document.getElementById('results-empty-state-template');
-                if (resultsSection && emptyResultsTemplate) {
-                    resultsSection.innerHTML = emptyResultsTemplate.innerHTML;
-                }
-                renderVanAssignmentsPanel();
-                updateEventStats();
+                        form.querySelectorAll('input[name="mode"]').forEach(input => {
+                            input.checked = input.value === 'dropoff';
+                        });
+                        const defaultMode = form.querySelector('input[name="mode"][value="dropoff"]');
+                        if (defaultMode) defaultMode.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    const resultsSection = document.getElementById('results-section');
+                    const emptyResultsTemplate = document.getElementById('results-empty-state-template');
+                    if (resultsSection && emptyResultsTemplate) {
+                        resultsSection.innerHTML = emptyResultsTemplate.innerHTML;
+                    }
+                });
             } finally {
                 deferPlannerSync = false;
             }
             clearEventPlannerDraft();
             swappedSaveFields = null;
             plannerState.clear();
-            for (const kind of ['participants', 'drivers']) {
-                if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource) void requestPlannerPicker(kind);
-            }
+            planSelection.reload();
         }
 
         function validateBeforeCalculate() {
             if (deferPlannerSync || plannerRestoreFailed) return false;
-            const participants = getCheckedInputs('.participant-checkbox');
-            const drivers = getCheckedInputs('.driver-checkbox');
+            const {participantIds: participants, driverIds: drivers} = planSelection.read();
             const activityLocation = document.querySelector('select[name="activity_location_id"]');
             const routeTime = document.querySelector('input[name="route_time"]');
 
@@ -2034,16 +2102,7 @@
         document.addEventListener('change', function(e) {
             if (!getEventForm()) return;
 
-            if (e.target.classList.contains('driver-checkbox') || e.target.classList.contains('participant-checkbox')) {
-                const row = e.target.closest('.select-row');
-                if (row) row.classList.toggle('is-selected', e.target.checked);
-                if (e.target.classList.contains('driver-checkbox')) {
-                    renderVanAssignmentsPanel();
-                }
-                updateEventStats();
-                saveEventPlannerDraft();
-                return;
-            }
+            if (planSelection.change(e.target)) return;
 
             if (e.target.name === 'activity_location_id' || e.target.name === 'mode') {
                 if (e.target.name === 'mode') {
@@ -2096,36 +2155,16 @@
 
         if (getEventForm()) {
             const restoredDraft = restoreEventPlannerDraft();
-            document.querySelectorAll('.participant-checkbox, .driver-checkbox').forEach(cb => {
-                const row = cb.closest('.select-row');
-                if (row) row.classList.toggle('is-selected', cb.checked);
-            });
-            updateEventStats();
+            planSelection.initialize();
             updateRouteTimeCopy();
             ensureDefaultRouteTime();
 
             const activeSession = plannerState.restoreCandidate();
             restoredDraft.then(() => {
-                updateEventStats();
+                planSelection.refreshStats();
                 if (activeSession) return restoreRouteSession(activeSession);
             }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
                 .finally(() => document.documentElement?.classList.remove('planner-restoring'));
-
-            function mirrorCapacityShortageVans(recalcForm) {
-                const vanAssignments = {};
-                recalcForm.querySelectorAll('.org-vehicle-select').forEach(source => {
-                    const target = document.getElementById(`van-assignment-${source.dataset.driverId}`);
-                    if (target && !target.disabled) {
-                        target.innerHTML = source.innerHTML;
-                        target.value = source.value;
-                        const label = target.closest('.van-assignment-inline')?.querySelector('.van-assignment-current');
-                        if (label) label.textContent = source.selectedOptions[0]?.textContent || 'Personal vehicle';
-                    }
-                    if (source.value) vanAssignments[source.dataset.driverId] = source.value;
-                });
-                handleVanAssignmentChange();
-                return vanAssignments;
-            }
 
             function readCapacityShortageFingerprint(recalcForm) {
                 const hidden = name => Array.from(recalcForm.querySelectorAll(`input[name="${name}"]`))
@@ -2137,7 +2176,7 @@
                     driverIds: hidden('driver_ids'),
                     mode: single('mode')?.value || 'dropoff',
                     routeTime: single('route_time')?.value || '',
-                    vanAssignments: mirrorCapacityShortageVans(recalcForm),
+                    vanAssignments: planSelection.mirrorCapacityShortageVans(recalcForm),
                 });
             }
 
@@ -2224,13 +2263,13 @@
         root.previewRoute = previewRoute;
         document.addEventListener('DOMContentLoaded', () => applyLocalEventDate(document));
         document.addEventListener('htmx:afterSettle', event => applyLocalEventDate(event.target || document));
-        root.handleVanAssignmentChange = handleVanAssignmentChange;
-        root.filterSelectList = filterSelectList;
-        root.requestPlannerPicker = requestPlannerPicker;
-        root.toggleLabelFilter = toggleLabelFilter;
-        root.clearPlannerFilters = clearPlannerFilters;
-        root.selectAllParticipants = selectAllParticipants;
-        root.selectAllDrivers = selectAllDrivers;
+        root.handleVanAssignmentChange = planSelection.vanChanged;
+        root.filterSelectList = planSelection.search;
+        root.requestPlannerPicker = planSelection.request;
+        root.toggleLabelFilter = planSelection.toggleLabel;
+        root.clearPlannerFilters = planSelection.clearFilters;
+        root.selectAllParticipants = planSelection.selectAllParticipants;
+        root.selectAllDrivers = planSelection.selectAllDrivers;
         root.clearSelections = clearSelections;
         root.validateBeforeCalculate = validateBeforeCalculate;
 
