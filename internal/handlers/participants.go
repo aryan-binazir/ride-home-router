@@ -23,25 +23,9 @@ type ParticipantResponse struct {
 }
 
 func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request) {
-	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	log.Printf("[HTTP] GET /api/v1/participants:")
-
-	participants, err := h.DB.Participants().List(r.Context(), search)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to list participants: err=%s", logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Listed participants: count=%d", len(participants))
+	reader := rosterReader{db: h.DB}
 	if h.isHTMX(r) {
-		view, err := h.participantListView(r, participants)
+		view, err := reader.participants(r)
 		if err != nil {
 			h.renderError(w, r, err)
 			return
@@ -49,37 +33,18 @@ func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request)
 		h.renderTemplate(w, "participant_list", view)
 		return
 	}
-
-	responseParticipants, err := h.participantResponses(r.Context(), participants)
+	response, err := reader.participantJSON(r)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load participant labels for list: err=%v", err)
 		h.handleInternalError(w, r, err)
 		return
 	}
-
-	h.writeJSON(w, http.StatusOK, ParticipantListResponse{
-		Participants: responseParticipants,
-		Total:        len(participants),
-	})
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) HandleListDeletedParticipants(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[HTTP] GET /api/v1/participants/deleted")
-
-	participants, err := h.DB.Participants().ListDeleted(r.Context())
-	if err != nil {
-		log.Printf("[ERROR] Failed to list deleted participants: err=%v", err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
-		return
-	}
-
-	log.Printf("[HTTP] Listed deleted participants: count=%d", len(participants))
+	reader := rosterReader{db: h.DB}
 	if h.isHTMX(r) {
-		view, err := h.participantListView(r, participants)
+		view, err := reader.participants(r)
 		if err != nil {
 			h.renderError(w, r, err)
 			return
@@ -87,17 +52,12 @@ func (h *Handler) HandleListDeletedParticipants(w http.ResponseWriter, r *http.R
 		h.renderTemplate(w, "participant_deleted_list", view)
 		return
 	}
-
-	responseParticipants, err := h.participantResponses(r.Context(), participants)
+	response, err := reader.participantJSON(r)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load deleted participant labels: err=%v", err)
 		h.handleInternalError(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, ParticipantListResponse{
-		Participants: responseParticipants,
-		Total:        len(participants),
-	})
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
@@ -230,20 +190,14 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Created participant: id=%d", participant.ID)
 	if h.isHTMX(r) {
-		participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
+		view, err := (rosterReader{db: h.DB}).participants(r)
 		if err != nil {
-			log.Printf("[ERROR] Failed to list participants after create: err=%v", err)
+			log.Printf("[ERROR] Failed to refresh participants after create: err=%v", err)
 			h.setHTMXToastWithEvent(w, "participantCreated", "Participant saved. Refresh the page to see the updated roster.", toastTypeWarning)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h.setHTMXToastWithEvent(w, "participantCreated", messageEntityAdded("Participant", participant.Name), toastTypeSuccess)
-		view, err := h.participantListView(r, participants)
-		if err != nil {
-			h.setHTMXToastWithEvent(w, "participantCreated", "Participant saved. Refresh the page to see the updated roster.", toastTypeWarning)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 		h.renderTemplate(w, "participant_list", view)
 		return
 	}
@@ -392,18 +346,12 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 
 	log.Printf("[HTTP] Updated participant: id=%d", participant.ID)
 	if h.isHTMX(r) {
-		participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
+		view, err := (rosterReader{db: h.DB}).participants(r)
 		if err != nil {
-			log.Printf("[ERROR] Failed to list participants after update: err=%v", err)
 			h.renderError(w, r, err)
 			return
 		}
 		h.setHTMXToastWithEvent(w, "participantUpdated", messageEntityUpdated("Participant", participant.Name), toastTypeSuccess)
-		view, err := h.participantListView(r, participants)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
 		h.renderTemplate(w, "participant_list", view)
 		return
 	}
@@ -551,24 +499,6 @@ func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func (h *Handler) participantListView(r *http.Request, participants []models.Participant) (ParticipantListView, error) {
-	labels, err := h.DB.Labels().List(r.Context())
-	if err != nil {
-		return ParticipantListView{}, err
-	}
-	labelIDs, err := h.DB.Labels().ListLabelIDsForParticipants(r.Context())
-	if err != nil {
-		return ParticipantListView{}, err
-	}
-	participants, pagination := pageRosterParticipants(r, participants)
-	return ParticipantListView{
-		Pagination:   pagination,
-		Participants: participants,
-		Labels:       labels,
-		LabelIDs:     labelIDs,
-	}, nil
-}
-
 func (h *Handler) loadLabelsForParticipant(r *http.Request, participantID int64) ([]models.Label, map[int64]bool, error) {
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
@@ -594,24 +524,4 @@ func (h *Handler) participantResponse(ctx context.Context, participant *models.P
 		Participant: *participant,
 		LabelIDs:    labelIDs,
 	}, nil
-}
-
-func (h *Handler) participantResponses(ctx context.Context, participants []models.Participant) ([]ParticipantResponse, error) {
-	labelIDsByParticipant, err := h.DB.Labels().ListLabelIDsForParticipants(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	responses := make([]ParticipantResponse, 0, len(participants))
-	for _, participant := range participants {
-		labelIDs := append([]int64{}, labelIDsByParticipant[participant.ID]...)
-		if labelIDs == nil {
-			labelIDs = []int64{}
-		}
-		responses = append(responses, ParticipantResponse{
-			Participant: participant,
-			LabelIDs:    labelIDs,
-		})
-	}
-	return responses, nil
 }

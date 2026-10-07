@@ -23,25 +23,9 @@ type DriverResponse struct {
 }
 
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
-	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	log.Printf("[HTTP] GET /api/v1/drivers:")
-
-	drivers, err := h.DB.Drivers().List(r.Context(), search)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to list drivers: err=%s", logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Listed drivers: count=%d", len(drivers))
+	reader := rosterReader{db: h.DB}
 	if h.isHTMX(r) {
-		view, err := h.driverListView(r, drivers)
+		view, err := reader.drivers(r)
 		if err != nil {
 			h.renderError(w, r, err)
 			return
@@ -49,37 +33,18 @@ func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
 		h.renderTemplate(w, "driver_list", view)
 		return
 	}
-
-	responseDrivers, err := h.driverResponses(r.Context(), drivers)
+	response, err := reader.driverJSON(r)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load driver labels for list: err=%v", err)
 		h.handleInternalError(w, r, err)
 		return
 	}
-
-	h.writeJSON(w, http.StatusOK, DriverListResponse{
-		Drivers: responseDrivers,
-		Total:   len(drivers),
-	})
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[HTTP] GET /api/v1/drivers/deleted")
-
-	drivers, err := h.DB.Drivers().ListDeleted(r.Context())
-	if err != nil {
-		log.Printf("[ERROR] Failed to list deleted drivers: err=%v", err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
-		return
-	}
-
-	log.Printf("[HTTP] Listed deleted drivers: count=%d", len(drivers))
+	reader := rosterReader{db: h.DB}
 	if h.isHTMX(r) {
-		view, err := h.driverListView(r, drivers)
+		view, err := reader.drivers(r)
 		if err != nil {
 			h.renderError(w, r, err)
 			return
@@ -87,17 +52,12 @@ func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Reques
 		h.renderTemplate(w, "driver_deleted_list", view)
 		return
 	}
-
-	responseDrivers, err := h.driverResponses(r.Context(), drivers)
+	response, err := reader.driverJSON(r)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load deleted driver labels: err=%v", err)
 		h.handleInternalError(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, DriverListResponse{
-		Drivers: responseDrivers,
-		Total:   len(drivers),
-	})
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
@@ -248,20 +208,14 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Created driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
-		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
+		view, err := (rosterReader{db: h.DB}).drivers(r)
 		if err != nil {
-			log.Printf("[ERROR] Failed to list drivers after create: err=%v", err)
+			log.Printf("[ERROR] Failed to refresh drivers after create: err=%v", err)
 			h.setHTMXToastWithEvent(w, "driverCreated", "Driver saved. Refresh the page to see the updated roster.", toastTypeWarning)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h.setHTMXToastWithEvent(w, "driverCreated", messageEntityAdded("Driver", driver.Name), toastTypeSuccess)
-		view, err := h.driverListView(r, drivers)
-		if err != nil {
-			h.setHTMXToastWithEvent(w, "driverCreated", "Driver saved. Refresh the page to see the updated roster.", toastTypeWarning)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 		h.renderTemplate(w, "driver_list", view)
 		return
 	}
@@ -428,18 +382,12 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Updated driver: id=%d", driver.ID)
 	if h.isHTMX(r) {
-		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
+		view, err := (rosterReader{db: h.DB}).drivers(r)
 		if err != nil {
-			log.Printf("[ERROR] Failed to list drivers after update: err=%v", err)
 			h.renderError(w, r, err)
 			return
 		}
 		h.setHTMXToastWithEvent(w, "driverUpdated", messageEntityUpdated("Driver", driver.Name), toastTypeSuccess)
-		view, err := h.driverListView(r, drivers)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
 		h.renderTemplate(w, "driver_list", view)
 		return
 	}
@@ -587,24 +535,6 @@ func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) driverListView(r *http.Request, drivers []models.Driver) (DriverListView, error) {
-	labels, err := h.DB.Labels().List(r.Context())
-	if err != nil {
-		return DriverListView{}, err
-	}
-	labelIDs, err := h.DB.Labels().ListLabelIDsForDrivers(r.Context())
-	if err != nil {
-		return DriverListView{}, err
-	}
-	drivers, pagination := pageRosterDrivers(r, drivers)
-	return DriverListView{
-		Pagination: pagination,
-		Drivers:    drivers,
-		Labels:     labels,
-		LabelIDs:   labelIDs,
-	}, nil
-}
-
 func (h *Handler) loadLabelsForDriver(r *http.Request, driverID int64) ([]models.Label, map[int64]bool, error) {
 	labels, err := h.DB.Labels().List(r.Context())
 	if err != nil {
@@ -630,24 +560,4 @@ func (h *Handler) driverResponse(ctx context.Context, driver *models.Driver) (Dr
 		Driver:   *driver,
 		LabelIDs: labelIDs,
 	}, nil
-}
-
-func (h *Handler) driverResponses(ctx context.Context, drivers []models.Driver) ([]DriverResponse, error) {
-	labelIDsByDriver, err := h.DB.Labels().ListLabelIDsForDrivers(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	responses := make([]DriverResponse, 0, len(drivers))
-	for _, driver := range drivers {
-		labelIDs := append([]int64{}, labelIDsByDriver[driver.ID]...)
-		if labelIDs == nil {
-			labelIDs = []int64{}
-		}
-		responses = append(responses, DriverResponse{
-			Driver:   driver,
-			LabelIDs: labelIDs,
-		})
-	}
-	return responses, nil
 }

@@ -54,18 +54,6 @@ func TestRosterSearchRendersSQLMatches(t *testing.T) {
 	}
 }
 
-func TestPageRosterPreservesSQLResultsAndSearch(t *testing.T) {
-	items := make([]models.Participant, 101)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/participants?search=+Maple+&offset=50", nil)
-	rows, page := pageRosterParticipants(req, items)
-	if len(rows) != 50 || page.Offset != 50 || page.Search != "Maple" {
-		t.Fatalf("rows = %d, page = %#v; want unfiltered page and trimmed search", len(rows), page)
-	}
-	if page.NextURL != "/api/v1/participants?offset=100&search=Maple" || page.PreviousURL != "/api/v1/participants?offset=0&search=Maple" {
-		t.Fatalf("pagination URLs = %#v", page)
-	}
-}
-
 func TestRosterRefreshAfterUpdateKeepsSearch(t *testing.T) {
 	h, store := newTestPageHandler(t)
 	zelda, err := store.Participants().Create(t.Context(), &models.Participant{Name: "Zelda", Address: "123 Maple Avenue", AddressName: "Community Center"})

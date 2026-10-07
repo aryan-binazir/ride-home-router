@@ -7,7 +7,6 @@ import (
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -567,21 +566,17 @@ func (h *Handler) renderImportCommitted(w http.ResponseWriter, r *http.Request, 
 	}
 	if view.IsDriver {
 		view.ListElementID = "drivers-list"
-		drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
-		if err == nil {
-			view.DriverList, err = h.driverListView(r, drivers)
-			view.HasList = err == nil
-		}
+		var err error
+		view.DriverList, err = (rosterReader{db: h.DB}).drivers(r)
+		view.HasList = err == nil
 		if err != nil {
 			log.Printf("[ERROR] Failed to refresh driver list after import: err=%v", err)
 		}
 	} else {
 		view.ListElementID = "participants-list"
-		participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
-		if err == nil {
-			view.ParticipantList, err = h.participantListView(r, participants)
-			view.HasList = err == nil
-		}
+		var err error
+		view.ParticipantList, err = (rosterReader{db: h.DB}).participants(r)
+		view.HasList = err == nil
 		if err != nil {
 			log.Printf("[ERROR] Failed to refresh participant list after import: err=%v", err)
 		}
