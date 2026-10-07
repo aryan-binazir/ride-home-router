@@ -84,3 +84,21 @@ func TestImportSummaryCountsJobsAndSelectedValidRows(t *testing.T) {
 		t.Fatalf("empty summary=%+v err=%v", summary, err)
 	}
 }
+
+func TestImportSummaryKeepsPendingRowsRunningWithoutJobs(t *testing.T) {
+	db := postgrestest.Open(t)
+	ctx := t.Context()
+	if err := db.Workflows().Create(ctx, "import", "pending", []byte(`{}`), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	err := db.Workflows().Transact(ctx, "import", "pending", time.Hour, func(_ *database.WorkflowRecord, w database.WorkflowWrites) error {
+		return w.StageImport(ctx, "pending", []database.ImportRow{{Index: 0, Data: []byte(`{"Errors":null,"NeedsGeocoding":true}`), Selected: true}}, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := db.ImportJobs().Summary(ctx, "pending")
+	if err != nil || !summary.Running || summary.Done != 0 || summary.Total != 0 || summary.SelectedCount != 1 {
+		t.Fatalf("pending summary=%+v err=%v", summary, err)
+	}
+}

@@ -3,6 +3,7 @@ package importer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"ride-home-router/internal/database"
 )
 
@@ -18,7 +19,8 @@ func applySelectionPatch(selected []bool, patch map[int]bool) error {
 	return nil
 }
 
-func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bool) (Snapshot, error) {
+func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bool) (ProgressSnapshot, error) {
+	var result ProgressSnapshot
 	err := s.records.Transact(ctx, "import", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		var h importHeader
 		if err := json.Unmarshal(record.Data, &h); err != nil {
@@ -27,24 +29,26 @@ func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bo
 		if h.Status != StatusPreviewing || record.Consumed {
 			return ErrInvalidSessionState
 		}
-		stored, err := w.ImportRows(ctx, id)
+		if err := w.PatchImportSelections(ctx, id, patch); err != nil {
+			if errors.Is(err, database.ErrInvalidWorkflowSelection) {
+				return ErrInvalidSelection
+			}
+			return err
+		}
+		counts, err := w.ImportSummary(ctx, id)
 		if err != nil {
 			return err
 		}
-		_, selected, err := decodeImportRows(stored)
-		if err != nil {
-			return err
-		}
-		if err := applySelectionPatch(selected, patch); err != nil {
-			return err
-		}
-		return w.SelectImportRows(ctx, id, selected)
+		result = importProgressSnapshot(id, h.Status, counts)
+		return nil
 	})
-	if err != nil {
-		return Snapshot{}, err
+	if errors.Is(err, database.ErrNotFound) {
+		err = ErrSessionNotFound
 	}
-	result, _, err := s.Load(ctx, id)
-	return result, err
+	if err != nil {
+		return ProgressSnapshot{}, err
+	}
+	return result, nil
 }
 
 // CommitRowsPatch applies the visible page delta atomically with the commit.

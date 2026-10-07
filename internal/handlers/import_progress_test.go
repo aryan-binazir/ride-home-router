@@ -106,6 +106,21 @@ func TestPersistentImportProgressPanelUsesOnlyCounts(t *testing.T) {
 	if strings.Contains(w.Body.String(), "disabled>") || strings.Contains(w.Body.String(), "every 2s") {
 		t.Fatalf("finished progress still pending: %s", w.Body.String())
 	}
+	w = httptest.NewRecorder()
+	h.HandleImportSession(w, newImportPanelRequest(http.MethodGet, "/api/v1/imports/"+id+"?view=panel&offset=5000"))
+	if strings.Count(w.Body.String(), `<tr class="import-row`) != 11 || !strings.Contains(w.Body.String(), "60 of 61 rows selected") {
+		t.Fatalf("review page downloaded full snapshot or lost counts: %s", w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.HandleImportSession(w, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection?view=panel&page=1&offset=50", url.Values{"page_selection": {"1"}, "visible": {"0", "60"}, "selected": {"60"}}))
+	if strings.Count(w.Body.String(), `<tr class="import-row`) != 11 || !strings.Contains(w.Body.String(), "59 of 61 rows selected") {
+		t.Fatalf("page delta downloaded full snapshot or counted invalid row: %s", w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.HandleImportSession(w, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/selection?view=panel", url.Values{"page_selection": {"1"}, "visible": {"0"}, "selected": {"0"}}))
+	if !strings.Contains(w.Body.String(), "60 of 61 rows selected") || strings.Contains(w.Body.String(), `class="import-row`) {
+		t.Fatalf("count-only delta response: %s", w.Body.String())
+	}
 	if _, err := store.Commit(t.Context(), id, nil); err != nil {
 		t.Fatal(err)
 	}

@@ -79,6 +79,23 @@ type ProgressSnapshot struct {
 	RowCount, SelectedCount int
 }
 
+const ReviewPageSize = 50
+
+type ReviewRow struct {
+	Row
+	Index    int
+	Selected bool
+}
+
+type ReviewPage struct {
+	ProgressSnapshot
+	Kind                   Kind
+	Filename               string
+	Warnings               []string
+	Offset, Next, Previous int
+	Rows                   []ReviewRow
+}
+
 type Store struct {
 	records      database.WorkflowRepository
 	durableJobs  database.ImportJobRepository
