@@ -240,61 +240,16 @@ func importPageSelection(r *http.Request, rowCount int) (map[int]bool, error) {
 	return patch, nil
 }
 
-func newImportPreviewView(snapshot importer.Snapshot) importPreviewView {
-	return importPreviewPage(snapshot, 0)
+func newImportPreviewView(page importer.ReviewPage) importPreviewView {
+	rows := make([]importRowView, 0, len(page.Rows))
+	for _, row := range page.Rows {
+		rows = append(rows, importRowView{Index: row.Index, SourceRow: row.SourceRow, Name: row.Name, Address: row.Address, AddressName: row.AddressName, Coordinates: importRowCoordinates(row.Row), Capacity: row.Capacity, State: importRowState(row.Row), Notes: importRowNotes(row.Row), Selected: row.Selected, Selectable: len(row.Errors) == 0})
+	}
+	return importPreviewView{Offset: page.Offset, Next: page.Next, Previous: page.Previous, SessionID: page.ID, Filename: page.Filename, IsDriver: page.Kind == importer.KindDriver, Warnings: append([]string(nil), page.Warnings...), Rows: rows, Geocoding: page.GeocodeProgress.Running, GeocodeDone: page.GeocodeProgress.Done, GeocodeTotal: page.GeocodeProgress.Total, CommitBar: newImportCommitBar(page.ProgressSnapshot)}
 }
 
-func importPreviewPage(snapshot importer.Snapshot, offset int) importPreviewView {
-	isDriver := snapshot.Kind == importer.KindDriver
-	start, end, next, previous := pickerWindow(len(snapshot.Rows), offset)
-	rows := make([]importRowView, 0, end-start)
-	for index := start; index < end; index++ {
-		row := snapshot.Rows[index]
-		rows = append(rows, importRowView{
-			Index:       index,
-			SourceRow:   row.SourceRow,
-			Name:        row.Name,
-			Address:     row.Address,
-			AddressName: row.AddressName,
-			Coordinates: importRowCoordinates(row),
-			Capacity:    row.Capacity,
-			State:       importRowState(row),
-			Notes:       importRowNotes(row),
-			Selected:    index < len(snapshot.Selected) && snapshot.Selected[index],
-			Selectable:  len(row.Errors) == 0,
-		})
-	}
-
-	selectedCount := selectedImportableRowCount(snapshot)
-	geocoding := snapshot.GeocodeProgress.Running
-
-	return importPreviewView{
-		Offset: start, Next: next, Previous: previous,
-		SessionID:    snapshot.ID,
-		Filename:     snapshot.Filename,
-		IsDriver:     isDriver,
-		Warnings:     append([]string(nil), snapshot.Grid.Warnings...),
-		Rows:         rows,
-		Geocoding:    geocoding,
-		GeocodeDone:  snapshot.GeocodeProgress.Done,
-		GeocodeTotal: snapshot.GeocodeProgress.Total,
-		CommitBar: importCommitBarView{
-			SessionID: snapshot.ID,
-			Selected:  selectedCount,
-			Total:     len(snapshot.Rows),
-			Disabled:  geocoding || selectedCount == 0 || snapshot.Status != importer.StatusPreviewing,
-		},
-	}
-}
-
-func selectedImportableRowCount(snapshot importer.Snapshot) int {
-	count := 0
-	for i, row := range snapshot.Rows {
-		if i < len(snapshot.Selected) && snapshot.Selected[i] && len(row.Errors) == 0 {
-			count++
-		}
-	}
-	return count
+func newImportCommitBar(progress importer.ProgressSnapshot) importCommitBarView {
+	return importCommitBarView{SessionID: progress.ID, Selected: progress.SelectedCount, Total: progress.RowCount, Disabled: progress.GeocodeProgress.Running || progress.SelectedCount == 0 || progress.Status != importer.StatusPreviewing}
 }
 
 func importRowCoordinates(row importer.Row) string {
@@ -374,7 +329,7 @@ func (h *Handler) renderImportStep(w http.ResponseWriter, r *http.Request, snaps
 	case importer.StatusMapping:
 		h.renderTemplate(w, "import_mapping", newImportMappingView(snapshot, nil))
 	case importer.StatusPreviewing, importer.StatusCommitting:
-		h.renderImportPreview(w, r, snapshot)
+		h.renderImportPreview(w, r, snapshot.ID)
 	case importer.StatusCommitted:
 		h.renderTemplate(w, "import_result", importCommitView{Message: importCommitMessage(snapshot.CommitResult), GuessedWarning: importGuessedWarning(snapshot.CommitResult)})
 	case importer.StatusFailed:
@@ -384,9 +339,18 @@ func (h *Handler) renderImportStep(w http.ResponseWriter, r *http.Request, snaps
 	}
 }
 
-func (h *Handler) renderImportPreview(w http.ResponseWriter, r *http.Request, snapshot importer.Snapshot) {
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	view := importPreviewPage(snapshot, offset)
+func (h *Handler) renderImportPreview(w http.ResponseWriter, r *http.Request, id string) {
+	requested, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	page, err := h.ImportSession.LoadReviewPage(r.Context(), id, requested)
+	if err != nil {
+		h.writeImportStoreError(w, r, id, err)
+		return
+	}
+	h.renderImportReviewPage(w, r, page)
+}
+
+func (h *Handler) renderImportReviewPage(w http.ResponseWriter, r *http.Request, page importer.ReviewPage) {
+	view := newImportPreviewView(page)
 	if r.URL.Query().Get("progress") == "1" {
 		view.ProgressOnly = true
 		view.CommitBar.OOB = true
@@ -416,38 +380,37 @@ func (h *Handler) renderImportMessage(w http.ResponseWriter, sessionID, message 
 }
 
 func (h *Handler) renderImportPanelSnapshot(w http.ResponseWriter, r *http.Request, id string) (int, int) {
-	if r.URL.Query().Get("progress") == "1" {
-		progress, ok, err := h.ImportSession.LoadProgress(r.Context(), id)
-		if err != nil {
-			return h.writeImportStoreError(w, r, id, err), -1
-		}
-		if !ok {
-			return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil), -1
-		}
-		if progress.Status == importer.StatusPreviewing || progress.Status == importer.StatusCommitting {
-			requested, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-			offset, _, _, _ := pickerWindow(progress.RowCount, requested)
-			view := importPreviewView{
-				Offset: offset, ProgressOnly: true, SessionID: id,
-				Geocoding:   progress.GeocodeProgress.Running,
-				GeocodeDone: progress.GeocodeProgress.Done, GeocodeTotal: progress.GeocodeProgress.Total,
-				CommitBar: importCommitBarView{
-					OOB: true, SessionID: id, Selected: progress.SelectedCount, Total: progress.RowCount,
-					Disabled: progress.GeocodeProgress.Running || progress.SelectedCount == 0 || progress.Status != importer.StatusPreviewing,
-				},
-			}
-			h.renderTemplate(w, "import_progress", view)
-			return http.StatusOK, progress.RowCount
-		}
-	}
-	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
-	if loadErr != nil {
-		return h.writeImportStoreError(w, r, id, loadErr), -1
+	progress, ok, err := h.ImportSession.LoadProgress(r.Context(), id)
+	if err != nil {
+		return h.writeImportStoreError(w, r, id, err), -1
 	}
 	if !ok {
 		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil), -1
 	}
-	if r.URL.Query().Get("progress") == "1" && snapshot.Status != importer.StatusPreviewing && snapshot.Status != importer.StatusCommitting {
+	if progress.Status == importer.StatusPreviewing || progress.Status == importer.StatusCommitting {
+		requested, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		if r.URL.Query().Get("progress") == "1" {
+			offset, _, _, _ := pickerWindow(progress.RowCount, requested)
+			bar := newImportCommitBar(progress)
+			bar.OOB = true
+			h.renderTemplate(w, "import_progress", importPreviewView{Offset: offset, ProgressOnly: true, SessionID: id, Geocoding: progress.GeocodeProgress.Running, GeocodeDone: progress.GeocodeProgress.Done, GeocodeTotal: progress.GeocodeProgress.Total, CommitBar: bar})
+		} else {
+			page, err := h.ImportSession.LoadReviewPage(r.Context(), id, requested)
+			if err != nil {
+				return h.writeImportStoreError(w, r, id, err), -1
+			}
+			h.renderImportReviewPage(w, r, page)
+		}
+		return http.StatusOK, progress.RowCount
+	}
+	snapshot, ok, err := h.ImportSession.Load(r.Context(), id)
+	if err != nil {
+		return h.writeImportStoreError(w, r, id, err), -1
+	}
+	if !ok {
+		return h.writeImportError(w, r, id, http.StatusNotFound, "NOT_FOUND", "That import expired. Choose your file again.", nil), -1
+	}
+	if r.URL.Query().Get("progress") == "1" {
 		w.Header().Set("HX-Retarget", "#import-steps")
 		w.Header().Set("HX-Reswap", "innerHTML")
 	}
@@ -483,12 +446,12 @@ func (h *Handler) applyImportPanelMapping(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), len(updated.Rows)
 	}
-	h.renderImportPreview(w, r, updated)
+	h.renderImportPreview(w, r, updated.ID)
 	return http.StatusOK, len(updated.Rows)
 }
 
 func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Request, id string) (int, int) {
-	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	progress, ok, loadErr := h.ImportSession.LoadProgress(r.Context(), id)
 	if loadErr != nil {
 		return h.writeImportStoreError(w, r, id, loadErr), -1
 	}
@@ -498,26 +461,29 @@ func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Reque
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil), -1
 	}
-	var updated importer.Snapshot
+	var updated importer.ProgressSnapshot
 	var err error
 	if r.Form.Get("page_selection") == "1" {
 		var patch map[int]bool
-		patch, err = importPageSelection(r, len(snapshot.Rows))
+		patch, err = importPageSelection(r, progress.RowCount)
 		if err == nil {
 			updated, err = h.ImportSession.SelectRowsPatch(r.Context(), id, patch)
 		}
 	} else {
-		updated, err = h.ImportSession.SelectRowsContext(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+		_, err = h.ImportSession.SelectRowsContext(r.Context(), id, importSelectionFromForm(r, progress.RowCount))
+		if err == nil {
+			updated, _, err = h.ImportSession.LoadProgress(r.Context(), id)
+		}
 	}
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err), -1
 	}
 	if r.URL.Query().Get("page") == "1" {
-		h.renderImportPreview(w, r, updated)
+		h.renderImportPreview(w, r, id)
 	} else {
-		h.renderTemplate(w, "import_commit_bar", newImportPreviewView(updated).CommitBar)
+		h.renderTemplate(w, "import_commit_bar", newImportCommitBar(updated))
 	}
-	return http.StatusOK, len(updated.Rows)
+	return http.StatusOK, updated.RowCount
 }
 
 func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id string) int {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"ride-home-router/internal/database"
 	"time"
 )
@@ -43,10 +44,18 @@ func (r *importJobRepository) Rows(ctx context.Context, id string) ([]database.I
 }
 
 func (r *importJobRepository) RowsByIndices(ctx context.Context, id string, indices []int) ([]database.ImportRow, error) {
+	return importRowsByIndices(ctx, r.db, id, indices)
+}
+
+func (w workflowWrites) ImportRowsByIndices(ctx context.Context, id string, indices []int) ([]database.ImportRow, error) {
+	return importRowsByIndices(ctx, w.tx, id, indices)
+}
+
+func importRowsByIndices(ctx context.Context, q queryRows, id string, indices []int) ([]database.ImportRow, error) {
 	if len(indices) == 0 {
 		return nil, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT row_index,payload,selected FROM import_rows WHERE session_id=$1 AND row_index=ANY($2::integer[]) ORDER BY row_index`, id, indices)
+	rows, err := q.QueryContext(ctx, `SELECT row_index,payload,selected FROM import_rows WHERE session_id=$1 AND row_index=ANY($2::integer[]) ORDER BY row_index`, id, indices)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +108,32 @@ func (w workflowWrites) SelectImportRows(ctx context.Context, id string, selecte
 	return err
 }
 
+func (w workflowWrites) PatchImportSelections(ctx context.Context, id string, patch map[int]bool) error {
+	if len(patch) == 0 {
+		return nil
+	}
+	indices := make([]int, 0, len(patch))
+	selected := make([]bool, 0, len(patch))
+	for index, value := range patch {
+		if index < 0 || index > math.MaxInt32 {
+			return database.ErrInvalidWorkflowSelection
+		}
+		indices = append(indices, index)
+		selected = append(selected, value)
+	}
+	var count int
+	if err := w.tx.QueryRowContext(ctx, `SELECT count(*) FROM import_rows WHERE session_id=$1 AND row_index=ANY($2::integer[])`, id, indices).Scan(&count); err != nil {
+		return err
+	}
+	if count != len(patch) {
+		return database.ErrInvalidWorkflowSelection
+	}
+	_, err := w.tx.ExecContext(ctx, `UPDATE import_rows r SET selected=p.selected
+ FROM unnest($2::integer[],$3::boolean[]) AS p(row_index,selected)
+ WHERE r.session_id=$1 AND r.row_index=p.row_index AND r.selected IS DISTINCT FROM p.selected`, id, indices, selected)
+	return err
+}
+
 func (w workflowWrites) ClearImportRows(ctx context.Context, id string) error {
 	if _, err := w.tx.ExecContext(ctx, `DELETE FROM import_jobs WHERE session_id=$1`, id); err != nil {
 		return err
@@ -114,15 +149,28 @@ func (r *importJobRepository) Progress(ctx context.Context, id string) (int, int
 }
 
 func (r *importJobRepository) Summary(ctx context.Context, id string) (database.ImportProgress, error) {
+	return importSummary(ctx, r.db, id)
+}
+
+func (w workflowWrites) ImportSummary(ctx context.Context, id string) (database.ImportProgress, error) {
+	return importSummary(ctx, w.tx, id)
+}
+
+type queryRow interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func importSummary(ctx context.Context, q queryRow, id string) (database.ImportProgress, error) {
 	var progress database.ImportProgress
-	err := r.db.QueryRowContext(ctx, `
- SELECT jobs.done,jobs.total,rows.total,rows.selected
+	err := q.QueryRowContext(ctx, `
+ SELECT jobs.done,jobs.total,rows.total,rows.selected,jobs.done<jobs.total OR rows.pending
  FROM (SELECT count(*) FILTER (WHERE done) AS done,count(*) AS total
        FROM import_jobs WHERE session_id=$1) jobs
  CROSS JOIN (SELECT count(*) AS total,count(*) FILTER (
    WHERE selected AND CASE WHEN payload->>'Errors' IS NULL THEN true
-                      ELSE json_array_length(payload->'Errors')=0 END) AS selected
-   FROM import_rows WHERE session_id=$1) rows`, id).Scan(&progress.Done, &progress.Total, &progress.RowCount, &progress.SelectedCount)
+                      ELSE json_array_length(payload->'Errors')=0 END) AS selected,
+   COALESCE(bool_or(payload->>'NeedsGeocoding'='true'),false) AS pending
+   FROM import_rows WHERE session_id=$1) rows`, id).Scan(&progress.Done, &progress.Total, &progress.RowCount, &progress.SelectedCount, &progress.Running)
 	return progress, err
 }
 

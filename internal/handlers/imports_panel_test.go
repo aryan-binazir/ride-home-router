@@ -256,9 +256,10 @@ func TestImportPreviewRendersFileWarnings(t *testing.T) {
 	const warning = "file-level formula warning"
 	recorder := httptest.NewRecorder()
 
-	handler.renderTemplate(recorder, "import_preview", newImportPreviewView(importer.Snapshot{
-		Grid:   importer.Grid{Warnings: []string{warning}},
-		Status: importer.StatusPreviewing,
+	progress := importer.ProgressSnapshot{Status: importer.StatusPreviewing}
+	handler.renderTemplate(recorder, "import_preview", newImportPreviewView(importer.ReviewPage{
+		Warnings:         []string{warning},
+		ProgressSnapshot: progress,
 	}))
 
 	if body := recorder.Body.String(); !strings.Contains(body, warning) || !strings.Contains(body, "alert-warning") {

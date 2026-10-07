@@ -143,11 +143,65 @@ func (s *Store) LoadProgress(ctx context.Context, id string) (ProgressSnapshot, 
 	if err != nil {
 		return ProgressSnapshot{}, false, err
 	}
-	return ProgressSnapshot{
-		ID: id, Status: header.Status,
-		GeocodeProgress: GeocodeProgress{Done: counts.Done, Total: counts.Total, Running: counts.Done < counts.Total},
-		RowCount:        counts.RowCount, SelectedCount: counts.SelectedCount,
-	}, true, nil
+	return importProgressSnapshot(id, header.Status, counts), true, nil
+}
+
+func (s *Store) LoadReviewPage(ctx context.Context, id string, requested int) (ReviewPage, error) {
+	var page ReviewPage
+	err := s.records.Transact(ctx, "import", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
+		var header importHeader
+		if err := json.Unmarshal(record.Data, &header); err != nil {
+			return err
+		}
+		if record.Consumed || header.Status != StatusPreviewing && header.Status != StatusCommitting {
+			return ErrInvalidSessionState
+		}
+		counts, err := w.ImportSummary(ctx, id)
+		if err != nil {
+			return err
+		}
+		start := max(0, requested)
+		if counts.RowCount == 0 {
+			start = 0
+		} else if start >= counts.RowCount {
+			start = (counts.RowCount - 1) / ReviewPageSize * ReviewPageSize
+		}
+		end := min(counts.RowCount, start+ReviewPageSize)
+		indices := make([]int, end-start)
+		for i := range indices {
+			indices[i] = start + i
+		}
+		stored, err := w.ImportRowsByIndices(ctx, id, indices)
+		if err != nil {
+			return err
+		}
+		page = ReviewPage{ProgressSnapshot: importProgressSnapshot(id, header.Status, counts), Kind: header.Kind, Filename: header.Filename, Warnings: header.Grid.grid().Warnings, Offset: start, Previous: max(0, start-ReviewPageSize), Rows: make([]ReviewRow, len(stored))}
+		if end < counts.RowCount {
+			page.Next = end
+		}
+		for i, row := range stored {
+			if row.Index != start+i {
+				return errors.New("invalid import row sequence")
+			}
+			if err := json.Unmarshal(row.Data, &page.Rows[i].Row); err != nil {
+				return err
+			}
+			page.Rows[i].Index = row.Index
+			page.Rows[i].Selected = row.Selected
+		}
+		return nil
+	})
+	if errors.Is(err, database.ErrNotFound) {
+		err = ErrSessionNotFound
+	}
+	if err != nil {
+		return ReviewPage{}, err
+	}
+	return page, nil
+}
+
+func importProgressSnapshot(id string, status Status, counts database.ImportProgress) ProgressSnapshot {
+	return ProgressSnapshot{ID: id, Status: status, GeocodeProgress: GeocodeProgress{Done: counts.Done, Total: counts.Total, Running: counts.Running}, RowCount: counts.RowCount, SelectedCount: counts.SelectedCount}
 }
 
 func decodeImportRows(stored []database.ImportRow) ([]Row, []bool, error) {

@@ -61,12 +61,10 @@ func TestImportPagingAppliesVisibleDeltasAndPollsOnlyProgress(t *testing.T) {
 	}
 }
 
-func TestImportPreviewBoundsRowsButCountsAllSelections(t *testing.T) {
-	snapshot := importer.Snapshot{Status: importer.StatusPreviewing, Rows: make([]importer.Row, 2000), Selected: make([]bool, 2000)}
-	for i := range snapshot.Selected {
-		snapshot.Selected[i] = true
-	}
-	view := newImportPreviewView(snapshot)
+func TestImportPreviewFormatsGlobalCounts(t *testing.T) {
+	progress := importer.ProgressSnapshot{Status: importer.StatusPreviewing, RowCount: 2000, SelectedCount: 2000}
+	page := importer.ReviewPage{ProgressSnapshot: progress, Rows: make([]importer.ReviewRow, 50)}
+	view := newImportPreviewView(page)
 	if len(view.Rows) != 50 || view.CommitBar.Selected != 2000 || view.CommitBar.Total != 2000 {
 		t.Fatalf("preview rows=%d selected=%d total=%d", len(view.Rows), view.CommitBar.Selected, view.CommitBar.Total)
 	}

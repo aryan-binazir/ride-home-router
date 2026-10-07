@@ -25,6 +25,9 @@ type WorkflowRecord struct {
 type WorkflowWrites interface {
 	StageImport(context.Context, string, []ImportRow, []ImportJob) error
 	ImportRows(context.Context, string) ([]ImportRow, error)
+	ImportRowsByIndices(context.Context, string, []int) ([]ImportRow, error)
+	ImportSummary(context.Context, string) (ImportProgress, error)
+	PatchImportSelections(context.Context, string, map[int]bool) error
 	SelectImportRows(context.Context, string, []bool) error
 	ClearImportRows(context.Context, string) error
 	CreateEvent(context.Context, *models.Event, []models.EventRoute, *models.EventSummary) (*models.Event, error)
@@ -59,6 +62,7 @@ type ImportJob struct {
 
 type ImportProgress struct {
 	Done, Total             int
+	Running                 bool
 	RowCount, SelectedCount int
 }
 
