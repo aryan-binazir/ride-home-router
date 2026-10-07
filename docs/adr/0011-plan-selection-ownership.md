@@ -1,0 +1,13 @@
+# Plan selection ownership
+
+The active Plan's selection logic previously lived in browser boot alongside route lifecycle handling. Draft restore, picker requests, local filters, bulk actions, Clear All and checkbox changes each knew parts of the representation and refresh rules.
+
+`createPlanSelection` now owns those rules within `event-planner.js`. Its private implementation keeps the picker controllers and search timers, request snapshots and response attribution, visible and off-page controls, van reconciliation, selection statistics and the draft refresh after selection actions. Browser boot passes user actions through its interface. The existing DOM, fetch and HTMX collaborators stay inside the browser seam; the module has no separate loader, exported merge helper or storage interface.
+
+A picker accepts only its current request's response, even if an aborted fetch delivers HTML. It compares the sent selection and van assignments with the live controls before replacing the picker. Edits made during that request survive, including selections and vans that need hidden controls on another page. Participant and driver requests remain independent. Local filtering still hides rows and selects only matching rows; on-demand filtering and bulk selection retain their existing POST formats.
+
+Restore retains the two representations. On-demand pickers return selected people and vans, while local drivers restore vans through the existing vehicle-assignment endpoint. Clear All cancels picker requests and search timers, clears controls and filters, and refreshes vans and statistics after the rest of the Plan resets. Browser boot still owns draft suppression, non-selection fields, route lifecycle invalidation and the final draft removal. The module then reloads on-demand pickers, whose successful empty responses may write an empty draft as before.
+
+Plan eligibility remains in `createPlannerState`, separate from installed Route session identity as ADR 0004 requires. Route restore finalization, cancellation asymmetries, van persistence, templates and request/storage contracts are unchanged. A generic picker framework would add an interface without another consumer; moving merge logic into an exported helper would expose the ownership rules the module is intended to hide.
+
+Chromium characterization at narrow and desktop widths passed before the refactor for pending selection and van edits, competing responses, Clear All with pending debounce and response, statistics/draft updates, serial paging/Select All, local filtering and local/on-demand van restoration. These were coverage gaps, not proven defects. Existing handler browser tests retain coverage of real server fragments and van restoration.
