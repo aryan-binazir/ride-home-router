@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"ride-home-router/internal/database"
 	"time"
 )
@@ -114,6 +115,9 @@ func (w workflowWrites) PatchImportSelections(ctx context.Context, id string, pa
 	indices := make([]int, 0, len(patch))
 	selected := make([]bool, 0, len(patch))
 	for index, value := range patch {
+		if index < 0 || index > math.MaxInt32 {
+			return database.ErrInvalidWorkflowSelection
+		}
 		indices = append(indices, index)
 		selected = append(selected, value)
 	}

@@ -61,7 +61,7 @@ func TestReviewDeltaRejectsAllInvalidIndicesWithoutChangingChoices(t *testing.T)
 	s := durableTestStore(t, db, successfulTestGeocoder())
 	preview := stageDurableImport(t, s, KindParticipant, "name,address\nFirst,1 Main St\nSecond,1 Main St\n")
 	waitDurableImport(t, s, preview.ID)
-	for _, bad := range []int{-1, 2, 2000} {
+	for _, bad := range []int{-1, 2, 2000, int(^uint(0) >> 1), -int(^uint(0) >> 1)} {
 		if _, err := s.SelectRowsPatch(t.Context(), preview.ID, map[int]bool{0: false, bad: false}); !errors.Is(err, ErrInvalidSelection) {
 			t.Fatalf("index %d: %v", bad, err)
 		}
