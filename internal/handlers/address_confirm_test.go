@@ -7,14 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/geocoding"
+	"ride-home-router/internal/importer"
+	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
-
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
 )
 
 func TestRosterEditorRecordsAddressMatch(t *testing.T) {

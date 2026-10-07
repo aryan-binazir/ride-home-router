@@ -3,11 +3,10 @@ package handlers
 import (
 	"net/http"
 	"net/url"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 type rosterPagination struct {

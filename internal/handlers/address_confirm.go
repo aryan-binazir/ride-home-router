@@ -3,11 +3,10 @@ package handlers
 import (
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 const AddressConfirmSuffix = "/address/confirm"

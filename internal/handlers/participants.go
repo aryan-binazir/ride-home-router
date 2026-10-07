@@ -5,12 +5,11 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
-
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
+	"strconv"
+	"strings"
 )
 
 type ParticipantListResponse struct {
