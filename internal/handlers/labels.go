@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
+
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -303,12 +304,7 @@ func (h *Handler) handleBulkParticipantLabelMembership(w http.ResponseWriter, r 
 		return
 	}
 
-	participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	data, err := h.participantListView(r, participants)
+	data, err := (rosterReader{db: h.DB}).participants(r)
 	if err != nil {
 		h.handleInternalError(w, r, err)
 		return
@@ -362,12 +358,7 @@ func (h *Handler) handleBulkDriverLabelMembership(w http.ResponseWriter, r *http
 		return
 	}
 
-	drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.FormValue("search")))
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	data, err := h.driverListView(r, drivers)
+	data, err := (rosterReader{db: h.DB}).drivers(r)
 	if err != nil {
 		h.handleInternalError(w, r, err)
 		return

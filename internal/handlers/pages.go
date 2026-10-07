@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"net/http"
+
 	"ride-home-router/internal/access"
-	"strings"
 )
 
 func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
@@ -59,58 +59,34 @@ func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleParticipantsPage(w http.ResponseWriter, r *http.Request) {
-	participants, err := h.DB.Participants().List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")))
+	view, err := (rosterReader{db: h.DB}).participants(r)
 	if err != nil {
 		h.renderError(w, r, err)
 		return
 	}
-	labels, err := h.DB.Labels().List(r.Context())
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-	labelIDs, err := h.DB.Labels().ListLabelIDsForParticipants(r.Context())
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-
-	participants, pagination := pageRosterParticipants(r, participants)
 	h.renderTemplate(w, "participants.html", ParticipantsPageView{
-		Pagination:   pagination,
+		Pagination:   view.Pagination,
 		Title:        "Participants",
 		ActivePage:   ActivePageParticipants,
-		Participants: participants,
-		Labels:       labels,
-		LabelIDs:     labelIDs,
+		Participants: view.Participants,
+		Labels:       view.Labels,
+		LabelIDs:     view.LabelIDs,
 	})
 }
 
 func (h *Handler) HandleDriversPage(w http.ResponseWriter, r *http.Request) {
-	drivers, err := h.DB.Drivers().List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")))
+	view, err := (rosterReader{db: h.DB}).drivers(r)
 	if err != nil {
 		h.renderError(w, r, err)
 		return
 	}
-	labels, err := h.DB.Labels().List(r.Context())
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-	labelIDs, err := h.DB.Labels().ListLabelIDsForDrivers(r.Context())
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-
-	drivers, pagination := pageRosterDrivers(r, drivers)
 	h.renderTemplate(w, "drivers.html", DriversPageView{
-		Pagination: pagination,
+		Pagination: view.Pagination,
 		Title:      "Drivers",
 		ActivePage: ActivePageDrivers,
-		Drivers:    drivers,
-		Labels:     labels,
-		LabelIDs:   labelIDs,
+		Drivers:    view.Drivers,
+		Labels:     view.Labels,
+		LabelIDs:   view.LabelIDs,
 	})
 }
 

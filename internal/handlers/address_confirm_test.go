@@ -3,16 +3,18 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+
+	"ride-home-router/internal/geocoding"
+	"ride-home-router/internal/importer"
+	"ride-home-router/internal/models"
 )
 
 func TestRosterEditorRecordsAddressMatch(t *testing.T) {
@@ -177,5 +179,131 @@ func TestImportGuessedWarningIsEmptyWhenAllVerified(t *testing.T) {
 	}
 	if got := importGuessedWarning(importer.CommitResult{Created: 3, Guessed: 3}); !strings.HasPrefix(got, "We couldn't confirm 3 addresses exactly") {
 		t.Fatalf("importGuessedWarning() = %q", got)
+	}
+}
+
+func TestRosterConfirmationRetainsFilteredPage(t *testing.T) {
+	for _, kind := range []string{"participant", "driver"} {
+		t.Run(kind, func(t *testing.T) {
+			h, store := newTestManagementHandler(t)
+			var confirmID int64
+			for i := -1; i <= 99; i++ {
+				name := "Match 075 unrelated"
+				if i >= 0 {
+					name = fmt.Sprintf("Match %03d", i)
+				}
+				address, matched := "Typed Maple address "+name, "Confirmed Maple address "+name
+				if i < 0 {
+					address, matched = "Oak Road", "Confirmed Oak Road"
+				}
+				if kind == "participant" {
+					person, err := store.Participants().Create(t.Context(), &models.Participant{
+						Name: name, Address: address, MatchedAddress: matched, AddressMatch: models.AddressMatchGuessed,
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if i == 75 {
+						confirmID = person.ID
+					}
+				} else {
+					person, err := store.Drivers().Create(t.Context(), &models.Driver{
+						Name: name, Address: address, MatchedAddress: matched, AddressMatch: models.AddressMatchGuessed, VehicleCapacity: 4,
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if i == 75 {
+						confirmID = person.ID
+					}
+				}
+			}
+			form := url.Values{"search": {"  mApLe  "}, "offset": {"50"}}
+			path := "/api/v1/" + kind + "s/" + strconv.FormatInt(confirmID, 10) + AddressConfirmSuffix
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			response := httptest.NewRecorder()
+			if kind == "participant" {
+				h.HandleConfirmParticipantAddress(response, req)
+			} else {
+				h.HandleConfirmDriverAddress(response, req)
+			}
+			body := response.Body.String()
+			if response.Code != http.StatusOK {
+				t.Fatalf("confirmation status = %d: %s", response.Code, body)
+			}
+			for _, want := range []string{"Match 050", "Match 099", "Confirmed Maple address Match 075", `data-search-query="mApLe" data-offset="50"`, `hx-get="/api/v1/` + kind + `s?offset=0&amp;search=mApLe"`} {
+				if !strings.Contains(body, want) {
+					t.Errorf("filtered confirmation missing %q", want)
+				}
+			}
+			for _, unwanted := range []string{"Match 049", "Match 075 unrelated", `data-page="next"`} {
+				if strings.Contains(body, unwanted) {
+					t.Errorf("filtered confirmation contains %q", unwanted)
+				}
+			}
+			if got := strings.Count(body, `data-row="`+kind+`-`); got != 50 {
+				t.Errorf("visible row count = %d; want 50", got)
+			}
+		})
+	}
+}
+
+func TestRosterConfirmationLeavingFilterClampsPage(t *testing.T) {
+	for _, kind := range []string{"participants", "drivers"} {
+		t.Run(kind, func(t *testing.T) {
+			h, store := newTestManagementHandler(t)
+			var id int64
+			for i := range 51 {
+				id = seedRosterReadPerson(t, store, kind, fmt.Sprintf("Person %03d", i), "Typed Maple Road")
+			}
+			if kind == "participants" {
+				p, err := store.Participants().GetByID(t.Context(), id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p.MatchedAddress, p.AddressMatch = "Confirmed Oak Road", models.AddressMatchGuessed
+				if _, err := store.Participants().Update(t.Context(), p); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				d, err := store.Drivers().GetByID(t.Context(), id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				d.MatchedAddress, d.AddressMatch = "Confirmed Oak Road", models.AddressMatchGuessed
+				if _, err := store.Drivers().Update(t.Context(), d); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := "/api/v1/" + kind + "/" + strconv.FormatInt(id, 10)
+			form := url.Values{"search": {" Maple "}, "offset": {"50"}}
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path+AddressConfirmSuffix, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			response := httptest.NewRecorder()
+			confirm, get := h.HandleConfirmParticipantAddress, h.HandleGetParticipant
+			if kind == "drivers" {
+				confirm, get = h.HandleConfirmDriverAddress, h.HandleGetDriver
+			}
+			confirm(response, req)
+			body := response.Body.String()
+			if response.Code != http.StatusOK || !strings.Contains(body, `data-search-query="Maple" data-offset="0"`) || strings.Contains(body, "Person 050") || strings.Contains(body, `data-page="prev"`) || strings.Contains(body, `data-page="next"`) {
+				t.Fatalf("confirmation must remove changed match and clamp page: %d %s", response.Code, body)
+			}
+			if count := strings.Count(body, `data-row="`+strings.TrimSuffix(kind, "s")+`-`); count != 50 {
+				t.Fatalf("visible rows = %d; want 50", count)
+			}
+			persisted := httptest.NewRecorder()
+			get(persisted, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+			var person struct {
+				Address      string `json:"address"`
+				AddressMatch string `json:"address_match"`
+			}
+			if err := json.Unmarshal(persisted.Body.Bytes(), &person); err != nil || persisted.Code != http.StatusOK || person.Address != "Confirmed Oak Road" || person.AddressMatch != models.AddressMatchConfirmed {
+				t.Fatalf("confirmed record = %s, %v", persisted.Body.String(), err)
+			}
+		})
 	}
 }

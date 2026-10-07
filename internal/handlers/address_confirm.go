@@ -3,10 +3,11 @@ package handlers
 import (
 	"log"
 	"net/http"
-	"ride-home-router/internal/logutil"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
+
+	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/models"
 )
 
 const AddressConfirmSuffix = "/address/confirm"
@@ -57,12 +58,7 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 		h.writeJSON(w, http.StatusOK, response)
 		return
 	}
-	participants, err := h.DB.Participants().List(r.Context(), "")
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-	view, err := h.participantListView(r, participants)
+	view, err := (rosterReader{db: h.DB}).participants(r)
 	if err != nil {
 		h.renderError(w, r, err)
 		return
@@ -111,12 +107,7 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 		h.writeJSON(w, http.StatusOK, response)
 		return
 	}
-	drivers, err := h.DB.Drivers().List(r.Context(), "")
-	if err != nil {
-		h.renderError(w, r, err)
-		return
-	}
-	view, err := h.driverListView(r, drivers)
+	view, err := (rosterReader{db: h.DB}).drivers(r)
 	if err != nil {
 		h.renderError(w, r, err)
 		return
