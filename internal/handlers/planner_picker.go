@@ -142,23 +142,10 @@ func (h *Handler) HandlePlannerPicker(w http.ResponseWriter, r *http.Request) {
 			h.handleValidationErrorHTMX(w, r, mobileVanAssignmentMessage(err))
 			return
 		}
-		vehicleIDs := make([]int64, 0, len(assignments))
-		for _, id := range assignments {
-			vehicleIDs = append(vehicleIDs, id)
-		}
-		vehicles, err := h.DB.OrganizationVehicles().GetByIDs(r.Context(), vehicleIDs)
+		view.AssignedVehicles, _, err = loadAssignedOrgVehicles(r.Context(), h.DB.OrganizationVehicles(), assignments)
 		if err != nil {
 			h.handleInternalError(w, r, err)
 			return
-		}
-		byID := map[int64]models.OrganizationVehicle{}
-		for _, vehicle := range vehicles {
-			byID[vehicle.ID] = vehicle
-		}
-		for driverID, vehicleID := range assignments {
-			if vehicle, ok := byID[vehicleID]; ok {
-				view.AssignedVehicles[driverID] = &vehicle
-			}
 		}
 		start, end, next, previous := pickerWindow(len(filtered), offset)
 		view.Drivers = filtered[start:end]

@@ -102,15 +102,15 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 	if len(drivers) != len(input.DriverIDs) {
 		return routeCalculationOutcome{Kind: routeCalculationValidationFailure, Err: errSomeDriversNotFound}
 	}
-	orgVehicleMap, err := c.loadAssignedOrgVehicles(ctx, input.OrgVehicleAssignments)
+	driverVehicles, allFound, err := loadAssignedOrgVehicles(ctx, c.db.OrganizationVehicles(), input.OrgVehicleAssignments)
 	if err != nil {
-		if errors.Is(err, errSelectedVanNotFound) {
-			return routeCalculationOutcome{Kind: routeCalculationValidationFailure, Err: err}
-		}
 		return routeCalculationOutcome{Kind: routeCalculationInternalFailure, Err: err}
 	}
+	if !allFound {
+		return routeCalculationOutcome{Kind: routeCalculationValidationFailure, Err: errSelectedVanNotFound}
+	}
 	c.refreshCoordinates(ctx, participants, drivers, activityLocation)
-	modifiedDrivers, driverOrgVehicles := applyOrgVehicleAssignments(drivers, input.OrgVehicleAssignments, orgVehicleMap)
+	modifiedDrivers, driverOrgVehicles := applyOrgVehicleAssignments(drivers, driverVehicles)
 
 	result, err := c.router.CalculateRoutes(ctx, &routing.RoutingRequest{
 		InstituteCoords: activityLocation.GetCoords(),
@@ -167,36 +167,6 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		ActivityLocation: activityLocation,
 		UseMiles:         settings.UseMiles,
 	}
-}
-
-func (c *routeCalculation) loadAssignedOrgVehicles(ctx context.Context, assignments map[int64]int64) (map[int64]*models.OrganizationVehicle, error) {
-	if len(assignments) == 0 {
-		return map[int64]*models.OrganizationVehicle{}, nil
-	}
-
-	vehicleIDs := make([]int64, 0, len(assignments))
-	seen := make(map[int64]struct{}, len(assignments))
-	for _, vehicleID := range assignments {
-		if _, ok := seen[vehicleID]; ok {
-			continue
-		}
-		seen[vehicleID] = struct{}{}
-		vehicleIDs = append(vehicleIDs, vehicleID)
-	}
-
-	vehicles, err := c.db.OrganizationVehicles().GetByIDs(ctx, vehicleIDs)
-	if err != nil {
-		return nil, err
-	}
-	if len(vehicles) != len(vehicleIDs) {
-		return nil, errSelectedVanNotFound
-	}
-
-	vehicleMap := make(map[int64]*models.OrganizationVehicle, len(vehicles))
-	for i := range vehicles {
-		vehicleMap[vehicles[i].ID] = &vehicles[i]
-	}
-	return vehicleMap, nil
 }
 
 const refreshBudget = 5 * time.Second
