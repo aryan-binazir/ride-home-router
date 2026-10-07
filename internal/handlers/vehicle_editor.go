@@ -38,11 +38,10 @@ func (h *Handler) HandleVehicleAssignments(w http.ResponseWriter, r *http.Reques
 		h.handleValidationErrorHTMX(w, r, mobileVanAssignmentMessage(err))
 		return
 	}
-	var driverIDs, vehicleIDs []int64
+	var driverIDs []int64
 	for _, id := range ids {
 		if vehicleID := assignments[id]; vehicleID > 0 {
 			driverIDs = append(driverIDs, id)
-			vehicleIDs = append(vehicleIDs, vehicleID)
 		}
 	}
 	drivers, err := h.DB.Drivers().GetByIDs(r.Context(), driverIDs)
@@ -50,21 +49,14 @@ func (h *Handler) HandleVehicleAssignments(w http.ResponseWriter, r *http.Reques
 		h.handleInternalError(w, r, err)
 		return
 	}
-	vehicles, err := h.DB.OrganizationVehicles().GetByIDs(r.Context(), vehicleIDs)
+	driverVehicles, _, err := loadAssignedOrgVehicles(r.Context(), h.DB.OrganizationVehicles(), assignments)
 	if err != nil {
 		h.handleInternalError(w, r, err)
 		return
 	}
-	byID := make(map[int64]models.OrganizationVehicle, len(vehicles))
-	for _, vehicle := range vehicles {
-		byID[vehicle.ID] = vehicle
-	}
 	views := make([]vehicleEditorView, 0, len(drivers))
 	for _, driver := range drivers {
-		view := vehicleEditorView{Driver: driver, Selected: true}
-		if vehicle, exists := byID[assignments[driver.ID]]; exists {
-			view.Vehicle = &vehicle
-		}
+		view := vehicleEditorView{Driver: driver, Vehicle: driverVehicles[driver.ID], Selected: true}
 		views = append(views, view)
 	}
 	h.renderTemplate(w, "vehicle_assignments", views)

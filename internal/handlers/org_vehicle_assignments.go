@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 	"slices"
@@ -107,19 +109,44 @@ func orgVehicleSeatCount(driverIDs []int64, drivers []models.Driver, assignments
 	return total
 }
 
-func applyOrgVehicleAssignments(drivers []models.Driver, assignments map[int64]int64, vehicleMap map[int64]*models.OrganizationVehicle) ([]models.Driver, map[int64]*models.OrganizationVehicle) {
-	modifiedDrivers := make([]models.Driver, len(drivers))
+func loadAssignedOrgVehicles(ctx context.Context, repository database.OrganizationVehicleRepository, assignments map[int64]int64) (map[int64]*models.OrganizationVehicle, bool, error) {
 	driverVehicles := make(map[int64]*models.OrganizationVehicle, len(assignments))
+	if len(assignments) == 0 {
+		return driverVehicles, true, nil
+	}
+	vehicleIDs := make([]int64, 0, len(assignments))
+	seen := make(map[int64]struct{}, len(assignments))
+	for _, vehicleID := range assignments {
+		if _, exists := seen[vehicleID]; exists {
+			continue
+		}
+		seen[vehicleID] = struct{}{}
+		vehicleIDs = append(vehicleIDs, vehicleID)
+	}
+	vehicles, err := repository.GetByIDs(ctx, vehicleIDs)
+	if err != nil {
+		return nil, false, err
+	}
+	byID := make(map[int64]*models.OrganizationVehicle, len(vehicles))
+	for i := range vehicles {
+		byID[vehicles[i].ID] = &vehicles[i]
+	}
+	for driverID, vehicleID := range assignments {
+		if vehicle := byID[vehicleID]; vehicle != nil {
+			driverVehicles[driverID] = vehicle
+		}
+	}
+	return driverVehicles, len(driverVehicles) == len(assignments), nil
+}
+
+func applyOrgVehicleAssignments(drivers []models.Driver, assignedVehicles map[int64]*models.OrganizationVehicle) ([]models.Driver, map[int64]*models.OrganizationVehicle) {
+	modifiedDrivers := make([]models.Driver, len(drivers))
+	driverVehicles := make(map[int64]*models.OrganizationVehicle, len(assignedVehicles))
 
 	for i, driver := range drivers {
 		modifiedDrivers[i] = driver
 
-		vehicleID, ok := assignments[driver.ID]
-		if !ok {
-			continue
-		}
-
-		vehicle := vehicleMap[vehicleID]
+		vehicle := assignedVehicles[driver.ID]
 		if vehicle == nil {
 			continue
 		}
