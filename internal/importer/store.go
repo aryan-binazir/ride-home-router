@@ -58,6 +58,11 @@ type CommitResult struct {
 	Guessed     int
 }
 
+type CommittedImport struct {
+	Kind   Kind
+	Result CommitResult
+}
+
 type Snapshot struct {
 	ID              string
 	Kind            Kind
@@ -109,7 +114,7 @@ type Store struct {
 }
 
 // Commit atomically writes selected rows and consumes the import token.
-func (s *Store) Commit(ctx context.Context, id string, selection []bool) (CommitResult, error) {
+func (s *Store) Commit(ctx context.Context, id string, selection []bool) (CommittedImport, error) {
 	return s.commitPersistent(ctx, id, selection, nil)
 }
 

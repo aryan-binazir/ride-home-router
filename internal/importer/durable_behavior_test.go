@@ -82,9 +82,9 @@ func TestDurableImportUsesLatestSelectionAndCommitsCountsOnce(t *testing.T) {
 	if err != nil || selection.Selected[2] {
 		t.Fatalf("latest selection = %+v err=%v", selection.Selected, err)
 	}
-	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result != (CommitResult{Created: 1, Updated: 2, NotSelected: 1}) {
-		t.Fatalf("commit = %+v err=%v", result, err)
+	committed, err := s.Commit(t.Context(), preview.ID, nil)
+	if err != nil || committed.Result != (CommitResult{Created: 1, Updated: 2, NotSelected: 1}) {
+		t.Fatalf("commit = %+v err=%v", committed, err)
 	}
 	if _, err := s.Commit(t.Context(), preview.ID, nil); !errors.Is(err, ErrCommitConsumed) {
 		t.Fatalf("second commit = %v, want consumed", err)
@@ -151,9 +151,9 @@ func TestDurableGeocodeDedupFailureAndGuessedAddress(t *testing.T) {
 	if err != nil || !selection.Selected[2] {
 		t.Fatalf("failed row selection = %+v err=%v", selection.Selected, err)
 	}
-	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result != (CommitResult{Created: 3, NotSelected: 1, Guessed: 1}) {
-		t.Fatalf("commit = %+v err=%v", result, err)
+	committed, err := s.Commit(t.Context(), preview.ID, nil)
+	if err != nil || committed.Result != (CommitResult{Created: 3, NotSelected: 1, Guessed: 1}) {
+		t.Fatalf("commit = %+v err=%v", committed, err)
 	}
 	rows, err := db.Participants().List(t.Context(), "")
 	if err != nil || len(rows) != 3 {
@@ -210,9 +210,9 @@ func TestDurableCanceledCommitCanRetry(t *testing.T) {
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("roster after canceled commit = %+v err=%v", rows, err)
 	}
-	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result.Created != 1 {
-		t.Fatalf("retry commit = %+v err=%v", result, err)
+	committed, err := s.Commit(t.Context(), preview.ID, nil)
+	if err != nil || committed.Result.Created != 1 {
+		t.Fatalf("retry commit = %+v err=%v", committed, err)
 	}
 }
 
@@ -252,9 +252,9 @@ func TestDurableFailedBatchRollsBackRosterAndToken(t *testing.T) {
 	if _, err := conn.Exec(t.Context(), `DROP TRIGGER reject_second_import ON participants`); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result.Created != 2 {
-		t.Fatalf("retry = %+v err=%v", result, err)
+	committed, err := s.Commit(t.Context(), preview.ID, nil)
+	if err != nil || committed.Result.Created != 2 {
+		t.Fatalf("retry = %+v err=%v", committed, err)
 	}
 }
 

@@ -311,10 +311,10 @@ func (s *Store) SelectRowsContext(ctx context.Context, id string, selected []boo
 	return result, err
 }
 
-func (s *Store) commitPersistent(ctx context.Context, id string, selection []bool, patch map[int]bool) (CommitResult, error) {
+func (s *Store) commitPersistent(ctx context.Context, id string, selection []bool, patch map[int]bool) (CommittedImport, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultCommitTimeout)
 	defer cancel()
-	var result CommitResult
+	var committed CommittedImport
 	err := s.records.Transact(ctx, "import", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		if record.Consumed {
 			return ErrCommitConsumed
@@ -348,7 +348,7 @@ func (s *Store) commitPersistent(ctx context.Context, id string, selection []boo
 		if err := applySelectionPatch(selected, patch); err != nil {
 			return err
 		}
-		result, err = createBatch(ctx, h.Kind, rows, selected, w)
+		result, err := createBatch(ctx, h.Kind, rows, selected, w)
 		if err != nil {
 			return err
 		}
@@ -357,15 +357,19 @@ func (s *Store) commitPersistent(ctx context.Context, id string, selection []boo
 		}
 		h.Status = StatusCommitted
 		h.Result = result
+		committed = CommittedImport{Kind: h.Kind, Result: result}
 		record.Consumed = true
 		data, err := json.Marshal(h)
 		record.Data = data
 		return err
 	})
 	if errors.Is(err, database.ErrNotFound) {
-		return CommitResult{}, ErrSessionNotFound
+		return CommittedImport{}, ErrSessionNotFound
 	}
-	return result, err
+	if err != nil {
+		return CommittedImport{}, err
+	}
+	return committed, nil
 }
 
 func (s *Store) CancelContext(ctx context.Context, id string) (bool, error) {

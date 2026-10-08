@@ -13,11 +13,11 @@ func TestPersistentPageSelectionAndCommitPreserveOffPageChoices(t *testing.T) {
 	if _, err := s.SelectRowsPatch(t.Context(), preview.ID, map[int]bool{0: false}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.CommitRowsPatch(t.Context(), preview.ID, map[int]bool{2: false})
+	committed, err := s.CommitRowsPatch(t.Context(), preview.ID, map[int]bool{2: false})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Created != 1 || result.NotSelected != 2 {
-		t.Fatalf("off-page choices lost: %+v", result)
+	if committed.Kind != KindParticipant || committed.Result.Created != 1 || committed.Result.NotSelected != 2 {
+		t.Fatalf("off-page choices lost: %+v", committed)
 	}
 }

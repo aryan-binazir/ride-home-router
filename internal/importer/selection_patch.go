@@ -52,6 +52,6 @@ func (s *Store) SelectRowsPatch(ctx context.Context, id string, patch map[int]bo
 }
 
 // CommitRowsPatch applies the visible page delta atomically with the commit.
-func (s *Store) CommitRowsPatch(ctx context.Context, id string, patch map[int]bool) (CommitResult, error) {
+func (s *Store) CommitRowsPatch(ctx context.Context, id string, patch map[int]bool) (CommittedImport, error) {
 	return s.commitPersistent(ctx, id, nil, patch)
 }

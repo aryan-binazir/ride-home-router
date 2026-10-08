@@ -268,8 +268,8 @@ func TestCommitPageDeltaRollsBackRosterChoicesAndToken(t *testing.T) {
 	if _, err := s.CommitRowsPatch(t.Context(), preview.ID, map[int]bool{1: false, 3: false}); !errors.Is(err, ErrInvalidSelection) {
 		t.Fatalf("invalid commit delta: %v", err)
 	}
-	result, err := s.CommitRowsPatch(t.Context(), preview.ID, nil)
-	if err != nil || result.Created != 2 || result.NotSelected != 1 {
-		t.Fatalf("retry token/choices: %+v %v", result, err)
+	committed, err := s.CommitRowsPatch(t.Context(), preview.ID, nil)
+	if err != nil || committed.Result.Created != 2 || committed.Result.NotSelected != 1 {
+		t.Fatalf("retry token/choices: %+v %v", committed, err)
 	}
 }
