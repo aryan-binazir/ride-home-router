@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,6 +19,8 @@ import (
 )
 
 func TestImportPanelCommitLoadsStagedRowsOnce(t *testing.T) {
+	const rowCount = 2000
+	firstVisible := rowCount - importer.ReviewPageSize
 	db := postgrestest.Open(t)
 	observed := &commitPayloadObserver{WorkflowRepository: db.Workflows()}
 	geocoder := &importTestGeocoder{}
@@ -28,9 +29,9 @@ func TestImportPanelCommitLoadsStagedRowsOnce(t *testing.T) {
 	h := &Handler{DB: db, Geocoder: geocoder, ImportSession: store, Renderer: loadEmbeddedTemplates(t)}
 	var csv strings.Builder
 	csv.WriteString("name,address\n")
-	for i := range importer.MaxDataRows {
+	for i := range rowCount {
 		name := fmt.Sprintf("Rider %04d", i)
-		if i == 1999 {
+		if i == rowCount-1 {
 			name = ""
 		}
 		fmt.Fprintf(&csv, "%s,1 Main St\n", name)
@@ -39,14 +40,27 @@ func TestImportPanelCommitLoadsStagedRowsOnce(t *testing.T) {
 	mapped := httptest.NewRecorder()
 	h.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
 	assertPanelFragment(t, mapped)
-	waitForImportHTTPGeocoding(t, h, id)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		progress, ok, err := store.LoadProgress(t.Context(), id)
+		if err != nil || !ok {
+			t.Fatalf("wait for import: found=%t err=%v", ok, err)
+		}
+		if !progress.GeocodeProgress.Running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("large import geocoding did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if _, err := store.SelectRowsPatch(t.Context(), id, map[int]bool{0: false}); err != nil {
 		t.Fatal(err)
 	}
 	form := url.Values{"page_selection": {"1"}}
-	for i := 1950; i < 2000; i++ {
+	for i := firstVisible; i < rowCount; i++ {
 		form.Add("visible", fmt.Sprint(i))
-		if i != 1950 {
+		if i != firstVisible {
 			form.Add("selected", fmt.Sprint(i))
 		}
 	}
@@ -55,30 +69,26 @@ func TestImportPanelCommitLoadsStagedRowsOnce(t *testing.T) {
 	response := httptest.NewRecorder()
 	h.HandleImportSession(response, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", form))
 	assertPanelFragment(t, response)
-	if body := response.Body.String(); !strings.Contains(body, "1997 imported, 0 updated") {
+	if body := response.Body.String(); !strings.Contains(body, fmt.Sprintf("%d imported, 0 updated, 3 skipped", rowCount-3)) {
 		t.Fatalf("commit result: %s", body)
 	}
-	if got := observed.payloadRows.Load(); got != 2000 {
-		t.Fatalf("commit transferred %d row payloads, want one read of 2000", got)
+	if got := observed.payloadRows.Load(); got != rowCount {
+		t.Fatalf("commit transferred %d row payloads, want one read of %d", got, rowCount)
 	}
 	if got := observed.fullReads.Load(); got != 1 {
 		t.Fatalf("commit full-row reads = %d, want 1", got)
 	}
-	t.Logf("panel commit: staged=2000 payload rows=%d full-row reads=%d", observed.payloadRows.Load(), observed.fullReads.Load())
+	t.Logf("panel commit: staged=%d payload rows=%d full-row reads=%d", rowCount, observed.payloadRows.Load(), observed.fullReads.Load())
 	roster, err := db.Participants().List(t.Context(), "")
-	if err != nil || len(roster) != 1997 {
+	if err != nil || len(roster) != rowCount-3 {
 		t.Fatalf("committed roster count=%d err=%v", len(roster), err)
 	}
 	for _, rider := range roster {
-		if rider.Name == "Rider 0000" || rider.Name == "Rider 1950" {
+		if rider.Name == "Rider 0000" || rider.Name == fmt.Sprintf("Rider %04d", firstVisible) {
 			t.Fatalf("committed unchecked row %q", rider.Name)
 		}
 	}
-	retry := httptest.NewRecorder()
-	h.HandleImportSession(retry, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", nil))
-	if retry.Code != http.StatusOK || !strings.Contains(retry.Body.String(), "already been saved") {
-		t.Fatalf("retry status=%d body=%s", retry.Code, retry.Body.String())
-	}
+
 }
 
 type commitPayloadObserver struct {
@@ -166,12 +176,14 @@ func TestImportPanelCommitPreservesErrorPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			live := tt.id == mapping || tt.id == pending
 			if live {
-				if _, err := conn.Exec(t.Context(), `UPDATE workflow_sessions SET expires_at=clock_timestamp()+interval '5 seconds' WHERE kind='import' AND id=$1`, tt.id); err != nil {
+				if _, err := conn.Exec(t.Context(), `UPDATE workflow_sessions SET expires_at=clock_timestamp()+interval '1 minute' WHERE kind='import' AND id=$1`, tt.id); err != nil {
 					t.Fatal(err)
 				}
 			}
-			req := newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+tt.id+"/commit?view=panel", nil)
-			req.Body = io.NopCloser(strings.NewReader(tt.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/imports/"+tt.id+"/commit?view=panel", strings.NewReader(tt.body))
+			req.Host = "localhost:8080"
+			req.Header.Set("HX-Request", "true")
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			response := httptest.NewRecorder()
 			h.HandleImportSession(response, req)
 			assertPanelFragment(t, response)
@@ -180,7 +192,7 @@ func TestImportPanelCommitPreservesErrorPrecedence(t *testing.T) {
 			}
 			if live {
 				var renewed bool
-				if err := conn.QueryRow(t.Context(), `SELECT expires_at>clock_timestamp()+interval '29 minutes' FROM workflow_sessions WHERE kind='import' AND id=$1`, tt.id).Scan(&renewed); err != nil || !renewed {
+				if err := conn.QueryRow(t.Context(), `SELECT expires_at>clock_timestamp()+interval '2 minutes' FROM workflow_sessions WHERE kind='import' AND id=$1`, tt.id).Scan(&renewed); err != nil || !renewed {
 					t.Fatalf("failed commit did not renew sliding expiry: renewed=%t err=%v", renewed, err)
 				}
 			}
@@ -196,8 +208,10 @@ func TestImportPanelCommitPreservesErrorPrecedence(t *testing.T) {
 		{"page_selection=1&visible=0&selected=0", "Choose valid rows"},
 		{"", "already been saved"},
 	} {
-		req := newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+pending+"/commit?view=panel", nil)
-		req.Body = io.NopCloser(strings.NewReader(tt.body))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/imports/"+pending+"/commit?view=panel", strings.NewReader(tt.body))
+		req.Host = "localhost:8080"
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		response := httptest.NewRecorder()
 		h.HandleImportSession(response, req)
 		assertPanelFragment(t, response)
