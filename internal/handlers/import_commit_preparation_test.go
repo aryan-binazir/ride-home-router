@@ -88,7 +88,6 @@ func TestImportPanelCommitLoadsStagedRowsOnce(t *testing.T) {
 			t.Fatalf("committed unchecked row %q", rider.Name)
 		}
 	}
-
 }
 
 type commitPayloadObserver struct {
