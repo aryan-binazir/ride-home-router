@@ -147,7 +147,11 @@ func (r *driverRepository) UpsertBatch(ctx context.Context, drivers []*models.Dr
 }
 
 func (r *driverRepository) CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
-	return r.writes().createWithLabels(ctx, d, labelIDs)
+	return r.writes().createWithLabels(ctx, d, labelIDs, false)
+}
+
+func (r *driverRepository) CreateManualWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error) {
+	return r.writes().createWithLabels(ctx, d, labelIDs, true)
 }
 
 func (r *driverRepository) Update(ctx context.Context, d *models.Driver) (*models.Driver, error) {

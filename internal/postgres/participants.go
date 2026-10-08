@@ -139,7 +139,11 @@ func (r *participantRepository) UpsertBatch(ctx context.Context, participants []
 }
 
 func (r *participantRepository) CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error) {
-	return r.writes().createWithLabels(ctx, p, labelIDs)
+	return r.writes().createWithLabels(ctx, p, labelIDs, false)
+}
+
+func (r *participantRepository) CreateManualWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error) {
+	return r.writes().createWithLabels(ctx, p, labelIDs, true)
 }
 
 func (r *participantRepository) Update(ctx context.Context, p *models.Participant) (*models.Participant, error) {

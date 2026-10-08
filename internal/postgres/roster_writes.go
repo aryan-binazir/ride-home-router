@@ -103,7 +103,7 @@ func (w rosterWriteCore[T]) upsertBatchTx(ctx context.Context, tx *sql.Tx, entit
 	return result, nil
 }
 
-func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, labelIDs []int64) (*T, error) {
+func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, labelIDs []int64, rejectDuplicate bool) (*T, error) {
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin %s transaction: %w", w.noun, err)
@@ -112,6 +112,17 @@ func (w rosterWriteCore[T]) createWithLabels(ctx context.Context, entity *T, lab
 
 	if err := serializeRosterWrites(ctx, tx, w.table); err != nil {
 		return nil, err
+	}
+	if rejectDuplicate {
+		existing, err := rosterKeys(ctx, tx, w.table)
+		if err != nil {
+			return nil, err
+		}
+		if key := w.key(entity); key != "" {
+			if _, exists := existing[key]; exists {
+				return nil, database.ErrDuplicate
+			}
+		}
 	}
 	now := time.Now()
 	fields := w.fields(entity)
