@@ -370,10 +370,140 @@
         afterRender();
     }
 
-    function createRouteSessionOrchestrator({ document, htmx, moves, reportError, afterRender }) {
+    function createRouteSessionOrchestrator({
+        document, htmx, readPlanState, request, reportError, notify, afterRender,
+        reportSaveBlocked, pendingChanged = () => {},
+        schedule = callback => setTimeout(callback, 500),
+        cancel = timeout => clearTimeout(timeout),
+    }) {
         const savesInFlight = new Set();
+        const batchLimit = 64;
 
-        function getActiveSessionId() {
+        const queue = [];
+        let timeout = null;
+        let flushPromise = null;
+        let inFlightSessionId = null;
+
+        function scheduleFlush() {
+            if (timeout !== null) cancel(timeout);
+            timeout = schedule(flush);
+        }
+
+        function enqueue(move) {
+            queue.push(move);
+            scheduleFlush();
+            pendingChanged();
+        }
+
+        function enqueueAction(sessionId, action) {
+            return new Promise(resolve => {
+                queue.push({ session_id: sessionId, action, resolve });
+                pendingChanged();
+                void flush().catch(() => {});
+            });
+        }
+
+        function takeBatch() {
+            const sessionId = queue[0]?.session_id;
+            if (!sessionId) {
+                queue.shift();
+                return [];
+            }
+
+            const moves = [];
+            while (queue.length > 0 && !queue[0].action && moves.length < batchLimit && queue[0]?.session_id === sessionId) {
+                moves.push(queue.shift());
+            }
+            return moves;
+        }
+
+        function toPayload(moves) {
+            if (moves.length === 1) return moves[0];
+            return {
+                session_id: moves[0].session_id,
+                moves: moves.map(move => ({
+                    participant_id: move.participant_id,
+                    from_route_index: move.from_route_index,
+                    to_route_index: move.to_route_index,
+                    insert_at_position: move.insert_at_position,
+                })),
+            };
+        }
+
+        async function run() {
+            const sessionOutcomes = new Map();
+            while (queue.length > 0) {
+                const command = queue[0]?.action ? queue.shift() : null;
+                const moves = command ? [command] : takeBatch();
+                if (moves.length === 0) return { succeeded: false, sessionOutcomes };
+
+                const sessionId = moves[0].session_id;
+                inFlightSessionId = sessionId;
+                let succeeded;
+                try {
+                    succeeded = command ? await command.action() : await dispatch(sessionId, '/api/v1/routes/edit/move-participant', toPayload(moves));
+                } catch (error) {
+                    if (!command) queue.unshift(...moves);
+                    throw error;
+                } finally {
+                    inFlightSessionId = null;
+                    command?.resolve(Boolean(succeeded));
+                }
+                sessionOutcomes.set(sessionId, (sessionOutcomes.get(sessionId) ?? true) && succeeded);
+                if (!succeeded) return { succeeded: false, sessionOutcomes };
+            }
+            return { succeeded: true, sessionOutcomes };
+        }
+
+        async function flushDetailed() {
+            if (timeout !== null) {
+                cancel(timeout);
+                timeout = null;
+            }
+            if (flushPromise) return flushPromise;
+
+            flushPromise = run();
+            try {
+                return await flushPromise;
+            } finally {
+                flushPromise = null;
+                if (queue.length > 0 && timeout === null) scheduleFlush();
+                pendingChanged();
+            }
+        }
+
+        async function flush() {
+            const result = await flushDetailed();
+            return result.succeeded;
+        }
+
+        function hasPendingFor(sessionId) {
+            return Boolean(sessionId) && (inFlightSessionId === sessionId || queue.some(move => move.session_id === sessionId));
+        }
+
+        function discardFor(sessionId) {
+            for (let index = queue.length - 1; index >= 0; index -= 1) {
+                if (queue[index]?.session_id !== sessionId) continue;
+                const [entry] = queue.splice(index, 1);
+                entry.resolve?.(false);
+            }
+            if (queue.length === 0 && timeout !== null) {
+                cancel(timeout);
+                timeout = null;
+            }
+            pendingChanged();
+        }
+
+        async function flushFor(sessionId) {
+            let succeeded = true;
+            while (hasPendingFor(sessionId)) {
+                const result = await flushDetailed();
+                if (result.sessionOutcomes.get(sessionId) === false) succeeded = false;
+            }
+            return succeeded;
+        }
+
+        function getInstalledSessionId() {
             const container = document.querySelector('.routes-container');
             return container ? container.dataset.sessionId : null;
         }
@@ -390,7 +520,7 @@
                 reportError(html, errorHeader);
                 return false;
             }
-            if (getActiveSessionId() !== requestedSessionId) return true;
+            if (getInstalledSessionId() !== requestedSessionId) return true;
 
             renderResults(html);
             return true;
@@ -400,11 +530,11 @@
             return form.elements.namedItem('session_id')?.value || null;
         }
 
-        function hasQueuedMoves(form) {
+        function hasPendingEdits(form) {
             const sessionId = getSaveFormSessionId(form);
             return Boolean(sessionId)
-                && getActiveSessionId() === sessionId
-                && moves.hasPending(sessionId);
+                && getInstalledSessionId() === sessionId
+                && hasPendingFor(sessionId);
         }
 
         function findLiveSaveForm() {
@@ -429,19 +559,19 @@
             if (form.dispatchEvent(submitEvent)) form.submit();
         }
 
-        async function submitSaveWithQueuedMoves(form) {
+        async function submitSaveAfterEdits(form) {
             const requestedSessionId = getSaveFormSessionId(form);
-            if (!requestedSessionId || getActiveSessionId() !== requestedSessionId) return false;
+            if (!requestedSessionId || getInstalledSessionId() !== requestedSessionId) return false;
             if (savesInFlight.has(requestedSessionId)) return true;
-            if (!moves.hasPending(requestedSessionId)) return false;
+            if (!hasPendingFor(requestedSessionId)) return false;
 
             savesInFlight.add(requestedSessionId);
             let flushed = false;
             let liveForm = null;
             try {
-                flushed = await moves.flush(requestedSessionId);
+                flushed = await flushFor(requestedSessionId);
             } finally {
-                const candidate = getActiveSessionId() === requestedSessionId ? findLiveSaveForm() : null;
+                const candidate = getInstalledSessionId() === requestedSessionId ? findLiveSaveForm() : null;
                 liveForm = candidate && getSaveFormSessionId(candidate) === requestedSessionId ? candidate : null;
                 savesInFlight.delete(requestedSessionId);
             }
@@ -452,7 +582,126 @@
             return true;
         }
 
-        return { applyEditResult, hasQueuedMoves, submitSaveWithQueuedMoves };
+        function requireSession() {
+            const sessionId = getInstalledSessionId();
+            if (!sessionId) notify('That route plan is no longer available. Calculate it again.', 'error');
+            return sessionId;
+        }
+
+        async function dispatch(sessionId, endpoint, payload) {
+            const state = readPlanState();
+            if (!state.canSave || state.sessionId !== sessionId) {
+                if (endpoint === '/api/v1/routes/edit/move-participant') discardFor(sessionId);
+                return false;
+            }
+            try {
+                const response = await request(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'HX-Request': 'true',
+                        'X-Route-Fragment': 'true',
+                        'X-Route-Balance': document.querySelector('.routes-container')?.dataset.outOfBalance || '',
+                    },
+                    ...(payload ? { body: JSON.stringify(payload) } : {}),
+                });
+                return applyEditResult({
+                    requestedSessionId: sessionId,
+                    ok: response.ok,
+                    errorHeader: response.headers?.get('HX-Trigger'),
+                    html: await response.text(),
+                });
+            } catch (error) {
+                console.error('Failed to update routes:', error);
+                notify('Could not update routes. Please try again.', 'error');
+                return false;
+            }
+        }
+
+        function move(participantId, fromRouteIndex, toRouteIndex) {
+            if (toRouteIndex === '' || toRouteIndex === null) return;
+            const sessionId = requireSession();
+            if (!sessionId) return;
+            enqueue({
+                session_id: sessionId,
+                participant_id: parseInt(participantId),
+                from_route_index: parseInt(fromRouteIndex),
+                to_route_index: parseInt(toRouteIndex),
+                insert_at_position: -1,
+            });
+        }
+
+        function swap(routeIndex1, routeIndex2) {
+            const sessionId = requireSession();
+            if (!sessionId) return;
+            return enqueueAction(sessionId, () => dispatch(sessionId, '/api/v1/routes/edit/swap-drivers', {
+                session_id: sessionId,
+                route_index_1: parseInt(routeIndex1),
+                route_index_2: parseInt(routeIndex2),
+            }));
+        }
+
+        async function reset(confirm) {
+            const sessionId = requireSession();
+            if (!sessionId) return;
+            if (!await confirm()) return false;
+            return enqueueAction(sessionId, () => dispatch(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId)));
+        }
+
+        function add(driverId) {
+            const sessionId = requireSession();
+            if (!sessionId) return;
+            return enqueueAction(sessionId, () => dispatch(sessionId, '/api/v1/routes/edit/add-driver', {
+                session_id: sessionId,
+                driver_id: parseInt(driverId),
+            }));
+        }
+
+        function timings(routeIndex) {
+            const sessionId = requireSession();
+            if (!sessionId) return false;
+            return enqueueAction(sessionId, () => dispatch(sessionId, '/api/v1/routes/session/timings', {
+                session_id: sessionId,
+                route_index: parseInt(routeIndex, 10),
+            }));
+        }
+
+        async function openEditor(url) {
+            const sessionId = getInstalledSessionId();
+            if (!sessionId || !readPlanState().canSave) return;
+            if (!await flushFor(sessionId) || sessionId !== getInstalledSessionId() || !readPlanState().canSave) return;
+            try {
+                await htmx.ajax('GET', url, { target: '#route-editor', swap: 'innerHTML' });
+            } catch { notify('Could not open the editor. Please try again.', 'error'); }
+        }
+
+        async function submitEditor({ sessionId, action, participantId, from, destination }) {
+            if (sessionId !== getInstalledSessionId() || !readPlanState().canSave) return false;
+            if (action === 'move') {
+                await move(participantId, from, destination);
+                return flushFor(sessionId);
+            }
+            if (action === 'swap') return swap(from, Number(destination));
+            if (action === 'add') return add(Number(destination));
+            return false;
+        }
+
+        function save(form) {
+            const state = readPlanState();
+            if (!state.canSave) {
+                reportSaveBlocked(state.status);
+                return true;
+            }
+            if (!hasPendingEdits(form)) return false;
+            void submitSaveAfterEdits(form);
+            return true;
+        }
+
+        function planChanged(state) {
+            if (state.status !== 'current') discardFor(state.sessionId);
+        }
+
+        return { move, swap, reset, add, timings, openEditor, submitEditor, save, planChanged, clear: () => discardFor(getInstalledSessionId()), hasPending: () => hasPendingFor(getInstalledSessionId()) };
     }
 
     const DROPOFF_ETA_SLACK_SECS = 2 * 60;
@@ -751,146 +1000,6 @@
         return { copyAllRoutes, copyRoute, populateEtas, previewRoute };
     }
 
-    function createParticipantMoveBatcher({
-        sendBatch,
-        schedule = callback => setTimeout(callback, 500),
-        cancel = timeout => clearTimeout(timeout),
-        batchLimit = 64,
-        onPendingChange = () => {},
-    }) {
-        const queue = [];
-        let timeout = null;
-        let flushPromise = null;
-        let activeSessionId = null;
-
-        function scheduleFlush() {
-            if (timeout !== null) cancel(timeout);
-            timeout = schedule(flush);
-        }
-
-        function enqueue(move) {
-            queue.push(move);
-            scheduleFlush();
-            onPendingChange();
-        }
-
-        function enqueueAction(sessionId, action) {
-            return new Promise(resolve => {
-                queue.push({ session_id: sessionId, action, resolve });
-                onPendingChange();
-                void flush().catch(() => {});
-            });
-        }
-
-        function takeBatch() {
-            const sessionId = queue[0]?.session_id;
-            if (!sessionId) {
-                queue.shift();
-                return [];
-            }
-
-            const moves = [];
-            while (queue.length > 0 && !queue[0].action && moves.length < batchLimit && queue[0]?.session_id === sessionId) {
-                moves.push(queue.shift());
-            }
-            return moves;
-        }
-
-        function toPayload(moves) {
-            if (moves.length === 1) return moves[0];
-            return {
-                session_id: moves[0].session_id,
-                moves: moves.map(move => ({
-                    participant_id: move.participant_id,
-                    from_route_index: move.from_route_index,
-                    to_route_index: move.to_route_index,
-                    insert_at_position: move.insert_at_position,
-                })),
-            };
-        }
-
-        async function run() {
-            const sessionOutcomes = new Map();
-            while (queue.length > 0) {
-                const command = queue[0]?.action ? queue.shift() : null;
-                const moves = command ? [command] : takeBatch();
-                if (moves.length === 0) return { succeeded: false, sessionOutcomes };
-
-                const sessionId = moves[0].session_id;
-                activeSessionId = sessionId;
-                let succeeded;
-                try {
-                    succeeded = command ? await command.action() : await sendBatch(toPayload(moves));
-                } catch (error) {
-                    if (!command) queue.unshift(...moves);
-                    throw error;
-                } finally {
-                    activeSessionId = null;
-                    command?.resolve(Boolean(succeeded));
-                }
-                sessionOutcomes.set(sessionId, (sessionOutcomes.get(sessionId) ?? true) && succeeded);
-                if (!succeeded) return { succeeded: false, sessionOutcomes };
-            }
-            return { succeeded: true, sessionOutcomes };
-        }
-
-        async function flushDetailed() {
-            if (timeout !== null) {
-                cancel(timeout);
-                timeout = null;
-            }
-            if (flushPromise) return flushPromise;
-
-            flushPromise = run();
-            try {
-                return await flushPromise;
-            } finally {
-                flushPromise = null;
-                if (queue.length > 0 && timeout === null) scheduleFlush();
-                onPendingChange();
-            }
-        }
-
-        async function flush() {
-            const result = await flushDetailed();
-            return result.succeeded;
-        }
-
-        function hasPending() {
-            return queue.length > 0 || timeout !== null || flushPromise !== null;
-        }
-
-        function hasPendingFor(sessionId) {
-            return Boolean(sessionId) && (activeSessionId === sessionId || queue.some(move => move.session_id === sessionId));
-        }
-
-        function discardFor(sessionId) {
-            let removed = 0;
-            for (let index = queue.length - 1; index >= 0; index -= 1) {
-                if (queue[index]?.session_id !== sessionId) continue;
-                const [entry] = queue.splice(index, 1);
-                entry.resolve?.(false);
-                removed += 1;
-            }
-            if (queue.length === 0 && timeout !== null) {
-                cancel(timeout);
-                timeout = null;
-            }
-            onPendingChange();
-            return removed;
-        }
-
-        async function flushFor(sessionId) {
-            let succeeded = true;
-            while (hasPendingFor(sessionId)) {
-                const result = await flushDetailed();
-                if (result.sessionOutcomes.get(sessionId) === false) succeeded = false;
-            }
-            return succeeded;
-        }
-
-        return { discardFor, enqueue, enqueueAction, flush, flushFor, hasPending, hasPendingFor };
-    }
 
     function bootBrowser() {
         function toastMessage(errorHeader) {
@@ -1048,74 +1157,20 @@
             return container ? container.dataset.sessionId : null;
         }
 
-        let participantMoveBatcher;
         const routeSessionOrchestrator = createRouteSessionOrchestrator({
             document,
             htmx,
-            moves: {
-                hasPending: function(sessionId) {
-                    return participantMoveBatcher.hasPendingFor(sessionId);
-                },
-                flush: function(sessionId) {
-                    return participantMoveBatcher.flushFor(sessionId);
-                },
-            },
+            readPlanState: () => plannerState.refresh(),
+            request: (url, options) => (window.authFetch || fetch)(url, options),
+            pendingChanged: () => applyPlanStateAffordance(plannerState.getSnapshot().status),
             reportError: showRouteError,
+            notify: showToast,
+            reportSaveBlocked: status => showToast(PLAN_STATE_MESSAGES[status] || PLAN_STATE_MESSAGES.stale, 'warning'),
             afterRender: refreshResultsView,
         });
 
-        participantMoveBatcher = createParticipantMoveBatcher({
-            onPendingChange: () => applyPlanStateAffordance(plannerState.getSnapshot().status),
-            sendBatch: async function(payload) {
-                const state = plannerState.refresh();
-                if (!state.canSave || state.sessionId !== payload.session_id) {
-                    participantMoveBatcher.discardFor(payload.session_id);
-                    return false;
-                }
-
-                try {
-                    const response = await (window.authFetch || fetch)('/api/v1/routes/edit/move-participant', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'HX-Request': 'true',
-                            'X-Route-Fragment': 'true',
-                            'X-Route-Balance': document.querySelector('.routes-container')?.dataset.outOfBalance || ''
-                        },
-                        body: JSON.stringify(payload)
-                    });
-
-                    const html = await response.text();
-                    return routeSessionOrchestrator.applyEditResult({
-                        requestedSessionId: payload.session_id,
-                        ok: response.ok,
-                        errorHeader: response.headers?.get('HX-Trigger'),
-                        html,
-                    });
-                } catch (err) {
-                    console.error('Failed to move participant:', err);
-                    showToast('Could not update routes. Please try again.', 'error');
-                    return false;
-                }
-            }
-        });
-
         async function moveParticipant(participantId, fromRouteIndex, toRouteIndex) {
-            if (toRouteIndex === '' || toRouteIndex === null) return;
-
-            const sessionId = getSessionId();
-            if (!sessionId) {
-                showToast('That route plan is no longer available. Calculate it again.', 'error');
-                return;
-            }
-
-            return participantMoveBatcher.enqueue({
-                session_id: sessionId,
-                participant_id: parseInt(participantId),
-                from_route_index: parseInt(fromRouteIndex),
-                to_route_index: parseInt(toRouteIndex),
-                insert_at_position: -1
-            });
+            return routeSessionOrchestrator.move(participantId, fromRouteIndex, toRouteIndex);
         }
 
         function isSaveEventForm(form) {
@@ -1126,53 +1181,13 @@
             const form = evt.target;
             if (!isSaveEventForm(form)) return;
 
-            const planState = plannerState.refresh();
-            if (!planState.canSave) {
-                evt.preventDefault();
-                evt.stopImmediatePropagation();
-                showToast(PLAN_STATE_MESSAGES[planState.status] || PLAN_STATE_MESSAGES.stale, 'warning');
-                return;
-            }
-
-            if (!routeSessionOrchestrator.hasQueuedMoves(form)) return;
-
+            if (!routeSessionOrchestrator.save(form)) return;
             evt.preventDefault();
             evt.stopImmediatePropagation();
-            await routeSessionOrchestrator.submitSaveWithQueuedMoves(form);
         }, true);
 
-        function enqueueRouteEdit(sessionId, endpoint, payload) {
-            return participantMoveBatcher.enqueueAction(sessionId, async () => {
-                const state = plannerState.refresh();
-                if (!state.canSave || state.sessionId !== sessionId) return false;
-                try {
-                    const response = await (window.authFetch || fetch)(endpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'HX-Request': 'true', 'X-Route-Fragment': 'true', 'X-Route-Balance': document.querySelector('.routes-container')?.dataset.outOfBalance || '' },
-                        ...(payload ? { body: JSON.stringify(payload) } : {}),
-                    });
-                    return routeSessionOrchestrator.applyEditResult({
-                        requestedSessionId: sessionId,
-                        ok: response.ok,
-                        errorHeader: response.headers?.get('HX-Trigger'),
-                        html: await response.text(),
-                    });
-                } catch (error) {
-                    console.error('Failed to update routes:', error);
-                    showToast('Could not update routes. Please try again.', 'error');
-                    return false;
-                }
-            });
-        }
-
         async function openRouteEditor(button) {
-            const sessionId = getSessionId();
-            const url = button.dataset.editorUrl;
-            if (!sessionId || !plannerState.refresh().canSave) return;
-            if (!await participantMoveBatcher.flushFor(sessionId) || sessionId !== getSessionId() || !plannerState.refresh().canSave) return;
-            try {
-                await htmx.ajax('GET', url, {target: '#route-editor', swap: 'innerHTML'});
-            } catch { showToast('Could not open the editor. Please try again.', 'error'); }
+            return routeSessionOrchestrator.openEditor(button.dataset.editorUrl);
         }
 
         async function submitRouteEditor(event) {
@@ -1188,15 +1203,13 @@
             button.disabled = true;
             let succeeded = false;
             try {
-                const from = Number(values.get('from_route_index'));
-                if (values.get('action') === 'move') {
-                    await moveParticipant(values.get('participant_id'), from, destination);
-                    succeeded = await participantMoveBatcher.flushFor(sessionId);
-                } else if (values.get('action') === 'swap') {
-                    succeeded = await enqueueRouteEdit(sessionId, '/api/v1/routes/edit/swap-drivers', {session_id: sessionId, route_index_1: from, route_index_2: Number(destination)});
-                } else if (values.get('action') === 'add') {
-                    succeeded = await addUnusedDriver(Number(destination));
-                }
+                succeeded = await routeSessionOrchestrator.submitEditor({
+                    sessionId,
+                    action: values.get('action'),
+                    participantId: values.get('participant_id'),
+                    from: Number(values.get('from_route_index')),
+                    destination,
+                });
                 if (succeeded && form.isConnected) root.closeRouteEditor();
             } finally { if (button.isConnected) button.disabled = false; }
         }
@@ -1208,38 +1221,22 @@
                 showToast('Please select a driver to swap with.', 'warning');
                 return;
             }
-            const sessionId = getSessionId();
-            if (!sessionId) {
-                showToast('That route plan is no longer available. Calculate it again.', 'error');
-                return;
-            }
-            return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/swap-drivers', {
-                session_id: sessionId,
-                route_index_1: parseInt(routeIndex1),
-                route_index_2: parseInt(routeIndex2),
-            });
+            return routeSessionOrchestrator.swap(routeIndex1, routeIndex2);
         }
 
         async function resetRoutes() {
-            const sessionId = getSessionId();
-            if (!sessionId) {
-                showToast('That route plan is no longer available. Calculate it again.', 'error');
-                return;
-            }
-            if (!await root.showConfirmDialog('Reset changes? Your edits will be lost.')) return false;
-            return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/reset?session_id=' + encodeURIComponent(sessionId));
+            return routeSessionOrchestrator.reset(() => root.showConfirmDialog('Reset changes? Your edits will be lost.'));
         }
 
         async function showRouteTimings(button) {
-            const sessionId = getSessionId();
             const card = button && button.closest ? button.closest('.route-card') : null;
-            if (!sessionId || !card) {
+            if (!getSessionId() || !card) {
                 showToast('That route plan is no longer available. Calculate it again.', 'error');
                 return false;
             }
             button.disabled = true;
             try {
-                const rendered = await enqueueRouteEdit(sessionId, '/api/v1/routes/session/timings', { session_id: sessionId, route_index: parseInt(card.dataset.routeIndex, 10) });
+                const rendered = await routeSessionOrchestrator.timings(card.dataset.routeIndex);
                 if (!rendered && button.isConnected) button.disabled = false;
                 return rendered;
             } catch (error) {
@@ -1249,12 +1246,7 @@
         }
 
         async function addUnusedDriver(driverId) {
-            const sessionId = getSessionId();
-            if (!sessionId) {
-                showToast('That route plan is no longer available. Calculate it again.', 'error');
-                return;
-            }
-            return enqueueRouteEdit(sessionId, '/api/v1/routes/edit/add-driver', { session_id: sessionId, driver_id: parseInt(driverId) });
+            return routeSessionOrchestrator.add(driverId);
         }
 
         function showCopied(button, baseClass) {
@@ -1276,21 +1268,21 @@
         }
 
         async function copyRoute(button, audience) {
-            if (participantMoveBatcher.hasPendingFor(getSessionId())) return false;
+            if (routeSessionOrchestrator.hasPending()) return false;
             const copied = await routeHandoff.copyRoute(button?.closest('.route-card'), audience);
             if (copied) showCopied(button, 'btn-outline');
             return copied;
         }
 
         async function copyAllRoutes() {
-            if (participantMoveBatcher.hasPendingFor(getSessionId())) return false;
+            if (routeSessionOrchestrator.hasPending()) return false;
             const copied = await routeHandoff.copyAllRoutes(document.querySelector('.routes-container'));
             if (copied) showCopied(document.getElementById('copy-all-btn'), 'btn-secondary');
             return copied;
         }
 
         function previewRoute(button) {
-            if (participantMoveBatcher.hasPendingFor(getSessionId())) return false;
+            if (routeSessionOrchestrator.hasPending()) return false;
             return routeHandoff.previewRoute(button?.closest('.route-card'));
         }
 
@@ -1347,7 +1339,7 @@
             const container = resultsSection ? resultsSection.querySelector('.routes-container') : null;
             if (!container) return;
 
-            const pendingEdits = participantMoveBatcher.hasPendingFor(container.dataset.sessionId);
+            const pendingEdits = routeSessionOrchestrator.hasPending();
             const message = pendingEdits ? 'Updating routes. Copy, preview and save will be available in a moment.' : PLAN_STATE_MESSAGES[status] || '';
             let lockedActions = PLAN_STATE_LOCKS[status] || '';
             if (pendingEdits) {
@@ -1403,7 +1395,7 @@
                 removeItem: key => window.localStorage.removeItem(key),
             },
             onChange: function(state) {
-                if (state.status !== 'current') participantMoveBatcher.discardFor(state.sessionId);
+                routeSessionOrchestrator.planChanged(state);
                 applyPlanStateAffordance(state.status);
             },
         });
@@ -1996,7 +1988,7 @@
             if (calculate) calculate.disabled = false;
             const form = getEventForm();
             plannerState.invalidateCalculations();
-            participantMoveBatcher.discardFor(getSessionId());
+            routeSessionOrchestrator.clear();
             deferPlannerSync = true;
             try {
                 planSelection.clear(() => {
@@ -2300,7 +2292,6 @@
     }
 
     return {
-        createParticipantMoveBatcher,
         createPlannerState,
         createRouteHandoff,
         applyLocalEventDate,

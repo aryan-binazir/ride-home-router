@@ -9,7 +9,6 @@ const vm = require('node:vm');
 
 const planner = require('./event-planner.js');
 const {
-    createParticipantMoveBatcher,
     createPlannerState,
     createRouteHandoff,
     applyLocalEventDate,
@@ -86,7 +85,6 @@ test('installRouteResults installs HTML before processing and performs all resul
 test('planner exports its browser-independent test seams', () => {
     assert.deepEqual(Object.keys(planner).sort(), [
         'applyLocalEventDate',
-        'createParticipantMoveBatcher',
         'createPlannerState',
         'createRouteHandoff',
         'createRouteSessionOrchestrator',
@@ -569,37 +567,19 @@ function createSaveForm({
     return form;
 }
 
-function createRouteSessionHarness({
-    activeSessionId = 'session-a',
-    getLiveForm = () => null,
-    hasPending = () => true,
-    flush = async () => true,
-    hasResultsSection = true,
-} = {}) {
-    const rendered = [];
-    const processed = [];
-    const errors = [];
-    let etaRefreshes = 0;
-    let currentSessionId = activeSessionId;
-    const dateInput = {
-        value: 'server-date',
-        dataset: {},
-        addEventListener() {},
-    };
+function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm = () => null, hasResultsSection = true, request, onRender = () => {} } = {}) {
+    const rendered = [], processed = [], errors = [], sent = [], opened = [], notifications = [];
+    let etaRefreshes = 0, currentSessionId = activeSessionId;
+    const dateInput = { value: 'server-date', dataset: {}, addEventListener() {} };
     let dateApplications = 0;
     const resultsSection = {
-        set innerHTML(html) { rendered.push(html); },
+        set innerHTML(html) { rendered.push(html); onRender(html); },
         querySelector: () => null,
-        querySelectorAll() {
-            dateApplications += 1;
-            return [dateInput];
-        },
+        querySelectorAll() { dateApplications += 1; return [dateInput]; },
     };
     const document = {
         querySelector(selector) {
-            if (selector === '.routes-container') {
-                return currentSessionId ? { dataset: { sessionId: currentSessionId } } : null;
-            }
+            if (selector === '.routes-container') return currentSessionId ? { dataset: { sessionId: currentSessionId, outOfBalance: 'false' } } : null;
             if (selector === '#results-section form input[name="session_id"]') {
                 const form = getLiveForm();
                 return form ? { closest: () => form } : null;
@@ -608,296 +588,241 @@ function createRouteSessionHarness({
         },
         getElementById: id => id === 'results-section' && hasResultsSection ? resultsSection : null,
     };
+    const scheduled = new Map();
+    let nextTimer = 0;
     const orchestrator = createRouteSessionOrchestrator({
         document,
-        htmx: { process: element => processed.push(element) },
-        moves: { hasPending, flush },
-        reportError: html => errors.push(html),
+        htmx: { process: element => processed.push(element), ajax: async (method, url) => opened.push([method, url]) },
+        readPlanState: () => ({ canSave: true, sessionId: currentSessionId }),
+        request: async (url, options) => {
+            sent.push({ url, options });
+            return request ? request(url, options) : { ok: true, text: async () => 'routes' };
+        },
+        schedule: callback => { scheduled.set(++nextTimer, callback); return nextTimer; },
+        cancel: timer => scheduled.delete(timer),
+        reportError: (html, header) => errors.push({ html, header }),
+        notify: (...args) => notifications.push(args),
+        reportSaveBlocked: status => notifications.push(status),
         afterRender: () => { etaRefreshes += 1; },
+        pendingChanged() {},
     });
-
     return {
-        errors,
+        errors, notifications, orchestrator, opened, processed, rendered, resultsSection, sent, scheduled, dateInput,
         get dateApplications() { return dateApplications; },
-        dateInput,
         get etaRefreshes() { return etaRefreshes; },
-        orchestrator,
-        processed,
-        rendered,
-        resultsSection,
         setActiveSessionId: value => { currentSessionId = value; },
     };
 }
 
-test('route edit responses install results only while their requested session is active', () => {
-    const harness = createRouteSessionHarness();
+async function settleEdits() {
+    for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+}
 
-    const currentResult = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'current routes' });
+test('Route edits install only into their requested installed session and set up the results', async () => {
+    let finish;
+    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+    const owner = harness.orchestrator;
+    const current = owner.add(10);
+    finish({ ok: true, text: async () => 'current routes' });
+    assert.equal(await current, true);
+    await settleEdits();
+    const old = owner.add(20);
     harness.setActiveSessionId('session-b');
-    const staleResult = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'stale routes' });
-
-    assert.deepEqual({
-        currentResult,
-        staleResult,
-        rendered: harness.rendered,
-        processed: harness.processed,
-        dateApplications: harness.dateApplications,
-        etaRefreshes: harness.etaRefreshes,
-    }, {
-        currentResult: true,
-        staleResult: true,
-        rendered: ['current routes'],
-        processed: [harness.resultsSection],
-        dateApplications: 1,
-        etaRefreshes: 1,
-    });
+    finish({ ok: true, text: async () => 'old routes' });
+    assert.equal(await old, true);
+    assert.deepEqual(harness.rendered, ['current routes']);
+    assert.deepEqual(harness.processed, [harness.resultsSection]);
+    assert.equal(harness.dateApplications, 1);
+    assert.equal(harness.etaRefreshes, 1);
     assert.notEqual(harness.dateInput.value, 'server-date');
 });
 
-test('route edit success remains handled when the results target is absent', () => {
+test('Route edit success remains handled when the results target is absent', async () => {
     const harness = createRouteSessionHarness({ hasResultsSection: false });
-
-    const handled = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: true, html: 'routes' });
-
-    assert.deepEqual({
-        handled,
-        rendered: harness.rendered,
-        processed: harness.processed,
-        dateApplications: harness.dateApplications,
-        etaRefreshes: harness.etaRefreshes,
-    }, {
-        handled: true,
-        rendered: [],
-        processed: [],
-        dateApplications: 0,
-        etaRefreshes: 0,
-    });
+    assert.equal(await harness.orchestrator.add(10), true);
+    assert.deepEqual(harness.rendered, []);
+    assert.deepEqual(harness.processed, []);
+    assert.equal(harness.etaRefreshes, 0);
 });
 
-test('route edit errors are reported even after the requested session becomes stale', () => {
-    const harness = createRouteSessionHarness({ activeSessionId: 'session-b' });
-
-    const succeeded = harness.orchestrator.applyEditResult({ requestedSessionId: 'session-a', ok: false, html: 'move failed' });
-
-    assert.deepEqual({ succeeded, errors: harness.errors }, {
-        succeeded: false,
-        errors: ['move failed'],
-    });
-});
-
-test('saving with queued moves submits the replacement form the flush rendered', async () => {
-    const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    let liveForm = originalForm;
-    const harness = createRouteSessionHarness({
-        getLiveForm: () => liveForm,
-        flush: async () => {
-            liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', sessionId: 'session-a' });
-            return true;
-        },
-    });
-
-    const handled = await harness.orchestrator.submitSaveWithQueuedMoves(originalForm);
-
-    assert.deepEqual({
-        handled,
-        eventDate: liveForm.value('event_date'),
-        notes: liveForm.value('notes'),
-        sessionId: liveForm.value('session_id'),
-        originalSubmits: originalForm.submitCount,
-        liveSubmits: liveForm.submitCount,
-    }, {
-        handled: true,
-        eventDate: '2026-08-23',
-        notes: 'Bring snacks',
-        sessionId: 'session-a',
-        originalSubmits: 0,
-        liveSubmits: 1,
-    });
-});
-
-test('saving after a move does not submit an unsaveable replacement form', async () => {
-    const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks', saveEnabled: false });
-    const harness = createRouteSessionHarness({
-        getLiveForm: () => liveForm,
-    });
-
-    await harness.orchestrator.submitSaveWithQueuedMoves(originalForm);
-
-    assert.deepEqual({ eventDate: liveForm.value('event_date'), notes: liveForm.value('notes'), submits: liveForm.submitCount }, {
-        eventDate: '2026-08-23',
-        notes: 'Bring snacks',
-        submits: 0,
-    });
-});
-
-test('saving after a successful replacement tolerates the live form being absent', async () => {
-    const originalForm = createSaveForm({ eventDate: '2026-08-23' });
-    const harness = createRouteSessionHarness({ getLiveForm: () => null });
-
-    const handled = await harness.orchestrator.submitSaveWithQueuedMoves(originalForm);
-
-    assert.equal(handled, true);
-});
-
-test('saving after a partial move flush does not submit', async () => {
-    const originalForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    const harness = createRouteSessionHarness({
-        getLiveForm: () => liveForm,
-        flush: async () => false,
-    });
-
-    await harness.orchestrator.submitSaveWithQueuedMoves(originalForm);
-
-    assert.deepEqual({ eventDate: liveForm.value('event_date'), notes: liveForm.value('notes'), submits: liveForm.submitCount }, {
-        eventDate: '2026-08-23',
-        notes: 'Bring snacks',
-        submits: 0,
-    });
-});
-
-test('a second save attempt during the same move flush does not submit twice', async () => {
-    let finishFlush;
-    const flush = new Promise(resolve => { finishFlush = resolve; });
-    const form = createSaveForm({ eventDate: '2026-08-23' });
-    const harness = createRouteSessionHarness({
-        getLiveForm: () => form,
-        flush: () => flush,
-    });
-
-    const firstSave = harness.orchestrator.submitSaveWithQueuedMoves(form);
-    const secondSave = harness.orchestrator.submitSaveWithQueuedMoves(form);
-    finishFlush(true);
-    await Promise.all([firstSave, secondSave]);
-
-    assert.equal(form.submitCount, 1);
-});
-
-test('a queued save waits for its own session when an earlier session fails', async () => {
-    let finishSessionA;
-    const sessionAGate = new Promise(resolve => { finishSessionA = resolve; });
-    const sent = [];
-    const batcher = createParticipantMoveBatcher({
-        schedule: () => 1,
-        cancel: () => {},
-        sendBatch: async payload => {
-            sent.push(payload.session_id);
-            if (payload.session_id === 'session-a') {
-                await sessionAGate;
-                return false;
-            }
-            return true;
-        },
-    });
-    const sessionAForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Session A', sessionId: 'session-a' });
-    const sessionBForm = createSaveForm({ eventDate: '2026-08-24', notes: 'Session B', sessionId: 'session-b' });
-    let liveForm = sessionAForm;
-    const harness = createRouteSessionHarness({
-        getLiveForm: () => liveForm,
-        hasPending: sessionId => batcher.hasPendingFor(sessionId),
-        flush: sessionId => batcher.flushFor(sessionId),
-    });
-
-    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
-    const sessionASave = harness.orchestrator.submitSaveWithQueuedMoves(sessionAForm);
+test('Route edit errors report even after their session is replaced', async () => {
+    let finish;
+    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+    const pending = harness.orchestrator.add(10);
     harness.setActiveSessionId('session-b');
-    liveForm = sessionBForm;
-    batcher.enqueue({ session_id: 'session-b', participant_id: 2 });
-    const sessionBSave = harness.orchestrator.submitSaveWithQueuedMoves(sessionBForm);
-    finishSessionA();
-    await Promise.all([sessionASave, sessionBSave]);
-
-    assert.deepEqual({
-        sent,
-        eventDate: sessionBForm.value('event_date'),
-        notes: sessionBForm.value('notes'),
-        sessionASubmits: sessionAForm.submitCount,
-        sessionBSubmits: sessionBForm.submitCount,
-    }, {
-        sent: ['session-a', 'session-b'],
-        eventDate: '2026-08-24',
-        notes: 'Session B',
-        sessionASubmits: 0,
-        sessionBSubmits: 1,
-    });
+    finish({ ok: false, headers: { get: () => 'server error' }, text: async () => 'move failed' });
+    assert.equal(await pending, false);
+    assert.deepEqual(harness.errors, [{ html: 'move failed', header: 'server error' }]);
 });
 
-
-
-test('participant moves flush sequentially in same-session batches with the existing payload contracts', async () => {
-    const sent = [];
-    const batcher = createParticipantMoveBatcher({
-        schedule: () => 1,
-        cancel: () => {},
-        sendBatch: async payload => {
-            sent.push(payload);
-            await Promise.resolve();
-            return true;
-        },
+test('Save waits for edits and submits the live replacement form once', async () => {
+    const original = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
+    let liveForm = original, finish;
+    const harness = createRouteSessionHarness({
+        getLiveForm: () => liveForm,
+        request: () => new Promise(resolve => { finish = resolve; }),
+        onRender: () => { liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' }); },
     });
-    batcher.enqueue({ session_id: 'session-a', participant_id: 1, from_route_index: 0, to_route_index: 1, insert_at_position: -1 });
-    batcher.enqueue({ session_id: 'session-a', participant_id: 2, from_route_index: 1, to_route_index: 0, insert_at_position: -1 });
-    batcher.enqueue({ session_id: 'session-b', participant_id: 3, from_route_index: 0, to_route_index: 2, insert_at_position: -1 });
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1);
+    assert.equal(owner.save(original), true);
+    assert.equal(owner.save(original), true);
+    assert.equal(original.submitCount, 0);
+    finish({ ok: true, text: async () => 'replacement' });
+    await settleEdits();
+    assert.equal(original.submitCount, 0);
+    assert.equal(liveForm.submitCount, 1);
+    assert.equal(liveForm.value('event_date'), '2026-08-23');
+    assert.equal(liveForm.value('notes'), 'Bring snacks');
+    assert.equal(owner.hasPending(), false);
+    assert.equal(owner.save(liveForm), false);
+});
 
-    assert.equal(batcher.hasPendingFor('session-a'), true);
-    assert.equal(batcher.hasPendingFor('session-b'), true);
-    assert.equal(batcher.hasPendingFor('session-c'), false);
-    assert.equal(await batcher.flush(), true);
-    assert.equal(batcher.hasPendingFor('session-a'), false);
-    assert.equal(batcher.hasPendingFor('session-b'), false);
-    assert.deepEqual(sent, [
-        {
-            session_id: 'session-a',
-            moves: [
-                { participant_id: 1, from_route_index: 0, to_route_index: 1, insert_at_position: -1 },
-                { participant_id: 2, from_route_index: 1, to_route_index: 0, insert_at_position: -1 },
-            ],
-        },
-        { session_id: 'session-b', participant_id: 3, from_route_index: 0, to_route_index: 2, insert_at_position: -1 },
+for (const [reason, liveForm] of [
+    ['absent', null],
+    ['disabled', createSaveForm({ saveEnabled: false })],
+    ['missing its submit control', createSaveForm({ submitButton: false })],
+    ['for another session', createSaveForm({ sessionId: 'session-b' })],
+]) {
+    test(`Save does not submit a replacement form that is ${reason}`, async () => {
+        const original = createSaveForm();
+        const harness = createRouteSessionHarness({ getLiveForm: () => liveForm });
+        harness.orchestrator.move(1, 0, 1);
+        assert.equal(harness.orchestrator.save(original), true);
+        await settleEdits();
+        assert.equal(original.submitCount, 0);
+        assert.equal(liveForm?.submitCount || 0, 0);
+    });
+}
+
+test('Save remembers a rejected batch even when later batches succeed', async () => {
+    const form = createSaveForm();
+    let count = 0;
+    const harness = createRouteSessionHarness({ getLiveForm: () => form, request: async () => ({ ok: ++count !== 1, text: async () => 'batch' }) });
+    for (let id = 1; id <= 129; id++) harness.orchestrator.move(id, 0, 1);
+    assert.equal(harness.orchestrator.save(form), true);
+    await settleEdits();
+    assert.equal(count, 3);
+    assert.equal(form.submitCount, 0);
+    assert.equal(harness.orchestrator.hasPending(), false);
+    assert.deepEqual(harness.sent.map(({ options }) => {
+        const payload = JSON.parse(options.body);
+        return payload.moves?.length || 1;
+    }), [64, 64, 1]);
+});
+
+test('Save waits for its own session after an older session fails', async () => {
+    let finishOld;
+    const formA = createSaveForm(), formB = createSaveForm({ sessionId: 'session-b' });
+    let liveForm = formA;
+    const harness = createRouteSessionHarness({
+        getLiveForm: () => liveForm,
+        request: async (url, options) => JSON.parse(options.body).session_id === 'session-a'
+            ? new Promise(resolve => { finishOld = resolve; })
+            : { ok: true, text: async () => 'session b' },
+    });
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1);
+    owner.save(formA);
+    harness.setActiveSessionId('session-b'); liveForm = formB;
+    owner.move(2, 0, 1); owner.save(formB);
+    finishOld({ ok: false, text: async () => 'session a failed' });
+    await settleEdits();
+    assert.deepEqual(harness.sent.map(({ options }) => JSON.parse(options.body).session_id), ['session-a', 'session-b']);
+    assert.equal(formA.submitCount, 0);
+    assert.equal(formB.submitCount, 1);
+});
+
+test('Move debounce batches retain the wire payloads and dispatch headers', async () => {
+    const harness = createRouteSessionHarness();
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1); owner.move(2, 1, 0);
+    assert.equal(harness.scheduled.size, 1);
+    assert.equal(harness.sent.length, 0);
+    await owner.openEditor('/editor');
+    owner.move(3, 0, 2);
+    await owner.openEditor('/editor');
+    assert.deepEqual(harness.sent.map(({ options }) => JSON.parse(options.body)), [
+        { session_id: 'session-a', moves: [
+            { participant_id: 1, from_route_index: 0, to_route_index: 1, insert_at_position: -1 },
+            { participant_id: 2, from_route_index: 1, to_route_index: 0, insert_at_position: -1 },
+        ] },
+        { session_id: 'session-a', participant_id: 3, from_route_index: 0, to_route_index: 2, insert_at_position: -1 },
     ]);
+    assert.deepEqual(harness.sent[0].options.headers, { 'Content-Type': 'application/json', 'HX-Request': 'true', 'X-Route-Fragment': 'true', 'X-Route-Balance': 'false' });
+    assert.equal(harness.sent[0].options.method, 'POST');
+    assert.equal(owner.hasPending(), false);
+    assert.deepEqual(harness.opened, [['GET', '/editor'], ['GET', '/editor']]);
 });
 
-test('discarding a session cancels its queued participant moves', async () => {
+test('Plan changes cancel queued moves and Clear resolves queued manual actions', async () => {
+    let finish;
+    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1);
+    owner.planChanged({ status: 'stale', sessionId: 'session-a' });
+    assert.equal(harness.scheduled.size, 0);
+    assert.equal(owner.hasPending(), false);
+    assert.equal(harness.sent.length, 0);
+    const active = owner.add(10);
+    const queued = owner.swap(0, 1);
+    owner.clear();
+    assert.equal(await queued, false);
+    assert.equal(owner.hasPending(), true);
+    finish({ ok: true, text: async () => 'active' });
+    await active; await settleEdits();
+    assert.equal(owner.hasPending(), false);
+});
+
+test('an absent installed session has no pending Route edits', () => {
+    const harness = createRouteSessionHarness({ activeSessionId: null });
+    assert.equal(harness.orchestrator.hasPending(), false);
+});
+
+test('the Route session owner dispatches moves and manual edits before saving the live form', async () => {
+    const form = createSaveForm();
     const sent = [];
-    let scheduled;
-    let cancelled = false;
-    const batcher = createParticipantMoveBatcher({
-        schedule: callback => { scheduled = callback; return 1; },
-        cancel: () => { cancelled = true; },
-        sendBatch: async payload => { sent.push(payload); return true; },
-    });
-
-    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
-    assert.equal(batcher.discardFor('session-a'), 1);
-    await scheduled();
-
-    assert.deepEqual({ cancelled, pending: batcher.hasPending(), sent }, {
-        cancelled: true,
-        pending: false,
-        sent: [],
-    });
-});
-
-test('flushing a session preserves an earlier failure across later successful batches', async () => {
-    let calls = 0;
-    const batcher = createParticipantMoveBatcher({
-        batchLimit: 1,
+    const requests = [];
+    const document = {
+        querySelector(selector) {
+            if (selector === '.routes-container') return { dataset: { sessionId: 'session-a', outOfBalance: 'false' } };
+            if (selector === '#results-section form input[name="session_id"]') return { closest: () => form };
+            return null;
+        },
+        getElementById: () => null,
+    };
+    const owner = createRouteSessionOrchestrator({
+        document,
+        htmx: { process() {} },
+        readPlanState: () => ({ canSave: true, sessionId: 'session-a' }),
+        request: (url, options) => new Promise(resolve => { sent.push([url, options]); requests.push(resolve); }),
         schedule: () => 1,
         cancel: () => {},
-        sendBatch: async () => {
-            calls += 1;
-            return calls !== 1;
-        },
+        reportError() {},
+        notify() {},
+        afterRender() {},
     });
-    batcher.enqueue({ session_id: 'session-a', participant_id: 1 });
-    batcher.enqueue({ session_id: 'session-a', participant_id: 2 });
-    batcher.enqueue({ session_id: 'session-a', participant_id: 3 });
-
-    assert.equal(await batcher.flushFor('session-a'), false);
-    assert.equal(calls, 3);
-    assert.equal(batcher.hasPendingFor('session-a'), false);
+    owner.move(1, 0, 1);
+    const resetting = owner.reset(async () => true);
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+    owner.move(2, 1, 0);
+    assert.equal(owner.save(form), true);
+    assert.equal(sent.length, 1);
+    assert.equal(form.submitCount, 0);
+    requests[0]({ ok: true, text: async () => 'first move' });
+    for (let turn = 0; turn < 15; turn++) await Promise.resolve();
+    assert.match(sent[1][0], /\/reset\?/);
+    requests[1]({ ok: true, text: async () => 'reset' });
+    await resetting;
+    for (let turn = 0; turn < 15; turn++) await Promise.resolve();
+    assert.equal(sent.length, 3);
+    assert.equal(form.submitCount, 0);
+    requests[2]({ ok: true, text: async () => 'last move' });
+    for (let turn = 0; turn < 30; turn++) await Promise.resolve();
+    assert.equal(form.submitCount, 1);
+    assert.deepEqual(sent.filter(([url]) => url.endsWith('move-participant')).map(([, options]) => JSON.parse(options.body).participant_id), [1, 2]);
 });
+
 
 test('driver copy shows friendly location names while Maps keeps real coordinates', async () => {
     const copied = [];
@@ -2084,13 +2009,6 @@ test('changing the plan cancels queued manual edits without leaving their caller
     await adding;
     await app.settleRestore();
     assert.equal(app.previewButton.disabled, false);
-});
-
-test('an absent session has no pending route edits', () => {
-    const batcher = createParticipantMoveBatcher({ sendBatch: async () => true });
-    assert.equal(batcher.hasPendingFor(null), false);
-    assert.equal(batcher.hasPendingFor(undefined), false);
-    assert.equal(batcher.hasPendingFor(''), false);
 });
 
 for (const mode of ['pickup', 'dropoff']) {
