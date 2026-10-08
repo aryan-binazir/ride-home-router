@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
-	"sync"
 	"time"
 )
 
@@ -20,8 +20,6 @@ type participantEdit struct {
 	LabelIDs                   []int64
 	SetLabels                  bool
 }
-
-var rosterCreateMu sync.Mutex
 
 type rosterDuplicateError struct{ name string }
 
@@ -52,19 +50,11 @@ func (e rosterEditor) createParticipant(ctx context.Context, edit participantEdi
 		Lat: result.Coords.Lat, Lng: result.Coords.Lng, GeocodedAt: time.Now(),
 		MatchedAddress: result.FormattedAddress, AddressMatch: models.AddressMatchFor(result.Guessed),
 	}
-	rosterCreateMu.Lock()
-	defer rosterCreateMu.Unlock()
-	existing, err := e.db.Participants().List(ctx, "")
-	if err != nil {
-		return nil, err
+	created, err := e.db.Participants().CreateManualWithLabels(ctx, participant, edit.LabelIDs)
+	if errors.Is(err, database.ErrDuplicate) {
+		return nil, rosterDuplicateError{edit.Name}
 	}
-	key := models.RosterKey(edit.Name, edit.Address)
-	for _, row := range existing {
-		if key != "" && models.RosterKey(row.Name, row.Address) == key {
-			return nil, rosterDuplicateError{edit.Name}
-		}
-	}
-	return e.db.Participants().CreateWithLabels(ctx, participant, edit.LabelIDs)
+	return created, err
 }
 
 func (e rosterEditor) updateParticipant(ctx context.Context, existing *models.Participant, edit participantEdit) (*models.Participant, error) {
@@ -103,19 +93,11 @@ func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*model
 		VehicleCapacity: edit.VehicleCapacity, Lat: result.Coords.Lat, Lng: result.Coords.Lng, GeocodedAt: time.Now(),
 		MatchedAddress: result.FormattedAddress, AddressMatch: models.AddressMatchFor(result.Guessed),
 	}
-	rosterCreateMu.Lock()
-	defer rosterCreateMu.Unlock()
-	existing, err := e.db.Drivers().List(ctx, "")
-	if err != nil {
-		return nil, err
+	created, err := e.db.Drivers().CreateManualWithLabels(ctx, driver, edit.LabelIDs)
+	if errors.Is(err, database.ErrDuplicate) {
+		return nil, rosterDuplicateError{edit.Name}
 	}
-	key := models.RosterKey(edit.Name, edit.Address)
-	for _, row := range existing {
-		if key != "" && models.RosterKey(row.Name, row.Address) == key {
-			return nil, rosterDuplicateError{edit.Name}
-		}
-	}
-	return e.db.Drivers().CreateWithLabels(ctx, driver, edit.LabelIDs)
+	return created, err
 }
 
 func (e rosterEditor) updateDriver(ctx context.Context, existing *models.Driver, edit driverEdit) (*models.Driver, error) {

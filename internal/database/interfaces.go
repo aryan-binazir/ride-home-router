@@ -42,6 +42,8 @@ type ParticipantRepository interface {
 	// entry update that entry instead of creating a second one.
 	UpsertBatch(ctx context.Context, participants []*models.Participant) (BatchUpsertResult, error)
 	CreateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
+	// CreateManualWithLabels atomically rejects a live RosterKey match with ErrDuplicate.
+	CreateManualWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Update(ctx context.Context, p *models.Participant) (*models.Participant, error)
 	UpdateWithLabels(ctx context.Context, p *models.Participant, labelIDs []int64) (*models.Participant, error)
 	Delete(ctx context.Context, id int64) error
@@ -60,6 +62,8 @@ type DriverRepository interface {
 	// entry update that entry instead of creating a second one.
 	UpsertBatch(ctx context.Context, drivers []*models.Driver) (BatchUpsertResult, error)
 	CreateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
+	// CreateManualWithLabels atomically rejects a live RosterKey match with ErrDuplicate.
+	CreateManualWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Update(ctx context.Context, d *models.Driver) (*models.Driver, error)
 	UpdateWithLabels(ctx context.Context, d *models.Driver, labelIDs []int64) (*models.Driver, error)
 	Delete(ctx context.Context, id int64) error

@@ -183,18 +183,39 @@ func TestJSONRosterCreateAcknowledgesCommitWhenLabelReadFails(t *testing.T) {
 	}
 }
 
-func TestDesktopDuplicateRosterCreateRejected(t *testing.T) {
+func TestDuplicateRosterCreateRejected(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
-		t.Run(kind, func(t *testing.T) {
-			h, _ := newTestManagementHandler(t)
-			first := rosterRequest(h, kind, http.MethodPost, "/api/v1/"+kind+"s", true)
-			if first.Code >= 400 {
-				t.Fatalf("first create: %d %s", first.Code, first.Body.String())
-			}
-			second := rosterRequest(h, kind, http.MethodPost, "/api/v1/"+kind+"s", true)
-			if second.Code != 409 || !strings.Contains(second.Header().Get("HX-Trigger"), "already in the roster") {
-				t.Fatalf("second create: %d %s", second.Code, second.Header())
-			}
-		})
+		for _, adapter := range []string{"desktop", "json", "mobile"} {
+			t.Run(kind+"/"+adapter, func(t *testing.T) {
+				h, _ := newTestManagementHandler(t)
+				create := func() *httptest.ResponseRecorder {
+					if adapter != "mobile" {
+						return rosterRequest(h, kind, http.MethodPost, "/api/v1/"+kind+"s", adapter == "desktop")
+					}
+					values := url.Values{"name": {"Test Person"}, "address": {"1 Original Road"}, "vehicle_capacity": {"4"}}
+					request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/m/people/"+kind+"s/new", strings.NewReader(values.Encode()))
+					request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+					response := httptest.NewRecorder()
+					if kind == "participant" {
+						h.HandleMobileParticipantForm(response, request)
+					} else {
+						h.HandleMobileDriverForm(response, request)
+					}
+					return response
+				}
+				first := create()
+				if first.Code >= 400 {
+					t.Fatalf("first create: %d %s", first.Code, first.Body.String())
+				}
+				second := create()
+				message := second.Body.String()
+				if adapter == "desktop" {
+					message = second.Header().Get("HX-Trigger")
+				}
+				if second.Code != http.StatusConflict || !strings.Contains(message, "Test Person at that address is already in the roster.") {
+					t.Fatalf("second create: %d %s", second.Code, message)
+				}
+			})
+		}
 	}
 }
