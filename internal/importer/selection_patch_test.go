@@ -17,7 +17,7 @@ func TestPersistentPageSelectionAndCommitPreserveOffPageChoices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Created != 1 || result.NotSelected != 2 {
+	if result.Kind != KindParticipant || result.Result.Created != 1 || result.Result.NotSelected != 2 {
 		t.Fatalf("off-page choices lost: %+v", result)
 	}
 }

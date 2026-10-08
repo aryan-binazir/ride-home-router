@@ -73,7 +73,7 @@ func TestPersistentImportResumesAfterWorkerShutdownAndCommitsOnce(t *testing.T) 
 		time.Sleep(20 * time.Millisecond)
 	}
 	result, err := second.Commit(t.Context(), created.ID, nil)
-	if err != nil || result.Created != 1 {
+	if err != nil || result.Result.Created != 1 {
 		t.Fatalf("commit: %+v %v", result, err)
 	}
 	if _, err = second.Commit(t.Context(), created.ID, nil); !errors.Is(err, ErrCommitConsumed) {
@@ -122,7 +122,7 @@ func TestPersistentImportPreservesDiagnosticsAndSkipsInvalidRows(t *testing.T) {
 		t.Fatalf("invalid selection: %v", err)
 	}
 	result, err := s.Commit(t.Context(), created.ID, nil)
-	if err != nil || result.Created != 1 {
+	if err != nil || result.Result.Created != 1 {
 		t.Fatalf("commit valid row: %+v %v", result, err)
 	}
 }

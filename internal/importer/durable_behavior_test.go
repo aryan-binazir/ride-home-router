@@ -83,7 +83,7 @@ func TestDurableImportUsesLatestSelectionAndCommitsCountsOnce(t *testing.T) {
 		t.Fatalf("latest selection = %+v err=%v", selection.Selected, err)
 	}
 	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result != (CommitResult{Created: 1, Updated: 2, NotSelected: 1}) {
+	if err != nil || result.Result != (CommitResult{Created: 1, Updated: 2, NotSelected: 1}) {
 		t.Fatalf("commit = %+v err=%v", result, err)
 	}
 	if _, err := s.Commit(t.Context(), preview.ID, nil); !errors.Is(err, ErrCommitConsumed) {
@@ -152,7 +152,7 @@ func TestDurableGeocodeDedupFailureAndGuessedAddress(t *testing.T) {
 		t.Fatalf("failed row selection = %+v err=%v", selection.Selected, err)
 	}
 	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result != (CommitResult{Created: 3, NotSelected: 1, Guessed: 1}) {
+	if err != nil || result.Result != (CommitResult{Created: 3, NotSelected: 1, Guessed: 1}) {
 		t.Fatalf("commit = %+v err=%v", result, err)
 	}
 	rows, err := db.Participants().List(t.Context(), "")
@@ -211,7 +211,7 @@ func TestDurableCanceledCommitCanRetry(t *testing.T) {
 		t.Fatalf("roster after canceled commit = %+v err=%v", rows, err)
 	}
 	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result.Created != 1 {
+	if err != nil || result.Result.Created != 1 {
 		t.Fatalf("retry commit = %+v err=%v", result, err)
 	}
 }
@@ -253,7 +253,7 @@ func TestDurableFailedBatchRollsBackRosterAndToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := s.Commit(t.Context(), preview.ID, nil)
-	if err != nil || result.Created != 2 {
+	if err != nil || result.Result.Created != 2 {
 		t.Fatalf("retry = %+v err=%v", result, err)
 	}
 }

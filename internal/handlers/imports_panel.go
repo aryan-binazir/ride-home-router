@@ -487,7 +487,7 @@ func (h *Handler) applyImportPanelSelection(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id string) int {
-	snapshot, ok, loadErr := h.ImportSession.Load(r.Context(), id)
+	progress, ok, loadErr := h.ImportSession.LoadProgress(r.Context(), id)
 	if loadErr != nil {
 		return h.writeImportStoreError(w, r, id, loadErr)
 	}
@@ -497,21 +497,21 @@ func (h *Handler) commitImportPanel(w http.ResponseWriter, r *http.Request, id s
 	if err := parseImportPanelForm(w, r); err != nil {
 		return h.writeImportError(w, r, id, http.StatusBadRequest, "INVALID_REQUEST_BODY", messageInvalidRequestBody, nil)
 	}
-	var result importer.CommitResult
+	var committed importer.CommittedImport
 	var err error
 	if r.Form.Get("page_selection") == "1" {
 		var patch map[int]bool
-		patch, err = importPageSelection(r, len(snapshot.Rows))
+		patch, err = importPageSelection(r, progress.RowCount)
 		if err == nil {
-			result, err = h.ImportSession.CommitRowsPatch(r.Context(), id, patch)
+			committed, err = h.ImportSession.CommitRowsPatch(r.Context(), id, patch)
 		}
 	} else {
-		result, err = h.ImportSession.Commit(r.Context(), id, importSelectionFromForm(r, len(snapshot.Rows)))
+		committed, err = h.ImportSession.Commit(r.Context(), id, importSelectionFromForm(r, progress.RowCount))
 	}
 	if err != nil {
 		return h.writeImportStoreError(w, r, id, err)
 	}
-	h.renderImportCommitted(w, r, snapshot.Kind, result)
+	h.renderImportCommitted(w, r, committed.Kind, committed.Result)
 	return http.StatusOK
 }
 

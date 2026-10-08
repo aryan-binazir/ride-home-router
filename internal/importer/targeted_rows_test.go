@@ -66,7 +66,7 @@ func TestPersistentGeocodingReadsOnlyItsAddressRows(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	result, err := s.Commit(t.Context(), created.ID, nil)
-	if err != nil || result.Created != 2 {
+	if err != nil || result.Result.Created != 2 {
 		t.Fatalf("commit=%+v err=%v", result, err)
 	}
 	rows, err := db.Participants().List(t.Context(), "")
