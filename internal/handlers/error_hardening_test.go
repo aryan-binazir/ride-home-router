@@ -160,7 +160,7 @@ func TestMobilePersonDatabaseFailurePreservesInput(t *testing.T) {
 
 type alwaysFailParticipantCreate struct{ database.ParticipantRepository }
 
-func (alwaysFailParticipantCreate) CreateWithLabels(context.Context, *models.Participant, []int64) (*models.Participant, error) {
+func (alwaysFailParticipantCreate) CreateManualWithLabels(context.Context, *models.Participant, []int64) (*models.Participant, error) {
 	return nil, errors.New(internalSentinel)
 }
 
