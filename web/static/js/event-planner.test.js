@@ -569,7 +569,7 @@ function createSaveForm({
 
 function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm = () => null, hasResultsSection = true, request, onRender = () => {} } = {}) {
     const rendered = [], processed = [], errors = [], sent = [], opened = [], notifications = [];
-    let etaRefreshes = 0, currentSessionId = activeSessionId;
+    let etaRefreshes = 0, currentSessionId = activeSessionId, canSave = true;
     const dateInput = { value: 'server-date', dataset: {}, addEventListener() {} };
     let dateApplications = 0;
     const resultsSection = {
@@ -593,7 +593,7 @@ function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm 
     const orchestrator = createRouteSessionOrchestrator({
         document,
         htmx: { process: element => processed.push(element), ajax: async (method, url) => opened.push([method, url]) },
-        readPlanState: () => ({ canSave: true, sessionId: currentSessionId }),
+        readPlanState: () => ({ canSave, sessionId: currentSessionId }),
         request: async (url, options) => {
             sent.push({ url, options });
             return request ? request(url, options) : { ok: true, text: async () => 'routes' };
@@ -611,6 +611,7 @@ function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm 
         get dateApplications() { return dateApplications; },
         get etaRefreshes() { return etaRefreshes; },
         setActiveSessionId: value => { currentSessionId = value; },
+        setSaveable: value => { canSave = value; },
     };
 }
 
@@ -733,7 +734,7 @@ test('Save waits for its own session after an older session fails', async () => 
     assert.equal(formB.submitCount, 1);
 });
 
-test('Move debounce batches retain the wire payloads and dispatch headers', async () => {
+test('queued Move batches retain the wire payloads and dispatch headers', async () => {
     const harness = createRouteSessionHarness();
     const owner = harness.orchestrator;
     owner.move(1, 0, 1); owner.move(2, 1, 0);
@@ -804,25 +805,24 @@ test('the Route session owner dispatches moves and manual edits before saving th
     });
     owner.move(1, 0, 1);
     const resetting = owner.reset(async () => true);
-    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+    await settleEdits();
     owner.move(2, 1, 0);
     assert.equal(owner.save(form), true);
     assert.equal(sent.length, 1);
     assert.equal(form.submitCount, 0);
     requests[0]({ ok: true, text: async () => 'first move' });
-    for (let turn = 0; turn < 15; turn++) await Promise.resolve();
+    await settleEdits();
     assert.match(sent[1][0], /\/reset\?/);
     requests[1]({ ok: true, text: async () => 'reset' });
     await resetting;
-    for (let turn = 0; turn < 15; turn++) await Promise.resolve();
+    await settleEdits();
     assert.equal(sent.length, 3);
     assert.equal(form.submitCount, 0);
     requests[2]({ ok: true, text: async () => 'last move' });
-    for (let turn = 0; turn < 30; turn++) await Promise.resolve();
+    await settleEdits();
     assert.equal(form.submitCount, 1);
     assert.deepEqual(sent.filter(([url]) => url.endsWith('move-participant')).map(([, options]) => JSON.parse(options.body).participant_id), [1, 2]);
 });
-
 
 test('driver copy shows friendly location names while Maps keeps real coordinates', async () => {
     const copied = [];
@@ -845,7 +845,6 @@ test('driver copy shows friendly location names while Maps keeps real coordinate
     assert.match(copied[0], /destination=40.1%2C-74.1/);
     assert.doesNotMatch(copied[0], /Driver\+Home/);
 });
-
 
 class HTMLFormElement {}
 
@@ -2129,7 +2128,6 @@ test('summarizeMeasuredCards adds up occupied cars only once every one of them h
     assert.equal(summarizeMeasuredCards([{ timings: 'measured', hasStops: true, totalMeters: 'x', detourSecs: '1' }], true), null, 'bad numbers never produce a total');
 });
 
-
 test('planner stays hidden until saved route restoration finishes', async () => {
     const app = bootPlanner({storedSession: {id: 'restored-session', fingerprint: 'saved'}});
     let resolveRequest;
@@ -2140,4 +2138,80 @@ test('planner stays hidden until saved route restoration finishes', async () => 
     resolveRequest({ok: true, status: 204});
     for (let turn = 0; turn < 20; turn++) await Promise.resolve();
     assert.equal(app.document.documentElement.classList.contains('planner-restoring'), false);
+});
+
+test('participant moves keep the production 500ms debounce', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const sent = [];
+    const owner = createRouteSessionOrchestrator({
+        document: {
+            querySelector: () => ({ dataset: { sessionId: 'session-a', outOfBalance: 'false' } }),
+            getElementById: () => null,
+        },
+        htmx: { process() {} },
+        readPlanState: () => ({ canSave: true, sessionId: 'session-a' }),
+        request: async (url, options) => {
+            sent.push({ url, options });
+            return { ok: true, text: async () => 'routes' };
+        },
+        reportError() {},
+        notify() {},
+        afterRender() {},
+    });
+    owner.move(1, 0, 1);
+    t.mock.timers.tick(400);
+    owner.move(2, 1, 0);
+    t.mock.timers.tick(499);
+    assert.equal(sent.length, 0);
+    t.mock.timers.tick(1);
+    assert.equal(sent.length, 1);
+    assert.equal(JSON.parse(sent[0].options.body).moves.length, 2);
+    await settleEdits();
+    assert.equal(owner.hasPending(), false);
+});
+
+test('queued moves from an old session cannot absorb moves for the installed session', async () => {
+    const harness = createRouteSessionHarness();
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1);
+    harness.setActiveSessionId('session-b');
+    owner.move(2, 0, 1);
+    await owner.openEditor('/editor');
+    assert.deepEqual(harness.sent.map(({ options }) => JSON.parse(options.body)), [
+        { session_id: 'session-b', participant_id: 2, from_route_index: 0, to_route_index: 1, insert_at_position: -1 },
+    ]);
+    assert.deepEqual(harness.opened, [['GET', '/editor']]);
+});
+
+test('editor submission waits for its move response and reports rejection', async () => {
+    let finish, settled = false;
+    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+    const submitting = harness.orchestrator.submitEditor({ sessionId: 'session-a', action: 'move', participantId: 1, from: 0, destination: 1 }).then(result => { settled = true; return result; });
+    await settleEdits();
+    assert.equal(harness.sent.length, 1);
+    assert.equal(settled, false);
+    finish({ ok: false, text: async () => 'Cannot move rider' });
+    assert.equal(await submitting, false);
+});
+
+for (const change of ['rejected move', 'installed session', 'Plan eligibility']) {
+    test(`opening an editor after flushing rechecks ${change}`, async () => {
+        let finish;
+        const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+        const owner = harness.orchestrator;
+        owner.move(1, 0, 1);
+        const opening = owner.openEditor('/editor');
+        if (change === 'installed session') harness.setActiveSessionId('session-b');
+        if (change === 'Plan eligibility') harness.setSaveable(false);
+        finish({ ok: change !== 'rejected move', text: async () => 'routes' });
+        await opening;
+        assert.deepEqual(harness.opened, []);
+    });
+}
+
+test('an edit without an installed session reports its recovery action', () => {
+    const harness = createRouteSessionHarness({ activeSessionId: null });
+    harness.orchestrator.move(1, 0, 1);
+    assert.deepEqual(harness.notifications, [['That route plan is no longer available. Calculate it again.', 'error']]);
+    assert.equal(harness.orchestrator.hasPending(), false);
 });

@@ -378,6 +378,7 @@
     }) {
         const savesInFlight = new Set();
         const batchLimit = 64;
+        const moveEndpoint = '/api/v1/routes/edit/move-participant';
 
         const queue = [];
         let timeout = null;
@@ -405,11 +406,6 @@
 
         function takeBatch() {
             const sessionId = queue[0]?.session_id;
-            if (!sessionId) {
-                queue.shift();
-                return [];
-            }
-
             const moves = [];
             while (queue.length > 0 && !queue[0].action && moves.length < batchLimit && queue[0]?.session_id === sessionId) {
                 moves.push(queue.shift());
@@ -441,7 +437,7 @@
                 inFlightSessionId = sessionId;
                 let succeeded;
                 try {
-                    succeeded = command ? await command.action() : await dispatch(sessionId, '/api/v1/routes/edit/move-participant', toPayload(moves));
+                    succeeded = command ? await command.action() : await dispatch(sessionId, moveEndpoint, toPayload(moves));
                 } catch (error) {
                     if (!command) queue.unshift(...moves);
                     throw error;
@@ -449,7 +445,7 @@
                     inFlightSessionId = null;
                     command?.resolve(Boolean(succeeded));
                 }
-                sessionOutcomes.set(sessionId, (sessionOutcomes.get(sessionId) ?? true) && succeeded);
+                sessionOutcomes.set(sessionId, succeeded);
                 if (!succeeded) return { succeeded: false, sessionOutcomes };
             }
             return { succeeded: true, sessionOutcomes };
@@ -530,13 +526,6 @@
             return form.elements.namedItem('session_id')?.value || null;
         }
 
-        function hasPendingEdits(form) {
-            const sessionId = getSaveFormSessionId(form);
-            return Boolean(sessionId)
-                && getInstalledSessionId() === sessionId
-                && hasPendingFor(sessionId);
-        }
-
         function findLiveSaveForm() {
             const sessionInput = document.querySelector('#results-section form input[name="session_id"]');
             return sessionInput ? sessionInput.closest('form') : null;
@@ -559,12 +548,7 @@
             if (form.dispatchEvent(submitEvent)) form.submit();
         }
 
-        async function submitSaveAfterEdits(form) {
-            const requestedSessionId = getSaveFormSessionId(form);
-            if (!requestedSessionId || getInstalledSessionId() !== requestedSessionId) return false;
-            if (savesInFlight.has(requestedSessionId)) return true;
-            if (!hasPendingFor(requestedSessionId)) return false;
-
+        async function submitSaveAfterEdits(requestedSessionId) {
             savesInFlight.add(requestedSessionId);
             let flushed = false;
             let liveForm = null;
@@ -579,7 +563,6 @@
             if (flushed && liveForm && canSubmitSaveForm(liveForm)) {
                 submitSaveForm(liveForm);
             }
-            return true;
         }
 
         function requireSession() {
@@ -591,7 +574,7 @@
         async function dispatch(sessionId, endpoint, payload) {
             const state = readPlanState();
             if (!state.canSave || state.sessionId !== sessionId) {
-                if (endpoint === '/api/v1/routes/edit/move-participant') discardFor(sessionId);
+                if (endpoint === moveEndpoint) discardFor(sessionId);
                 return false;
             }
             try {
@@ -692,8 +675,9 @@
                 reportSaveBlocked(state.status);
                 return true;
             }
-            if (!hasPendingEdits(form)) return false;
-            void submitSaveAfterEdits(form);
+            const sessionId = getSaveFormSessionId(form);
+            if (!sessionId || getInstalledSessionId() !== sessionId || !hasPendingFor(sessionId)) return false;
+            if (!savesInFlight.has(sessionId)) void submitSaveAfterEdits(sessionId);
             return true;
         }
 
@@ -701,7 +685,11 @@
             if (state.status !== 'current') discardFor(state.sessionId);
         }
 
-        return { move, swap, reset, add, timings, openEditor, submitEditor, save, planChanged, clear: () => discardFor(getInstalledSessionId()), hasPending: () => hasPendingFor(getInstalledSessionId()) };
+        return {
+            move, swap, reset, add, timings, openEditor, submitEditor, save, planChanged,
+            clear: () => discardFor(getInstalledSessionId()),
+            hasPending: () => hasPendingFor(getInstalledSessionId()),
+        };
     }
 
     const DROPOFF_ETA_SLACK_SECS = 2 * 60;
@@ -1000,7 +988,6 @@
         return { copyAllRoutes, copyRoute, populateEtas, previewRoute };
     }
 
-
     function bootBrowser() {
         function toastMessage(errorHeader) {
             if (!errorHeader) return undefined;
@@ -1177,7 +1164,7 @@
             return form instanceof HTMLFormElement && form.getAttribute('hx-post') === SAVE_EVENT_ENDPOINT;
         }
 
-        document.addEventListener('submit', async function(evt) {
+        document.addEventListener('submit', function(evt) {
             const form = evt.target;
             if (!isSaveEventForm(form)) return;
 
@@ -2274,7 +2261,6 @@
             bootBrowser();
         }
     }
-
 
     function localISODate(date) {
         const pad = value => String(value).padStart(2, '0');
