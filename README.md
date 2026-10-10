@@ -4,7 +4,17 @@ Self-hosted event pickup and dropoff planning. Go server, browser UI, Postgres, 
 
 ## Run locally
 
-Requires Go 1.27 and Podman. Checks also need Node 24 and `golangci-lint` from [.golangci-lint-version](.golangci-lint-version).
+`make dev` requires Linux, Python 3, Go 1.27 and rootless Podman. Use `DEV_RUNTIME=docker make dev` with a compatible Docker runtime. Checks also need Python 3, Node 24 and `golangci-lint` from [.golangci-lint-version](.golangci-lint-version).
+
+```sh
+make dev
+```
+
+Open the printed login URL to enter as an approved synthetic member. The printed identity chooser also offers admin and denied accounts. This environment has seeded data and synthetic provider responses and travel estimates; no Clerk or Google credentials are needed.
+
+`make dev-status` prints URLs and logs. `make dev-stop` preserves data; stop and start after source changes to rebuild. `make dev-reset` deletes and recreates only this worktree's local data. Keep the state directory and login URLs private. See the [local development runbook](docs/runbooks/local-development.md) for isolation, identities and lifecycle details.
+
+### Use real providers locally
 
 1. Configure a development Clerk instance; export the four `CLERK_*` values and `ADMIN_EMAILS` below.
 2. Generate a key once with `openssl rand -base64 32`; export it as `CREDENTIAL_ENCRYPTION_KEY`. Keep it in a secret manager and reuse it across restarts.
@@ -21,7 +31,7 @@ Open <http://127.0.0.1:8080>, sign in as an admin, and add the Google Maps key i
 
 ## Configuration
 
-The first six values are required. Missing or malformed authentication/encryption configuration prevents startup.
+For `make serve` and deployments, the first six values are required. Missing or malformed authentication/encryption configuration prevents startup. `make dev` supplies its own local configuration.
 
 | Value | Purpose |
 | --- | --- |
@@ -99,13 +109,25 @@ For dirty state, inspect `schema_migrations`, the failed SQL and actual schema. 
 
 ## Verify
 
+Before merging, run the full gate with Chrome/Chromium and a local test Postgres database. Replace the browser path and database URL as needed; the example uses the test database created by `make postgres-up`.
+
 ```sh
+BROWSER_TEST_BINARY=/path/to/chrome-or-chromium \
+TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5434/ride_home_router_test?sslmode=disable' \
 make check
-make check-unit
+```
+
+All lint, module checks, vet, Python, JavaScript, browser and Go race tests must pass. No running app or npm dependencies are required. Use a separate local test database, including when developing with `make dev`.
+
+`make check-unit` skips database tests and is insufficient before merging. Browser tests skip when `BROWSER_TEST_BINARY` is unset; the full pre-merge gate requires them.
+
+For planner-related changes, also run:
+
+```sh
 make eval
 ```
 
-Set `BROWSER_TEST_BINARY` to Chrome/Chromium to enable browser tests; otherwise they skip. No running app or npm dependencies required. `make eval` compares synthetic rosters against a committed baseline and writes `_scratch/planner-eval-report.md`. Run it locally for planner-related changes; passing establishes no material regression, not optimal routes. This repository has no CI. Agents must complete the local pre-merge checks in [AGENTS.md](AGENTS.md).
+`make eval` compares synthetic rosters against a committed baseline and writes `_scratch/planner-eval-report.md`. Passing establishes no material regression, not optimal routes. This repository has no CI. See [AGENTS.md](AGENTS.md) for the required local pre-merge checks.
 
 ## License and disclaimer
 
