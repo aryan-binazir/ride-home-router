@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -152,8 +149,7 @@ func (h *Handler) HandleRouteEditorAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 	from, fromErr := strconv.Atoi(r.Form.Get("from_route_index"))
-	payload := map[string]any{"session_id": r.Form.Get("session_id")}
-	var action http.HandlerFunc
+	id := string([]rune(r.Form.Get("session_id")))
 	switch r.Form.Get("action") {
 	case "move":
 		participant, err := strconv.ParseInt(r.Form.Get("participant_id"), 10, 64)
@@ -161,37 +157,29 @@ func (h *Handler) HandleRouteEditorAction(w http.ResponseWriter, r *http.Request
 			h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 			return
 		}
-		payload["participant_id"] = participant
-		payload["from_route_index"] = from
-		payload["to_route_index"] = destination
-		payload["insert_at_position"] = -1
-		action = h.HandleMoveParticipant
+		r.Header.Set("HX-Request", "true")
+		if int64(int(destination)) != destination {
+			h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
+			return
+		}
+		h.moveParticipants(w, r, id, []participantMove{{participant, from, int(destination), -1}}, true)
 	case "swap":
 		if fromErr != nil {
 			h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 			return
 		}
-		payload["route_index_1"] = from
-		payload["route_index_2"] = destination
-		action = h.HandleSwapDrivers
+		r.Header.Set("HX-Request", "true")
+		if int64(int(destination)) != destination {
+			h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
+			return
+		}
+		h.swapDrivers(w, r, id, from, int(destination))
 	case "add":
-		payload["driver_id"] = destination
-		action = h.HandleAddDriver
+		r.Header.Set("HX-Request", "true")
+		h.addDriver(w, r, id, destination)
 	default:
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
-		return
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	request := r.Clone(r.Context())
-	request.Body = io.NopCloser(bytes.NewReader(body))
-	request.ContentLength = int64(len(body))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("HX-Request", "true")
-	action(w, request)
 }
 
 func (h *Handler) HandleMobileRouteEditorAction(w http.ResponseWriter, r *http.Request) {

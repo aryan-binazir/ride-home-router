@@ -46,7 +46,12 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	moves := req.Moves
 	if legacy {
 		moves = []participantMove{{req.ParticipantID, req.FromRouteIndex, req.ToRouteIndex, req.InsertAtPosition}}
-	} else if len(moves) == 0 {
+	}
+	h.moveParticipants(w, r, req.SessionID, moves, legacy)
+}
+
+func (h *Handler) moveParticipants(w http.ResponseWriter, r *http.Request, sessionID string, moves []participantMove, requireClaimedSource bool) {
+	if len(moves) == 0 {
 		h.handleValidationErrorHTMX(w, r, messageMovesRequired)
 		return
 	}
@@ -62,7 +67,7 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 		}
 		storeMoves[i] = routesession.Move{ParticipantID: move.ParticipantID, FromRouteIndex: move.FromRouteIndex, ToRouteIndex: move.ToRouteIndex, InsertAtPosition: move.InsertAtPosition}
 	}
-	snapshot, err := h.RouteSession.ApplyMoves(r.Context(), req.SessionID, storeMoves, routesession.ApplyMovesOptions{RequireClaimedSource: legacy})
+	snapshot, err := h.RouteSession.ApplyMoves(r.Context(), sessionID, storeMoves, routesession.ApplyMovesOptions{RequireClaimedSource: requireClaimedSource})
 	if err != nil {
 		h.handleRouteSessionError(w, r, err)
 		return
@@ -70,7 +75,8 @@ func (h *Handler) HandleMoveParticipant(w http.ResponseWriter, r *http.Request) 
 	if len(moves) == 1 {
 		log.Printf("[EDIT] Moved participant %d from route %d to route %d", moves[0].ParticipantID, moves[0].FromRouteIndex, moves[0].ToRouteIndex)
 	} else {
-		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), logutil.SafeString(req.SessionID))
+		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
+		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), logutil.SafeString(sessionID))
 	}
 	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
@@ -85,12 +91,16 @@ func (h *Handler) HandleSwapDrivers(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
-	snapshot, err := h.RouteSession.SwapDrivers(r.Context(), req.SessionID, req.RouteIndex1, req.RouteIndex2)
+	h.swapDrivers(w, r, req.SessionID, req.RouteIndex1, req.RouteIndex2)
+}
+
+func (h *Handler) swapDrivers(w http.ResponseWriter, r *http.Request, sessionID string, routeIndex1, routeIndex2 int) {
+	snapshot, err := h.RouteSession.SwapDrivers(r.Context(), sessionID, routeIndex1, routeIndex2)
 	if err != nil {
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	log.Printf("[EDIT] Swapped drivers between routes %d and %d", req.RouteIndex1, req.RouteIndex2)
+	log.Printf("[EDIT] Swapped drivers between routes %d and %d", routeIndex1, routeIndex2)
 	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
@@ -125,12 +135,16 @@ func (h *Handler) HandleAddDriver(w http.ResponseWriter, r *http.Request) {
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
-	snapshot, err := h.RouteSession.AddDriver(r.Context(), req.SessionID, req.DriverID)
+	h.addDriver(w, r, req.SessionID, req.DriverID)
+}
+
+func (h *Handler) addDriver(w http.ResponseWriter, r *http.Request, sessionID string, driverID int64) {
+	snapshot, err := h.RouteSession.AddDriver(r.Context(), sessionID, driverID)
 	if err != nil {
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	log.Printf("[EDIT] Added unused driver %d to routes", req.DriverID)
+	log.Printf("[EDIT] Added unused driver %d to routes", driverID)
 	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
