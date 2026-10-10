@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -170,6 +172,71 @@ func TestImportHTTPXLSXSheetPicker(t *testing.T) {
 	decodeImportResponse(t, recorder, &response)
 	if response.Error.Code != "WORKSHEET_REQUIRED" || len(response.Error.Details.Sheets) != 2 || response.Error.Details.Sheets[0] != "Sheet1" || response.Error.Details.Sheets[1] != "Second" {
 		t.Fatalf("sheet picker response = %#v", response)
+	}
+}
+
+func TestImportUploadWorkbookContracts(t *testing.T) {
+	parseMessage := fmt.Sprintf("Could not read that file. Check the file and use no more than %d rows.", importer.MaxDataRows)
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	malformedOther := rewriteImportWorkbookEntry(t, twoSheetWorkbook(t), "xl/worksheets/sheet2.xml", `<worksheet><sheetData><row r="1"><c r="invalid"><v>broken</v></c></row></sheetData></worksheet>`)
+	empty := singleSheetImportWorkbook(t, nil)
+	headerOnly := singleSheetImportWorkbook(t, [][]any{{"name", "address"}})
+	valid := singleSheetImportWorkbook(t, [][]any{{"name", "address"}, {"Alex", "1 Main St"}})
+	noSheets := rewriteImportWorkbookEntry(t, empty, "xl/workbook.xml", `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets/></workbook>`)
+	for _, panel := range []bool{false, true} {
+		for _, test := range []struct {
+			name, contents, sheet, message string
+		}{
+			{"malformed ZIP discovery", "not a ZIP", "", "Could not read that spreadsheet. Check the file and try again."},
+			{"malformed ZIP chosen", "not a ZIP", "Sheet1", parseMessage},
+			{"malformed worksheet discovery", malformedOther, "", "Could not read that spreadsheet. Check the file and try again."},
+			{"malformed chosen worksheet", malformedOther, "Second", parseMessage},
+			{"empty workbook", empty, "", parseMessage},
+			{"no sheets", noSheets, "", parseMessage},
+			{"header only", headerOnly, "", parseMessage},
+			{"missing sheet", valid, "Missing", parseMessage},
+			{"one sheet", valid, "", ""},
+			{"explicit skips other worksheet", malformedOther, " Sheet1 ", ""},
+		} {
+			t.Run(fmt.Sprintf("%s/panel=%t", test.name, panel), func(t *testing.T) {
+				request := newImportUploadRequest(t, "roster.xlsx", test.contents, importer.KindParticipant, test.sheet)
+				if panel {
+					request = newImportPanelUploadRequest(t, "roster.xlsx", test.contents, importer.KindParticipant, test.sheet)
+				}
+				recorder := httptest.NewRecorder()
+				handler.HandleCreateImport(recorder, request)
+				if panel {
+					assertPanelFragment(t, recorder)
+					if test.message != "" && !strings.Contains(recorder.Body.String(), test.message) {
+						t.Fatalf("panel missing %q: %s", test.message, recorder.Body.String())
+					}
+					if test.message == "" && !strings.Contains(recorder.Body.String(), "Match your columns") {
+						t.Fatalf("panel did not show mapping: %s", recorder.Body.String())
+					}
+					return
+				}
+				if test.message == "" {
+					if recorder.Code != http.StatusCreated {
+						t.Fatalf("upload status=%d body=%s", recorder.Code, recorder.Body.String())
+					}
+					snapshot := decodeImportSnapshot(t, recorder)
+					if !slices.Equal(snapshot.Headers, []string{"name", "address"}) || snapshot.Status != importer.StatusMapping {
+						t.Fatalf("snapshot = %#v", snapshot)
+					}
+					return
+				}
+				var response struct {
+					Error struct {
+						Code    string `json:"code"`
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				decodeImportResponse(t, recorder, &response)
+				if recorder.Code != http.StatusUnprocessableEntity || response.Error.Code != "VALIDATION_ERROR" || response.Error.Message != test.message {
+					t.Fatalf("status=%d error=%#v", recorder.Code, response.Error)
+				}
+			})
+		}
 	}
 }
 
@@ -572,6 +639,64 @@ func twoSheetWorkbook(t *testing.T) string {
 	}
 	if err := workbook.Close(); err != nil {
 		t.Fatalf("close workbook: %v", err)
+	}
+	return buffer.String()
+}
+
+func singleSheetImportWorkbook(t *testing.T, rows [][]any) string {
+	t.Helper()
+	workbook := excelize.NewFile()
+	for i, row := range rows {
+		if err := workbook.SetSheetRow("Sheet1", fmt.Sprintf("A%d", i+1), &row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	buffer, err := workbook.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workbook.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.String()
+}
+
+func rewriteImportWorkbookEntry(t *testing.T, contents, name, replacement string) string {
+	t.Helper()
+	archive, err := zip.NewReader(strings.NewReader(contents), int64(len(contents)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	replaced := false
+	for _, entry := range archive.File {
+		reader, err := entry.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, readErr := io.ReadAll(reader)
+		closeErr := reader.Close()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("read workbook entry: read=%v close=%v", readErr, closeErr)
+		}
+		if entry.Name == name {
+			data = []byte(replacement)
+			replaced = true
+		}
+		destination, err := writer.CreateHeader(&entry.FileHeader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := destination.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !replaced {
+		t.Fatalf("workbook entry %q missing", name)
 	}
 	return buffer.String()
 }

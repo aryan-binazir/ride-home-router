@@ -28,7 +28,34 @@ const (
 
 var errInvalidUTF8 = errors.New("invalid UTF-8")
 
+// WorksheetRequiredError supplies the non-empty worksheets available to choose.
+type WorksheetRequiredError struct {
+	Sheets []string
+}
+
+func (e *WorksheetRequiredError) Error() string {
+	return "XLSX file has multiple non-empty worksheets; choose a worksheet explicitly"
+}
+
+type WorkbookDiscoveryError struct {
+	Err error
+}
+
+func (e *WorkbookDiscoveryError) Error() string { return e.Err.Error() }
+func (e *WorkbookDiscoveryError) Unwrap() error { return e.Err }
+
 func Parse(r io.Reader, format Format, sheet string) (*Grid, error) {
+	return parse(r, format, sheet, false)
+}
+
+// ParseWithChoices parses a roster or returns WorksheetRequiredError with its
+// choices. After successful discovery, workbook close errors take precedence
+// over worksheet choices and grid parsing errors.
+func ParseWithChoices(r io.Reader, format Format, sheet string) (*Grid, error) {
+	return parse(r, format, sheet, true)
+}
+
+func parse(r io.Reader, format Format, sheet string, discoveryClosePrecedence bool) (*Grid, error) {
 	if r == nil {
 		return nil, errors.New("roster file is empty")
 	}
@@ -39,26 +66,10 @@ func Parse(r io.Reader, format Format, sheet string) (*Grid, error) {
 		}
 		return parseCSV(r)
 	case FormatXLSX:
-		return parseXLSX(r, sheet)
+		return parseXLSX(r, sheet, discoveryClosePrecedence)
 	default:
 		return nil, fmt.Errorf("unsupported roster format %q", format)
 	}
-}
-
-func Sheets(r io.Reader) (names []string, err error) {
-	if r == nil {
-		return nil, errors.New("roster file is empty")
-	}
-	f, _, err := openXLSX(r)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := f.Close(); err == nil && closeErr != nil {
-			err = fmt.Errorf("close XLSX file: %w", closeErr)
-		}
-	}()
-	return nonEmptySheets(f)
 }
 
 func parseCSV(r io.Reader) (*Grid, error) {
@@ -142,31 +153,43 @@ func csvRecordLine(reader *csv.Reader, record []string, readErr error) int {
 	return 1
 }
 
-func parseXLSX(r io.Reader, requestedSheet string) (grid *Grid, err error) {
+func parseXLSX(r io.Reader, requestedSheet string, discoveryClosePrecedence bool) (grid *Grid, err error) {
+	sheet := strings.TrimSpace(requestedSheet)
 	f, data, err := openXLSX(r)
 	if err != nil {
+		if sheet == "" {
+			return nil, &WorkbookDiscoveryError{Err: err}
+		}
 		return nil, err
 	}
+	discovered := false
 	defer func() {
-		if closeErr := f.Close(); err == nil && closeErr != nil {
+		closeErr := f.Close()
+		if closeErr == nil {
+			return
+		}
+		if discoveryClosePrecedence && discovered {
+			err = &WorkbookDiscoveryError{Err: fmt.Errorf("close XLSX file: %w", closeErr)}
+			grid = nil
+		} else if err == nil {
 			err = fmt.Errorf("close XLSX file: %w", closeErr)
 			grid = nil
 		}
 	}()
 
-	sheet := strings.TrimSpace(requestedSheet)
 	if sheet == "" {
 		names, namesErr := nonEmptySheets(f)
 		if namesErr != nil {
-			return nil, namesErr
+			return nil, &WorkbookDiscoveryError{Err: namesErr}
 		}
+		discovered = true
 		switch len(names) {
 		case 0:
 			return nil, errors.New("XLSX file has no non-empty worksheets")
 		case 1:
 			sheet = names[0]
 		default:
-			return nil, errors.New("XLSX file has multiple non-empty worksheets; choose a worksheet explicitly")
+			return nil, &WorksheetRequiredError{Sheets: names}
 		}
 	} else if !contains(f.GetSheetList(), sheet) {
 		return nil, fmt.Errorf("worksheet %q does not exist", sheet)

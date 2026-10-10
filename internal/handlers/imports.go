@@ -166,26 +166,22 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sheet := strings.TrimSpace(r.FormValue("sheet"))
-	if format == importer.FormatXLSX && sheet == "" {
-		sheets, sheetsErr := importer.Sheets(bytes.NewReader(contents))
-		if sheetsErr != nil {
+	grid, err := importer.ParseWithChoices(bytes.NewReader(contents), format, sheet)
+	if err != nil {
+		if _, ok := errors.AsType[*importer.WorkbookDiscoveryError](err); ok {
 			status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Could not read that spreadsheet. Check the file and try again.", nil)
 			return
 		}
-		if len(sheets) > 1 {
+		if choice, ok := errors.AsType[*importer.WorksheetRequiredError](err); ok {
 			if h.wantsImportPanel(r) {
-				h.renderTemplate(w, "import_sheets", importSheetsView{Sheets: sheets})
+				h.renderTemplate(w, "import_sheets", importSheetsView{Sheets: choice.Sheets})
 				status = http.StatusOK
 				return
 			}
 			status = http.StatusUnprocessableEntity
-			h.writeError(w, r, status, "WORKSHEET_REQUIRED", "Choose a worksheet to import.", map[string]any{"sheets": sheets})
+			h.writeError(w, r, status, "WORKSHEET_REQUIRED", "Choose a worksheet to import.", map[string]any{"sheets": choice.Sheets})
 			return
 		}
-	}
-
-	grid, err := importer.Parse(bytes.NewReader(contents), format, sheet)
-	if err != nil {
 		status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", fmt.Sprintf("Could not read that file. Check the file and use no more than %d rows.", importer.MaxDataRows), nil)
 		return
 	}
