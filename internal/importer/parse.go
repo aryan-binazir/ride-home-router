@@ -37,7 +37,6 @@ func (e *WorksheetRequiredError) Error() string {
 	return "XLSX file has multiple non-empty worksheets; choose a worksheet explicitly"
 }
 
-// WorkbookDiscoveryError reports a failure discovering worksheets.
 type WorkbookDiscoveryError struct {
 	Err error
 }
