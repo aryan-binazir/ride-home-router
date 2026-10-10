@@ -8,7 +8,7 @@ For planner-related changes, also run `make eval`. Record the commands and resul
 
 # Local agent environment
 
-Use `make dev` for a populated isolated local environment. Requires Linux, Python 3, Go and Podman; `DEV_RUNTIME=docker` explicitly selects a compatible runtime. Open the printed capability-bearing URL for automatic member login. The printed chooser offers admin, approved member and denied identities; use separate browser contexts for simultaneous accounts.
+Use `make dev` for a populated isolated local environment. Requires Linux, Go and Podman; `DEV_RUNTIME=docker` explicitly selects a compatible runtime. Open the printed capability-bearing URL for automatic member login. The printed chooser offers admin, approved member and denied identities; use separate browser contexts for simultaneous accounts.
 
 `make dev-status` prints URLs and logs. `make dev-stop` preserves data. `make dev-reset` recreates only this worktree's owned data. Stop/start after source changes to rebuild. Never share local state, keys or login URLs, and never use broad runtime cleanup commands. Provider responses and travel estimates are synthetic.
 

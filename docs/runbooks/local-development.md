@@ -2,7 +2,7 @@
 
 Run `make dev` from the worktree you want to use. It builds that worktree's source, creates an isolated Postgres container and starts loopback listeners. Open the printed login URL. It signs in an approved synthetic member without credentials. The identity chooser offers `admin@example.test`, `member@example.test` and `denied@example.test`. The denied account authenticates but cannot enter the application.
 
-Prerequisites: Linux, Python 3, Go matching `go.mod`, and rootless Podman. Set `DEV_RUNTIME=docker` explicitly to use a compatible Docker CLI. The selected runtime is recorded for the environment's lifetime. The first run may download Go modules and the Postgres 18 image. No Clerk or Google account, key, or personal data is needed.
+Prerequisites: Linux, Go matching `go.mod`, and rootless Podman. Set `DEV_RUNTIME=docker` explicitly to use a compatible Docker CLI. The selected runtime is recorded for the environment's lifetime. The first run may download Go modules and the Postgres 18 image. No Clerk or Google account, key, or personal data is needed.
 
 | Command | Result |
 | --- | --- |

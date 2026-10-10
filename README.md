@@ -4,7 +4,7 @@ Self-hosted event pickup and dropoff planning. Go server, browser UI, Postgres, 
 
 ## Run locally
 
-`make dev` requires Linux, Python 3, Go 1.27 and rootless Podman. Use `DEV_RUNTIME=docker make dev` with a compatible Docker runtime. Checks also need Python 3, Node 24 and `golangci-lint` from [.golangci-lint-version](.golangci-lint-version).
+`make dev` requires Linux, Go 1.27 and rootless Podman. Use `DEV_RUNTIME=docker make dev` with a compatible Docker runtime. Checks also need Node 24 and `golangci-lint` from [.golangci-lint-version](.golangci-lint-version).
 
 ```sh
 make dev
@@ -117,7 +117,7 @@ TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5434/ride_home_router_
 make check
 ```
 
-All lint, module checks, vet, Python, JavaScript, browser and Go race tests must pass. No running app or npm dependencies are required. Use a separate local test database, including when developing with `make dev`.
+All lint, module checks, vet, JavaScript, browser and Go race tests must pass. No running app or npm dependencies are required. Use a separate local test database, including when developing with `make dev`.
 
 `make check-unit` skips database tests and is insufficient before merging. Browser tests skip when `BROWSER_TEST_BINARY` is unset; the full pre-merge gate requires them.
 

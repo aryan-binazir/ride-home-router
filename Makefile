@@ -44,12 +44,10 @@ vet:
 	go vet ./...
 
 test:
-	python3 tools/dev/dev_test.py
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
 
 test-unit:
-	python3 tools/dev/dev_test.py
 	node --test web/static/js/*.test.js
 	TEST_DATABASE_URL= go test -race -count=1 ./...
 
@@ -140,13 +138,13 @@ psql:
 
 .PHONY: dev dev-status dev-stop dev-reset
 dev:
-	python3 tools/dev/dev.py start
+	go run ./tools/dev/launcher start
 
 dev-status:
-	python3 tools/dev/dev.py status
+	go run ./tools/dev/launcher status
 
 dev-stop:
-	python3 tools/dev/dev.py stop
+	go run ./tools/dev/launcher stop
 
 dev-reset:
-	python3 tools/dev/dev.py reset
+	go run ./tools/dev/launcher reset
