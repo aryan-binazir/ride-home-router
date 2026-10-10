@@ -168,11 +168,11 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	sheet := strings.TrimSpace(r.FormValue("sheet"))
 	grid, err := importer.ParseWithChoices(bytes.NewReader(contents), format, sheet)
 	if err != nil {
-		if _, discoveryFailed := errors.AsType[*importer.WorkbookDiscoveryError](err); discoveryFailed {
+		if _, ok := errors.AsType[*importer.WorkbookDiscoveryError](err); ok {
 			status = h.writeImportError(w, r, "", http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Could not read that spreadsheet. Check the file and try again.", nil)
 			return
 		}
-		if choice, required := errors.AsType[*importer.WorksheetRequiredError](err); required {
+		if choice, ok := errors.AsType[*importer.WorksheetRequiredError](err); ok {
 			if h.wantsImportPanel(r) {
 				h.renderTemplate(w, "import_sheets", importSheetsView{Sheets: choice.Sheets})
 				status = http.StatusOK

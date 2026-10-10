@@ -176,6 +176,7 @@ func TestImportHTTPXLSXSheetPicker(t *testing.T) {
 }
 
 func TestImportUploadWorkbookContracts(t *testing.T) {
+	parseMessage := fmt.Sprintf("Could not read that file. Check the file and use no more than %d rows.", importer.MaxDataRows)
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	malformedOther := rewriteImportWorkbookEntry(t, twoSheetWorkbook(t), "xl/worksheets/sheet2.xml", `<worksheet><sheetData><row r="1"><c r="invalid"><v>broken</v></c></row></sheetData></worksheet>`)
 	empty := singleSheetImportWorkbook(t, nil)
@@ -187,13 +188,13 @@ func TestImportUploadWorkbookContracts(t *testing.T) {
 			name, contents, sheet, message string
 		}{
 			{"malformed ZIP discovery", "not a ZIP", "", "Could not read that spreadsheet. Check the file and try again."},
-			{"malformed ZIP chosen", "not a ZIP", "Sheet1", "Could not read that file. Check the file and use no more than 2000 rows."},
+			{"malformed ZIP chosen", "not a ZIP", "Sheet1", parseMessage},
 			{"malformed worksheet discovery", malformedOther, "", "Could not read that spreadsheet. Check the file and try again."},
-			{"malformed chosen worksheet", malformedOther, "Second", "Could not read that file. Check the file and use no more than 2000 rows."},
-			{"empty workbook", empty, "", "Could not read that file. Check the file and use no more than 2000 rows."},
-			{"no sheets", noSheets, "", "Could not read that file. Check the file and use no more than 2000 rows."},
-			{"header only", headerOnly, "", "Could not read that file. Check the file and use no more than 2000 rows."},
-			{"missing sheet", valid, "Missing", "Could not read that file. Check the file and use no more than 2000 rows."},
+			{"malformed chosen worksheet", malformedOther, "Second", parseMessage},
+			{"empty workbook", empty, "", parseMessage},
+			{"no sheets", noSheets, "", parseMessage},
+			{"header only", headerOnly, "", parseMessage},
+			{"missing sheet", valid, "Missing", parseMessage},
 			{"one sheet", valid, "", ""},
 			{"explicit skips other worksheet", malformedOther, " Sheet1 ", ""},
 		} {
@@ -226,7 +227,8 @@ func TestImportUploadWorkbookContracts(t *testing.T) {
 				}
 				var response struct {
 					Error struct {
-						Code, Message string
+						Code    string `json:"code"`
+						Message string `json:"message"`
 					} `json:"error"`
 				}
 				decodeImportResponse(t, recorder, &response)
