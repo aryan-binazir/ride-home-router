@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -138,7 +139,7 @@ func TestXLSXDiscoverySkipsHiddenOnlySheet(t *testing.T) {
 		}
 	})
 	names, err := Sheets(bytes.NewReader(data))
-	if err != nil || !equalStrings(names, []string{"Sheet1"}) {
+	if err != nil || !slices.Equal(names, []string{"Sheet1"}) {
 		t.Fatalf("Sheets() names=%v err=%v", names, err)
 	}
 	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
@@ -559,7 +560,7 @@ func TestXLSXParseWithChoices(t *testing.T) {
 	})
 	grid, err := ParseWithChoices(bytes.NewReader(data), FormatXLSX, "")
 	choice, ok := errors.AsType[*WorksheetRequiredError](err)
-	if grid != nil || !ok || !equalStrings(choice.Sheets, []string{"Sheet1", "Drivers"}) || err.Error() != "XLSX file has multiple non-empty worksheets; choose a worksheet explicitly" {
+	if grid != nil || !ok || !slices.Equal(choice.Sheets, []string{"Sheet1", "Drivers"}) || err.Error() != "XLSX file has multiple non-empty worksheets; choose a worksheet explicitly" {
 		t.Fatalf("ParseWithChoices() grid=%v err=%v", grid, err)
 	}
 	legacyGrid, legacyErr := Parse(bytes.NewReader(data), FormatXLSX, "")
