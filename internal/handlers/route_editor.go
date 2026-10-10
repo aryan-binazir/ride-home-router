@@ -149,7 +149,7 @@ func (h *Handler) HandleRouteEditorAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 	from, fromErr := strconv.Atoi(r.Form.Get("from_route_index"))
-	id := r.Form.Get("session_id")
+	id := string([]rune(r.Form.Get("session_id")))
 	switch r.Form.Get("action") {
 	case "move":
 		participant, err := strconv.ParseInt(r.Form.Get("participant_id"), 10, 64)

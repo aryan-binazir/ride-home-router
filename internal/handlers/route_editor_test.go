@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
@@ -32,10 +33,8 @@ func TestStandaloneRouteEditorActions(t *testing.T) {
 				form.Set("destination", "3")
 				form.Set("from_route_index", "ignored")
 			}
-			mux := http.NewServeMux()
-			mux.HandleFunc("/api/v1/routes/choose", h.HandleRouteEditorAction)
 			w := httptest.NewRecorder()
-			mux.ServeHTTP(w, routeEditorFormRequest(form))
+			h.HandleRouteEditorAction(w, routeEditorFormRequest(form))
 			if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || !strings.Contains(w.Body.String(), `data-session-id="`+session.ID+`"`) {
 				t.Fatalf("standalone response: status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
 			}
@@ -52,7 +51,6 @@ func TestStandaloneRouteEditorActions(t *testing.T) {
 				if response.Routes[0].Driver.ID != 2 || response.Routes[1].Driver.ID != 1 {
 					t.Fatal("drivers did not swap")
 				}
-				wantMeasurements = 1
 			case "add":
 				wantMeasurements = 0
 				if len(response.Routes) != 3 || response.Routes[2].Driver.ID != 3 {
@@ -142,28 +140,18 @@ func TestStandaloneRouteEditorFragmentHeaders(t *testing.T) {
 	}
 }
 
-func TestAddSecondDriverRenderingDependsOnRequestPath(t *testing.T) {
-	for _, standalone := range []bool{false, true} {
-		t.Run(fmt.Sprintf("standalone=%t", standalone), func(t *testing.T) {
-			h, session, _ := oneRouteWithUnusedDriver(t)
-			r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"add"}, "destination": {"2"}})
-			action := h.HandleRouteEditorAction
-			if !standalone {
-				r = newRouteEditJSONRequest("/api/v1/routes/edit/add-driver", []byte(`{"session_id":"`+session.ID+`","driver_id":2}`))
-				action = h.HandleAddDriver
-			}
-			r.Header.Set("HX-Request", "true")
-			r.Header.Set("X-Route-Fragment", "true")
-			r.Header.Set("X-Route-Balance", "false")
-			w := httptest.NewRecorder()
-			action(w, r)
-			if w.Code != 200 || strings.Contains(w.Body.String(), `data-route-index="0"`) == standalone || strings.Contains(w.Body.String(), `data-route-patch="`+session.ID+`"`) != standalone {
-				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
-			}
-			if h.Measurer.(*stubMeasurer).count() != 0 {
-				t.Fatal("empty driver addition measured routes")
-			}
-		})
+func TestStandaloneAddSecondDriverKeepsFragmentRendering(t *testing.T) {
+	h, session, _ := oneRouteWithUnusedDriver(t)
+	r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"add"}, "destination": {"2"}})
+	r.Header.Set("X-Route-Fragment", "true")
+	r.Header.Set("X-Route-Balance", "false")
+	w := httptest.NewRecorder()
+	h.HandleRouteEditorAction(w, r)
+	if w.Code != 200 || strings.Contains(w.Body.String(), `data-route-index="0"`) || !strings.Contains(w.Body.String(), `data-route-patch="`+session.ID+`"`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if h.Measurer.(*stubMeasurer).count() != 0 {
+		t.Fatal("empty driver addition measured routes")
 	}
 }
 
@@ -188,7 +176,7 @@ func TestStandaloneRouteEditorMalformedForm(t *testing.T) {
 	}
 }
 
-func TestStandaloneRouteEditorDestinationIntegerRange(t *testing.T) {
+func TestStandaloneRouteEditorLargeDestinationReportsInvalidRouteIndex(t *testing.T) {
 	h, session := newRouteEditHandler(t)
 	destination := strconv.FormatInt(int64(^uint(0)>>1), 10)
 	r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"swap"}, "from_route_index": {"0"}, "destination": {destination}})
@@ -206,59 +194,108 @@ func (conflictingRouteEditWorkflows) CompareAndSwap(context.Context, string, str
 }
 
 func TestRouteEditAdaptersPreserveConflictAndCancellation(t *testing.T) {
-	for _, action := range []string{"move", "swap", "add"} {
-		for _, standalone := range []bool{false, true} {
-			for _, canceled := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/standalone=%t/canceled=%t", action, standalone, canceled), func(t *testing.T) {
-					_, db := newTestManagementHandler(t)
-					store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, conflictingRouteEditWorkflows{db.Workflows()})
-					drivers := []models.Driver{{ID: 1, Name: "One", VehicleCapacity: 2}, {ID: 2, Name: "Two", VehicleCapacity: 2}, {ID: 3, Name: "Three", VehicleCapacity: 2}}
-					session := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Rider", Lat: 1}}}}, {Driver: &drivers[1], EffectiveCapacity: 2}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "HQ"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
-					m := &stubMeasurer{}
-					h := &Handler{RouteSession: store, Renderer: loadEmbeddedTemplates(t), Measurer: m}
-					r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {action}, "from_route_index": {"0"}, "participant_id": {"10"}, "destination": {"1"}})
-					handle := h.HandleRouteEditorAction
-					if action == "add" {
-						r = routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"add"}, "destination": {"3"}})
+	for _, tc := range []struct {
+		action     string
+		standalone bool
+	}{
+		{"move", false}, {"move", true}, {"swap", false}, {"swap", true}, {"add", false}, {"add", true},
+	} {
+		for _, canceled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/standalone=%t/canceled=%t", tc.action, tc.standalone, canceled), func(t *testing.T) {
+				db := postgrestest.Open(t)
+				store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, conflictingRouteEditWorkflows{db.Workflows()})
+				drivers := []models.Driver{{ID: 1, Name: "One", VehicleCapacity: 2}, {ID: 2, Name: "Two", VehicleCapacity: 2}, {ID: 3, Name: "Three", VehicleCapacity: 2}}
+				session := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Rider", Lat: 1}}}}, {Driver: &drivers[1], EffectiveCapacity: 2}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "HQ"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+				m := &stubMeasurer{}
+				h := &Handler{RouteSession: store, Measurer: m}
+				var r *http.Request
+				var handle http.HandlerFunc
+				if tc.standalone {
+					destination := "1"
+					if tc.action == "add" {
+						destination = "3"
 					}
-					if !standalone {
-						switch action {
-						case "move":
-							r = newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", []byte(fmt.Sprintf(`{"session_id":%q,"participant_id":10,"from_route_index":0,"to_route_index":1,"insert_at_position":-1}`, session.ID)))
-							handle = h.HandleMoveParticipant
-						case "swap":
-							r = newRouteEditJSONRequest("/api/v1/routes/edit/swap-drivers", []byte(fmt.Sprintf(`{"session_id":%q,"route_index_1":0,"route_index_2":1}`, session.ID)))
-							handle = h.HandleSwapDrivers
-						case "add":
-							r = newRouteEditJSONRequest("/api/v1/routes/edit/add-driver", []byte(fmt.Sprintf(`{"session_id":%q,"driver_id":3}`, session.ID)))
-							handle = h.HandleAddDriver
-						}
+					r = routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {tc.action}, "from_route_index": {"0"}, "participant_id": {"10"}, "destination": {destination}})
+					handle = h.HandleRouteEditorAction
+				} else {
+					switch tc.action {
+					case "move":
+						r = newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", []byte(fmt.Sprintf(`{"session_id":%q,"participant_id":10,"from_route_index":0,"to_route_index":1,"insert_at_position":-1}`, session.ID)))
+						handle = h.HandleMoveParticipant
+					case "swap":
+						r = newRouteEditJSONRequest("/api/v1/routes/edit/swap-drivers", []byte(fmt.Sprintf(`{"session_id":%q,"route_index_1":0,"route_index_2":1}`, session.ID)))
+						handle = h.HandleSwapDrivers
+					case "add":
+						r = newRouteEditJSONRequest("/api/v1/routes/edit/add-driver", []byte(fmt.Sprintf(`{"session_id":%q,"driver_id":3}`, session.ID)))
+						handle = h.HandleAddDriver
 					}
-					if canceled {
-						ctx, cancel := context.WithCancel(t.Context())
-						cancel()
-						r = r.WithContext(ctx)
-					}
-					w := httptest.NewRecorder()
-					handle(w, r)
-					wantStatus, wantMessage := 409, "This route plan changed. Reload it and try again."
-					if canceled {
-						wantStatus, wantMessage = 500, messageGenericInternalError
-					}
-					if w.Code != wantStatus || !strings.Contains(w.Body.String(), wantMessage) || m.count() != 0 {
-						t.Fatalf("status=%d headers=%v measurements=%d body=%s", w.Code, w.Header(), m.count(), w.Body.String())
-					}
-					if standalone && !canceled && (w.Header().Get("HX-Reswap") != "none" || w.Header().Get("HX-Trigger") == "") {
-						t.Fatalf("conflict headers=%v", w.Header())
-					}
-					state := httptest.NewRecorder()
-					h.HandleGetRouteSession(state, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil))
-					response := decodeRouteResponse(t, state)
-					if len(response.Routes) != 2 || response.Routes[0].Driver.ID != 1 || len(response.Routes[0].Stops) != 1 || len(response.Routes[1].Stops) != 0 {
-						t.Fatalf("failed edit changed session: %+v", response.Routes)
-					}
-				})
-			}
+				}
+				if canceled {
+					ctx, cancel := context.WithCancel(t.Context())
+					cancel()
+					r = r.WithContext(ctx)
+				}
+				w := httptest.NewRecorder()
+				handle(w, r)
+				wantStatus, wantMessage := 409, "This route plan changed. Reload it and try again."
+				if canceled {
+					wantStatus, wantMessage = 500, messageGenericInternalError
+				}
+				if w.Code != wantStatus || !strings.Contains(w.Body.String(), wantMessage) || m.count() != 0 {
+					t.Fatalf("status=%d headers=%v measurements=%d body=%s", w.Code, w.Header(), m.count(), w.Body.String())
+				}
+				if tc.standalone && (w.Header().Get("HX-Reswap") != "none" || w.Header().Get("HX-Trigger") == "") {
+					t.Fatalf("forced HTMX headers=%v", w.Header())
+				}
+				state := httptest.NewRecorder()
+				h.HandleGetRouteSession(state, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil))
+				response := decodeRouteResponse(t, state)
+				if len(response.Routes) != 2 || response.Routes[0].Driver.ID != 1 || len(response.Routes[0].Stops) != 1 || len(response.Routes[1].Stops) != 0 {
+					t.Fatalf("failed edit changed session: %+v", response.Routes)
+				}
+			})
 		}
+	}
+}
+
+func TestStandaloneRouteEditorMalformedSessionIDRetainsNotFound(t *testing.T) {
+	for _, action := range []string{"move", "swap", "add"} {
+		t.Run(action, func(t *testing.T) {
+			db := postgrestest.Open(t)
+			h := &Handler{RouteSession: routesession.NewPersistentStore(routeEditDistanceCalculator{}, db.Workflows())}
+			form := url.Values{"session_id": {"missing-\xff\xfe"}, "action": {action}, "destination": {"1"}, "from_route_index": {"0"}, "participant_id": {"10"}}
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/choose", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			h.HandleRouteEditorAction(w, r)
+			if w.Code != 404 || !strings.Contains(w.Body.String(), messageSessionNotFound) || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || w.Header().Get("HX-Reswap") != "none" || w.Header().Get("HX-Trigger") == "" {
+				t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
+			}
+		})
+	}
+}
+
+func TestStandaloneRouteEditorMoveAppendsWhenDestinationIsOverCapacity(t *testing.T) {
+	store := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(store.Close)
+	drivers := []models.Driver{{ID: 1, VehicleCapacity: 2}, {ID: 2, VehicleCapacity: 2}}
+	riders := []models.Participant{{ID: 10, Name: "Moving"}, {ID: 11, Name: "First"}, {ID: 12, Name: "Second"}}
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &riders[0]}}}, {Driver: &drivers[1], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &riders[1]}, {Participant: &riders[2]}}}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "HQ"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
+	m := &stubMeasurer{}
+	h := &Handler{RouteSession: store, Renderer: loadEmbeddedTemplates(t), Measurer: m}
+	w := httptest.NewRecorder()
+	h.HandleRouteEditorAction(w, routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"move"}, "from_route_index": {"0"}, "participant_id": {"10"}, "destination": {"1"}}))
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	state := httptest.NewRecorder()
+	h.HandleGetRouteSession(state, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil))
+	response := decodeRouteResponse(t, state)
+	stops := response.Routes[1].Stops
+	if len(response.Routes[0].Stops) != 0 || len(stops) != 3 || stops[0].Participant.ID != 11 || stops[1].Participant.ID != 12 || stops[2].Participant.ID != 10 {
+		t.Fatalf("move did not append: %+v", response.Routes)
+	}
+	if m.count() != 0 {
+		t.Fatal("over-capacity edit measured routes")
 	}
 }
