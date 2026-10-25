@@ -62,7 +62,7 @@ func TestPlannerBrowserContainment(t *testing.T) {
 	}
 	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/htmx.min.js")+`"></script>`, "<script>"+read("js/htmx.min.js")+"</script>")
 	html = strings.ReplaceAll(html, `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
-	for _, size := range [][2]int{{1000, 850}, {1440, 1100}, {2000, 1500}, {390, 1044}} {
+	for _, size := range [][2]int{{821, 850}, {1000, 850}, {1440, 1100}, {2000, 1500}, {390, 1044}, {320, 850}} {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
 			dir, err := os.MkdirTemp("/tmp", "rhr-layout-")
 			if err != nil {
@@ -74,6 +74,22 @@ window.addEventListener('load',()=>{
  const errors=[]; const check=(ok,msg)=>{if(!ok)errors.push(msg)};
  const wide=innerWidth>=821;
  check(!document.querySelector('.desktop-mode-footer'),'no retired mobile footer');
+
+ const time=document.getElementById('route-time');
+ const mode=document.querySelector('.route-options .radio-group');
+ const label=document.getElementById('route-time-label');
+ for(const text of ['Depart activity location at','Arrive at activity location by']) {
+  label.textContent=text;
+  const timeBox=time.getBoundingClientRect(), modeBox=mode.getBoundingClientRect();
+  if(modeBox.left>=timeBox.right) {
+   check(Math.abs(timeBox.top-modeBox.top)<1,'route time and mode tops misaligned: '+text);
+   check(Math.abs(timeBox.bottom-modeBox.bottom)<1,'route time and mode bottoms misaligned: '+text);
+  } else check(timeBox.bottom<=modeBox.top,'stacked route controls overlap: '+text);
+  for(const control of [time,mode]) {
+   const box=control.getBoundingClientRect(), panel=document.querySelector('.route-options').getBoundingClientRect();
+   check(box.left>=panel.left && box.right<=panel.right,'route control outside panel: '+text);
+  }
+ }
 
  for(const kind of ['participants','drivers']) {
   const dialog=document.getElementById(kind+'-dialog');

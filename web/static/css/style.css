@@ -865,11 +865,44 @@ input[type="file"] {
 .route-options-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 4px 12px;
+}
+
+.route-options-row > .form-group {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+}
+
+.route-options-row .form-label {
+  margin-bottom: 0;
 }
 
 .route-options {
   flex: none;
+  container-type: inline-size;
+}
+
+.route-options .form-input {
+  min-width: 0;
+}
+
+.route-options .radio-group {
+  flex-wrap: wrap;
+}
+
+@container (max-width: 340px) {
+  .route-options-row {
+    grid-template-columns: 1fr;
+    row-gap: 12px;
+  }
+
+  .route-options-row > .form-group {
+    grid-template-rows: auto auto;
+    grid-row: auto;
+    row-gap: 4px;
+  }
 }
 
 .action-bar {
@@ -2441,6 +2474,13 @@ tfoot td {
 
   .route-options-row {
     grid-template-columns: 1fr;
+    row-gap: 12px;
+  }
+
+  .route-options-row > .form-group {
+    grid-template-rows: auto auto;
+    grid-row: auto;
+    row-gap: 4px;
   }
 
   .action-bar {
