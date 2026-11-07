@@ -20,6 +20,9 @@ func FuncMap() template.FuncMap {
 	return template.FuncMap{
 		"asset":      web.AssetURL,
 		"formatDate": formatCalendarDateUTC,
+		"formatLongDate": func(t time.Time) string {
+			return t.UTC().Format("Mon, Jan 2, 2006")
+		},
 		"formatDeletedAt": func(t *time.Time) string {
 			if t == nil {
 				return ""

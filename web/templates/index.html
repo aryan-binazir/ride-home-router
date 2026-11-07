@@ -3,8 +3,8 @@
     <form id="event-form" class="plan-pane">
         <div class="panehead plan-pane-header">
             <div class="panehead-copy">
-                <h1>Plan Event</h1>
-                <p>Choose a location, participants, drivers, and route options.</p>
+                <h1>Plan an event</h1>
+                <p>Four steps, then calculate one route per driver.</p>
             </div>
             <button type="button"
                     class="pane-toggle"
@@ -20,17 +20,18 @@
 
         <div class="plan-pane-content" id="plan-pane-content">
             <div class="scroll plan-pane-scroll">
-                <section class="planner-block">
+                <section class="planner-block plan-step plan-step-location">
                     <div class="blockhead">
-                        <h2>Activity Location</h2>
-                        <a href="/activity-locations" class="link">Manage locations</a>
+                        <span class="step-index" aria-hidden="true">1</span>
+                        <h2>Activity location</h2>
+                        <a href="/activity-locations" class="link">Manage</a>
                     </div>
 
                     {{if .ActivityLocations}}
                     <div class="form-group mb-0">
                         <label class="form-label visually-hidden" for="activity-location-native">Location</label>
                         {{template "location_assignment" .SelectedLocation}}
-                        <p class="form-help">Dropoff routes begin at the activity location. Pickup routes end there.</p>
+
                     </div>
                     {{else}}
                     <div class="empty-state compact-empty-state">
@@ -40,17 +41,18 @@
                     {{end}}
                 </section>
 
-                <section class="planner-block">
-                    <div class="blockhead"><h2>Participants</h2></div>
-                    <p class="text-muted picker-summary"><strong data-picker-summary="participants">0</strong> selected</p>
+                <section class="planner-block plan-step plan-step-participants">
+                    <div class="blockhead"><span class="step-index" aria-hidden="true">2</span><h2>Participants</h2></div>
+                    <div class="step-summary">
+                    <p class="picker-summary"><strong data-picker-summary="participants">0</strong> selected</p>
                     <button type="button" class="btn btn-secondary" onclick="document.getElementById('participants-dialog').showModal()" aria-haspopup="dialog">Choose participants</button>
+                    </div>
                     <dialog id="participants-dialog" class="planner-roster-dialog" aria-labelledby="participants-dialog-title">
                       <header class="roster-dialog-header">
                         <h2 id="participants-dialog-title">Choose participants</h2>
                         <button type="button" class="btn btn-sm btn-outline" onclick="this.closest('dialog').close()" aria-label="Close participants">Close</button>
                       </header>
                       <div class="roster-dialog-body">
-                        <button type="button" class="link" onclick="selectAllParticipants()">Select all matching participants</button>
 
                     {{if .Participants}}
                     <div class="panel-toolbar panel-toolbar-stack">
@@ -80,6 +82,7 @@
                                oninput="filterSelectList(this, 'participants-selection')">
                         <span class="panel-count text-muted">
                             <strong id="participants-selected-count">0</strong> selected
+                            <button type="button" class="link" onclick="selectAllParticipants()">Select all matching</button>
                             <button type="button" class="link" onclick="clearPlannerFilters('participants-selection')">Clear filters</button>
                         </span>
                     </div>
@@ -117,17 +120,22 @@
                     </dialog>
                 </section>
 
-                <section class="planner-block">
-                    <div class="blockhead"><h2>Drivers</h2></div>
-                    <p class="text-muted picker-summary"><strong data-picker-summary="drivers">0</strong> selected · <strong data-picker-summary="seats">0</strong> seats</p>
+                <section class="planner-block plan-step plan-step-drivers">
+                    <div class="blockhead"><span class="step-index" aria-hidden="true">3</span><h2>Drivers</h2></div>
+                    <div class="step-summary">
+                    <p class="picker-summary"><strong data-picker-summary="drivers">0</strong> selected · <strong data-picker-summary="seats">0</strong> seats</p>
                     <button type="button" class="btn btn-secondary" onclick="document.getElementById('drivers-dialog').showModal()" aria-haspopup="dialog">Choose drivers</button>
+                    </div>
+                    <div class="seat-meter" id="seat-meter" data-state="empty" hidden>
+                        <div class="seat-meter-track" aria-hidden="true"><span class="seat-meter-fill" id="seat-meter-fill"></span></div>
+                        <p class="seat-meter-text" id="seat-meter-text" role="status"></p>
+                    </div>
                     <dialog id="drivers-dialog" class="planner-roster-dialog" aria-labelledby="drivers-dialog-title">
                       <header class="roster-dialog-header">
                         <h2 id="drivers-dialog-title">Choose drivers</h2>
                         <button type="button" class="btn btn-sm btn-outline" onclick="this.closest('dialog').close()" aria-label="Close drivers">Close</button>
                       </header>
                       <div class="roster-dialog-body">
-                        <button type="button" class="link" onclick="selectAllDrivers()">Select all matching drivers</button>
 
                     {{if .Drivers}}
                     <div class="panel-toolbar panel-toolbar-stack">
@@ -158,6 +166,7 @@
                         <span class="panel-count text-muted">
                             <strong id="drivers-selected-count">0</strong> selected ·
                             <span id="drivers-selected-seats">0</span> available seats
+                            <button type="button" class="link" onclick="selectAllDrivers()">Select all matching</button>
                             <button type="button" class="link" onclick="clearPlannerFilters('drivers-selection')">Clear filters</button>
                         </span>
                     </div>
@@ -181,7 +190,7 @@
                                 <span class="select-row-title">{{.Name}}</span>
                                 <span class="select-row-subtitle">{{displayAddress .AddressName .Address}}</span>
                                 <span class="select-row-meta">
-                                    <span class="seats van-personal-capacity-badge">{{.VehicleCapacity}} personal seats</span>
+                                    <span class="seats van-personal-capacity-badge">{{.VehicleCapacity}} personal {{pluralize .VehicleCapacity "seat"}}</span>
                                 </span>
                                 {{template "vehicle_assignment" (dict "Driver" . "Selected" (index $.SelectedDrivers .ID) "Vehicle" (index $.AssignedVehicles .ID))}}
                             </span>
@@ -206,16 +215,16 @@
                     </dialog>
                 </section>
 
-                <section class="planner-block route-options">
-                    <div class="blockhead"><h2>Route Options</h2></div>
+                <section class="planner-block plan-step route-options">
+                    <div class="blockhead"><span class="step-index" aria-hidden="true">4</span><h2>Route options</h2></div>
                     <div class="route-options-row">
                         <div class="form-group mb-0">
                             <label class="form-label" for="route-time" id="route-time-label">Depart activity location at</label>
                             <input type="time" id="route-time" name="route_time" class="form-input" required>
                         </div>
                         <div class="form-group mb-0">
-                            <span class="form-label">Route Mode</span>
-                            <div class="radio-group">
+                            <span class="form-label" id="route-mode-label">Route mode</span>
+                            <div class="radio-group segmented" role="radiogroup" aria-labelledby="route-mode-label">
                                 <label class="checkbox-label">
                                     <input type="radio" name="mode" value="dropoff" checked class="form-radio">
                                     <span>Dropoff</span>
@@ -257,15 +266,15 @@
         <template id="results-empty-state-template">
             <div class="results-header">
                 <div>
-                    <h2>Calculated Routes</h2>
-                    <p>Copy routes, make quick tweaks, then save the event.</p>
+                    <h2>Routes</h2>
+                    <p>Routes appear here after you calculate.</p>
                 </div>
             </div>
             <div class="results-scroll scroll">
                 <div class="results-body planner-empty-state">
                     <div class="empty-state">
-                        <h3>No routes calculated yet</h3>
-                        <p>Select participants and drivers, then calculate to see one route per driver.</p>
+                        <h3>No routes yet</h3>
+                        <p>Finish the four steps on the left, then press <strong>Calculate routes</strong> to get one route per driver.</p>
                     </div>
                 </div>
             </div>
@@ -279,15 +288,15 @@
         <div id="results-section" class="results-section">
             <div class="results-header">
                 <div>
-                    <h2>Calculated Routes</h2>
-                    <p>Copy routes, make quick tweaks, then save the event.</p>
+                    <h2>Routes</h2>
+                    <p>Routes appear here after you calculate.</p>
                 </div>
             </div>
             <div class="results-scroll scroll">
                 <div class="results-body planner-empty-state">
                     <div class="empty-state">
-                        <h3>No routes calculated yet</h3>
-                        <p>Select participants and drivers, then calculate to see one route per driver.</p>
+                        <h3>No routes yet</h3>
+                        <p>Finish the four steps on the left, then press <strong>Calculate routes</strong> to get one route per driver.</p>
                     </div>
                 </div>
             </div>

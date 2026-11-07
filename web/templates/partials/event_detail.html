@@ -2,15 +2,14 @@
 {{$useMiles := .UseMiles}}
 {{if .UseLegacyAssignments}}
 {{if .Assignments}}
-<div class="mt-3">
-    <h4>Route Details</h4>
+<div class="event-detail-body">
+    <h4 class="event-detail-heading">Routes</h4>
 
-    {{range .Assignments}}
-    {{$route := .}}
-    <div class="route-card {{if .OrgVehicleName}}org-vehicle{{end}} mt-3">
+    {{range $routeIndex, $route := .Assignments}}
+    <div class="route-card {{if .OrgVehicleName}}org-vehicle{{end}}">
         <div class="route-header">
             <div class="driver-info">
-                <div class="driver-avatar" aria-hidden="true">{{initials .DriverName}}</div>
+                <div class="driver-avatar route-badge" aria-hidden="true">{{add $routeIndex 1}}</div>
                 <div class="driver-meta">
                     <h4>
                         {{.DriverName}}
@@ -41,8 +40,8 @@
     {{end}}
 
     {{if .Summary}}
-    <div class="route-summary mt-3">
-        <h4>Event Summary</h4>
+    <div class="route-summary">
+        <h4 class="event-detail-heading">Summary</h4>
         <div class="summary-grid">
             <div class="summary-item">
                 <div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div>
@@ -54,7 +53,7 @@
             </div>
             {{if gt .Summary.TotalDistanceMeters 0.0}}
             <div class="summary-item">
-                <div class="label">Total Distance</div>
+                <div class="label">Total distance</div>
                 <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
             </div>
             {{end}}
@@ -74,37 +73,33 @@
 </div>
 {{end}}
 {{else if .Routes}}
-<div class="mt-3">
-    <h4>Route Details</h4>
+<div class="event-detail-body">
+    <h4 class="event-detail-heading">Routes</h4>
 
-    {{range .Routes}}
-    {{$route := .}}
-    <div class="route-card {{if .OrgVehicleName}}org-vehicle{{end}} mt-3">
+    {{range $routeIndex, $route := .Routes}}
+    <div class="route-card {{if .OrgVehicleName}}org-vehicle{{end}}">
         <div class="route-header">
             <div class="driver-info">
-                <div class="driver-avatar" aria-hidden="true">{{initials .DriverName}}</div>
+                <div class="driver-avatar route-badge" aria-hidden="true">{{add $routeIndex 1}}</div>
                 <div class="driver-meta">
                     <h4>
                         {{.DriverName}}
                         {{if .OrgVehicleName}}
-                        <span class="badge badge-warning">{{.OrgVehicleName}}</span>
+                        <span class="badge badge-info">{{.OrgVehicleName}}</span>
                         {{end}}
                     </h4>
                     <p>{{displayAddress .DriverAddressName .DriverAddress}}</p>
-                    {{if .MetricsComplete}}<p class="text-muted">
-                        {{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}} Distance:
-                        {{formatDistance .TotalDropoffDistanceMeters $useMiles}}
-                        | Final Leg:
-                        {{formatDistance .DistanceToDriverHomeMeters $useMiles}}
-                        | Total:
-                        {{formatDistance .TotalDistanceMeters $useMiles}}
-                        {{if gt .DetourSecs 0.0}}
-                        | Detour: {{formatDuration .DetourSecs}}
-                        {{end}}
-                    </p>{{end}}
                 </div>
             </div>
         </div>
+        {{if .MetricsComplete}}
+        <dl class="route-stats">
+            <div class="stat"><dt>{{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</dt><dd>{{formatDistance .TotalDropoffDistanceMeters $useMiles}}</dd></div>
+            <div class="stat"><dt>Final leg</dt><dd>{{formatDistance .DistanceToDriverHomeMeters $useMiles}}</dd></div>
+            <div class="stat"><dt>Total</dt><dd>{{formatDistance .TotalDistanceMeters $useMiles}}</dd></div>
+            {{if gt .DetourSecs 0.0}}<div class="stat"><dt>Detour</dt><dd>{{formatDuration .DetourSecs}}</dd></div>{{end}}
+        </dl>
+        {{end}}
 
         <div class="route-stops">
             {{range .Stops}}
@@ -136,7 +131,7 @@
             {{end}}
 
             <div class="stop-item stop-item-summary">
-                <div class="stop-number">F</div>
+                <div class="stop-number stop-number-final" aria-hidden="true"></div>
                 <div class="stop-details">
                     <h4>{{if eq .Mode "pickup"}}Activity location{{else}}Driver home{{end}}</h4>
                     <p>Final leg after the last stop</p>
@@ -150,8 +145,8 @@
     {{end}}
 
     {{if .Summary}}
-    <div class="route-summary mt-3">
-        <h4>Event Summary</h4>
+    <div class="route-summary">
+        <h4 class="event-detail-heading">Summary</h4>
         <div class="summary-grid">
             <div class="summary-item">
                 <div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div>
@@ -163,7 +158,7 @@
             </div>
             {{if gt .Summary.TotalDistanceMeters 0.0}}
             <div class="summary-item">
-                <div class="label">Total Distance</div>
+                <div class="label">Total distance</div>
                 <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
             </div>
             {{end}}

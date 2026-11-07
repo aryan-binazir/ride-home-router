@@ -1084,6 +1084,11 @@
                 document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
             }
         });
+        document.body.addEventListener('htmx:beforeRequest', event => {
+            if (['calculate-btn', 'recalc-form'].includes(event.detail?.elt?.id)) {
+                document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
+            }
+        });
         for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
             document.body.addEventListener(name, event => {
                 if (event.detail?.elt?.id === 'calculate-btn') setCalculateButtonLoading(false);
@@ -1672,6 +1677,19 @@
 
                     statsEl.classList.toggle('text-danger', participantsCount > totalCapacity && driversCount > 0);
                     statsEl.classList.toggle('text-muted', !(participantsCount > totalCapacity && driversCount > 0));
+                }
+
+                const meter = document.getElementById('seat-meter');
+                if (meter) {
+                    const seats = n => `${n} seat${n === 1 ? '' : 's'}`;
+                    const shortage = participantsCount - totalCapacity;
+                    const state = !driversCount || !participantsCount ? 'empty' : shortage > 0 ? 'short' : 'ok';
+                    meter.hidden = state === 'empty';
+                    meter.dataset.state = state;
+                    document.getElementById('seat-meter-fill').style.width = `${participantsCount ? Math.min(100, Math.round(100 * totalCapacity / participantsCount)) : 0}%`;
+                    document.getElementById('seat-meter-text').textContent = state === 'short'
+                        ? `Need ${seats(shortage)} more for ${participantsCount} riders`
+                        : state === 'ok' ? `${seats(totalCapacity)} for ${participantsCount} rider${participantsCount === 1 ? '' : 's'} · ${-shortage} spare` : '';
                 }
             }
 

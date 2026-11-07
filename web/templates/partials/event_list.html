@@ -8,7 +8,8 @@
                 aria-expanded="false"
                 aria-controls="event-detail-{{.ID}}"
                 onclick="toggleEventDetail(this.closest('.event-item'), {{.ID}}, this)">
-            <span class="event-date">{{formatDate .EventDate}}</span>
+            <span class="event-chevron" aria-hidden="true"></span>
+            <time class="event-date" datetime="{{formatDate .EventDate}}">{{formatLongDate .EventDate}}</time>
             <span class="event-toggle-label">View details</span>
         </button>
         <button class="btn btn-sm btn-danger"
@@ -33,9 +34,7 @@
     {{end}}
 
     {{if .Notes}}
-    <div class="mt-2">
-        <p class="text-muted">{{.Notes}}</p>
-    </div>
+    <p class="event-notes">{{.Notes}}</p>
     {{end}}
 
     <div id="event-detail-{{.ID}}" class="event-details"></div>
