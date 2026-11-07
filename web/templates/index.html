@@ -31,7 +31,6 @@
                     <div class="form-group mb-0">
                         <label class="form-label visually-hidden" for="activity-location-native">Location</label>
                         {{template "location_assignment" .SelectedLocation}}
-
                     </div>
                     {{else}}
                     <div class="empty-state compact-empty-state">
@@ -236,7 +235,7 @@
                             </div>
                         </div>
                     </div>
-                    <p class="form-help" id="route-time-help">Departure time sets each stop's arrival estimate. Dropoff: Activity → Homes. Pickup: Homes → Activity.</p>
+                    <p class="form-help" id="route-time-help">Dropoff routes start at the activity location. Stop times in the copied lists count forward from this time.</p>
                 </section>
             </div>
 
@@ -274,7 +273,7 @@
                 <div class="results-body planner-empty-state">
                     <div class="empty-state">
                         <h3>No routes yet</h3>
-                        <p>Finish the four steps on the left, then press <strong>Calculate routes</strong> to get one route per driver.</p>
+                        <p>Choose a location, participants and drivers, then press <strong>Calculate routes</strong> to get one route per driver.</p>
                     </div>
                 </div>
             </div>
@@ -296,7 +295,7 @@
                 <div class="results-body planner-empty-state">
                     <div class="empty-state">
                         <h3>No routes yet</h3>
-                        <p>Finish the four steps on the left, then press <strong>Calculate routes</strong> to get one route per driver.</p>
+                        <p>Choose a location, participants and drivers, then press <strong>Calculate routes</strong> to get one route per driver.</p>
                     </div>
                 </div>
             </div>

@@ -3,6 +3,34 @@
 {{if .UseLegacyAssignments}}
 {{if .Assignments}}
 <div class="event-detail-body">
+    {{if .Summary}}
+    <div class="route-summary">
+        <h4 class="event-detail-heading">Summary</h4>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div>
+                <div class="value">{{.Summary.TotalParticipants}}</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">{{pluralize .Summary.TotalDrivers "Driver"}}</div>
+                <div class="value">{{.Summary.TotalDrivers}}</div>
+            </div>
+            {{if gt .Summary.TotalDistanceMeters 0.0}}
+            <div class="summary-item">
+                <div class="label">Total distance</div>
+                <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
+            </div>
+            {{end}}
+            {{if gt .Summary.OrgVehiclesUsed 0}}
+            <div class="summary-item">
+                <div class="label">Vans</div>
+                <div class="value">{{.Summary.OrgVehiclesUsed}}</div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
     <h4 class="event-detail-heading">Routes</h4>
 
     {{range $routeIndex, $route := .Assignments}}
@@ -39,6 +67,14 @@
     </div>
     {{end}}
 
+</div>
+{{else}}
+<div class="alert alert-warning mt-3">
+    This event was saved without route details.
+</div>
+{{end}}
+{{else if .Routes}}
+<div class="event-detail-body">
     {{if .Summary}}
     <div class="route-summary">
         <h4 class="event-detail-heading">Summary</h4>
@@ -66,14 +102,7 @@
         </div>
     </div>
     {{end}}
-</div>
-{{else}}
-<div class="alert alert-warning mt-3">
-    This event was saved without route details.
-</div>
-{{end}}
-{{else if .Routes}}
-<div class="event-detail-body">
+
     <h4 class="event-detail-heading">Routes</h4>
 
     {{range $routeIndex, $route := .Routes}}
@@ -144,33 +173,6 @@
     </div>
     {{end}}
 
-    {{if .Summary}}
-    <div class="route-summary">
-        <h4 class="event-detail-heading">Summary</h4>
-        <div class="summary-grid">
-            <div class="summary-item">
-                <div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div>
-                <div class="value">{{.Summary.TotalParticipants}}</div>
-            </div>
-            <div class="summary-item">
-                <div class="label">{{pluralize .Summary.TotalDrivers "Driver"}}</div>
-                <div class="value">{{.Summary.TotalDrivers}}</div>
-            </div>
-            {{if gt .Summary.TotalDistanceMeters 0.0}}
-            <div class="summary-item">
-                <div class="label">Total distance</div>
-                <div class="value">{{formatDistance .Summary.TotalDistanceMeters $useMiles}}</div>
-            </div>
-            {{end}}
-            {{if gt .Summary.OrgVehiclesUsed 0}}
-            <div class="summary-item">
-                <div class="label">Vans</div>
-                <div class="value">{{.Summary.OrgVehiclesUsed}}</div>
-            </div>
-            {{end}}
-        </div>
-    </div>
-    {{end}}
 </div>
 {{else}}
 <div class="alert alert-warning mt-3">

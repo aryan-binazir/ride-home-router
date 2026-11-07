@@ -1522,13 +1522,13 @@
 
             if (mode === 'pickup') {
                 if (label) label.textContent = 'Arrive at activity location by';
-                if (help) help.textContent = 'Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.';
+                if (help) help.textContent = 'Pickup routes end at the activity location. Stop times in the copied lists count back from this time.';
                 if (input) input.setAttribute('aria-label', 'Arrive at activity location by');
                 return;
             }
 
             if (label) label.textContent = 'Depart activity location at';
-            if (help) help.textContent = 'Used to calculate the expected arrival time at each stop in copied driver and parent lists.';
+            if (help) help.textContent = 'Dropoff routes start at the activity location. Stop times in the copied lists count forward from this time.';
             if (input) input.setAttribute('aria-label', 'Depart activity location at');
         }
 
@@ -1675,8 +1675,7 @@
                     parts.push(`${totalCapacity} seat${totalCapacity === 1 ? '' : 's'}`);
                     statsEl.textContent = parts.join(' • ');
 
-                    statsEl.classList.toggle('text-danger', participantsCount > totalCapacity && driversCount > 0);
-                    statsEl.classList.toggle('text-muted', !(participantsCount > totalCapacity && driversCount > 0));
+                    statsEl.classList.add('text-muted');
                 }
 
                 const meter = document.getElementById('seat-meter');
@@ -1687,9 +1686,10 @@
                     meter.hidden = state === 'empty';
                     meter.dataset.state = state;
                     document.getElementById('seat-meter-fill').style.width = `${participantsCount ? Math.min(100, Math.round(100 * totalCapacity / participantsCount)) : 0}%`;
+                    const people = `${participantsCount} participant${participantsCount === 1 ? '' : 's'}`;
                     document.getElementById('seat-meter-text').textContent = state === 'short'
-                        ? `Need ${seats(shortage)} more for ${participantsCount} riders`
-                        : state === 'ok' ? `${seats(totalCapacity)} for ${participantsCount} rider${participantsCount === 1 ? '' : 's'} · ${-shortage} spare` : '';
+                        ? `Need ${shortage} more ${shortage === 1 ? 'seat' : 'seats'} for ${people}`
+                        : state === 'ok' ? `${seats(totalCapacity)} for ${people} · ${-shortage} spare` : '';
                 }
             }
 

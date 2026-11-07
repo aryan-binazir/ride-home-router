@@ -39,7 +39,7 @@ func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {
 	if !strings.Contains(body, `href="/vans" class="active"`) {
 		t.Fatalf("expected Vans nav item to be active, body=%q", body)
 	}
-	if !strings.Contains(body, "Saved Vans") {
+	if !strings.Contains(body, "Saved vans") {
 		t.Fatalf("expected Vans page content, body=%q", body)
 	}
 	if !strings.Contains(body, "North Campus Van") {
@@ -63,7 +63,7 @@ func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if strings.Contains(body, "Saved Vans") || strings.Contains(body, "Add Van") {
+	if strings.Contains(body, "Saved vans") || strings.Contains(body, "Add Van") {
 		t.Fatalf("expected Settings page to omit van management, body=%q", body)
 	}
 	if strings.Contains(body, "now live") || strings.Contains(body, "alert alert-info") {

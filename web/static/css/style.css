@@ -21,8 +21,8 @@
   --warning: #8f5a00;
   --warning-bg: #fff6e0;
   --route-1: #2459d6;
-  --route-2: #0f8a7e;
-  --route-3: #c2510f;
+  --route-2: #0b7366;
+  --route-3: #a9440a;
   --route-4: #7442d6;
   --route-5: #c22a6b;
   --route-6: #4f7a12;
@@ -274,11 +274,17 @@ html:has(body.planner-page) {
 }
 
 .planner-page {
+  display: flex;
+  flex-direction: column;
   height: 100dvh;
   overflow: clip;
 }
 
-.planner-page .app-shell,
+.planner-page .app-shell {
+  flex: 1;
+  min-height: 0;
+}
+
 .planner-page .app-main,
 .planner-page .main {
   min-height: 0;
@@ -478,18 +484,20 @@ html:has(body.planner-page) {
   font-variant-numeric: tabular-nums;
 }
 
-.plan-step-location:not(:has(#activity-location-native option[value=""])) .step-index,
+.plan-step-location:has(#activity-location-native option:not([value=""])) .step-index,
 .plan-step-participants:has(input[name="participant_ids"]:checked) .step-index,
-.plan-step-drivers:has(input[name="driver_ids"]:checked) .step-index {
+.plan-step-drivers:has(input[name="driver_ids"]:checked):not(:has(.seat-meter[data-state="short"])) .step-index,
+.route-options:has(#route-time:valid) .step-index {
   border-color: var(--success);
   background: var(--success);
   color: transparent;
   position: relative;
 }
 
-.plan-step-location:not(:has(#activity-location-native option[value=""])) .step-index::after,
+.plan-step-location:has(#activity-location-native option:not([value=""])) .step-index::after,
 .plan-step-participants:has(input[name="participant_ids"]:checked) .step-index::after,
-.plan-step-drivers:has(input[name="driver_ids"]:checked) .step-index::after {
+.plan-step-drivers:has(input[name="driver_ids"]:checked):not(:has(.seat-meter[data-state="short"])) .step-index::after,
+.route-options:has(#route-time:valid) .step-index::after {
   content: "";
   position: absolute;
   left: 6.5px;
@@ -585,6 +593,12 @@ html:has(body.planner-page) {
 }
 
 .seat-meter[data-state="short"] .seat-meter-text {
+  color: var(--warning);
+}
+
+.plan-step-drivers:has(.seat-meter[data-state="short"]) .step-index {
+  border-color: var(--warning);
+  background: var(--warning-bg);
   color: var(--warning);
 }
 
@@ -790,6 +804,7 @@ input[type="date"]:focus {
 }
 
 .radio-group.segmented .checkbox-label {
+  position: relative;
   min-height: 30px;
   border: 0;
   border-radius: var(--r-sm);
@@ -805,6 +820,9 @@ input[type="date"]:focus {
 
 .radio-group.segmented .form-radio {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
   pointer-events: none;
 }
@@ -1128,8 +1146,8 @@ input[type="date"]:focus {
   gap: 6px;
   padding: 3px 10px 3px 8px;
   border-radius: 999px;
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--field-2);
+  color: var(--ink-2);
   font-size: 12.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1486,29 +1504,6 @@ input[type="date"]:focus {
   min-width: 158px;
 }
 
-.statgrid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  margin: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--pane-2);
-}
-
-.route-stats {
-  min-width: 0;
-}
-
-.statgrid .stat {
-  min-width: 0;
-  padding: 8px 12px;
-  border-left: 1px solid var(--line);
-}
-
-.statgrid .stat:first-child {
-  border-left: 0;
-}
-
-.statgrid dt,
 .summary-item .label {
   overflow: hidden;
   color: var(--ink-3);
@@ -1518,21 +1513,6 @@ input[type="date"]:focus {
   white-space: nowrap;
 }
 
-.statgrid dd {
-  margin: 2px 0 0;
-  overflow: hidden;
-  font-size: 13.5px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.statgrid .stat-paused {
-  grid-column: span 4;
-}
-
-/* Route cards show their stats as one compact line rather than a grid. */
 .route-card .route-stats {
   display: flex;
   flex-wrap: wrap;
@@ -1554,14 +1534,16 @@ input[type="date"]:focus {
 
 .route-card .route-stats dd {
   margin: 0;
-  overflow: visible;
   color: var(--ink);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
 }
 
 .route-card .route-stats dt {
-  overflow: visible;
+  color: var(--ink-3);
   font-size: 12px;
+  font-weight: 550;
 }
 
 .route-card .route-stats .stat-paused {
@@ -1596,6 +1578,10 @@ input[type="date"]:focus {
   border-bottom: 0;
 }
 
+.stop-item:not(:has(.stop-actions)) {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+
 .stop-number {
   justify-self: center;
   display: grid;
@@ -1605,7 +1591,7 @@ input[type="date"]:focus {
   border: 1.5px solid color-mix(in srgb, var(--route-color, var(--accent)) 45%, var(--line));
   border-radius: 50%;
   background: color-mix(in srgb, var(--route-color, var(--accent)) 9%, var(--pane));
-  color: var(--route-color, var(--ink-2));
+  color: var(--ink-2);
   font-size: 11.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -2383,14 +2369,6 @@ tfoot td {
   color: var(--accent);
   font-size: 12.5px;
   font-weight: 600;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.event-item:hover .event-toggle-label,
-.event-item.expanded .event-toggle-label,
-.event-toggle:focus-visible .event-toggle-label {
-  opacity: 1;
 }
 
 .event-meta {
@@ -2643,14 +2621,18 @@ tfoot td {
 
 .toast-container {
   position: fixed;
-  top: calc(var(--appbar-h) + 12px);
-  left: 50%;
+  right: 20px;
+  bottom: 20px;
   z-index: 90;
   display: grid;
   gap: 8px;
-  width: min(420px, calc(100vw - 32px));
-  transform: translateX(-50%);
+  width: min(400px, calc(100vw - 32px));
   pointer-events: none;
+}
+
+/* Keep planner toasts clear of the sticky save bar and the mobile Calculate bar. */
+.planner-page .toast-container {
+  bottom: 96px;
 }
 
 .toast {
@@ -2715,12 +2697,12 @@ tfoot td {
 }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 
 @keyframes toast-out {
-  to { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 0; transform: translateY(8px); }
 }
 
 .loading {
@@ -2877,22 +2859,6 @@ tfoot td {
 }
 
 @media (max-width: 1180px) {
-  .statgrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .statgrid .stat:nth-child(4) {
-    border-left: 0;
-  }
-
-  .statgrid .stat:nth-child(n + 4) {
-    border-top: 1px solid var(--line);
-  }
-
-  .statgrid .stat-paused {
-    grid-column: span 1;
-  }
-
   .planner-split {
     grid-template-columns: 360px minmax(0, 1fr);
   }
@@ -2921,6 +2887,7 @@ tfoot td {
   .planner-page .app-shell,
   .planner-page .app-main,
   .planner-page .main {
+    flex: none;
     height: auto;
     min-height: 0;
   }
@@ -3021,14 +2988,20 @@ tfoot td {
     padding: 12px 12px 8px 16px;
   }
 
+  .route-header {
+    row-gap: 6px;
+  }
+
   .route-header .driver-info {
-    flex: 1 1 0;
+    flex: 1 1 100%;
+  }
+
+  .route-header .seat-pill {
+    margin-left: 44px;
   }
 
   .route-tools {
-    order: 3;
-    width: 100%;
-    margin-left: 44px;
+    margin-left: auto;
   }
 
   .route-tools .btn {
@@ -3092,11 +3065,19 @@ tfoot td {
   }
 
   .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .summary-item:nth-child(odd) {
+  .summary-item {
+    padding: 9px 12px;
+  }
+
+  .summary-item:nth-child(3n + 1) {
     border-left: 0;
+  }
+
+  .summary-item:nth-child(n + 4) {
+    border-top: 1px solid var(--line);
   }
 
   .bulk-toolbar {
@@ -3146,15 +3127,6 @@ tfoot td {
     row-gap: 4px;
   }
 
-  .action-bar {
-    flex-wrap: wrap;
-  }
-
-  .action-bar-stats {
-    order: -1;
-    width: 100%;
-  }
-
   .results-body {
     padding-inline: 12px;
   }
@@ -3181,6 +3153,10 @@ tfoot td {
     text-align: left;
   }
 
+  .stop-details p {
+    white-space: normal;
+  }
+
   .stop-eta:not(:empty) {
     display: inline;
     font-size: 13px;
@@ -3205,10 +3181,19 @@ tfoot td {
     flex-wrap: wrap;
   }
 
+  .route-footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .route-footer .btn {
+    min-height: 40px;
+  }
+
   .route-footer .route-attribution {
-    width: 100%;
-    margin: 2px 0 0;
-    order: 99;
+    justify-self: end;
+    align-self: center;
+    margin: 0;
   }
 
   table[data-cards] thead {
@@ -3254,7 +3239,11 @@ tfoot td {
 
   table[data-cards] td[data-col="Name"] {
     font-size: 15px;
-    padding-right: 120px;
+  }
+
+  table[data-cards]:not(.deleted-roster-table) td[data-col="Name"],
+  table[data-cards]:not(.deleted-roster-table) td[data-col="Address"] {
+    padding-right: 112px;
   }
 
   table[data-cards] td[data-col="Labels"] {
@@ -3296,9 +3285,7 @@ tfoot td {
     margin-top: 6px;
   }
 
-  table[data-cards].deleted-roster-table td[data-col="Name"] {
-    padding-right: 0;
-  }
+
 
   table[data-cards].deleted-roster-table .table-actions-cell .btn {
     width: 100%;
@@ -3370,7 +3357,7 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 }
 .roster-dialog-body .panel-count { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--ink-3); font-size: 12.5px; }
 .roster-dialog-body .panel-count .link { margin-left: 8px; }
-.planner-roster-dialog .select-list { max-height: none; overflow: visible; margin-top: 0; border-top: 0; }
+.planner-roster-dialog .select-list { max-height: none; overflow: visible; margin-top: 0; padding-top: 6px; border-top: 0; }
 .planner-roster-dialog .select-row { padding: 8px 6px; border-radius: var(--r-sm); }
 .planner-roster-dialog .select-row:has(.select-control:checked) { background: color-mix(in srgb, var(--accent) 5%, var(--pane)); }
 .roster-dialog-header .btn,
@@ -3540,12 +3527,11 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   .action-bar > .btn-secondary { min-height: 36px; }
   .results-header { padding: 14px 16px; }
   .results-body { padding: 14px 12px 0; }
-  .summary-item .value { font-size: 18px; }
+  .summary-item .value { font-size: 16px; }
+  .summary-item .label { font-size: 11px; }
   .routes-actions .btn { flex: 1; }
-  .toast-container { top: calc(var(--appbar-h) + 8px); }
-}
-@media (hover: none) {
-  .event-toggle-label { opacity: 1; }
+  .toast-container { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); }
+  .planner-page .toast-container { bottom: 132px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .appbar .nav { transition: none; }
