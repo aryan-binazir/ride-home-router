@@ -1101,6 +1101,10 @@
                 document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
             }
         });
+        document.body.addEventListener('htmx:afterSettle', () => {
+            const container = document.getElementById('toast-container');
+            if (container?.children.length && container.style) container.style.bottom = pinnedBarOffset(container);
+        });
         for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
             document.body.addEventListener(name, event => {
                 if (event.detail?.elt?.id === 'calculate-btn') setCalculateButtonLoading(false);
