@@ -2891,7 +2891,7 @@ tfoot td {
   .planner-page {
     height: auto;
     min-height: 100vh;
-    overflow: auto;
+    overflow: visible;
   }
 
   .planner-page .app-shell,
