@@ -2045,6 +2045,10 @@ input[type="date"]:focus {
   margin-top: 4px;
 }
 
+.card:not(.route-card) > :is(h3, h3 + .text-muted) + form {
+  margin-top: 16px;
+}
+
 .list-card {
   padding: 13px 0;
   border-top: 1px solid var(--line);
@@ -2640,10 +2644,6 @@ tfoot td {
   pointer-events: none;
 }
 
-/* Keep planner toasts clear of the sticky save bar and the mobile Calculate bar. */
-.planner-page .toast-container {
-  bottom: 96px;
-}
 
 .toast {
   display: flex;
@@ -3558,7 +3558,6 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
     color: var(--accent-ink);
   }
   .toast-container { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); }
-  .planner-page .toast-container { bottom: 132px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .appbar .nav { transition: none; }
