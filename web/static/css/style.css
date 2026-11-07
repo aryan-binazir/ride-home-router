@@ -2413,6 +2413,16 @@ tfoot td {
   margin-top: 0;
 }
 
+@media (min-width: 821px) {
+  .event-detail-body .summary-grid {
+    grid-template-columns: none;
+    grid-auto-columns: minmax(150px, 200px);
+    grid-auto-flow: column;
+    width: max-content;
+    max-width: 100%;
+  }
+}
+
 .stop-number-final::before {
   content: "";
   width: 8px;
@@ -3080,6 +3090,14 @@ tfoot td {
     border-top: 1px solid var(--line);
   }
 
+  .summary-item:last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
+
+  .summary-item:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
+  }
+
   .bulk-toolbar {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -3534,6 +3552,11 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
   .summary-item .value { font-size: 16px; }
   .summary-item .label { font-size: 11px; }
   .routes-actions .btn { flex: 1; }
+  .routes-actions [data-session-action="save"]:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
   .toast-container { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); }
   .planner-page .toast-container { bottom: 132px; }
 }
