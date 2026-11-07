@@ -3516,6 +3516,10 @@ button.htmx-request, form.htmx-request button[type="submit"] { opacity: .6; curs
 }
 @media (max-width: 820px) {
   .plan-pane-scroll { padding: 12px 12px 4px; }
+  .page-header { margin-bottom: 16px; }
+  .page-title { font-size: 24px; }
+  .panel-header, .card-header { padding: 14px 16px; }
+  .panel > .panel-toolbar, .panel > form > .panel-toolbar { padding: 12px 16px; }
   .plan-step { padding: 14px; }
   .action-bar {
     position: sticky;
