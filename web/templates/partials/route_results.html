@@ -13,8 +13,8 @@
      data-out-of-balance="{{.IsOutOfBalance}}">
     <div class="results-header routes-header">
         <div>
-            <h2 class="routes-title">Calculated Routes</h2>
-            <p class="routes-subtitle">Copy routes, make quick tweaks, then save the event.</p>
+            {{block "route_title" .}}<h2 class="routes-title" id="route-title-{{.SessionID}}">{{len .Routes}} {{pluralize (len .Routes) "route"}} · {{if eq .Mode "pickup"}}Pickup{{else}}Dropoff{{end}}</h2>{{end}}
+            <p class="routes-subtitle">Tweak routes, copy them for drivers and parents, then save the event.</p>
         </div>
         {{block "route_actions" .}}
         <div class="routes-actions" id="route-actions-{{.SessionID}}">
@@ -25,7 +25,7 @@
             <button type="button" class="btn btn-sm btn-secondary" data-session-action="feedback" hx-get="/api/v1/routes/feedback?session_id={{.SessionID}}" hx-target="#route-editor" {{if not .IsEditing}}disabled title="Change a route first, then explain the change"{{end}}>Give feedback</button>
             {{end}}
             <button type="button" class="btn btn-sm btn-secondary" data-session-action="copy" onclick="copyAllRoutes()" id="copy-all-btn" {{if .IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy all routes</button>
-            <button type="button" class="btn btn-sm btn-primary" data-session-action="save" onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth'})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-session-action="save" onclick="document.getElementById('save-event-panel').scrollIntoView({behavior: 'smooth', block: 'nearest'});document.getElementById('save-event-date')?.focus({preventScroll: true})" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
         </div>
         {{end}}
     </div>
@@ -37,6 +37,33 @@
             <div class="notice notice-danger mb-3" role="alert">
                 <strong>Vehicles are over capacity; redistribute passengers before copying or saving.</strong>
             </div>
+            {{end}}
+
+            {{block "route_summary" .}}
+            <div class="route-summary" id="route-summary-{{.SessionID}}">
+                <h3 class="visually-hidden">Summary</h3>
+                <div class="summary-grid">
+                    <div class="summary-item"><div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div><div class="value">{{.Summary.TotalParticipants}}</div></div>
+                    <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
+                    <div class="summary-item">
+                        <div class="label">Total distance</div>
+                        <div class="value" data-summary="total-distance">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
+                    </div>
+                    {{if gt .Summary.OrgVehiclesUsed 0}}
+                    <div class="summary-item"><div class="label">Vans</div><div class="value">{{.Summary.OrgVehiclesUsed}} used</div></div>
+                    {{end}}
+                    <div class="summary-item">
+                        <div class="label">Longest detour</div>
+                        <div class="value" data-summary="max-detour">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDuration .Summary.MaxDetourSecs}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="label">Average detour</div>
+                        <div class="value" data-summary="average-detour">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDuration .Summary.AverageDetourSecs}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
+                    </div>
+                </div>
+                {{if .Attribution}}<p class="text-muted route-attribution-note">Current estimates for this itinerary</p>{{end}}
+            </div>
+
             {{end}}
 
             {{block "route_cards" .}}
@@ -63,7 +90,7 @@
                      data-driver-id="{{.Driver.ID}}">
                 <div class="route-header">
                     <div class="driver-info">
-                        <div class="driver-avatar" aria-hidden="true">{{initials .Driver.Name}}</div>
+                        <div class="driver-avatar route-badge" aria-hidden="true">{{add $routeIndex 1}}</div>
                         <div class="driver-meta">
                             <h3>
                                 {{.Driver.Name}}
@@ -72,6 +99,7 @@
                             <p>{{displayAddress .Driver.AddressName .Driver.Address}}</p>
                         </div>
                     </div>
+                    <span class="seat-pill" title="Passengers / available seats">{{len .Stops}}/{{.EffectiveCapacity}} {{pluralize .EffectiveCapacity "seat"}}</span>
                     {{if gt $routeCount 1}}
                     <div class="route-tools">
                         <button type="button" class="btn btn-sm btn-outline" data-session-action="edit" aria-label="Swap {{.Driver.Name}} with another driver" data-editor-url="/api/v1/routes/editor?session_id={{$.SessionID}}&amp;action=swap&amp;from_route_index={{$routeIndex}}" onclick="openRouteEditor(this)">Swap driver</button>
@@ -79,9 +107,7 @@
                     {{end}}
                 </div>
 
-                <dl class="route-stats statgrid route-timings">
-                    <div class="stat"><dt>Capacity</dt><dd>{{.EffectiveCapacity}}</dd></div>
-                    <div class="stat"><dt>{{pluralize (len .Stops) "Passenger"}}</dt><dd>{{len .Stops}}</dd></div>
+                <dl class="route-stats route-timings">
                     {{if $.IsOutOfBalance}}
                     <div class="stat stat-paused text-danger"><dt>Route totals</dt><dd>Unavailable until within capacity</dd></div>
                     {{else if $measured}}
@@ -134,15 +160,14 @@
                     {{end}}
                     {{else}}
                     <div class="empty-route-message">
-                        <p class="text-muted">No passengers assigned. Use "Move to..." on another route to add passengers.</p>
+                        <p class="text-muted">No passengers yet. Use "Move" on another route to add riders here.</p>
                     </div>
                     {{end}}
                 </div>
 
                 <div class="route-footer">
-                    <span>Route</span>
                     {{if and $measured $.Attribution}}<span class="route-attribution" title="{{"Current estimates for this itinerary"}}"><picture><source srcset="/static/img/google-maps-attribution-dark.svg" media="(prefers-color-scheme: dark)"><img src="/static/img/google-maps-attribution.svg" alt="Google Maps" width="98" height="18"></picture></span>{{end}}
-                    <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this)" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for driver</button>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="copy" onclick="copyRoute(this, 'parent')" {{if $.IsOutOfBalance}}disabled title="Redistribute passengers to re-enable copying"{{end}}>Copy for parents</button>
                     <button type="button" class="btn btn-sm btn-outline" data-session-action="preview" onclick="previewRoute(this)">Preview</button>
                 </div>
@@ -155,51 +180,25 @@
             <div id="route-unused-{{.SessionID}}">
             {{if .UnusedDrivers}}
             <div class="unused-drivers-section">
-                <button type="button" class="btn btn-outline" data-session-action="edit" data-editor-url="/api/v1/routes/editor?session_id={{.SessionID}}&amp;action=add" onclick="openRouteEditor(this)">Add unused driver ({{len .UnusedDrivers}})</button>
+                <button type="button" class="btn btn-outline unused-drivers-add" data-session-action="edit" data-editor-url="/api/v1/routes/editor?session_id={{.SessionID}}&amp;action=add" onclick="openRouteEditor(this)"><span class="unused-drivers-plus" aria-hidden="true">+</span>Add unused driver ({{len .UnusedDrivers}})</button>
             </div>
             {{end}}
             </div>
             {{end}}
 
-            {{block "route_summary" .}}
-            <div class="route-summary" id="route-summary-{{.SessionID}}">
-                <h3 class="visually-hidden">Summary</h3>
-                <div class="summary-grid">
-                    <div class="summary-item"><div class="label">{{pluralize .Summary.TotalParticipants "Participant"}}</div><div class="value">{{.Summary.TotalParticipants}}</div></div>
-                    <div class="summary-item"><div class="label">{{pluralize .Summary.TotalDriversUsed "Driver"}}</div><div class="value">{{.Summary.TotalDriversUsed}}</div></div>
-                    <div class="summary-item">
-                        <div class="label">Total Distance</div>
-                        <div class="value" data-summary="total-distance">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDistance .Summary.TotalDistanceMeters .UseMiles}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
-                    </div>
-                    {{if gt .Summary.OrgVehiclesUsed 0}}
-                    <div class="summary-item"><div class="label">Vans</div><div class="value">{{.Summary.OrgVehiclesUsed}} used</div></div>
-                    {{end}}
-                    <div class="summary-item">
-                        <div class="label">Max Detour</div>
-                        <div class="value" data-summary="max-detour">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDuration .Summary.MaxDetourSecs}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
-                    </div>
-                    <div class="summary-item">
-                        <div class="label">Average Detour</div>
-                        <div class="value" data-summary="average-detour">{{if .IsOutOfBalance}}<span class="text-danger">Unavailable</span>{{else if .ShowAggregates}}{{formatDuration .Summary.AverageDetourSecs}}{{else}}<span class="text-muted" title="Shown once every car has timings">—</span>{{end}}</div>
-                    </div>
-                </div>
-                {{if .Attribution}}<p class="text-muted route-attribution-note">Current estimates for this itinerary</p>{{end}}
-            </div>
-
-            {{end}}
             <div class="card save-event-card" id="save-event-panel">
-                <div class="card-header"><h3 class="card-title">Save event</h3></div>
+                <div class="card-header"><h3 class="card-title">Save this event</h3></div>
                 <form {{if not .IsOutOfBalance}}hx-post="/api/v1/events"{{end}}
                       hx-target="#save-result"
                       hx-indicator="#save-loading" hx-disabled-elt="find button[type=submit]" hx-sync="this:drop">
                     <input type="hidden" name="session_id" value="{{.SessionID}}">
                     <div class="save-event-fields">
                         <div class="form-group mb-0">
-                            <label class="form-label" for="save-event-date">Event Date</label>
+                            <label class="form-label" for="save-event-date">Event date</label>
                             <input type="date" id="save-event-date" name="event_date" class="form-input" value="{{currentDate}}" required>
                         </div>
                         <div class="form-group mb-0 save-event-notes">
-                            <label class="form-label" for="save-event-notes">Notes (Optional)</label>
+                            <label class="form-label" for="save-event-notes">Notes <span class="text-muted">(optional)</span></label>
                             <textarea id="save-event-notes" name="notes" rows="1" class="form-textarea" placeholder="Add a note about this event"></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary" data-session-action="save" {{if .IsOutOfBalance}}disabled title="Redistribute passengers before saving"{{end}}>Save event</button>
@@ -214,7 +213,7 @@
 </div>
 {{else}}
 <div class="results-header">
-    <div><h2>Calculated Routes</h2><p>No routes for this selection. Change it and calculate again.</p></div>
+    <div><h2>Routes</h2><p>No routes for this selection. Change it and calculate again.</p></div>
 </div>
 <div class="results-scroll scroll">
     <div class="results-body planner-empty-state">
@@ -233,5 +232,6 @@
   {{template "route_actions" .}}
   {{template "route_unused" .}}
   {{template "route_summary" .}}
+  {{template "route_title" .}}
 </div>
 {{end}}

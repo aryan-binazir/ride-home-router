@@ -20,8 +20,8 @@
     {{if .Choices}}<button class="btn btn-primary" type="submit">{{if eq .Action "move"}}Move rider{{else if eq .Action "swap"}}Swap drivers{{else}}Add driver{{end}}</button>{{end}}
   </form>
   <nav class="route-editor-pagination" aria-label="Driver results">
-    {{if .PreviousURL}}<a href="{{.PreviousURL}}" {{if .Inline}}hx-get="{{.PreviousURL}}" hx-target="#route-editor"{{end}}>Previous</a>{{end}}
-    {{if .NextURL}}<a href="{{.NextURL}}" {{if .Inline}}hx-get="{{.NextURL}}" hx-target="#route-editor"{{end}}>Next</a>{{end}}
+    {{if .PreviousURL}}<a class="btn btn-sm btn-outline" href="{{.PreviousURL}}" {{if .Inline}}hx-get="{{.PreviousURL}}" hx-target="#route-editor"{{end}}>Previous</a>{{end}}
+    {{if .NextURL}}<a class="btn btn-sm btn-outline" href="{{.NextURL}}" {{if .Inline}}hx-get="{{.NextURL}}" hx-target="#route-editor"{{end}}>Next</a>{{end}}
   </nav>
   <noscript><a href="{{.ReturnURL}}">Back to routes</a></noscript>
 </section>

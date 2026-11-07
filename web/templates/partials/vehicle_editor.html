@@ -8,7 +8,7 @@
   <form hx-post="{{.URL}}" hx-target="#route-editor" hx-include="{{.Include}}" hx-disabled-elt="find button[type=submit]" hx-sync="this:drop">
     <input type="hidden" name="choose" value="1">
     <fieldset class="route-editor-choices"><legend class="visually-hidden">Available vehicles</legend>
-      <label class="route-editor-choice"><input type="radio" name="vehicle_id" value="0" required><span><strong>Personal vehicle</strong><small>{{.Driver.VehicleCapacity}} seats</small></span></label>
+      <label class="route-editor-choice"><input type="radio" name="vehicle_id" value="0" required><span><strong>Personal vehicle</strong><small>{{.Driver.VehicleCapacity}} {{pluralize .Driver.VehicleCapacity "seat"}}</small></span></label>
       {{range .Choices}}<label class="route-editor-choice"><input type="radio" name="vehicle_id" value="{{.Value}}" required><span><strong>{{.Name}}</strong><small>{{.Detail}}</small></span></label>{{end}}
     </fieldset>
     <button type="submit" class="btn btn-primary">Use vehicle</button>

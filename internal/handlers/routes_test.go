@@ -837,7 +837,7 @@ func TestHandleCalculateRoutesWithOrgVehicles_ShortageRendersHTMLWithoutWarningT
 			body := rr.Body.String()
 			for _, fragment := range []string{
 				`class="capacity-shortage-container"`,
-				"Not Enough Available Capacity",
+				"Not enough seats",
 				`name="participant_ids" value="` + int64ToString(participant.ID) + `"`,
 				`name="driver_ids" value="` + int64ToString(driver.ID) + `"`,
 			} {
@@ -1827,7 +1827,7 @@ func TestHandleGetRouteSession_PickupSessionRendersPickupLabelsAndUnusedDrivers(
 		"<dt>To Activity</dt>",
 		"from Driver1's home",
 		"Add unused driver (1)",
-		"<dt>Passenger</dt>",
+		`class="seat-pill" title="Passengers / available seats">1/4 seats</span>`,
 		`class="label">Participant`,
 		`class="label">Driver`,
 		`&amp;action=add`,
@@ -1896,13 +1896,13 @@ func TestHouseholdPackingFailureExplainsCapacityWithoutNegativeShortage(t *testi
 				t.Fatalf("status=%d: %s", w.Code, body)
 			}
 			if count == 9 {
-				if !strings.Contains(body, "Households do not fit the selected vehicles") || strings.Contains(body, "Not Enough Available Capacity") || strings.Contains(body, "Need -1") || strings.Contains(body, "OK - ") {
+				if !strings.Contains(body, "Households do not fit the selected vehicles") || strings.Contains(body, "Not enough seats") || strings.Contains(body, "Need -1") || strings.Contains(body, "OK - ") {
 					t.Fatalf("household failure must explain placement rather than a seat shortage: %s", body)
 				}
 				if strings.Contains(w.Header().Get("HX-Trigger"), "-1") {
 					t.Fatalf("negative toast: %s", w.Header().Get("HX-Trigger"))
 				}
-			} else if !strings.Contains(body, "Not Enough Available Capacity") || !strings.Contains(body, "Need 2 more seats") {
+			} else if !strings.Contains(body, "Not enough seats") || !strings.Contains(body, "Need 2 more seats") {
 				t.Fatalf("genuine shortage guidance missing: %s", body)
 			}
 		})

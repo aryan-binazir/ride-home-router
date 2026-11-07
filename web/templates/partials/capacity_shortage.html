@@ -2,15 +2,15 @@
 <div class="capacity-shortage-container">
     <div class="results-header">
         <div>
-            <h2>Capacity Check</h2>
-            <p>Adjust van assignments, then recalculate the routes.</p>
+            <h2>Capacity check</h2>
+            <p>Add seats, then recalculate the routes.</p>
         </div>
     </div>
     <div class="results-scroll scroll">
     <div class="results-body">
-    <div class="notice capacity-notice">
+    <div class="notice notice-warning capacity-notice" role="status">
         {{if gt .Error.Shortage 0}}
-        <h3>Not Enough Available Capacity</h3>
+        <h3>Not enough seats</h3>
         <p>
             <strong>{{.Error.TotalParticipants}}</strong> {{pluralize .Error.TotalParticipants "participant"}} selected, but only
             <strong>{{.Error.TotalCapacity}}</strong> available {{pluralize .Error.TotalCapacity "seat"}}.
@@ -24,9 +24,9 @@
     </div>
 
     {{if .OrgVehicles}}
-    <div class="card capacity-card mt-3">
-        <h3>Adjust Van Assignments</h3>
-        <p class="text-muted">Pick the driver who will use each van. That driver's available seats will switch from their personal vehicle capacity to the van capacity for this event.</p>
+    <div class="card capacity-card">
+        <h3>Assign vans</h3>
+        <p class="text-muted">Give a van to a driver for this event. Their seats switch from their personal vehicle to the van.</p>
 
         <form id="recalc-form" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]"
               hx-post="/api/v1/routes/calculate-with-org-vehicles"
@@ -43,57 +43,29 @@
             <input type="hidden" name="mode" value="{{.Mode}}">
             <input type="hidden" name="route_time" value="{{.RouteTime}}">
 
-            <div class="org-vehicle-assignments">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Driver</th>
-                            <th>Personal Available Capacity</th>
-                            <th>Assign Van</th>
-                            <th>New Available Capacity</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .Drivers}}
-                        {{$driver := .}}
-                        <tr class="driver-row" data-driver-id="{{.ID}}" data-base-capacity="{{.VehicleCapacity}}">
-                            <td>
-                                <strong>{{.Name}}</strong>
-                                <div class="text-muted" style="font-size: 0.85em;">{{displayAddress .AddressName .Address}}</div>
-                            </td>
-                            <td>{{.VehicleCapacity}} available {{pluralize .VehicleCapacity "seat"}}</td>
-                            <td>
-                                {{template "vehicle_assignment" (dict "Driver" . "Selected" true "Shortage" true "Vehicle" (index $.AssignedVehicles .ID))}}
-                            </td>
-                            <td class="capacity-display">{{index $.EffectiveCapacityByDriver .ID}} available seats</td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                    <tfoot>
-                        <tr>
-                            <td colspan="2"></td>
-                            <td><strong>Total Available Capacity:</strong></td>
-                            <td><strong id="total-capacity">{{.Error.TotalCapacity}} available {{pluralize .Error.TotalCapacity "seat"}}</strong></td>
-                        </tr>
-                        <tr>
-                            <td colspan="2"></td>
-                            <td><strong>Participants:</strong></td>
-                            <td><strong>{{.Error.TotalParticipants}}</strong></td>
-                        </tr>
-                        <tr>
-                            <td colspan="2"></td>
-                            <td><strong>Status:</strong></td>
-                            <td>
-                                <span id="capacity-status" class="text-danger">
-                                    {{if gt .Error.Shortage 0}}Need {{.Error.Shortage}} more seat{{if gt .Error.Shortage 1}}s{{end}}{{else}}Recalculate to check whether households fit{{end}}
-                                </span>
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
+            <ul class="org-vehicle-assignments" role="list">
+                {{range .Drivers}}
+                {{$capacity := index $.EffectiveCapacityByDriver .ID}}
+                <li class="driver-row" data-driver-id="{{.ID}}" data-base-capacity="{{.VehicleCapacity}}">
+                    <div class="capacity-driver">
+                        <strong>{{.Name}}</strong>
+                        <span class="text-muted">{{displayAddress .AddressName .Address}}</span>
+                    </div>
+                    <div class="capacity-vehicle">
+                        {{template "vehicle_assignment" (dict "Driver" . "Selected" true "Shortage" true "Vehicle" (index $.AssignedVehicles .ID))}}
+                    </div>
+                    <div class="capacity-display">{{$capacity}} available {{pluralize $capacity "seat"}}</div>
+                </li>
+                {{end}}
+            </ul>
 
-            <div class="d-flex align-center gap-2 mt-3">
+            <dl class="capacity-totals">
+                <div><dt>Available seats</dt><dd id="total-capacity">{{.Error.TotalCapacity}} available {{pluralize .Error.TotalCapacity "seat"}}</dd></div>
+                <div><dt>Participants</dt><dd>{{.Error.TotalParticipants}}</dd></div>
+                <div class="capacity-status-line"><dt>Status</dt><dd><span id="capacity-status" class="text-danger">{{if gt .Error.Shortage 0}}Need {{.Error.Shortage}} more {{pluralize .Error.Shortage "seat"}}{{else}}Recalculate to check whether households fit{{end}}</span></dd></div>
+            </dl>
+
+            <div class="capacity-actions">
                 <button type="submit" class="btn btn-primary" id="recalc-btn">
                     Recalculate routes
                 </button>
@@ -104,7 +76,7 @@
 
     <script>
         function updateCapacityDisplay(select) {
-            const row = select.closest('tr');
+            const row = select.closest('.driver-row');
             const selectedOption = select.options[select.selectedIndex];
             const newCapacity = parseInt(selectedOption.dataset.capacity);
 

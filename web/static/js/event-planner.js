@@ -1037,6 +1037,17 @@
             return container;
         }
 
+        // Lift toasts above whichever sticky planner bar is pinned to the bottom of the viewport.
+        function pinnedBarOffset(container) {
+            const area = container.getBoundingClientRect?.();
+            const bars = document.querySelectorAll?.('.planner-page .action-bar, .planner-page .save-event-card') || [];
+            const tops = Array.from(bars, bar => bar.getBoundingClientRect?.())
+                .filter(rect => rect?.height && rect.top < window.innerHeight && rect.bottom >= window.innerHeight - 2)
+                .filter(rect => !area?.width || (rect.right > area.left && rect.left < area.right))
+                .map(rect => window.innerHeight - rect.top);
+            return tops.length ? `${Math.round(Math.max(...tops) + 12)}px` : '';
+        }
+
         function showToast(message, type = 'error', duration = 5000) {
             const container = getToastContainer();
 
@@ -1063,6 +1074,7 @@
 
             closeButton.addEventListener('click', () => dismissToast(toast));
 
+            if (container.style) container.style.bottom = pinnedBarOffset(container);
             container.appendChild(toast);
 
             if (duration > 0) {
@@ -1083,6 +1095,15 @@
             if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('.confirm-overlay.is-open, .ui-select.is-open')) {
                 document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
             }
+        });
+        document.body.addEventListener('htmx:beforeRequest', event => {
+            if (['calculate-btn', 'recalc-form'].includes(event.detail?.elt?.id)) {
+                document.querySelectorAll('#toast-container .toast').forEach(dismissToast);
+            }
+        });
+        document.body.addEventListener('htmx:afterSettle', () => {
+            const container = document.getElementById('toast-container');
+            if (container?.children.length && container.style) container.style.bottom = pinnedBarOffset(container);
         });
         for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:responseError']) {
             document.body.addEventListener(name, event => {
@@ -1517,13 +1538,13 @@
 
             if (mode === 'pickup') {
                 if (label) label.textContent = 'Arrive at activity location by';
-                if (help) help.textContent = 'Used to back-calculate the expected arrival time at each stop in copied driver and parent lists.';
+                if (help) help.textContent = 'Pickup routes end at the activity location. Stop times in the copied lists count back from this time.';
                 if (input) input.setAttribute('aria-label', 'Arrive at activity location by');
                 return;
             }
 
             if (label) label.textContent = 'Depart activity location at';
-            if (help) help.textContent = 'Used to calculate the expected arrival time at each stop in copied driver and parent lists.';
+            if (help) help.textContent = 'Dropoff routes start at the activity location. Stop times in the copied lists count forward from this time.';
             if (input) input.setAttribute('aria-label', 'Depart activity location at');
         }
 
@@ -1670,8 +1691,21 @@
                     parts.push(`${totalCapacity} seat${totalCapacity === 1 ? '' : 's'}`);
                     statsEl.textContent = parts.join(' • ');
 
-                    statsEl.classList.toggle('text-danger', participantsCount > totalCapacity && driversCount > 0);
-                    statsEl.classList.toggle('text-muted', !(participantsCount > totalCapacity && driversCount > 0));
+                    statsEl.classList.add('text-muted');
+                }
+
+                const meter = document.getElementById('seat-meter');
+                if (meter) {
+                    const seats = n => `${n} seat${n === 1 ? '' : 's'}`;
+                    const shortage = participantsCount - totalCapacity;
+                    const state = !driversCount || !participantsCount ? 'empty' : shortage > 0 ? 'short' : 'ok';
+                    meter.hidden = state === 'empty';
+                    meter.dataset.state = state;
+                    document.getElementById('seat-meter-fill').style.width = `${participantsCount ? Math.min(100, Math.round(100 * totalCapacity / participantsCount)) : 0}%`;
+                    const people = `${participantsCount} participant${participantsCount === 1 ? '' : 's'}`;
+                    document.getElementById('seat-meter-text').textContent = state === 'short'
+                        ? `Need ${shortage} more ${shortage === 1 ? 'seat' : 'seats'} for ${people}`
+                        : state === 'ok' ? `${seats(totalCapacity)} for ${people} · ${-shortage} spare` : '';
                 }
             }
 
