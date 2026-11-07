@@ -1038,10 +1038,12 @@
         }
 
         // Lift toasts above whichever sticky planner bar is pinned to the bottom of the viewport.
-        function pinnedBarOffset() {
+        function pinnedBarOffset(container) {
+            const area = container.getBoundingClientRect?.();
             const bars = document.querySelectorAll?.('.planner-page .action-bar, .planner-page .save-event-card') || [];
             const tops = Array.from(bars, bar => bar.getBoundingClientRect?.())
                 .filter(rect => rect?.height && rect.top < window.innerHeight && rect.bottom >= window.innerHeight - 2)
+                .filter(rect => !area?.width || (rect.right > area.left && rect.left < area.right))
                 .map(rect => window.innerHeight - rect.top);
             return tops.length ? `${Math.round(Math.max(...tops) + 12)}px` : '';
         }
@@ -1072,7 +1074,7 @@
 
             closeButton.addEventListener('click', () => dismissToast(toast));
 
-            if (container.style) container.style.bottom = pinnedBarOffset();
+            if (container.style) container.style.bottom = pinnedBarOffset(container);
             container.appendChild(toast);
 
             if (duration > 0) {
