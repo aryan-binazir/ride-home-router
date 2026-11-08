@@ -33,4 +33,5 @@ go.work.sum
 
 _scratch/
 
-.claude/
+.claude/*
+!.claude/skills/

@@ -7,7 +7,7 @@ DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
 
-.PHONY: help check check-unit lint verify vulncheck vet test test-unit eval build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
+.PHONY: help check check-unit lint verify vulncheck vet test test-unit eval tla build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
 
 help:
 	@echo "Ride Home Router"
@@ -24,6 +24,7 @@ help:
 	@echo "  make migrate-create name=add_field Create paired timestamped SQL files"
 	@echo "  make check         lint + verify + vulncheck + vet + all tests (needs TEST_DATABASE_URL)"
 	@echo "  make check-unit    Same without database-backed tests"
+	@echo "  make tla           Model-check the TLA+ specs in verification/tla (needs Java 11+)"
 	@echo "  make postgres-up   Start the local podman Postgres (port $(POSTGRES_PORT))"
 	@echo "  make postgres-down Remove the local podman Postgres"
 	@echo "  make psql          Open psql on the local Postgres"
@@ -57,6 +58,9 @@ test-unit:
 eval:
 	@mkdir -p _scratch
 	PLANNER_EVAL=1 PLANNER_EVAL_REPORT=$(CURDIR)/_scratch/planner-eval-report.md go test -count=1 ./internal/routing/planeval -run TestPlannerEvaluation -v -timeout 45m
+
+tla:
+	scripts/tla.sh
 
 build:
 	@mkdir -p bin
