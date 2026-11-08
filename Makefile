@@ -7,7 +7,7 @@ DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
 
-.PHONY: help check check-unit lint verify vulncheck vet test test-unit eval tla build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
+.PHONY: help check check-unit check-branch lint verify vulncheck vet test test-unit test-verification-tools eval tla verification-mutations build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
 
 help:
 	@echo "Ride Home Router"
@@ -24,6 +24,7 @@ help:
 	@echo "  make migrate-create name=add_field Create paired timestamped SQL files"
 	@echo "  make check         lint + verify + vulncheck + vet + all tests (needs TEST_DATABASE_URL)"
 	@echo "  make check-unit    Same without database-backed tests"
+	@echo "  make check-branch  Full local branch gate: check + eval + TLC + real-code mutations"
 	@echo "  make tla           Model-check the TLA+ specs in verification/tla (needs Java 11+)"
 	@echo "  make postgres-up   Start the local podman Postgres (port $(POSTGRES_PORT))"
 	@echo "  make postgres-down Remove the local podman Postgres"
@@ -33,6 +34,11 @@ help:
 check: lint verify vulncheck vet test
 
 check-unit: lint verify vulncheck vet test-unit
+
+check-branch:
+	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL must name a local test Postgres database" >&2; exit 1; }
+	@test -n "$$BROWSER_TEST_BINARY" && test -x "$$BROWSER_TEST_BINARY" || { echo "BROWSER_TEST_BINARY must name an executable Chrome or Chromium" >&2; exit 1; }
+	$(MAKE) check eval tla verification-mutations
 
 lint:
 	golangci-lint run ./...
@@ -47,13 +53,19 @@ vulncheck:
 vet:
 	go vet ./...
 
-test:
+test: test-verification-tools
 	node --test web/static/js/*.test.js
 	go test -race -count=1 -coverprofile=coverage.out ./...
 
-test-unit:
+test-unit: test-verification-tools
 	node --test web/static/js/*.test.js
 	TEST_DATABASE_URL= go test -race -count=1 ./...
+
+test-verification-tools:
+	python3 -m unittest discover -s scripts -p '*_test.py'
+
+verification-mutations:
+	python3 scripts/verification-mutations.py
 
 eval:
 	@mkdir -p _scratch

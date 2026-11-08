@@ -1,0 +1,345 @@
+{
+  "review": "Refresh only after reviewing model/source fidelity, guards, bounds and property coverage. Receipts are never cached proof.",
+  "checks": {
+    "ImportGeocodeQueue.cfg": {
+      "sha256": "cad40ea869f5fa18b0347c0045d991fe4aa9498ab09faf34fdb802703f639ca5",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "TypeOK",
+          "AtMostOneResultPerJob",
+          "ProviderRoundsBounded",
+          "GeocodingKeepsSelection",
+          "CommitOnlyWhenResolved",
+          "FinishHasAuthority",
+          "NoWriteAfterClose",
+          "CompletedJobsResolved"
+        ],
+        "property": []
+      },
+      "expected": null
+    },
+    "ImportGeocodeQueue.liveness.cfg": {
+      "sha256": "e591083c7de817281e73cbad3f804d2ab543067fdd9eccb7d6267719bca993aa",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [],
+        "property": [
+          "ImportEventuallyCommittable"
+        ]
+      },
+      "expected": null
+    },
+    "RouteSessionSave.cfg": {
+      "sha256": "dedffb77a4a16894cf2bd8dcaf9b72bdbfd09e67e8755100713d578c90679fa9",
+      "spec": "RouteSessionSave.tla",
+      "properties": {
+        "invariant": [
+          "TypeOK",
+          "SessionMatchesAckedEdits",
+          "SavedEventMatchesAckedEdits",
+          "NoEditAckedAfterSave",
+          "EventSavedAtMostOnce",
+          "FailedSavePreservesState"
+        ],
+        "property": []
+      },
+      "expected": null
+    },
+    "WorkflowCapacity.cfg": {
+      "sha256": "28d0338c6c4e114a6e6def50a786d9e35ae10e581255ca075cba08626c7bb72c",
+      "spec": "WorkflowCapacity.tla",
+      "properties": {
+        "invariant": [
+          "TypeOK",
+          "CommittedCapacity",
+          "EvictionRequiresCommittedCreate",
+          "OnlySameKindEvicted",
+          "InactiveRowsPreserved"
+        ],
+        "property": []
+      },
+      "expected": null
+    },
+    "mutations/ImportGeocodeQueue.arbitrary-stalls-progress.cfg": {
+      "sha256": "6377b2a3732ec3b088e39969f051039d82ccdba9910e90b4d44d6482d24c1ebe",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [],
+        "property": [
+          "ImportEventuallyCommittable"
+        ]
+      },
+      "expected": {
+        "kind": "property",
+        "name": "ImportEventuallyCommittable"
+      }
+    },
+    "mutations/ImportGeocodeQueue.attempt-counted-in-release-progress.cfg": {
+      "sha256": "f42c19daff482641cd8ef8fdd58ae9022af222a31b3abc4f08e52a9fd519fc94",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [],
+        "property": [
+          "ImportEventuallyCommittable"
+        ]
+      },
+      "expected": {
+        "kind": "property",
+        "name": "ImportEventuallyCommittable"
+      }
+    },
+    "mutations/ImportGeocodeQueue.attempt-counted-in-release.cfg": {
+      "sha256": "e8540b166b4ba70949fbc72e2a1064b38969ce688e10689eec216fef5b3509b1",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "ProviderRoundsBounded"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "ProviderRoundsBounded"
+      }
+    },
+    "mutations/ImportGeocodeQueue.commit-skips-pending-check.cfg": {
+      "sha256": "1b627ad14c20045aebbe338ceb14bd8728dc4e556d55132899527c95203821a4",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "CommitOnlyWhenResolved"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "CommitOnlyWhenResolved"
+      }
+    },
+    "mutations/ImportGeocodeQueue.done-before-rows.cfg": {
+      "sha256": "f4dc1d0227e2abe6f40f02481c40febdd5c16ad27706a5cc26d97b4bac99b838",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "CompletedJobsResolved"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "CompletedJobsResolved"
+      }
+    },
+    "mutations/ImportGeocodeQueue.done-jobs-reopen.cfg": {
+      "sha256": "1299bc795e7a2791987fd72f905f9b9d1175f39bf038cb924a4e0371fddbad23",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "AtMostOneResultPerJob"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "AtMostOneResultPerJob"
+      }
+    },
+    "mutations/ImportGeocodeQueue.finish-after-close.cfg": {
+      "sha256": "aa8909994af10001a9aba8929aef47f2460b02287f2c96e012e08083cbd7c001",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "NoWriteAfterClose"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "NoWriteAfterClose"
+      }
+    },
+    "mutations/ImportGeocodeQueue.finish-ignores-lease.cfg": {
+      "sha256": "747f511df7d8b38a497c576a690870fe71c77e5e23a40ec97d1a347b82717a0d",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "FinishHasAuthority"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "FinishHasAuthority"
+      }
+    },
+    "mutations/ImportGeocodeQueue.finish-ignores-token.cfg": {
+      "sha256": "8eaca8232d4efd9364987efe681de480af07eb932e26e43614489268635a4dfe",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "FinishHasAuthority"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "FinishHasAuthority"
+      }
+    },
+    "mutations/ImportGeocodeQueue.finish-split-transaction.cfg": {
+      "sha256": "dc6ffd5980d442a3d8732a1b6d2797a73654b23f980b2883fd497e38444a96ab",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [],
+        "property": [
+          "ImportEventuallyCommittable"
+        ]
+      },
+      "expected": {
+        "kind": "property",
+        "name": "ImportEventuallyCommittable"
+      }
+    },
+    "mutations/ImportGeocodeQueue.finish-writes-read-selection.cfg": {
+      "sha256": "aed72e48c598e4dbbf5de8c3dd301ab3774d1326ba2dca65f9b186f9a7468a90",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [
+          "GeocodingKeepsSelection"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "GeocodingKeepsSelection"
+      }
+    },
+    "mutations/ImportGeocodeQueue.release-steals-claim.cfg": {
+      "sha256": "37d76180ad5c439d245aeb42b96ed035fef8a12308ad55c3a446659129af30d1",
+      "spec": "ImportGeocodeQueue.tla",
+      "properties": {
+        "invariant": [],
+        "property": [
+          "ImportEventuallyCommittable"
+        ]
+      },
+      "expected": {
+        "kind": "property",
+        "name": "ImportEventuallyCommittable"
+      }
+    },
+    "mutations/RouteSessionSave.cas-ignores-revision-event.cfg": {
+      "sha256": "5c79ee85bf844d4990dd89d984aedd91193135ffa11e750c5d9e353e91c37e9e",
+      "spec": "RouteSessionSave.tla",
+      "properties": {
+        "invariant": [
+          "SavedEventMatchesAckedEdits"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "SavedEventMatchesAckedEdits"
+      }
+    },
+    "mutations/RouteSessionSave.cas-ignores-revision.cfg": {
+      "sha256": "0410a2a128a7a73cb7dd16909f83d81b4a3efd5fc38c3f25d4bf8e2d159e5b4d",
+      "spec": "RouteSessionSave.tla",
+      "properties": {
+        "invariant": [
+          "SessionMatchesAckedEdits"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "SessionMatchesAckedEdits"
+      }
+    },
+    "mutations/RouteSessionSave.edit-ignores-save.cfg": {
+      "sha256": "ec82301e10d4c8a6ac38756b27f57a727634c3cc7f4869a08944bfee71e64a64",
+      "spec": "RouteSessionSave.tla",
+      "properties": {
+        "invariant": [
+          "NoEditAckedAfterSave"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "NoEditAckedAfterSave"
+      }
+    },
+    "mutations/RouteSessionSave.save-ignores-consumed.cfg": {
+      "sha256": "939484b7f4607a47e950eb4cebcf86ba32e76cb112d5c77745736c3ab1330909",
+      "spec": "RouteSessionSave.tla",
+      "properties": {
+        "invariant": [
+          "EventSavedAtMostOnce"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "EventSavedAtMostOnce"
+      }
+    },
+    "mutations/RouteSessionSave.split-save.cfg": {
+      "sha256": "1babeb2917071e2c58430d36477ffc210b268d9dbffd65648197673e79594972",
+      "spec": "RouteSessionSave.tla",
+      "properties": {
+        "invariant": [
+          "FailedSavePreservesState"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "FailedSavePreservesState"
+      }
+    },
+    "mutations/WorkflowCapacity.eviction-crosses-kind.cfg": {
+      "sha256": "2692e49a4a099c4b91178a15b8e9c44b43032cd6f14c60b88f58f0ed609608cc",
+      "spec": "WorkflowCapacity.tla",
+      "properties": {
+        "invariant": [
+          "OnlySameKindEvicted"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "OnlySameKindEvicted"
+      }
+    },
+    "mutations/WorkflowCapacity.eviction-outside-transaction.cfg": {
+      "sha256": "1cc51170e18dafd3517187178b4184cf493ea669be1cbb4daecba1d4296e9810",
+      "spec": "WorkflowCapacity.tla",
+      "properties": {
+        "invariant": [
+          "EvictionRequiresCommittedCreate"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "EvictionRequiresCommittedCreate"
+      }
+    },
+    "mutations/WorkflowCapacity.no-serialization.cfg": {
+      "sha256": "cc0e13967b938049ca4e443654b2e4493ee00a66da77eb98a7c1b54c4c9d93fa",
+      "spec": "WorkflowCapacity.tla",
+      "properties": {
+        "invariant": [
+          "CommittedCapacity"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "CommittedCapacity"
+      }
+    }
+  }
+}
