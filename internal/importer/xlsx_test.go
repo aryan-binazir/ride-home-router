@@ -417,8 +417,8 @@ func TestXLSXHugeRowNumberTerminates(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("Parse() error = nil, want a row-limit error")
+		if !errors.Is(err, excelize.ErrMaxRows) {
+			t.Fatalf("Parse() error = %v, want %v", err, excelize.ErrMaxRows)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Parse() did not return for a row number beyond the worksheet limit")
