@@ -223,3 +223,50 @@ func TestConcurrentIdentityRequestsShareClerkLookups(t *testing.T) {
 		t.Fatalf("Clerk calls=%d want2", got)
 	}
 }
+
+func TestTerminalClerkDenialsAreCachedButOutagesAreNot(t *testing.T) {
+	f := accesstest.New(t)
+	f.User("member", []string{"member@example.test"}, nil)
+	f.User("banned", []string{"member@example.test"}, nil, map[string]any{"banned": true})
+	f.Session("ended_session", "member", "ended")
+	f.Session("deleted_user_session", "deleted", "active")
+	f.Session("banned_session", "banned", "active")
+	f.Session("outage_session", "member", "active")
+	f.Fail("/v1/sessions/outage_session", http.StatusServiceUnavailable)
+	cfg := f.Config()
+	transport := &countingTransport{base: cfg.HTTPClient.Transport}
+	cfg.HTTPClient.Transport = transport
+	gate, err := access.New(cfg, &approvals{allowed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	for _, tc := range []struct {
+		name, user, session string
+		status              int
+		calls               int32
+	}{
+		{"missing session", "member", "missing_session", 401, 1},
+		{"ended session", "member", "ended_session", 401, 1},
+		{"deleted user", "deleted", "deleted_user_session", 401, 2},
+		{"banned user", "banned", "banned_session", 401, 2},
+		{"Clerk outage", "member", "outage_session", 503, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token := f.Token(tc.user, tc.session)
+			before := transport.calls.Load()
+			for range 3 {
+				r := httptest.NewRequestWithContext(t.Context(), "GET", "/api/v1/settings", nil)
+				r.Header.Set("Authorization", "Bearer "+token)
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, r)
+				if w.Code != tc.status {
+					t.Fatalf("status=%d want %d", w.Code, tc.status)
+				}
+			}
+			if got := transport.calls.Load() - before; got != tc.calls {
+				t.Fatalf("Clerk calls=%d want %d", got, tc.calls)
+			}
+		})
+	}
+}

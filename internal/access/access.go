@@ -41,10 +41,10 @@ type Store interface {
 }
 
 type cachedIdentity struct {
-	userID         string
-	emails         []string
-	banned, locked bool
-	expires        time.Time
+	userID  string
+	emails  []string
+	denied  bool
+	expires time.Time
 }
 
 type Access struct {
@@ -284,14 +284,11 @@ func deny(w http.ResponseWriter, r *http.Request, status int) {
 }
 
 func (a *Access) identity(ctx context.Context, sessionID, userID string) (cachedIdentity, bool, int) {
-	a.cacheMu.Lock()
-	cached, hit := a.identities[sessionID]
-	a.cacheMu.Unlock()
-	if hit && time.Now().Before(cached.expires) {
-		if cached.userID != userID || cached.banned || cached.locked {
+	if identity, ok := a.lookupIdentity(sessionID); ok {
+		if identity.userID != userID || identity.denied {
 			return cachedIdentity{}, false, http.StatusUnauthorized
 		}
-		return cached, false, 0
+		return identity, false, 0
 	}
 	gate := a.sessionLookupGate(sessionID)
 	select {
@@ -300,30 +297,40 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 	case <-ctx.Done():
 		return cachedIdentity{}, false, http.StatusServiceUnavailable
 	}
-	a.cacheMu.Lock()
-	identity, ok := a.identities[sessionID]
-	a.cacheMu.Unlock()
-	if ok && time.Now().Before(identity.expires) {
-		if identity.userID != userID || identity.banned || identity.locked {
+	if identity, ok := a.lookupIdentity(sessionID); ok {
+		if identity.userID != userID || identity.denied {
 			return cachedIdentity{}, false, http.StatusUnauthorized
 		}
 		return identity, false, 0
 	}
+	// Ended sessions and deleted users stay denied, so remember them; otherwise
+	// replaying a token from a signed-out session costs a Clerk call per request.
+	denied := cachedIdentity{userID: userID, denied: true}
 	session, err := a.sessions.Get(ctx, sessionID)
 	if err != nil {
+		if clerkNotFound(err) {
+			a.rememberIdentity(sessionID, denied)
+		}
 		return cachedIdentity{}, true, clerkFailureStatus(err)
 	}
-	if session.ID != sessionID || session.UserID != userID || session.Status != "active" {
+	if session.ID != sessionID || session.UserID != userID {
+		return cachedIdentity{}, true, http.StatusUnauthorized
+	}
+	if session.Status != "active" {
+		a.rememberIdentity(sessionID, denied)
 		return cachedIdentity{}, true, http.StatusUnauthorized
 	}
 	user, err := a.users.Get(ctx, userID)
 	if err != nil {
+		if clerkNotFound(err) {
+			a.rememberIdentity(sessionID, denied)
+		}
 		return cachedIdentity{}, true, clerkFailureStatus(err)
 	}
 	if user.ID != userID {
 		return cachedIdentity{}, true, http.StatusUnauthorized
 	}
-	identity = cachedIdentity{userID: user.ID, banned: user.Banned, locked: user.Locked, expires: time.Now().Add(30 * time.Second)}
+	identity := cachedIdentity{userID: user.ID, denied: user.Banned || user.Locked}
 	for _, email := range user.EmailAddresses {
 		if email == nil || email.Verification == nil || email.Verification.Status != "verified" {
 			continue
@@ -332,7 +339,24 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 			identity.emails = append(identity.emails, normalized)
 		}
 	}
+	a.rememberIdentity(sessionID, identity)
+	if identity.denied {
+		return cachedIdentity{}, true, http.StatusUnauthorized
+	}
+	return identity, true, 0
+}
+
+func (a *Access) lookupIdentity(sessionID string) (cachedIdentity, bool) {
 	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	identity, ok := a.identities[sessionID]
+	return identity, ok && time.Now().Before(identity.expires)
+}
+
+func (a *Access) rememberIdentity(sessionID string, identity cachedIdentity) {
+	identity.expires = time.Now().Add(30 * time.Second)
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
 	if a.identities == nil {
 		a.identities = make(map[string]cachedIdentity)
 	}
@@ -348,11 +372,6 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 		delete(a.identities, oldestKey)
 	}
 	a.identities[sessionID] = identity
-	a.cacheMu.Unlock()
-	if identity.banned || identity.locked {
-		return cachedIdentity{}, true, http.StatusUnauthorized
-	}
-	return identity, true, 0
 }
 
 func (a *Access) sessionLookupGate(sessionID string) chan struct{} {
