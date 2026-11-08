@@ -4,7 +4,7 @@ This repository uses local verification only. Keep GitHub Actions disabled and d
 
 Before merging any PR, run `BROWSER_TEST_BINARY=/path/to/chrome-or-chromium make check` locally on the final PR head with `TEST_DATABASE_URL` set to a local test Postgres database. All lint, module checks, the reachable-vulnerability scan, vet, JavaScript tests, browser tests, and Go race tests must pass. `make check-unit` alone is insufficient because it skips database tests.
 
-For planner-related changes, also run `make eval`. Record the commands and results in the PR. Fix failures before merging; rerun verification after changes.
+For planner-related changes, also run `make eval`. For changes to the import geocoding queue or route-session saving, also follow the `verify-workflow-tla` skill (`make tla`). Record the commands and results in the PR. Fix failures before merging; rerun verification after changes.
 
 # Local agent environment
 
