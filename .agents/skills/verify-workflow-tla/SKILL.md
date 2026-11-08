@@ -12,9 +12,9 @@ Two TLC models check promises that unit tests rarely reach. The bugs they guard 
 | `ImportGeocodeQueue` | `AtMostOneResultPerJob`: an address's geocode result lands once. | A stale worker overwrites a good match with an error and deselects the rows. |
 | | `ProviderRoundsBounded`: a job runs at most `maxGeocodeRounds` (3) provider rounds, even with unbounded crashes and stalls inside the call. | A poison address burns provider quota forever. |
 | | `GeocodingKeepsSelection`: a geocoded row keeps the person's latest selection. | A row the person excluded is imported anyway. |
-| | `CommitOnlyWhenResolved`: commit only happens once no row is pending. | Rows are imported without coordinates. |
+| | `CommitOnlyWhenResolved`: commit only happens once no row is pending. | `createBatch` skips rows without coordinates, so the import silently drops rows that were still geocoding. |
 | | `ImportEventuallyCommittable` (liveness): while the import stays open, every row finishes geocoding. | The import shows "geocoding" forever and can never be committed. |
-| `RouteSessionSave` | `SessionMatchesAckedEdits`: the live session equals the acknowledged edits and resets, applied in order. | A concurrent edit silently undoes one the person saw succeed. |
+| `RouteSessionSave` | `SessionMatchesAckedEdits`: the live session equals the successful edits and resets, applied in the order their writes committed. | A concurrent edit silently undoes one the person saw succeed. |
 | | `SavedEventMatchesAckedEdits`: the saved Event equals that state at the moment of saving. | The saved routes differ from what the person approved. |
 | | `NoEditAckedAfterSave`: no edit succeeds after the save. | A stale tab's edit reports success but never reaches the Event. |
 | | `EventSavedAtMostOnce`: one session makes at most one Event, even after that Event is deleted. | A double click or a stale tab creates a duplicate, or brings a deleted Event back. |
@@ -96,7 +96,7 @@ Sync commit: `6d6112c`.
 - Import: 2 workers; 2 jobs, one of them shared by two rows; the person toggles one row's selection; `maxGeocodeRounds` = 3; one crash outside the provider call; unbounded crashes and lease overruns inside it.
 - Import liveness assumes the workers keep polling, time passes, and the provider throttle reopens. It also assumes that a holder can overrun its lease only inside the provider call. After the call, persisting has a 5s timeout and a 5s `lock_timeout`, and the 30s `workCtx` leaves at least 25s of the 60s lease. Database errors are not modelled: they return early, and the deferred Release runs.
 - Claim tokens are modelled as worker ids. This is sound because a worker runs one job at a time, and a restarted process starts with no job.
-- Route: 2 edits, 1 reset, 2 saves, from any tabs or instances. Event deletion and session discard can happen at any time.
+- Route: 2 edits, 1 reset, 2 saves, from any tabs or instances. Event deletion and session discard can happen at any time. The payload is abstracted to route edits: the reviewer note (kept by a reset, left out of the Event) and the cleared `{}` payload's failure to validate on a second save are not modelled. "Acknowledged" means the edit's write committed. HTTP responses may reach the browser in a different order, or after a later save.
 
 ## Not covered
 
@@ -114,6 +114,6 @@ Each of these was checked by removing the guard from a scratch copy of the model
   - `claimed_until > clock_timestamp()` in Finish. A stale worker's Finish still loses to the token and `NOT done` checks.
   - The unique index on `events.route_session_id`, as long as the consumed check in `CommitEvent` stays.
 - **Not redundant**, although it looks covered by another guard:
-  - The consumed check in `CommitEvent` is not covered by the unique index. Once the person deletes the Event, a stale tab can save it again (mutation `save-ignores-consumed`).
+  - The consumed check in `CommitEvent` is not covered by the unique index. In the model, once the person deletes the Event, a stale tab can save it again (mutation `save-ignores-consumed`). In the code, a third backstop the model leaves out also stops that save: the save clears the payload to `{}`, and `eventsnapshot.Build` rejects its empty route mode. So the consumed check is what keeps `CommitEvent`'s promise for any callback, not only for one that validates its input.
   - The consumed checks on edits are not covered by the revision check. An edit that loads after the save sees the save's new revision (mutation `edit-ignores-save`).
   - Release's `claim_token=$3` is needed for progress. Without it, a stale worker clears the current holder's claim, so that holder's Finish is rejected. Two workers can keep doing this to each other forever, and the import never finishes geocoding (mutation `release-steals-claim`).

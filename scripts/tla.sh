@@ -24,8 +24,12 @@ jar=${TLA2TOOLS:-${XDG_CACHE_HOME:-$HOME/.cache}/ride-home-router/tla2tools-$ver
 if [[ ! -f $jar ]]; then
 	mkdir -p "$(dirname "$jar")"
 	echo "Downloading tla2tools.jar $version to $jar" >&2
-	curl -fsSL -o "$jar.tmp" "https://github.com/tlaplus/tlaplus/releases/download/v$version/tla2tools.jar"
-	mv "$jar.tmp" "$jar"
+	download=$(mktemp "$jar.XXXXXX")
+	if ! curl -fsSL --retry 3 -o "$download" "https://github.com/tlaplus/tlaplus/releases/download/v$version/tla2tools.jar"; then
+		rm -f "$download"
+		exit 1
+	fi
+	mv "$download" "$jar"
 fi
 if [[ -z ${TLA2TOOLS:-} ]] && ! echo "$checksum  $jar" | sha256sum -c --status; then
 	echo "tla.sh: checksum mismatch for $jar; delete it and rerun" >&2
@@ -55,8 +59,10 @@ tlc() {
 }
 
 failures=0
+checks=0
 report() {
 	local status=$1 name=$2 detail=$3 log=$4
+	checks=$((checks + 1))
 	printf '%-4s %-60s %s\n' "$status" "$name" "$detail"
 	if [[ $status != ok ]]; then
 		failures=$((failures + 1))
@@ -98,8 +104,8 @@ for config in "$dir"/mutations/*.cfg; do
 		continue
 		;;
 	esac
-	if [[ $kind == property ]] && [[ $(grep -cE '^PROPERTY|^PROPERTIES' "$config") != 1 || $(grep -cE '^INVARIANT' "$config") != 0 ]]; then
-		report FAIL "mutations/$name" "a property mutation must check exactly that one property" "$log"
+	if [[ $kind == property ]] && { [[ $(grep -cE '^(PROPERTY|PROPERTIES|INVARIANT|INVARIANTS)( |$)' "$config") != 1 ]] || ! grep -qx "PROPERTY $property" "$config"; }; then
+		report FAIL "mutations/$name" "a property mutation must check only 'PROPERTY $property'" "$log"
 	elif grep -qE "$expected" "$log"; then
 		report ok "mutations/$name" "fails $property as expected, $((SECONDS - start))s" "$log"
 	else
@@ -107,6 +113,10 @@ for config in "$dir"/mutations/*.cfg; do
 	fi
 done
 
+if ((checks == 0)); then
+	echo "tla.sh: no config matches '$filter'" >&2
+	exit 1
+fi
 if ((failures > 0)); then
 	echo "tla.sh: $failures check(s) did not give the expected result" >&2
 	exit 1

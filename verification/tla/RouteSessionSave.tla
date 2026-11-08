@@ -16,14 +16,17 @@
 (*   migrations/20260912211512_event_route_session.up.sql                   *)
 (*                                        events_route_session_id_idx       *)
 (*                                                                          *)
-(* Every durable edit (moves, swaps, driver changes, the reviewer note,     *)
-(* ResetContext) goes through Store.update, in two steps as ADR 0008 asks:  *)
+(* Every durable edit (moves, swaps, driver changes, ResetContext) goes     *)
+(* through Store.update, in two steps as ADR 0008 asks:                     *)
 (* Load returns payload and revision without a lock; the edit is applied    *)
 (* and distances recalculated outside any transaction; CompareAndSwap then  *)
 (* writes the result under the row lock. The payload is modelled as the set *)
-(* of edits it contains: an edit adds its id, a reset empties it. The ghost *)
-(* "expected" applies each acknowledged request, in acknowledgement order,  *)
-(* to its own copy, so the payload must always equal it.                    *)
+(* of route edits it contains: an edit adds its id, a reset empties it.    *)
+(* The reviewer note is left out (a reset keeps it; the Event omits it).    *)
+(* The ghost "expected" applies each acknowledged request, in the order its *)
+(* write committed, to its own copy, so the payload must always equal it.   *)
+(* "Acknowledged" means the write committed; HTTP responses may still reach *)
+(* the browser in another order.                                            *)
 (*                                                                          *)
 (* A save is one step: CommitEvent runs inside Transact, which holds the    *)
 (* session row lock (FOR UPDATE) from the read until commit, and inserts    *)
@@ -141,7 +144,9 @@ EditWrites(q) ==
 \* with ErrAlreadyCommitted, build the CommitSnapshot from the payload,
 \* persistEvent -> CreateEvent in the same transaction, then mark the record
 \* consumed with payload {} and bump the revision. A failing CreateEvent
-\* (the unique index) rolls the whole transaction back.
+\* (the unique index) rolls the whole transaction back. Not modelled: a later
+\* save of the cleared {} payload also fails eventsnapshot.Build (no route
+\* mode), a backstop outside CommitEvent's own contract.
 Save(s) ==
     /\ pc[s] = "start"
     /\ IF /\ exists
