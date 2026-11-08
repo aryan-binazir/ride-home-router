@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/postgres/postgrestest"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -90,54 +89,105 @@ func TestHandleHealthCheck(t *testing.T) {
 	}
 }
 
-type countingProbeStore struct {
+type probeStore struct {
 	database.DataStore
-	calls atomic.Int32
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+	err     error
 }
 
-func (s *countingProbeStore) probe(ctx context.Context) error {
+func (s *probeStore) probe(ctx context.Context) error {
 	s.calls.Add(1)
-	return ctx.Err()
+	if s.started != nil {
+		select {
+		case s.started <- struct{}{}:
+		default:
+		}
+	}
+	if s.release != nil {
+		<-s.release
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.err
 }
 
-func (s *countingProbeStore) HealthCheck(ctx context.Context) error    { return s.probe(ctx) }
-func (s *countingProbeStore) ReadinessCheck(ctx context.Context) error { return s.probe(ctx) }
+func (s *probeStore) HealthCheck(ctx context.Context) error    { return s.probe(ctx) }
+func (s *probeStore) ReadinessCheck(ctx context.Context) error { return s.probe(ctx) }
 
 func TestPublicProbesShareRecentDatabaseResult(t *testing.T) {
-	store := &countingProbeStore{}
-	handler := &Handler{DB: store}
-	for _, probe := range []struct {
-		path   string
-		handle http.HandlerFunc
-	}{{"/api/v1/health", handler.HandleHealthCheck}, {"/api/v1/ready", handler.HandleReadinessCheck}} {
-		t.Run(probe.path, func(t *testing.T) {
-			store.calls.Store(0)
-			disconnected, cancel := context.WithCancel(t.Context())
-			cancel()
-			var requests sync.WaitGroup
-			for _, ctx := range append([]context.Context{disconnected}, slices.Repeat([]context.Context{t.Context()}, 49)...) {
-				request := func() {
-					rr := httptest.NewRecorder()
-					probe.handle(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, probe.path, nil))
-					if rr.Code != http.StatusOK {
-						t.Errorf("status=%d body=%q", rr.Code, rr.Body.String())
+	for _, endpoint := range []struct {
+		name, path string
+		handle     func(*Handler) http.HandlerFunc
+	}{
+		{"health", "/api/v1/health", func(h *Handler) http.HandlerFunc { return h.HandleHealthCheck }},
+		{"ready", "/api/v1/ready", func(h *Handler) http.HandlerFunc { return h.HandleReadinessCheck }},
+	} {
+		get := func(h *Handler, ctx context.Context) int {
+			rr := httptest.NewRecorder()
+			endpoint.handle(h)(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, endpoint.path, nil))
+			return rr.Code
+		}
+		t.Run(endpoint.name, func(t *testing.T) {
+			t.Run("concurrent callers on a cold cache share one check", func(t *testing.T) {
+				store := &probeStore{started: make(chan struct{}, 1), release: make(chan struct{})}
+				handler := &Handler{DB: store}
+				codes := make(chan int, 20)
+				var requests, entered sync.WaitGroup
+				entered.Add(cap(codes))
+				for range cap(codes) {
+					requests.Go(func() {
+						entered.Done()
+						codes <- get(handler, t.Context())
+					})
+				}
+				<-store.started
+				entered.Wait()
+				// Hold the first check open so callers queue behind it rather than finding a warm cache.
+				time.Sleep(50 * time.Millisecond)
+				close(store.release)
+				requests.Wait()
+				close(codes)
+				for code := range codes {
+					if code != http.StatusOK {
+						t.Fatalf("status=%d", code)
 					}
 				}
-				if ctx == disconnected {
-					request()
-				} else {
-					requests.Go(request)
+				if got := store.calls.Load(); got != 1 {
+					t.Fatalf("database checks=%d, want 1", got)
 				}
-			}
-			requests.Wait()
-			if got := store.calls.Load(); got != 1 {
-				t.Fatalf("database checks=%d, want 1", got)
-			}
-			time.Sleep(probeCacheTTL)
-			probe.handle(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, probe.path, nil))
-			if got := store.calls.Load(); got != 2 {
-				t.Fatalf("database checks after TTL=%d, want 2", got)
-			}
+			})
+			t.Run("a disconnected caller cannot cache a failure", func(t *testing.T) {
+				store := &probeStore{}
+				handler := &Handler{DB: store}
+				disconnected, cancel := context.WithCancel(t.Context())
+				cancel()
+				if code := get(handler, disconnected); code != http.StatusOK {
+					t.Fatalf("disconnected caller status=%d", code)
+				}
+				if code := get(handler, t.Context()); code != http.StatusOK || store.calls.Load() != 1 {
+					t.Fatalf("next caller status=%d checks=%d, want 200 and 1", code, store.calls.Load())
+				}
+			})
+			t.Run("failures are shared until the TTL expires", func(t *testing.T) {
+				store := &probeStore{err: errors.New("database unavailable")}
+				handler := &Handler{DB: store}
+				for range 2 {
+					if code := get(handler, t.Context()); code != http.StatusServiceUnavailable {
+						t.Fatalf("status=%d, want 503", code)
+					}
+				}
+				if got := store.calls.Load(); got != 1 {
+					t.Fatalf("database checks=%d, want 1", got)
+				}
+				store.err = nil
+				time.Sleep(probeCacheTTL)
+				if code := get(handler, t.Context()); code != http.StatusOK || store.calls.Load() != 2 {
+					t.Fatalf("after TTL status=%d checks=%d, want 200 and 2", code, store.calls.Load())
+				}
+			})
 		})
 	}
 }
