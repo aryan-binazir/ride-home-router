@@ -7,7 +7,7 @@ DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
 
-.PHONY: help check check-unit lint verify vet test test-unit eval build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
+.PHONY: help check check-unit lint verify vulncheck vet test test-unit eval build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
 
 help:
 	@echo "Ride Home Router"
@@ -22,16 +22,16 @@ help:
 	@echo "  make migrate-version Show DATABASE_URL migration version and dirty state"
 	@echo "  make migrate-down CONFIRM=yes Roll back one migration on the fixed local database"
 	@echo "  make migrate-create name=add_field Create paired timestamped SQL files"
-	@echo "  make check         lint + verify + vet + all tests (needs TEST_DATABASE_URL)"
+	@echo "  make check         lint + verify + vulncheck + vet + all tests (needs TEST_DATABASE_URL)"
 	@echo "  make check-unit    Same without database-backed tests"
 	@echo "  make postgres-up   Start the local podman Postgres (port $(POSTGRES_PORT))"
 	@echo "  make postgres-down Remove the local podman Postgres"
 	@echo "  make psql          Open psql on the local Postgres"
 	@echo "  make clean         Remove build artifacts"
 
-check: lint verify vet test
+check: lint verify vulncheck vet test
 
-check-unit: lint verify vet test-unit
+check-unit: lint verify vulncheck vet test-unit
 
 lint:
 	golangci-lint run ./...
@@ -39,6 +39,9 @@ lint:
 verify:
 	go mod tidy -diff
 	go mod verify
+
+vulncheck:
+	scripts/govulncheck.sh
 
 vet:
 	go vet ./...
