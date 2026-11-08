@@ -8,7 +8,11 @@ import (
 	"net/http/httptest"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/postgres/postgrestest"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type failingHealthStore struct {
@@ -81,6 +85,58 @@ func TestHandleHealthCheck(t *testing.T) {
 			}
 			if body["database"] != tt.wantDB {
 				t.Fatalf("database = %q, want %q", body["database"], tt.wantDB)
+			}
+		})
+	}
+}
+
+type countingProbeStore struct {
+	database.DataStore
+	calls atomic.Int32
+}
+
+func (s *countingProbeStore) probe(ctx context.Context) error {
+	s.calls.Add(1)
+	return ctx.Err()
+}
+
+func (s *countingProbeStore) HealthCheck(ctx context.Context) error    { return s.probe(ctx) }
+func (s *countingProbeStore) ReadinessCheck(ctx context.Context) error { return s.probe(ctx) }
+
+func TestPublicProbesShareRecentDatabaseResult(t *testing.T) {
+	store := &countingProbeStore{}
+	handler := &Handler{DB: store}
+	for _, probe := range []struct {
+		path   string
+		handle http.HandlerFunc
+	}{{"/api/v1/health", handler.HandleHealthCheck}, {"/api/v1/ready", handler.HandleReadinessCheck}} {
+		t.Run(probe.path, func(t *testing.T) {
+			store.calls.Store(0)
+			disconnected, cancel := context.WithCancel(t.Context())
+			cancel()
+			var requests sync.WaitGroup
+			for _, ctx := range append([]context.Context{disconnected}, slices.Repeat([]context.Context{t.Context()}, 49)...) {
+				request := func() {
+					rr := httptest.NewRecorder()
+					probe.handle(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, probe.path, nil))
+					if rr.Code != http.StatusOK {
+						t.Errorf("status=%d body=%q", rr.Code, rr.Body.String())
+					}
+				}
+				if ctx == disconnected {
+					request()
+				} else {
+					requests.Go(request)
+				}
+			}
+			requests.Wait()
+			if got := store.calls.Load(); got != 1 {
+				t.Fatalf("database checks=%d, want 1", got)
+			}
+			time.Sleep(probeCacheTTL)
+			probe.handle(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, probe.path, nil))
+			if got := store.calls.Load(); got != 2 {
+				t.Fatalf("database checks after TTL=%d, want 2", got)
 			}
 		})
 	}

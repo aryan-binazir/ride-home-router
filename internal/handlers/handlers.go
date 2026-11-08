@@ -28,6 +28,8 @@ type Handler struct {
 	RouteSession  *routesession.Store
 	ImportSession *importer.Store
 	PlanDraft     *plandraft.Store
+
+	healthProbe, readinessProbe probeCache
 }
 
 type ErrorResponse struct {

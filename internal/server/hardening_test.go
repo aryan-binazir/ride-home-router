@@ -79,6 +79,31 @@ func TestSecurityHeadersOnAuthenticatedHTMLAndHealth(t *testing.T) {
 	}
 }
 
+func TestStrictTransportSecurityOnlyForHTTPSOrigins(t *testing.T) {
+	handler := securityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	for _, tc := range []struct {
+		host, forwardedProto string
+		want                 string
+	}{
+		{"rides.example.org", "https", "max-age=31536000"},
+		{"rides.example.org", "", "max-age=31536000"},
+		{"127.0.0.1:8080", "https", "max-age=31536000"},
+		{"127.0.0.1:8080", "", ""},
+		{"localhost:8080", "", ""},
+	} {
+		r := httptest.NewRequestWithContext(t.Context(), "GET", "/", nil)
+		r.Host = tc.host
+		if tc.forwardedProto != "" {
+			r.Header.Set("X-Forwarded-Proto", tc.forwardedProto)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if got := w.Header().Get("Strict-Transport-Security"); got != tc.want {
+			t.Errorf("host=%s proto=%q HSTS=%q want %q", tc.host, tc.forwardedProto, got, tc.want)
+		}
+	}
+}
+
 func TestRecoveryAbortsPartialResponses(t *testing.T) {
 	var logs bytes.Buffer
 	previous := log.Writer()
