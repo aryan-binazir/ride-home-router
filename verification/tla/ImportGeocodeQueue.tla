@@ -23,13 +23,10 @@
 (*   process starts with no job, so token[j] = w exactly when w's current  *)
 (*   run holds the newest claim. The claim's returned Attempts is kept per *)
 (*   worker in round[w], since other claims may bump the stored value.     *)
-(* - leaseLive[j] is "claimed_until > clock_timestamp()". The single       *)
-(*   database clock makes expiry a step: LeaseExpires (time passes with    *)
-(*   nobody working the job) and ProviderStalls (the holder overruns its   *)
-(*   60s lease inside the provider call). ASSUMPTION: the holder cannot    *)
-(*   overrun outside the provider call. After it, the persist work has a   *)
-(*   5s context and a 5s lock_timeout, and the 30s workCtx leaves 25s or   *)
-(*   more of the 60s lease.                                                *)
+(* - LeaseExpires permits expiry in every phase, including read, finish   *)
+(*   and release. Context deadlines do not bound process scheduling.      *)
+(*   AssumeTimelyFinalization restricts only progress configurations: once *)
+(*   outside the provider, a live holder completes before expiry.          *)
 (* - An expired but not yet cleaned-up session is "gone": Claim and Finish *)
 (*   both require expires_at > clock_timestamp(), and commit's Transact    *)
 (*   finds no row. CleanupWorkflows deletes it later; the cascade changes  *)
@@ -67,7 +64,11 @@ CONSTANTS
     \* "NOT j.done" in Claim, and "AND NOT done" in Finish and Release.
     GuardDoneJobsAreClosed,
     \* Release's "claim_token=$3": a worker only releases its own claim.
-    GuardReleaseChecksToken
+    GuardReleaseChecksToken,
+    GuardFinishChecksToken,
+    GuardFinishChecksLease,
+    GuardFinishChecksSession,
+    AssumeTimelyFinalization
 
 Jobs == DOMAIN JobRows
 Rows == UNION {JobRows[j] : j \in Jobs}
@@ -91,10 +92,11 @@ VARIABLES
     choice,       \* ghost: the person's latest selection of each row
     rounds,       \* ghost: provider rounds started per job (saturating)
     finishes,     \* ghost: successful Finish transactions per job (saturating)
+    finishAuthorityOK, closedWritesOK,
     committedPending \* ghost: Commit ran while some row was pending
 
 workerVars == <<pc, job, round, failed, seenSelected>>
-ghostVars == <<choice, rounds, finishes, committedPending>>
+ghostVars == <<choice, rounds, finishes, committedPending, finishAuthorityOK, closedWritesOK>>
 vars == <<session, done, token, leaseLive, attempts, geocode, selected, crashes,
           workerVars, ghostVars>>
 
@@ -119,6 +121,8 @@ TypeOK ==
     /\ choice \in [Rows -> BOOLEAN]
     /\ rounds \in [Jobs -> 0..Cap]
     /\ finishes \in [Jobs -> 0..2]
+    /\ finishAuthorityOK \in BOOLEAN
+    /\ closedWritesOK \in BOOLEAN
     /\ committedPending \in BOOLEAN
 
 \* ApplyMapping stages rows and jobs and moves the session to previewing in
@@ -141,6 +145,8 @@ Init ==
     /\ rounds = [j \in Jobs |-> 0]
     /\ finishes = [j \in Jobs |-> 0]
     /\ committedPending = FALSE
+    /\ finishAuthorityOK = TRUE
+    /\ closedWritesOK = TRUE
 
 Open(j) == ~GuardDoneJobsAreClosed \/ ~done[j]
 Live == session = "previewing"
@@ -183,7 +189,7 @@ Claim(w, j) ==
             /\ failed' = [failed EXCEPT ![w] = TRUE]
             /\ UNCHANGED rounds
     /\ UNCHANGED <<session, done, geocode, selected, crashes, seenSelected,
-                   choice, finishes, committedPending>>
+                   choice, finishes, committedPending, finishAuthorityOK, closedWritesOK>>
 
 \* GeocodeWithRetry returns. processJob then:
 \*   ctx cancelled (shutdown)                -> return; deferred Release runs
@@ -244,8 +250,12 @@ WriteResult(w, j) ==
 Finish(w) ==
     LET j == job[w] IN
     /\ pc[w] = "finish"
-    /\ IF Live /\ token[j] = w /\ Open(j) /\ leaseLive[j]
-       THEN /\ done' = [done EXCEPT ![j] = TRUE]
+    /\ IF (~GuardFinishChecksSession \/ Live)
+          /\ (~GuardFinishChecksToken \/ token[j] = w) /\ Open(j)
+          /\ (~GuardFinishChecksLease \/ leaseLive[j])
+       THEN /\ finishAuthorityOK' = (finishAuthorityOK /\ token[j] = w /\ leaseLive[j])
+            /\ closedWritesOK' = (closedWritesOK /\ Live)
+            /\ done' = [done EXCEPT ![j] = TRUE]
             /\ token' = [token EXCEPT ![j] = None]
             /\ leaseLive' = [leaseLive EXCEPT ![j] = TRUE]
             /\ finishes' = [finishes EXCEPT ![j] = IF @ < 2 THEN @ + 1 ELSE 2]
@@ -255,7 +265,8 @@ Finish(w) ==
                ELSE /\ UNCHANGED <<geocode, selected>>
                     /\ Goto(w, "writeRows")
        ELSE /\ Goto(w, "release")
-            /\ UNCHANGED <<done, token, leaseLive, finishes, geocode, selected>>
+            /\ UNCHANGED <<done, token, leaseLive, finishes, geocode, selected,
+                          finishAuthorityOK, closedWritesOK>>
     /\ UNCHANGED <<session, attempts, crashes, job, round, failed, seenSelected,
                    choice, rounds, committedPending>>
 
@@ -298,22 +309,12 @@ HolderWorking(j) ==
     /\ job[token[j]] = j
     /\ pc[token[j]] # "idle"
 
-\* claimed_until passes while nobody works the job: a Release or Finish
-\* backoff ends, or a crashed holder's 60s lease runs out.
+\* Time can pass in every phase. Progress configs explicitly exclude repeated
+\* outside-provider overruns; safety configs make no scheduling assumption.
 LeaseExpires(j) ==
     /\ leaseLive[j]
-    /\ ~HolderWorking(j)
-    /\ leaseLive' = [leaseLive EXCEPT ![j] = FALSE]
-    /\ UNCHANGED <<session, done, token, attempts, geocode, selected, crashes,
-                   workerVars, ghostVars>>
-
-\* The holder overruns its lease inside the provider call (GC pause,
-\* suspended VM, a provider call that ignores its deadline).
-ProviderStalls(w) ==
-    LET j == job[w] IN
-    /\ pc[w] = "provider"
-    /\ token[j] = w
-    /\ leaseLive[j]
+    /\ (~AssumeTimelyFinalization \/ ~HolderWorking(j)
+        \/ (IF token[j] = None THEN FALSE ELSE pc[token[j]] = "provider"))
     /\ leaseLive' = [leaseLive EXCEPT ![j] = FALSE]
     /\ UNCHANGED <<session, done, token, attempts, geocode, selected, crashes,
                    workerVars, ghostVars>>
@@ -327,7 +328,7 @@ Select(r, value) ==
     /\ selected' = [selected EXCEPT ![r] = value]
     /\ choice' = [choice EXCEPT ![r] = value]
     /\ UNCHANGED <<session, done, token, leaseLive, attempts, geocode, crashes,
-                   workerVars, rounds, finishes, committedPending>>
+                   workerVars, rounds, finishes, committedPending, finishAuthorityOK, closedWritesOK>>
 
 \* commitPersistent inside Transact: the session row lock serializes it with
 \* Finish. It rejects a consumed or non-previewing session, returns
@@ -340,10 +341,10 @@ Commit ==
     /\ committedPending' = \E r \in Rows: geocode[r] = "pending"
     /\ session' = "committed"
     /\ UNCHANGED <<done, token, leaseLive, attempts, geocode, selected, crashes,
-                   workerVars, choice, rounds, finishes>>
+                   workerVars, choice, rounds, finishes, finishAuthorityOK, closedWritesOK>>
 
 \* CancelContext (Delete WHERE NOT consumed, cascading to rows and jobs), or
-\* the 8h sliding TTL running out.
+\* the sliding TTL running out (the importer defaults to 30 minutes).
 Abandon ==
     /\ Live
     /\ session' = "gone"
@@ -362,7 +363,7 @@ WorkerStep(w) ==
     \/ Release(w)
 
 Next ==
-    \/ \E w \in Workers: WorkerStep(w) \/ Crash(w) \/ ProviderStalls(w)
+    \/ \E w \in Workers: WorkerStep(w) \/ Crash(w)
     \/ \E j \in Jobs: LeaseExpires(j)
     \/ \E r \in SelectableRows, value \in BOOLEAN: Select(r, value)
     \/ Commit
@@ -379,6 +380,14 @@ Fairness ==
 Spec == Init /\ [][Next]_vars /\ Fairness
 
 -----------------------------------------------------------------------------
+
+\* Finish linearizes at the guarded job UPDATE, not transaction completion.
+\* Row errors/commit failure roll back the whole transaction: a stuttering
+\* step already allowed by Spec. Permanent DB failure has no progress claim.
+FinishHasAuthority == finishAuthorityOK
+NoWriteAfterClose == closedWritesOK
+CompletedJobsResolved ==
+    \A j \in Jobs: done[j] => \A r \in JobRows[j]: geocode[r] # "pending"
 
 \* A geocoding result lands on a job at most once, so a stale worker can
 \* never overwrite a resolved address (flip a match to an error and
@@ -400,7 +409,8 @@ GeocodingKeepsSelection ==
 \* The import creates roster rows only after every row is geocoded or failed.
 CommitOnlyWhenResolved == ~committedPending
 
-\* While the import stays open, every row eventually finishes geocoding, so
+\* Under AssumeTimelyFinalization and successful database scheduling, every
+\* row eventually finishes geocoding while the import stays open, so
 \* the person can commit, even under unbounded provider crashes and stalls.
 \* Abandon has no fairness, so this covers sessions that stay open forever.
 ImportEventuallyCommittable ==

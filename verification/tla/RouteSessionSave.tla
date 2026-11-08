@@ -43,7 +43,8 @@ CONSTANTS
     \* CommitEvent: "record.Consumed" -> ErrAlreadyCommitted.
     GuardSaveRejectsSaved,
     \* events_route_session_id_idx: a second live Event for the session fails.
-    GuardUniqueEventPerSession
+    GuardUniqueEventPerSession,
+    GuardSaveIsOneTransaction
 
 Requests == Edits \cup Resets
 
@@ -61,10 +62,11 @@ VARIABLES
     expected,     \* ghost: acknowledged requests applied in order
     created,      \* ghost: Events ever created for this session (saturating)
     savedOk,      \* ghost: every Event matched "expected" when created
+    failed,
     ackAfterSave  \* ghost: a request was acknowledged after the save
 
 vars == <<exists, revision, data, consumed, pc, seenRev, seenData, liveEvents,
-          expected, created, savedOk, ackAfterSave>>
+          expected, created, savedOk, ackAfterSave, failed>>
 
 MaxRevision == Cardinality(Requests) + Cardinality(Saves)
 
@@ -80,6 +82,7 @@ TypeOK ==
     /\ expected \subseteq Edits
     /\ created \in 0..2
     /\ savedOk \in BOOLEAN
+    /\ failed \subseteq Saves
     /\ ackAfterSave \in BOOLEAN
 
 \* CreateContext inserts the calculated routes at revision 0.
@@ -95,6 +98,7 @@ Init ==
     /\ expected = {}
     /\ created = 0
     /\ savedOk = TRUE
+    /\ failed = {}
     /\ ackAfterSave = FALSE
 
 Finished(q, outcome) == pc' = [pc EXCEPT ![q] = outcome]
@@ -112,7 +116,7 @@ EditLoads(q) ==
        ELSE /\ Finished(q, "rejected")
             /\ UNCHANGED <<seenRev, seenData>>
     /\ UNCHANGED <<exists, revision, data, consumed, liveEvents, expected,
-                   created, savedOk, ackAfterSave>>
+                   created, savedOk, ackAfterSave, failed>>
 
 \* workflowRepository.CompareAndSwap, through Update and Transact: lock the
 \* row, reject a changed revision or a consumed record.
@@ -128,13 +132,13 @@ EditWrites(q) ==
             /\ ackAfterSave' = (ackAfterSave \/ consumed)
        ELSE /\ Finished(q, "rejected")
             /\ UNCHANGED <<data, revision, expected, ackAfterSave>>
-    /\ UNCHANGED <<exists, consumed, seenRev, seenData, liveEvents, created, savedOk>>
+    /\ UNCHANGED <<exists, consumed, seenRev, seenData, liveEvents, created, savedOk, failed>>
 
 \* Store.CommitEvent inside Transact, one step: the row lock (FOR UPDATE) is
 \* held from the read until commit, and persistEvent -> CreateEvent runs in
 \* the same transaction; a failing CreateEvent (the unique index) rolls it
 \* all back. Not modelled: a later save of the cleared {} payload also fails
-\* eventsnapshot.Build (no route mode), a backstop outside CommitEvent's own
+\* eventsnapshot.Build (no routes; blank mode defaults to dropoff), a backstop outside CommitEvent's own
 \* contract.
 Save(s) ==
     /\ pc[s] = "start"
@@ -150,14 +154,14 @@ Save(s) ==
             /\ revision' = revision + 1
        ELSE /\ Finished(s, "rejected")
             /\ UNCHANGED <<liveEvents, created, savedOk, consumed, data, revision>>
-    /\ UNCHANGED <<exists, seenRev, seenData, expected, ackAfterSave>>
+    /\ UNCHANGED <<exists, seenRev, seenData, expected, ackAfterSave, failed>>
 
 \* HandleDeleteEvent.
 DeleteEvent(s) ==
     /\ s \in liveEvents
     /\ liveEvents' = liveEvents \ {s}
     /\ UNCHANGED <<exists, revision, data, consumed, pc, seenRev, seenData,
-                   expected, created, savedOk, ackAfterSave>>
+                   expected, created, savedOk, ackAfterSave, failed>>
 
 \* DeleteContext (DELETE ... WHERE NOT consumed: cancel, a new calculation
 \* replacing this one, capacity eviction in Create), or the sliding TTL
@@ -166,11 +170,26 @@ Discard ==
     /\ exists
     /\ exists' = FALSE
     /\ UNCHANGED <<revision, data, consumed, pc, seenRev, seenData, liveEvents,
-                   expected, created, savedOk, ackAfterSave>>
+                   expected, created, savedOk, ackAfterSave, failed>>
+
+
+\* A deferred COMMIT fault after the callback's insert. One fault per
+\* request bounds retries. A split transaction leaks the inserted event.
+SaveCommitFails(s) ==
+    /\ pc[s] = "start"
+    /\ s \notin failed
+    /\ exists /\ ~consumed /\ liveEvents = {}
+    /\ failed' = failed \cup {s}
+    /\ liveEvents' = IF GuardSaveIsOneTransaction THEN liveEvents ELSE {s}
+    /\ created' = IF GuardSaveIsOneTransaction THEN created ELSE IF created < 2 THEN created + 1 ELSE 2
+    /\ UNCHANGED <<exists, revision, data, consumed, pc, seenRev, seenData,
+                   expected, savedOk, ackAfterSave>>
+
+EventRequiresConsumedSession == liveEvents # {} => consumed
 
 Next ==
     \/ \E q \in Requests: EditLoads(q) \/ EditWrites(q)
-    \/ \E s \in Saves: Save(s) \/ DeleteEvent(s)
+    \/ \E s \in Saves: Save(s) \/ SaveCommitFails(s) \/ DeleteEvent(s)
     \/ Discard
 
 Spec == Init /\ [][Next]_vars

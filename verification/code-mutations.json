@@ -1,0 +1,248 @@
+[
+  {
+    "name": "release-token",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        "AND claim_token=$3 AND NOT done`, job.SessionID",
+        "AND $3::text IS NOT NULL AND NOT done`, job.SessionID"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelClaimFencing$/^release$",
+    "test": "TestImportGeocodeModelClaimFencing/release",
+    "diagnostic": "stole current claim"
+  },
+  {
+    "name": "finish-token",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        "AND claim_token=$3 AND NOT done AND claimed_until>",
+        "AND $3::text IS NOT NULL AND NOT done AND claimed_until>"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelClaimFencing$/^finish$",
+    "test": "TestImportGeocodeModelClaimFencing/finish",
+    "diagnostic": "stale Finish"
+  },
+  {
+    "name": "finish-lease",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        " AND claimed_until>clock_timestamp()`",
+        "`"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelExpiredLeaseCannotFinish$",
+    "test": "TestImportGeocodeModelExpiredLeaseCannotFinish",
+    "diagnostic": "expired Finish"
+  },
+  {
+    "name": "closed-jobs",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        "AND NOT j.done AND (j.claimed_until",
+        "AND (j.claimed_until"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelClosedJobCannotReopen$",
+    "test": "TestImportGeocodeModelClosedJobCannotReopen",
+    "diagnostic": "completed job reclaimed"
+  },
+  {
+    "name": "cas-revision",
+    "source": "internal/postgres/workflows.go",
+    "replace": [
+      [
+        "record.Revision != revision || record.Consumed",
+        "record.Consumed"
+      ]
+    ],
+    "package": "./internal/routesession",
+    "run": "^TestPersistentRouteConflictDoesNotOverwriteOtherInstance$",
+    "test": "TestPersistentRouteConflictDoesNotOverwriteOtherInstance",
+    "diagnostic": "stale edit ="
+  },
+  {
+    "name": "eviction-transaction",
+    "source": "internal/postgres/workflows.go",
+    "replace": [
+      [
+        "result, err := tx.ExecContext(ctx, `DELETE FROM workflow_sessions",
+        "result, err := r.db.ExecContext(ctx, `DELETE FROM workflow_sessions"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestWorkflowCapacityModelEvictionRollbackAndIsolation$/^route$",
+    "test": "TestWorkflowCapacityModelEvictionRollbackAndIsolation/route",
+    "diagnostic": "rollback lost row"
+  },
+  {
+    "name": "move-rollback",
+    "source": "internal/routesession/store.go",
+    "replace": [
+      [
+        "if !ok {\n\t\t\t\trollback()\n\t\t\t\treturn Snapshot{}, ErrParticipantNotFound",
+        "if !ok {\n\t\t\t\treturn Snapshot{}, ErrParticipantNotFound"
+      ]
+    ],
+    "package": "./internal/routesession",
+    "run": "^TestVerificationBoundedMoveIntegrity$/^dropoff$/^0$/^0$",
+    "test": "TestVerificationBoundedMoveIntegrity/dropoff/0/0",
+    "diagnostic": "failed batch changed state"
+  },
+  {
+    "name": "identity-ttl",
+    "source": "internal/access/access.go",
+    "replace": [
+      [
+        "identity.expires = time.Now().Add(30 * time.Second)",
+        "identity.expires = time.Now().Add(time.Hour)"
+      ]
+    ],
+    "package": "./internal/access",
+    "run": "^TestVerificationIdentityCacheExpiry$",
+    "test": "TestVerificationIdentityCacheExpiry",
+    "diagnostic": "at expiry: 204"
+  },
+  {
+    "name": "jwt-expiry",
+    "source": "internal/access/access.go",
+    "replace": [
+      [
+        " || *claims.Expiry <= time.Now().Unix()",
+        ""
+      ]
+    ],
+    "package": "./internal/access",
+    "run": "^TestVerificationExpiredJWTNeverUsesWarmIdentity$",
+    "test": "TestVerificationExpiredJWTNeverUsesWarmIdentity",
+    "diagnostic": "expired JWT admitted: 204"
+  },
+  {
+    "name": "rider-conservation",
+    "source": "internal/routing/balanced_router.go",
+    "replace": [
+      [
+        "routeStops[i].Participant = p",
+        "routeStops[i].Participant = route.stops[0]"
+      ],
+      [
+        "for i, p := range route.stops {",
+        "for i := range route.stops {"
+      ]
+    ],
+    "package": "./internal/routing/planeval",
+    "run": "^TestVerificationSmallPlanIntegrity$/^2$/^1$/^shared=false$/^dropoff$",
+    "test": "TestVerificationSmallPlanIntegrity/2/1/shared=false/dropoff",
+    "diagnostic": "riders="
+  },
+  {
+    "name": "capacity-serialization",
+    "source": "internal/postgres/workflows.go",
+    "replace": [
+      [
+        "SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':workflow-capacity:' || $1,0))",
+        "SELECT $1::text"
+      ],
+      [
+        "if count >= limit {",
+        "time.Sleep(300 * time.Millisecond)\n\tif count >= limit {"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestWorkflowCapacityModelConcurrentReplicas$",
+    "test": "TestWorkflowCapacityModelConcurrentReplicas",
+    "diagnostic": "accepted/rejected ="
+  },
+  {
+    "name": "finish-selection",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        "ELSE selected END WHERE session_id",
+        "ELSE true END WHERE session_id"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelFinishKeepsLiveSelection$",
+    "test": "TestImportGeocodeModelFinishKeepsLiveSelection",
+    "diagnostic": "selection after geocoding"
+  },
+  {
+    "name": "save-consumed",
+    "source": "internal/routesession/persistent.go",
+    "replace": [
+      [
+        "if record.Consumed {\n\t\t\treturn ErrAlreadyCommitted\n\t\t}",
+        "if false {\n\t\t\treturn ErrAlreadyCommitted\n\t\t}"
+      ]
+    ],
+    "package": "./internal/routesession",
+    "run": "^TestModelReplayCallbackSaveDeleteRetry$",
+    "test": "TestModelReplayCallbackSaveDeleteRetry",
+    "diagnostic": "retry:"
+  },
+  {
+    "name": "split-event-transaction",
+    "source": "internal/postgres/workflow_writes.go",
+    "replace": [
+      [
+        "return createEventTx(ctx, w.tx, e, routes, summary)",
+        "return (&eventRepository{db: w.db}).Create(ctx, e, routes, summary)"
+      ]
+    ],
+    "package": "./internal/handlers",
+    "run": "^TestDeferredCommitFailureLeavesRetryableSession$",
+    "test": "TestDeferredCommitFailureLeavesRetryableSession",
+    "diagnostic": "partial event:"
+  },
+  {
+    "name": "shared-cooldown",
+    "source": "internal/postgres/provider_throttle.go",
+    "replace": [
+      [
+        "if seconds <= 0 {",
+        "if true {"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestSharedGeocodingCooldownHonorsOtherInstance$",
+    "test": "TestSharedGeocodingCooldownHonorsOtherInstance",
+    "diagnostic": "second instance ignored the shared cooldown"
+  },
+  {
+    "name": "eviction-inactive",
+    "source": "internal/postgres/workflows.go",
+    "replace": [
+      [
+        "WHERE kind=$1 AND NOT consumed AND expires_at>clock_timestamp() ORDER BY expires_at,id",
+        "WHERE kind=$1 ORDER BY expires_at,id"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestWorkflowCapacityModelEvictionSkipsInactiveRoutes$",
+    "test": "TestWorkflowCapacityModelEvictionSkipsInactiveRoutes",
+    "diagnostic": "capacity eviction removed inactive rows"
+  },
+  {
+    "name": "finish-workflow-expiry",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        "AND id=$1 AND expires_at>clock_timestamp() FOR UPDATE",
+        "AND id=$1 FOR UPDATE"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelExpiredWorkflowCannotFinish$",
+    "test": "TestImportGeocodeModelExpiredWorkflowCannotFinish",
+    "diagnostic": "expired workflow accepted Finish"
+  }
+]

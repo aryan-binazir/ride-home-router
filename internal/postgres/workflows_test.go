@@ -50,7 +50,7 @@ func TestSharedGeocodingCooldownHonorsOtherInstance(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = a.GeocodingGate().Defer(t.Context(), 300*time.Millisecond); err != nil {
+	if err = a.GeocodingGate().Defer(t.Context(), 5*time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
@@ -61,9 +61,10 @@ func TestSharedGeocodingCooldownHonorsOtherInstance(t *testing.T) {
 }
 
 func TestProviderCooldownExpiresWithoutRestart(t *testing.T) {
-	db := postgrestest.Open(t)
+	url := postgrestest.DatabaseURL(t)
+	db := postgrestest.OpenURL(t, url)
 	gate := db.GeocodingGate()
-	if err := gate.Defer(t.Context(), 150*time.Millisecond); err != nil {
+	if err := gate.Defer(t.Context(), time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	short, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
@@ -71,6 +72,7 @@ func TestProviderCooldownExpiresWithoutRestart(t *testing.T) {
 	if err := gate.Wait(short); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cooldown ignored: %v", err)
 	}
+	execSQL(t, url, `UPDATE provider_throttles SET next_at=clock_timestamp()-interval '1 second'`)
 	recovered, stop := context.WithTimeout(t.Context(), 2*time.Second)
 	defer stop()
 	if err := gate.Wait(recovered); err != nil {
@@ -101,7 +103,8 @@ func TestExpiredWorkflowDoesNotCountAgainstCapacity(t *testing.T) {
 }
 
 func TestImportClaimsPauseDuringProviderCooldown(t *testing.T) {
-	db := postgrestest.Open(t)
+	url := postgrestest.DatabaseURL(t)
+	db := postgrestest.OpenURL(t, url)
 	if err := db.Workflows().Create(t.Context(), "import", "cooldown", []byte(`{}`), time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -110,13 +113,13 @@ func TestImportClaimsPauseDuringProviderCooldown(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.GeocodingGate().Defer(t.Context(), 200*time.Millisecond); err != nil {
+	if err := db.GeocodingGate().Defer(t.Context(), time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, err := db.ImportJobs().Claim(t.Context(), "early", time.Minute); err != nil || ok {
 		t.Fatalf("claim during cooldown: %v %v", ok, err)
 	}
-	time.Sleep(220 * time.Millisecond)
+	execSQL(t, url, `UPDATE provider_throttles SET next_at=clock_timestamp()-interval '1 second'`)
 	if _, ok, err := db.ImportJobs().Claim(t.Context(), "ready", time.Minute); err != nil || !ok {
 		t.Fatalf("claim after cooldown: %v %v", ok, err)
 	}
