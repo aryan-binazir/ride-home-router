@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
@@ -482,5 +484,90 @@ func TestReviewerNotesSettingIsAdminOnlyAndDefaultsOn(t *testing.T) {
 	handler.HandleUpdateSettings(rr, req)
 	if settings, err = store.Settings().Get(t.Context()); rr.Code != http.StatusOK || err != nil || !settings.CollectReviewerNotes || settings.SMEEmail != "sme@example.com" {
 		t.Fatalf("ordinary save status=%d settings=%+v err=%v", rr.Code, settings, err)
+	}
+}
+
+type memberSettingsKey struct{}
+
+type pausedSettings struct {
+	database.SettingsRepository
+	entered, resume chan struct{}
+}
+
+func (s *pausedSettings) Patch(ctx context.Context, v database.SettingsPatch) (*models.Settings, error) {
+	if ctx.Value(memberSettingsKey{}) != nil {
+		close(s.entered)
+		<-s.resume
+	}
+	return s.SettingsRepository.Patch(ctx, v)
+}
+
+type settingsRaceStore struct {
+	*postgres.Store
+	settings database.SettingsRepository
+}
+
+func (s settingsRaceStore) Settings() database.SettingsRepository { return s.settings }
+
+func TestMemberPreferencePreservesConcurrentAdminSettings(t *testing.T) {
+	h, store := newTestPageHandler(t)
+	if err := store.AddApprovedEmail(t.Context(), "member@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	paused := &pausedSettings{SettingsRepository: store.Settings(), entered: make(chan struct{}), resume: make(chan struct{})}
+	h.DB = settingsRaceStore{Store: store, settings: paused}
+	f := accesstest.New(t)
+	admin := f.Admin()
+	f.User("member", []string{"member@example.test"}, nil)
+	f.Session("ms", "member", "active")
+	member := f.Token("member", "ms")
+	gate, err := access.New(f.Config(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := gate.Protect(http.HandlerFunc(h.HandleUpdateSettings))
+	send := func(token, body string, isMember bool) int {
+		r := httptest.NewRequestWithContext(t.Context(), "PUT", "http://127.0.0.1/api/v1/settings", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+token)
+		if isMember {
+			r = r.WithContext(context.WithValue(r.Context(), memberSettingsKey{}, true))
+		}
+		w := httptest.NewRecorder()
+		endpoint.ServeHTTP(w, r)
+		return w.Code
+	}
+	done := make(chan int, 1)
+	go func() { done <- send(member, `{"use_miles":true}`, true) }()
+	select {
+	case <-paused.entered:
+	case code := <-done:
+		t.Fatalf("member returned before settings patch: %d", code)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	location, err := store.ActivityLocations().Create(t.Context(), &models.ActivityLocation{Name: "New gym", Address: "1 Gym St", Lat: 35, Lng: -79})
+	if err != nil {
+		close(paused.resume)
+		t.Fatal(err)
+	}
+	code := send(admin, fmt.Sprintf(`{"sme_email":"new@example.test","collect_reviewer_notes":false,"selected_activity_location_id":%d}`, location.ID), false)
+	close(paused.resume)
+	if code != 200 {
+		t.Fatalf("admin=%d", code)
+	}
+	if code := <-done; code != 200 {
+		t.Fatalf("member=%d", code)
+	}
+	got, err := store.Settings().Get(t.Context())
+	if err != nil || got.SMEEmail != "new@example.test" || got.CollectReviewerNotes || !got.UseMiles || got.SelectedActivityLocationID != location.ID {
+		t.Fatalf("settings=%+v err=%v", got, err)
+	}
+	if code := send(member, `{"use_miles":true,"selected_activity_location_id":0}`, false); code != 200 {
+		t.Fatal(code)
+	}
+	got, err = store.Settings().Get(t.Context())
+	if err != nil || got.SelectedActivityLocationID != 0 || got.SMEEmail != "new@example.test" {
+		t.Fatalf("cleared=%+v err=%v", got, err)
 	}
 }

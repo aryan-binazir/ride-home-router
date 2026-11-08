@@ -39,7 +39,7 @@ addEventListener('DOMContentLoaded',async()=>{
  const card=(session,timings='stale',label='route')=>'<div id="route-'+session+'-0" class="route-card" data-route-index="0" data-itinerary="same" data-timings="'+timings+'" data-route-duration-secs="120" data-total-distance-meters="1000" data-detour-secs="20"><div class="route-timings">'+label+'</div><div class="stop-item" data-stop-cumulative-duration-secs="60"><span class="stop-details">Rider</span><span class="stop-eta"></span></div><div class="route-footer"></div><button data-session-action="preview">Preview</button><button data-session-action="edit" class="timings">Timings</button></div>';
  const routes=(session,label='route',timings='stale')=>'<div class="routes-container" data-session-id="'+session+'" data-out-of-balance="false" data-route-time="15:30" data-route-mode="dropoff"><div class="planner-plan-state-banner" hidden></div><button data-session-action="copy">Copy</button>'+card(session,timings,label)+'<div id="route-unused-'+session+'"></div><form hx-post="/api/v1/events"><input name="session_id" value="'+session+'"><input type="date" name="event_date" value="2026-09-01"><textarea name="notes"></textarea><button type="submit" data-session-action="save">Save</button></form></div>';
  const calculate=session=>{const xhr={},target=document.getElementById('results-section');document.body.dispatchEvent(new CustomEvent('htmx:beforeRequest',{detail:{xhr,elt:document.getElementById('calculate-btn')}}));target.innerHTML=routes(session);document.body.dispatchEvent(new CustomEvent('htmx:afterSwap',{detail:{xhr,target}}));target.dispatchEvent(new CustomEvent('htmx:afterSettle',{bubbles:true}));};
- const respond=(index,html,ok=true)=>requests[index].resolve({ok,headers:{get:()=>null},text:async()=>html});
+ const respond=(index,html,ok=true)=>requests[index].resolve({ok,status:ok?200:400,headers:{get:()=>null},text:async()=>html});
  const save=()=>document.querySelector('#results-section form');
  const copy=()=>document.querySelector('[data-session-action="copy"]');
  const editorForm='<form onsubmit="submitRouteEditor(event)"><h2>Move rider</h2><input name="session_id" value="a"><input name="action" value="move"><input name="participant_id" value="1"><input name="from_route_index" value="0"><input name="destination" value="1"><button type="submit">Move</button></form>';
@@ -69,13 +69,21 @@ addEventListener('DOMContentLoaded',async()=>{
  calculate('b');const timing=showRouteTimings(document.querySelector('.timings'));await until(()=>requests.length===11);check(requests[10].url==='/api/v1/routes/session/timings'&&JSON.parse(requests[10].options.body).route_index===0,'timing dispatch');respond(10,routes('b','measured', 'measured'));await timing;await tick();
  const full=addUnusedDriver(22);await until(()=>requests.length===12);respond(11,routes('b','stale'));await full;await tick();check(document.querySelector('.route-card').dataset.timings==='measured'&&document.querySelector('.route-timings').textContent==='measured','full render retains measured timings');
  const untouched=save();const patch=addUnusedDriver(23);await until(()=>requests.length===13);respond(12,'<div data-route-patch="b" data-route-count="1">'+card('b','measured','patch')+'</div>');await patch;await tick();check(save()===untouched&&document.querySelector('.route-timings').textContent==='patch','fragment retains form');
+ const lost=addUnusedDriver(24);await until(()=>requests.length===14);
+ requests[13].resolve({ok:true,status:200,text:async()=>{throw Error('lost committed response')}});check(await lost===false,'lost response rejected');await tick();
+ check(copy().disabled&&save().querySelector('button').disabled,'unknown commit locks handoffs');
+ save().dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();check(saved.length===1,'unknown commit blocks Save submit');
+ check(document.querySelector('#toast-container').textContent.includes('Reload the page'),'reload required feedback');
+ check(document.querySelector('.planner-plan-state-banner').textContent.includes('Reload the page')&&save().querySelector('button').title.includes('Reload the page'),'lasting reload guidance');
+ check([...document.querySelectorAll('[data-session-action=edit]')].every(button=>button.disabled),'uncertain edits visibly disabled');
+ calculate('c');await tick();check(!copy().disabled,'new session unlocks handoffs');
  document.getElementById('evidence').textContent=JSON.stringify({width:innerWidth,requests:requests.length,saves:saved.length,errors});
  }catch(e){document.getElementById('evidence').textContent=JSON.stringify({error:String(e),requests:requests.map(r=>r.url),errors});}
 });</script></body></html>`);
             const output = execFileSync(process.execPath, [path.join(__dirname, 'frontend-browser.test.js'), '--browser-cdp', browser, file, String(width), '1000', '#evidence'], { encoding: 'utf8', timeout: 60000 });
             const result = JSON.parse(output);
             assert.equal(result.error, undefined, output);
-            assert.deepEqual(result, { width, requests: 13, saves: 1, errors: [] });
+            assert.deepEqual(result, { width, requests: 14, saves: 1, errors: [] });
         } finally {
             fs.rmSync(directory, { recursive: true, force: true });
         }

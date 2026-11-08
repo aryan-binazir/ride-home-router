@@ -31,6 +31,10 @@ func (errorSettings) Get(context.Context) (*models.Settings, error) {
 	return nil, errors.New(internalSentinel)
 }
 
+func (errorSettings) Patch(context.Context, database.SettingsPatch) (*models.Settings, error) {
+	return nil, errors.New(internalSentinel)
+}
+
 type errorEvents struct{ database.EventRepository }
 
 func (errorEvents) Create(context.Context, *models.Event, []models.EventRoute, *models.EventSummary) (*models.Event, error) {

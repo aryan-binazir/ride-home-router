@@ -370,6 +370,8 @@
         afterRender();
     }
 
+    const UNCERTAIN_ROUTE_MESSAGE = 'The route update could not be confirmed. Reload the page before saving or copying routes.';
+
     function createRouteSessionOrchestrator({
         document, htmx, readPlanState, request, reportError, notify, afterRender,
         reportSaveBlocked, pendingChanged = () => {},
@@ -377,6 +379,7 @@
         cancel = timeout => clearTimeout(timeout),
     }) {
         const savesInFlight = new Set();
+        const uncertainSessions = new Set();
         const batchLimit = 64;
         const moveEndpoint = '/api/v1/routes/edit/move-participant';
 
@@ -391,12 +394,14 @@
         }
 
         function enqueue(move) {
+            if (uncertainSessions.has(move.session_id)) return;
             queue.push(move);
             scheduleFlush();
             pendingChanged();
         }
 
         function enqueueAction(sessionId, action) {
+            if (uncertainSessions.has(sessionId)) return Promise.resolve(false);
             return new Promise(resolve => {
                 queue.push({ session_id: sessionId, action, resolve });
                 pendingChanged();
@@ -474,7 +479,7 @@
         }
 
         function hasPendingFor(sessionId) {
-            return Boolean(sessionId) && (inFlightSessionId === sessionId || queue.some(move => move.session_id === sessionId));
+            return Boolean(sessionId) && (uncertainSessions.has(sessionId) || inFlightSessionId === sessionId || queue.some(move => move.session_id === sessionId));
         }
 
         function discardFor(sessionId) {
@@ -493,6 +498,7 @@
         async function flushFor(sessionId) {
             let succeeded = true;
             while (hasPendingFor(sessionId)) {
+                if (uncertainSessions.has(sessionId)) return false;
                 const result = await flushDetailed();
                 if (result.sessionOutcomes.get(sessionId) === false) succeeded = false;
             }
@@ -565,6 +571,13 @@
             }
         }
 
+        function markUncertain(sessionId) {
+            if (getInstalledSessionId() !== sessionId) return;
+            uncertainSessions.add(sessionId);
+            discardFor(sessionId);
+            notify(UNCERTAIN_ROUTE_MESSAGE, 'error');
+        }
+
         function requireSession() {
             const sessionId = getInstalledSessionId();
             if (!sessionId) notify('That route plan is no longer available. Calculate it again.', 'error');
@@ -588,6 +601,10 @@
                     },
                     ...(payload ? { body: JSON.stringify(payload) } : {}),
                 });
+                if (!response.ok && ![400, 404].includes(response.status) && !endpoint.includes("/timings")) {
+                    markUncertain(sessionId);
+                    return false;
+                }
                 return applyEditResult({
                     requestedSessionId: sessionId,
                     ok: response.ok,
@@ -596,7 +613,8 @@
                 });
             } catch (error) {
                 console.error('Failed to update routes:', error);
-                notify('Could not update routes. Please try again.', 'error');
+                if (!endpoint.includes('/timings')) markUncertain(sessionId);
+                else notify('Could not update routes. Please try again.', 'error');
                 return false;
             }
         }
@@ -689,6 +707,7 @@
             move, swap, reset, add, timings, openEditor, submitEditor, save, planChanged,
             clear: () => discardFor(getInstalledSessionId()),
             hasPending: () => hasPendingFor(getInstalledSessionId()),
+            requiresReload: () => uncertainSessions.has(getInstalledSessionId()),
         };
     }
 
@@ -1329,7 +1348,7 @@
         function setSessionActionsLocked(container, lockSelector, reason) {
             container.querySelectorAll(SESSION_ACTION_CONTROLS).forEach(control => {
                 if (lockSelector && control.matches(lockSelector)) {
-                    if (control.disabled) return;
+                    if (control.disabled && !control.dataset.planLocked) return;
                     control.disabled = true;
                     control.dataset.planLocked = '1';
                     control.setAttribute('title', reason);
@@ -1348,10 +1367,14 @@
             if (!container) return;
 
             const pendingEdits = routeSessionOrchestrator.hasPending();
-            const message = pendingEdits ? 'Updating routes. Copy, preview and save will be available in a moment.' : PLAN_STATE_MESSAGES[status] || '';
+            const message = routeSessionOrchestrator.requiresReload() ? UNCERTAIN_ROUTE_MESSAGE
+                : pendingEdits ? 'Updating routes. Copy, preview and save will be available in a moment.' : PLAN_STATE_MESSAGES[status] || '';
             let lockedActions = PLAN_STATE_LOCKS[status] || '';
             if (pendingEdits) {
                 lockedActions = [lockedActions, '[data-session-action="copy"], [data-session-action="preview"], [data-session-action="save"]'].filter(Boolean).join(', ');
+            }
+            if (routeSessionOrchestrator.requiresReload()) {
+                lockedActions = '[data-session-action]';
             }
             setPlanStateBanner(container, message);
             setSessionActionsLocked(container, lockedActions, message);

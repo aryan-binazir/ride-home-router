@@ -49,7 +49,7 @@ func TestGoogleMapsKeyDatabaseReplacementAndDeletion(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"originIndex":0,"destinationIndex":0,"distanceMeters":100,"duration":"60s","status":{"code":0},"condition":"ROUTE_EXISTS"}]`))
 	}))
 	defer provider.Close()
-	calculator := NewGoogleCalculator(second.DistanceCache(), second.Settings().GoogleMapsKey).(*googleCalculator)
+	calculator := NewGoogleCalculator(second.DistanceCache(), second.Settings().GoogleMapsKey, second.GoogleUsage()).(*googleCalculator)
 	calculator.endpoint = provider.URL
 	calculator.httpClient = provider.Client()
 	a, b := models.Coordinates{Lat: 38, Lng: -77}, models.Coordinates{Lat: 39, Lng: -77}
@@ -91,7 +91,7 @@ func TestGoogleMapsKeyLookupUsesRequestContext(t *testing.T) {
 			t.Error("credential lookup lost request context")
 		}
 		return "", received.Err()
-	})
+	}, nil)
 	_, err := calc.GetDistance(ctx, models.Coordinates{Lat: 1}, models.Coordinates{Lat: 2})
 	if !called || !errors.Is(err, context.Canceled) {
 		t.Fatalf("called=%t err=%v", called, err)

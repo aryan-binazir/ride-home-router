@@ -651,7 +651,7 @@ test('Route edit errors report even after their session is replaced', async () =
     const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
     const pending = harness.orchestrator.add(10);
     harness.setActiveSessionId('session-b');
-    finish({ ok: false, headers: { get: () => 'server error' }, text: async () => 'move failed' });
+    finish({ ok: false, status: 400, headers: { get: () => 'server error' }, text: async () => 'move failed' });
     assert.equal(await pending, false);
     assert.deepEqual(harness.errors, [{ html: 'move failed', header: 'server error' }]);
 });
@@ -699,7 +699,7 @@ for (const [reason, liveForm] of [
 test('Save remembers a rejected batch even when later batches succeed', async () => {
     const form = createSaveForm();
     let count = 0;
-    const harness = createRouteSessionHarness({ getLiveForm: () => form, request: async () => ({ ok: ++count !== 1, text: async () => 'batch' }) });
+    const harness = createRouteSessionHarness({ getLiveForm: () => form, request: async () => ({ ok: ++count !== 1, status: 400, text: async () => 'batch' }) });
     for (let id = 1; id <= 129; id++) harness.orchestrator.move(id, 0, 1);
     assert.equal(harness.orchestrator.save(form), true);
     await settleEdits();
@@ -727,7 +727,7 @@ test('Save waits for its own session after an older session fails', async () => 
     owner.save(formA);
     harness.setActiveSessionId('session-b'); liveForm = formB;
     owner.move(2, 0, 1); owner.save(formB);
-    finishOld({ ok: false, text: async () => 'session a failed' });
+    finishOld({ ok: false, status: 400, text: async () => 'session a failed' });
     await settleEdits();
     assert.deepEqual(harness.sent.map(({ options }) => JSON.parse(options.body).session_id), ['session-a', 'session-b']);
     assert.equal(formA.submitCount, 0);
@@ -1979,7 +1979,7 @@ test('moves on either side of a reset stay ordered and Save waits for every edit
 test('a rejected edit unlocks handoffs and a later edit can succeed', async () => {
     const app = bootPlanner();
     app.calculate();
-    app.context.fetch = async () => ({ ok: false, text: async () => '{"error":{"message":"Cannot swap these drivers"}}' });
+    app.context.fetch = async () => ({ ok: false, status: 400, text: async () => '{"error":{"message":"Cannot swap these drivers"}}' });
     assert.equal(await app.context.addUnusedDriver(99), false);
     await app.settleRestore();
     assert.equal(app.copyButton.disabled, false);
@@ -2068,7 +2068,7 @@ test('all htmx request failures show feedback and server toasts are not duplicat
 test('route error extraction rejects empty, oversized and non-word responses', async () => {
     for (const response of ['', 'x'.repeat(241), '1234 !!!', '<html><body>'+ 'proxy '.repeat(100)+'</body></html>']) {
         const app = bootPlanner(); app.calculate();
-        app.context.fetch = async () => ({ok:false,text:async()=>response});
+        app.context.fetch = async () => ({ok:false,status:400,text:async()=>response});
         await app.context.addUnusedDriver(99);
         assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent, 'An error occurred. Please try again.');
     }
@@ -2084,9 +2084,9 @@ test('expired restore responses clear the saved plan and explain recovery', asyn
 });
 test('route edits use the server conflict explanation from HX-Trigger', async () => {
  const app=bootPlanner();app.calculate();
- app.context.fetch=async()=>({ok:false,headers:{get:()=>JSON.stringify({showToast:{message:'This route plan changed. Reload it and try again.'}})},text:async()=>''});
+ app.context.fetch=async()=>({ok:false,status:409,headers:{get:()=>JSON.stringify({showToast:{message:'This route plan changed. Reload it and try again.'}})},text:async()=>''});
  assert.equal(await app.context.addUnusedDriver(99),false);
- assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,'This route plan changed. Reload it and try again.');
+ assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,'The route update could not be confirmed. Reload the page before saving or copying routes.');
 });
 test('cancelling reset leaves routes and pending edits untouched', async () => {
  const app=bootPlanner();app.calculate();app.context.showConfirmDialog=async()=>false;
@@ -2190,7 +2190,7 @@ test('editor submission waits for its move response and reports rejection', asyn
     await settleEdits();
     assert.equal(harness.sent.length, 1);
     assert.equal(settled, false);
-    finish({ ok: false, text: async () => 'Cannot move rider' });
+    finish({ ok: false, status: 400, text: async () => 'Cannot move rider' });
     assert.equal(await submitting, false);
 });
 
@@ -2214,4 +2214,60 @@ test('an edit without an installed session reports its recovery action', () => {
     harness.orchestrator.move(1, 0, 1);
     assert.deepEqual(harness.notifications, [['That route plan is no longer available. Calculate it again.', 'error']]);
     assert.equal(harness.orchestrator.hasPending(), false);
+});
+
+for (const failure of ['network', 'body', 'server']) {
+    test(`ambiguous ${failure} edit blocks save and copy until reload`, async () => {
+        const app = bootPlanner();
+        app.calculate();
+        app.context.fetch = async () => {
+            if (failure === 'network') throw new Error('lost response after commit');
+            return { ok: failure !== 'server', status: failure === 'server' ? 500 : 200,
+                text: async () => { if (failure === 'body') throw new Error('truncated body'); return 'render failed'; } };
+        };
+        assert.equal(await app.context.addUnusedDriver(99), false);
+        await app.settleRestore();
+        assert.equal(app.copyButton.disabled, true);
+        assert.equal(app.saveButton.disabled, true);
+        assert.match(app.banner.textContent, /Reload the page/);
+        assert.match(app.saveButton.getAttribute('title'), /Reload the page/);
+    });
+}
+
+test('uncertain edits discard queued actions, block submit, and survive plan changes', async () => {
+    let reject;
+    const form = createSaveForm();
+    const harness = createRouteSessionHarness({ getLiveForm: () => form, request: () => new Promise((_, fail) => { reject = fail; }) });
+    const owner = harness.orchestrator;
+    const first = owner.add(1);
+    const queued = owner.add(2);
+    assert.equal(owner.save(form), true);
+    reject(new Error('response lost'));
+    assert.equal(await first, false);
+    assert.equal(await queued, false);
+    await settleEdits();
+    owner.planChanged({ status: 'stale', sessionId: 'session-a' });
+    owner.planChanged({ status: 'current', sessionId: 'session-a' });
+    assert.equal(owner.hasPending(), true);
+    assert.equal(owner.save(form), true);
+    await settleEdits();
+    assert.equal(form.submitCount, 0);
+    assert.equal(harness.sent.length, 1);
+    assert.equal(await owner.add(3), false);
+    harness.setActiveSessionId('session-b');
+    assert.equal(owner.hasPending(), false);
+});
+
+test('failed timing reads and replaced-session failures do not lock the installed plan', async () => {
+    const timing = createRouteSessionHarness({ request: async () => { throw new Error('timings unavailable'); } });
+    assert.equal(await timing.orchestrator.timings(0), false);
+    assert.equal(timing.orchestrator.hasPending(), false);
+    let reject;
+    const old = createRouteSessionHarness({ request: () => new Promise((_, fail) => { reject = fail; }) });
+    const pending = old.orchestrator.add(1);
+    old.setActiveSessionId('session-b');
+    reject(new Error('old session response lost'));
+    assert.equal(await pending, false);
+    await settleEdits();
+    assert.equal(old.orchestrator.hasPending(), false);
 });

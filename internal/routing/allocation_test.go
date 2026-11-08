@@ -54,7 +54,7 @@ func (s warmProviderCache) GetBatch(ctx context.Context, pairs []struct{ Origin,
 func TestWarmProviderCalculationAllocationBudget(t *testing.T) {
 	discardRoutingLogs(t)
 	req, source := performanceFixture(8, 3, false)
-	provider := distance.NewGoogleCalculator(warmProviderCache{warmDistances: source}, func(context.Context) (string, error) { return "synthetic-key", nil })
+	provider := distance.NewGoogleCalculator(warmProviderCache{warmDistances: source}, func(context.Context) (string, error) { return "synthetic-key", nil }, nil)
 	router := routing.NewBalancedRouter(provider)
 	allocations := testing.AllocsPerRun(2, func() {
 		if _, err := router.CalculateRoutes(t.Context(), &req); err != nil {
