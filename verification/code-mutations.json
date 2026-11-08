@@ -202,5 +202,47 @@
     "run": "^TestDeferredCommitFailureLeavesRetryableSession$",
     "test": "TestDeferredCommitFailureLeavesRetryableSession",
     "diagnostic": "partial event:"
+  },
+  {
+    "name": "shared-cooldown",
+    "source": "internal/postgres/provider_throttle.go",
+    "replace": [
+      [
+        "if seconds <= 0 {",
+        "if true {"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestSharedGeocodingCooldownHonorsOtherInstance$",
+    "test": "TestSharedGeocodingCooldownHonorsOtherInstance",
+    "diagnostic": "second instance ignored the shared cooldown"
+  },
+  {
+    "name": "eviction-inactive",
+    "source": "internal/postgres/workflows.go",
+    "replace": [
+      [
+        "WHERE kind=$1 AND NOT consumed AND expires_at>clock_timestamp() ORDER BY expires_at,id",
+        "WHERE kind=$1 ORDER BY expires_at,id"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestWorkflowCapacityModelEvictionSkipsInactiveRoutes$",
+    "test": "TestWorkflowCapacityModelEvictionSkipsInactiveRoutes",
+    "diagnostic": "capacity eviction removed inactive rows"
+  },
+  {
+    "name": "finish-workflow-expiry",
+    "source": "internal/postgres/import_jobs.go",
+    "replace": [
+      [
+        "AND id=$1 AND expires_at>clock_timestamp() FOR UPDATE",
+        "AND id=$1 FOR UPDATE"
+      ]
+    ],
+    "package": "./internal/postgres",
+    "run": "^TestImportGeocodeModelExpiredWorkflowCannotFinish$",
+    "test": "TestImportGeocodeModelExpiredWorkflowCannotFinish",
+    "diagnostic": "expired workflow accepted Finish"
   }
 ]

@@ -1,11 +1,5 @@
-import importlib.util
-from pathlib import Path
 import unittest
-
-
-spec = importlib.util.spec_from_file_location("mutations", Path(__file__).with_name("verification-mutations.py"))
-mutations = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mutations)
+import verification_mutations as mutations
 
 
 class MutationVerdictTest(unittest.TestCase):

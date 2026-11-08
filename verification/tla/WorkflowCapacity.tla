@@ -1,14 +1,19 @@
 -------------------------- MODULE WorkflowCapacity --------------------------
 EXTENDS Naturals, FiniteSets
 CONSTANTS GuardCapacitySerialization, GuardEvictionIsTransactional,
-          GuardEvictionKeepsKind
+          GuardEvictionKeepsKind, GuardEvictionSkipsInactive
 VARIABLES rows, inactive, pc, owner, observed, victims, evictions, successful
 vars == <<rows, inactive, pc, owner, observed, victims, evictions, successful>>
 Creates == {3,4,5}
 Kinds == {"import", "route"}
-Kind(r) == IF r \in {1,3,4,7,8} THEN "import" ELSE "route"
+Limit == 2
+InitialRows == {1,2,6,7,8}
+InitialInactive == {7,8}
+ImportRows == {1,3,4}
+Kind(r) == IF r \in ImportRows THEN "import" ELSE "route"
+ExpiryOrder(r) == IF r = 7 THEN 0 ELSE IF r = 8 THEN 1 ELSE r + 2
 Active(k) == {r \in rows \ inactive : Kind(r) = k}
-Init == /\ rows = {1,2,6,7,8} /\ inactive = {7,8}
+Init == /\ rows = InitialRows /\ inactive = InitialInactive
         /\ pc = [c \in Creates |-> "start"]
         /\ owner = [k \in Kinds |-> 0]
         /\ observed = [c \in Creates |-> 0]
@@ -24,9 +29,12 @@ Count(c) == /\ pc[c] = "count"
             /\ observed' = [observed EXCEPT ![c] = Cardinality(Active(Kind(c))) ]
             /\ pc' = [pc EXCEPT ![c] = "decide"]
             /\ UNCHANGED <<rows,inactive,owner,victims,evictions,successful>>
+Candidates(c) == {r \in rows :
+                    (~GuardEvictionKeepsKind \/ Kind(r) = Kind(c)) /\
+                    (~GuardEvictionSkipsInactive \/ r \notin inactive)}
 \* Separate count and eviction statements. Pending victims stay transaction-local.
 Decide(c) == /\ pc[c] = "decide"
-             /\ IF observed[c] >= 2 /\ Kind(c) = "import"
+             /\ IF observed[c] >= Limit /\ Kind(c) = "import"
                 THEN /\ pc' = [pc EXCEPT ![c] = "done"]
                      /\ owner' = [owner EXCEPT ![Kind(c)] = 0]
                      /\ UNCHANGED victims
@@ -34,12 +42,9 @@ Decide(c) == /\ pc[c] = "decide"
                           IF GuardEvictionIsTransactional THEN "insert" ELSE "evict"]
                      /\ UNCHANGED owner
                      /\ victims' = [victims EXCEPT ![c] =
-                          IF observed[c] < 2 THEN {} ELSE
-                          LET candidates == IF GuardEvictionKeepsKind
-                                            THEN Active(Kind(c))
-                                            ELSE rows \ inactive
-                          IN {CHOOSE r \in candidates :
-                            \A s \in candidates : r <= s}]
+                          IF observed[c] < Limit THEN {} ELSE
+                          {CHOOSE r \in Candidates(c) :
+                            \A s \in Candidates(c) : ExpiryOrder(r) <= ExpiryOrder(s)}]
              /\ UNCHANGED <<rows,inactive,observed,evictions,successful>>
 Finish(c, ok) == /\ pc[c] = "insert"
                  /\ rows' = IF ok THEN (rows \ victims[c]) \cup {c} ELSE rows
@@ -69,8 +74,8 @@ TypeOK == /\ rows \subseteq 1..8
           /\ victims \in [Creates -> SUBSET (1..8)]
           /\ evictions \subseteq Creates \X (1..8)
           /\ successful \subseteq Creates
-CommittedCapacity == \A k \in Kinds : Cardinality(Active(k)) <= 2
+CommittedCapacity == \A k \in Kinds : Cardinality(Active(k)) <= Limit
 EvictionRequiresCommittedCreate == \A e \in evictions : e[1] \in successful
 OnlySameKindEvicted == \A e \in evictions : Kind(e[1]) = Kind(e[2])
-InactiveRowsPreserved == {7,8} \subseteq rows
+InactiveRowsPreserved == InitialInactive \subseteq rows
 =============================================================================

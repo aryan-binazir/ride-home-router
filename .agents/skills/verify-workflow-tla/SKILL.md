@@ -1,16 +1,16 @@
 ---
 name: verify-workflow-tla
-description: Verify durable import jobs, route-session edits/saves and workflow capacity with TLC and real-code replay/mutation gates. Use when changing their stores, SQL, event saving or migrations, or checking concurrent workflow guarantees.
+description: Verify durable import jobs, route-session edits/saves and workflow capacity with TLC and real-code replay/mutation gates. Use when changing their stores, SQL, event saving or migrations, the route editor/router, identity-cache/JWT checks, provider cooldown, or verification gates.
 ---
 
 # Verify durable workflows
 
-Read `verification/README.md` for the promises, harm, code coverage, bounds and assumptions. Sync commit: `effb501f54071ab9f70e2a4b2a9208d93bf3aac9`, merged #137. Move it forward only after confirming the models describe the new code.
+Read `verification/README.md` for the promises, harm, bounds and commands. When coverage changes, read `verification/model-mapping.md` for code-to-action mappings, guard pins, redundant guards and control syntax. Sync commit: `c38758d0b4a31274e55063b15b9d78329d7c4cbd`, merged #138. Move it forward only after confirming the models describe the new code.
 
 ## Check whether coverage changed
 
 ```sh
-git diff effb501f54071ab9f70e2a4b2a9208d93bf3aac9 -- internal/postgres/import_jobs.go internal/postgres/workflows.go internal/postgres/workflow_writes.go internal/postgres/events.go internal/importer/persistent.go internal/importer/store.go internal/importer/selection_patch.go internal/routesession/persistent.go internal/routesession/store.go internal/handlers/events.go migrations/
+git diff c38758d0b4a31274e55063b15b9d78329d7c4cbd -- internal/postgres/import_jobs.go internal/postgres/workflows.go internal/postgres/workflow_writes.go internal/postgres/events.go internal/importer/persistent.go internal/importer/store.go internal/importer/selection_patch.go internal/routesession/persistent.go internal/routesession/store.go internal/handlers/events.go internal/access/access.go internal/routing/balanced_router.go internal/postgres/provider_throttle.go migrations/
 ```
 
 Follow moved/renamed functions and find new writers to `import_jobs`, `import_rows.payload/selected`, `workflow_sessions.revision/consumed` and `events.route_session_id`. A clean diff does not discover new writers elsewhere.
@@ -23,7 +23,7 @@ make verification-mutations
 make check-branch
 ```
 
-The last command is the full local branch gate and requires `TEST_DATABASE_URL` pointing to a local test Postgres database and `BROWSER_TEST_BINARY` pointing to Chromium. It includes both preceding commands, the existing full checks and planner evaluation. See `verification/README.md` for tools, resource limits and retained evidence. A filtered TLC or mutation run is partial evidence.
+Full runs require a clean commit; use filtered runs while editing. The last command is the full local branch gate and requires `TEST_DATABASE_URL` pointing to a local test Postgres database and `BROWSER_TEST_BINARY` pointing to Chromium. It includes both preceding commands, the existing full checks and planner evaluation. See `verification/README.md` for tools, resource limits and retained evidence. A filtered TLC or mutation run is partial evidence.
 
 Read every TLC result with `/statechart`. Replay violations against actual code before calling them product bugs. Queue safety allows lease expiry in every phase; queue progress has an explicit stronger scheduling assumption. The `arbitrary-stalls-progress` control demonstrates that assumption boundary.
 

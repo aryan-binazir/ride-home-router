@@ -62,11 +62,11 @@ VARIABLES
     expected,     \* ghost: acknowledged requests applied in order
     created,      \* ghost: Events ever created for this session (saturating)
     savedOk,      \* ghost: every Event matched "expected" when created
-    failed, rollbackOk,
+    failed,
     ackAfterSave  \* ghost: a request was acknowledged after the save
 
 vars == <<exists, revision, data, consumed, pc, seenRev, seenData, liveEvents,
-          expected, created, savedOk, ackAfterSave, failed, rollbackOk>>
+          expected, created, savedOk, ackAfterSave, failed>>
 
 MaxRevision == Cardinality(Requests) + Cardinality(Saves)
 
@@ -83,7 +83,6 @@ TypeOK ==
     /\ created \in 0..2
     /\ savedOk \in BOOLEAN
     /\ failed \subseteq Saves
-    /\ rollbackOk \in BOOLEAN
     /\ ackAfterSave \in BOOLEAN
 
 \* CreateContext inserts the calculated routes at revision 0.
@@ -100,7 +99,6 @@ Init ==
     /\ created = 0
     /\ savedOk = TRUE
     /\ failed = {}
-    /\ rollbackOk = TRUE
     /\ ackAfterSave = FALSE
 
 Finished(q, outcome) == pc' = [pc EXCEPT ![q] = outcome]
@@ -118,7 +116,7 @@ EditLoads(q) ==
        ELSE /\ Finished(q, "rejected")
             /\ UNCHANGED <<seenRev, seenData>>
     /\ UNCHANGED <<exists, revision, data, consumed, liveEvents, expected,
-                   created, savedOk, ackAfterSave, failed, rollbackOk>>
+                   created, savedOk, ackAfterSave, failed>>
 
 \* workflowRepository.CompareAndSwap, through Update and Transact: lock the
 \* row, reject a changed revision or a consumed record.
@@ -134,7 +132,7 @@ EditWrites(q) ==
             /\ ackAfterSave' = (ackAfterSave \/ consumed)
        ELSE /\ Finished(q, "rejected")
             /\ UNCHANGED <<data, revision, expected, ackAfterSave>>
-    /\ UNCHANGED <<exists, consumed, seenRev, seenData, liveEvents, created, savedOk, failed, rollbackOk>>
+    /\ UNCHANGED <<exists, consumed, seenRev, seenData, liveEvents, created, savedOk, failed>>
 
 \* Store.CommitEvent inside Transact, one step: the row lock (FOR UPDATE) is
 \* held from the read until commit, and persistEvent -> CreateEvent runs in
@@ -156,14 +154,14 @@ Save(s) ==
             /\ revision' = revision + 1
        ELSE /\ Finished(s, "rejected")
             /\ UNCHANGED <<liveEvents, created, savedOk, consumed, data, revision>>
-    /\ UNCHANGED <<exists, seenRev, seenData, expected, ackAfterSave, failed, rollbackOk>>
+    /\ UNCHANGED <<exists, seenRev, seenData, expected, ackAfterSave, failed>>
 
 \* HandleDeleteEvent.
 DeleteEvent(s) ==
     /\ s \in liveEvents
     /\ liveEvents' = liveEvents \ {s}
     /\ UNCHANGED <<exists, revision, data, consumed, pc, seenRev, seenData,
-                   expected, created, savedOk, ackAfterSave, failed, rollbackOk>>
+                   expected, created, savedOk, ackAfterSave, failed>>
 
 \* DeleteContext (DELETE ... WHERE NOT consumed: cancel, a new calculation
 \* replacing this one, capacity eviction in Create), or the sliding TTL
@@ -172,7 +170,7 @@ Discard ==
     /\ exists
     /\ exists' = FALSE
     /\ UNCHANGED <<revision, data, consumed, pc, seenRev, seenData, liveEvents,
-                   expected, created, savedOk, ackAfterSave, failed, rollbackOk>>
+                   expected, created, savedOk, ackAfterSave, failed>>
 
 
 \* A deferred COMMIT fault after the callback's insert. One fault per
@@ -183,13 +181,11 @@ SaveCommitFails(s) ==
     /\ exists /\ ~consumed /\ liveEvents = {}
     /\ failed' = failed \cup {s}
     /\ liveEvents' = IF GuardSaveIsOneTransaction THEN liveEvents ELSE {s}
-    /\ created' = IF GuardSaveIsOneTransaction THEN created ELSE 1
-    /\ rollbackOk' = (rollbackOk /\ liveEvents' = liveEvents
-                       /\ data = expected /\ ~consumed)
+    /\ created' = IF GuardSaveIsOneTransaction THEN created ELSE IF created < 2 THEN created + 1 ELSE 2
     /\ UNCHANGED <<exists, revision, data, consumed, pc, seenRev, seenData,
                    expected, savedOk, ackAfterSave>>
 
-FailedSavePreservesState == rollbackOk
+EventRequiresConsumedSession == liveEvents # {} => consumed
 
 Next ==
     \/ \E q \in Requests: EditLoads(q) \/ EditWrites(q)

@@ -122,3 +122,43 @@ func TestWorkflowCapacityModelConsumedSlotReuse(t *testing.T) {
 		t.Fatalf("consumed tombstone lost: %+v %v", got, err)
 	}
 }
+
+func TestWorkflowCapacityModelEvictionSkipsInactiveRoutes(t *testing.T) {
+	url := postgrestest.DatabaseURL(t)
+	db := postgrestest.OpenURL(t, url)
+	repo := db.Workflows()
+	ctx := t.Context()
+	if err := repo.Create(ctx, "route", "expired", []byte(`{}`), -time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(ctx, "route", "consumed", []byte(`{}`), 30*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Update(ctx, "route", "consumed", 30*time.Minute, func(r *database.WorkflowRecord) error { r.Consumed = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 256 {
+		if err := repo.Create(ctx, "route", fmt.Sprintf("live-%03d", i), []byte(`{}`), time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.Create(ctx, "route", "replacement", []byte(`{}`), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	var inactive, active int
+	err = conn.QueryRow(ctx, `SELECT count(*) FILTER (WHERE id IN ('expired','consumed')),count(*) FILTER (WHERE NOT consumed AND expires_at>clock_timestamp()) FROM workflow_sessions WHERE kind='route'`).Scan(&inactive, &active)
+	if err != nil || inactive != 2 || active != 256 {
+		t.Fatalf("capacity eviction removed inactive rows or exceeded live limit: inactive=%d active=%d err=%v", inactive, active, err)
+	}
+	if _, err := repo.Load(ctx, "route", "live-000", time.Hour); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("oldest live route survived: %v", err)
+	}
+	if got, err := repo.Load(ctx, "route", "consumed", time.Hour); err != nil || !got.Consumed {
+		t.Fatalf("consumed route changed: %+v %v", got, err)
+	}
+}

@@ -31,7 +31,7 @@
       "expected": null
     },
     "RouteSessionSave.cfg": {
-      "sha256": "dedffb77a4a16894cf2bd8dcaf9b72bdbfd09e67e8755100713d578c90679fa9",
+      "sha256": "13e78b8ef7be7eb440cebba4c420ccfd16f6537611acba84949dec40967d268b",
       "spec": "RouteSessionSave.tla",
       "properties": {
         "invariant": [
@@ -40,14 +40,14 @@
           "SavedEventMatchesAckedEdits",
           "NoEditAckedAfterSave",
           "EventSavedAtMostOnce",
-          "FailedSavePreservesState"
+          "EventRequiresConsumedSession"
         ],
         "property": []
       },
       "expected": null
     },
     "WorkflowCapacity.cfg": {
-      "sha256": "28d0338c6c4e114a6e6def50a786d9e35ae10e581255ca075cba08626c7bb72c",
+      "sha256": "0493e59c792542e444af626386fc20b6ba490c00a1889c5a69ac81bc380585ed",
       "spec": "WorkflowCapacity.tla",
       "properties": {
         "invariant": [
@@ -118,7 +118,7 @@
       }
     },
     "mutations/ImportGeocodeQueue.done-before-rows.cfg": {
-      "sha256": "f4dc1d0227e2abe6f40f02481c40febdd5c16ad27706a5cc26d97b4bac99b838",
+      "sha256": "f3def290e094117c5cfe68f05576848388a6665bb11fdbe7df9fdf18b680a887",
       "spec": "ImportGeocodeQueue.tla",
       "properties": {
         "invariant": [
@@ -146,7 +146,7 @@
       }
     },
     "mutations/ImportGeocodeQueue.finish-after-close.cfg": {
-      "sha256": "aa8909994af10001a9aba8929aef47f2460b02287f2c96e012e08083cbd7c001",
+      "sha256": "9adfc7da200af25564b470277038628e477b5c879265e801e3bf957f9ac88565",
       "spec": "ImportGeocodeQueue.tla",
       "properties": {
         "invariant": [
@@ -160,7 +160,7 @@
       }
     },
     "mutations/ImportGeocodeQueue.finish-ignores-lease.cfg": {
-      "sha256": "747f511df7d8b38a497c576a690870fe71c77e5e23a40ec97d1a347b82717a0d",
+      "sha256": "a4e17e19d26922ce7927ac0422df21dfba379a54d77b9395d487c9a40f76ef9b",
       "spec": "ImportGeocodeQueue.tla",
       "properties": {
         "invariant": [
@@ -174,7 +174,7 @@
       }
     },
     "mutations/ImportGeocodeQueue.finish-ignores-token.cfg": {
-      "sha256": "8eaca8232d4efd9364987efe681de480af07eb932e26e43614489268635a4dfe",
+      "sha256": "0a4b77f223eeccaf32500bebd1fc011cecf572181db76382949676b4bb802df4",
       "spec": "ImportGeocodeQueue.tla",
       "properties": {
         "invariant": [
@@ -286,21 +286,21 @@
       }
     },
     "mutations/RouteSessionSave.split-save.cfg": {
-      "sha256": "1babeb2917071e2c58430d36477ffc210b268d9dbffd65648197673e79594972",
+      "sha256": "0c9f0c00ccc621a8f4ac776cf5fa81bbdbdd31de81861855f93e1ecac984d289",
       "spec": "RouteSessionSave.tla",
       "properties": {
         "invariant": [
-          "FailedSavePreservesState"
+          "EventRequiresConsumedSession"
         ],
         "property": []
       },
       "expected": {
         "kind": "invariant",
-        "name": "FailedSavePreservesState"
+        "name": "EventRequiresConsumedSession"
       }
     },
     "mutations/WorkflowCapacity.eviction-crosses-kind.cfg": {
-      "sha256": "2692e49a4a099c4b91178a15b8e9c44b43032cd6f14c60b88f58f0ed609608cc",
+      "sha256": "6c06b5edf5ebe572efcd40b71b0a33faf8255e4867f3c62560fb9817b124e59c",
       "spec": "WorkflowCapacity.tla",
       "properties": {
         "invariant": [
@@ -313,8 +313,22 @@
         "name": "OnlySameKindEvicted"
       }
     },
+    "mutations/WorkflowCapacity.eviction-includes-inactive.cfg": {
+      "sha256": "205bdac6982806d44e90facf89826620149bf6c1fe4dd6e3de6d7d072edbe896",
+      "spec": "WorkflowCapacity.tla",
+      "properties": {
+        "invariant": [
+          "InactiveRowsPreserved"
+        ],
+        "property": []
+      },
+      "expected": {
+        "kind": "invariant",
+        "name": "InactiveRowsPreserved"
+      }
+    },
     "mutations/WorkflowCapacity.eviction-outside-transaction.cfg": {
-      "sha256": "1cc51170e18dafd3517187178b4184cf493ea669be1cbb4daecba1d4296e9810",
+      "sha256": "09c98dcdec0cd4e3f749f3f75d4b1a2b9f65b613e0403e67076747ed40404855",
       "spec": "WorkflowCapacity.tla",
       "properties": {
         "invariant": [
@@ -328,7 +342,7 @@
       }
     },
     "mutations/WorkflowCapacity.no-serialization.cfg": {
-      "sha256": "cc0e13967b938049ca4e443654b2e4493ee00a66da77eb98a7c1b54c4c9d93fa",
+      "sha256": "9a9745e61f5964276538d3edb9a2867f5d2004fc96bf5588eed80c9c4cc5ca0b",
       "spec": "WorkflowCapacity.tla",
       "properties": {
         "invariant": [
@@ -341,5 +355,10 @@
         "name": "CommittedCapacity"
       }
     }
+  },
+  "specs": {
+    "ImportGeocodeQueue.tla": "a93f3718a5ec987f8bc37646f959100b148369acecabfdac3ab5e5dbf4d0a84f",
+    "RouteSessionSave.tla": "5df498517935c82fed41d8ad5ad2de18cc13744598115013df48e4c4da8b8556",
+    "WorkflowCapacity.tla": "2a1b83b6c940a73de3792b36629b07dcd24c109a125956ad9e47dab5c6e37832"
   }
 }

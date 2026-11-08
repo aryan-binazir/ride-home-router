@@ -36,9 +36,9 @@ check: lint verify vulncheck vet test
 check-unit: lint verify vulncheck vet test-unit
 
 check-branch:
-	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL must name a local test Postgres database" >&2; exit 1; }
+	@test -n "$(filter environment command line,$(origin TEST_DATABASE_URL))" && test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL must name a local test Postgres database" >&2; exit 1; }
 	@test -n "$$BROWSER_TEST_BINARY" && test -x "$$BROWSER_TEST_BINARY" || { echo "BROWSER_TEST_BINARY must name an executable Chrome or Chromium" >&2; exit 1; }
-	$(MAKE) check eval tla verification-mutations
+	python3 scripts/verification_context.py $(MAKE) -j1 check eval tla verification-mutations
 
 lint:
 	golangci-lint run ./...
@@ -65,7 +65,7 @@ test-verification-tools:
 	python3 -m unittest discover -s scripts -p '*_test.py'
 
 verification-mutations:
-	python3 scripts/verification-mutations.py
+	python3 scripts/verification_mutations.py
 
 eval:
 	@mkdir -p _scratch

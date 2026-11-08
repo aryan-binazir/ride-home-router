@@ -126,3 +126,15 @@ func TestImportGeocodeModelExpiredLeaseCannotFinish(t *testing.T) {
 		t.Fatalf("expired Finish = %v, want conflict", err)
 	}
 }
+
+func TestImportGeocodeModelExpiredWorkflowCannotFinish(t *testing.T) {
+	db, url, job := stagedGeocodeJob(t)
+	execSQL(t, url, `UPDATE workflow_sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE kind='import'`)
+	if err := db.ImportJobs().Finish(t.Context(), job, []database.ImportRow{{Index: 0, Data: []byte(`{"NeedsGeocoding":false}`)}}, false); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("expired workflow accepted Finish: %v", err)
+	}
+	rows, err := db.ImportJobs().Rows(t.Context(), job.SessionID)
+	if err != nil || len(rows) != 2 || string(rows[0].Data) != `{"NeedsGeocoding":true}` {
+		t.Fatalf("expired workflow rows changed: %+v %v", rows, err)
+	}
+}

@@ -319,17 +319,6 @@ LeaseExpires(j) ==
     /\ UNCHANGED <<session, done, token, attempts, geocode, selected, crashes,
                    workerVars, ghostVars>>
 
-\* The holder overruns its lease inside the provider call (GC pause,
-\* suspended VM, a provider call that ignores its deadline).
-ProviderStalls(w) ==
-    LET j == job[w] IN
-    /\ pc[w] = "provider"
-    /\ token[j] = w
-    /\ leaseLive[j]
-    /\ leaseLive' = [leaseLive EXCEPT ![j] = FALSE]
-    /\ UNCHANGED <<session, done, token, attempts, geocode, selected, crashes,
-                   workerVars, ghostVars>>
-
 -----------------------------------------------------------------------------
 
 \* SelectRowsContext / the review page's selection patch: a Transact that
@@ -374,7 +363,7 @@ WorkerStep(w) ==
     \/ Release(w)
 
 Next ==
-    \/ \E w \in Workers: WorkerStep(w) \/ Crash(w) \/ ProviderStalls(w)
+    \/ \E w \in Workers: WorkerStep(w) \/ Crash(w)
     \/ \E j \in Jobs: LeaseExpires(j)
     \/ \E r \in SelectableRows, value \in BOOLEAN: Select(r, value)
     \/ Commit
@@ -392,9 +381,6 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 
 -----------------------------------------------------------------------------
 
-\* A geocoding result lands on a job at most once, so a stale worker can
-\* never overwrite a resolved address (flip a match to an error and
-\* deselect the rows).
 \* Finish linearizes at the guarded job UPDATE, not transaction completion.
 \* Row errors/commit failure roll back the whole transaction: a stuttering
 \* step already allowed by Spec. Permanent DB failure has no progress claim.
@@ -403,6 +389,9 @@ NoWriteAfterClose == closedWritesOK
 CompletedJobsResolved ==
     \A j \in Jobs: done[j] => \A r \in JobRows[j]: geocode[r] # "pending"
 
+\* A geocoding result lands on a job at most once, so a stale worker can
+\* never overwrite a resolved address (flip a match to an error and
+\* deselect the rows).
 AtMostOneResultPerJob == \A j \in Jobs: finishes[j] <= 1
 
 \* A poison address costs at most maxGeocodeRounds worker rounds, however
