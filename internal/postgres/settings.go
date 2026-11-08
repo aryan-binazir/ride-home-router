@@ -42,7 +42,7 @@ func (r *settingsRepository) Update(ctx context.Context, s *models.Settings) err
 func (r *settingsRepository) Patch(ctx context.Context, patch database.SettingsPatch) (*models.Settings, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("begin settings update: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	var selectedLocationID *int64
@@ -53,7 +53,7 @@ func (r *settingsRepository) Patch(ctx context.Context, patch database.SettingsP
 			return nil, database.ErrNotFound
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("validate selected activity location: %w", err)
 		}
 		selectedLocationID = &id
 	}
@@ -71,7 +71,7 @@ func (r *settingsRepository) Patch(ctx context.Context, patch database.SettingsP
 		s.SelectedActivityLocationID = location.Int64
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("commit settings update: %w", err)
 	}
 	return &s, nil
 }

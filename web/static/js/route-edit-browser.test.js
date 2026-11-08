@@ -75,6 +75,7 @@ addEventListener('DOMContentLoaded',async()=>{
  save().dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();check(saved.length===1,'unknown commit blocks Save submit');
  check(document.querySelector('#toast-container').textContent.includes('Reload the page'),'reload required feedback');
  check(document.querySelector('.planner-plan-state-banner').textContent.includes('Reload the page')&&save().querySelector('button').title.includes('Reload the page'),'lasting reload guidance');
+ check([...document.querySelectorAll('[data-session-action=edit]')].every(button=>button.disabled),'uncertain edits visibly disabled');
  calculate('c');await tick();check(!copy().disabled,'new session unlocks handoffs');
  document.getElementById('evidence').textContent=JSON.stringify({width:innerWidth,requests:requests.length,saves:saved.length,errors});
  }catch(e){document.getElementById('evidence').textContent=JSON.stringify({error:String(e),requests:requests.map(r=>r.url),errors});}

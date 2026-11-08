@@ -1373,6 +1373,9 @@
             if (pendingEdits) {
                 lockedActions = [lockedActions, '[data-session-action="copy"], [data-session-action="preview"], [data-session-action="save"]'].filter(Boolean).join(', ');
             }
+            if (routeSessionOrchestrator.requiresReload()) {
+                lockedActions = '[data-session-action]';
+            }
             setPlanStateBanner(container, message);
             setSessionActionsLocked(container, lockedActions, message);
         }

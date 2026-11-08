@@ -295,7 +295,6 @@ func TestGoogleCalculator_RetriesNetworkError(t *testing.T) {
 	calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) { return "test-api-key", nil }, nil).(*googleCalculator)
 	calc.usage = matrixUsage{reserve: func(context.Context, database.UsageSKU, int) error { return nil }}
 	calc.endpoint = server.URL
-	calc.usage = matrixUsage{reserve: func(context.Context, database.UsageSKU, int) error { return nil }}
 	calc.httpClient = &http.Client{Transport: googleRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		requests++
 		if requests == 1 {
@@ -615,7 +614,6 @@ func TestGooglePrewarmCancellationWaitsForActiveRequests(t *testing.T) {
 }
 
 type matrixUsage struct {
-	database.GoogleUsageLedger
 	reserve func(context.Context, database.UsageSKU, int) error
 }
 

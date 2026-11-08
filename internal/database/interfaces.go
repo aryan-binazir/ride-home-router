@@ -91,7 +91,7 @@ type LabelRepository interface {
 
 type SettingsPatch struct {
 	SelectedActivityLocationID *int64
-	UseMiles                   bool
+	UseMiles                   bool // Omission means false, matching settings JSON and checkbox forms.
 	SMEEmail                   *string
 	CollectReviewerNotes       *bool
 }

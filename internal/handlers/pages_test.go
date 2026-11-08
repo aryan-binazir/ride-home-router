@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"ride-home-router/internal/access"
@@ -538,8 +539,19 @@ func TestMemberPreferencePreservesConcurrentAdminSettings(t *testing.T) {
 	}
 	done := make(chan int, 1)
 	go func() { done <- send(member, `{"use_miles":true}`, true) }()
-	<-paused.entered
-	code := send(admin, `{"sme_email":"new@example.test","collect_reviewer_notes":false}`, false)
+	select {
+	case <-paused.entered:
+	case code := <-done:
+		t.Fatalf("member returned before settings patch: %d", code)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	location, err := store.ActivityLocations().Create(t.Context(), &models.ActivityLocation{Name: "New gym", Address: "1 Gym St", Lat: 35, Lng: -79})
+	if err != nil {
+		close(paused.resume)
+		t.Fatal(err)
+	}
+	code := send(admin, fmt.Sprintf(`{"sme_email":"new@example.test","collect_reviewer_notes":false,"selected_activity_location_id":%d}`, location.ID), false)
 	close(paused.resume)
 	if code != 200 {
 		t.Fatalf("admin=%d", code)
@@ -548,7 +560,14 @@ func TestMemberPreferencePreservesConcurrentAdminSettings(t *testing.T) {
 		t.Fatalf("member=%d", code)
 	}
 	got, err := store.Settings().Get(t.Context())
-	if err != nil || got.SMEEmail != "new@example.test" || got.CollectReviewerNotes || !got.UseMiles {
+	if err != nil || got.SMEEmail != "new@example.test" || got.CollectReviewerNotes || !got.UseMiles || got.SelectedActivityLocationID != location.ID {
 		t.Fatalf("settings=%+v err=%v", got, err)
+	}
+	if code := send(member, `{"use_miles":true,"selected_activity_location_id":0}`, false); code != 200 {
+		t.Fatal(code)
+	}
+	got, err = store.Settings().Get(t.Context())
+	if err != nil || got.SelectedActivityLocationID != 0 || got.SMEEmail != "new@example.test" {
+		t.Fatalf("cleared=%+v err=%v", got, err)
 	}
 }

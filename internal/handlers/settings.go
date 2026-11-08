@@ -95,9 +95,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if req.SMEEmail != nil {
 		email := strings.TrimSpace(*req.SMEEmail)
 		req.SMEEmail = &email
-		if *req.SMEEmail != "" {
-			address, parseErr := mail.ParseAddress(*req.SMEEmail)
-			if parseErr != nil || address.Address != *req.SMEEmail {
+		if email != "" {
+			address, parseErr := mail.ParseAddress(email)
+			if parseErr != nil || address.Address != email {
 				h.handleValidationErrorHTMX(w, r, messageInvalidSMEEmail)
 				return
 			}
