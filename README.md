@@ -46,7 +46,7 @@ For `make serve` and deployments, the first six values are required. Missing or 
 | `--addr` | Override listen address. |
 | `--allowed-hosts` | Accepted hosts; required for non-loopback listeners. Omit schemes, ports and paths. |
 | `ALLOWED_HOSTS` | Docker value for `--allowed-hosts`. |
-| `GOOGLE_USAGE_SEED` | Existing monthly usage, e.g. `routes=2026-09:7000,geocoding=2026-09:120`. Other months are ignored. |
+| `GOOGLE_USAGE_SEED` | Existing monthly usage, e.g. `routes=2026-09:7000,route_matrix=2026-09:120,geocoding=2026-09:120`. Other months are ignored. |
 | `ROUTING_ENGINE` | Default `estimate`; `matrix` is for legacy quality comparisons. |
 | `TRUST_CF_ACCESS_HEADER` | Default off. Enable only behind trusted Cloudflare Access for feedback attribution. |
 
@@ -76,7 +76,7 @@ The default planner uses straight-line estimates, respects capacity, groups hous
 
 Measured distances, durations and stop ETAs exist only in the current response. New saved events retain assignments, stop order, addresses, Maps links and user-entered schedule times, including handoff snapshots that survive roster edits. History does not fetch timings; older saved content remains unchanged.
 
-Postgres reserves Compute Routes, Geocoding and Autocomplete attempts before dispatch, with a default ceiling of 8,000 each per Pacific-calendar month. Seed prior usage when deploying mid-month. This ledger does not cover other applications or legacy matrix requests. Matrix mode retains cached distances, a 60,000-uncached-element limit per calculation and four concurrent distance preparations. See the [routing decision](docs/adr/0006-routing-cost-and-google-terms.md).
+Postgres reserves Compute Routes, Geocoding and Autocomplete attempts and Compute Route Matrix elements before dispatch, with a default ceiling of 8,000 units per SKU per Pacific-calendar month. Matrix attempts reserve origins × destinations, including retries, under `route_matrix` (Compute Route Matrix Essentials). Seed prior usage when deploying mid-month. This ledger does not cover other applications. Matrix mode retains cached distances, a 60,000-uncached-element limit per calculation and four concurrent distance preparations. See the [routing decision](docs/adr/0006-routing-cost-and-google-terms.md).
 
 Coordinates older than 30 days are refreshed before planning; failed refreshes retain prior coordinates. Address lookups share one request/second and cooldowns up to 15 minutes.
 

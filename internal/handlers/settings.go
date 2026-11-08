@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"net/url"
 	"ride-home-router/internal/access"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -65,19 +66,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentSettings, err := h.DB.Settings().Get(r.Context())
-	if err != nil {
-		log.Printf("[ERROR] Failed to get existing settings: err=%v", err)
-		if h.isHTMX(r) {
-			h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		h.handleInternalError(w, r, err)
-		return
-	}
-
-	selectedActivityLocationID := currentSettings.SelectedActivityLocationID
+	var err error
+	var selectedActivityLocationID int64
 	var location *models.ActivityLocation
 
 	if req.SelectedActivityLocationID != nil {
@@ -102,27 +92,20 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	settings := &models.Settings{
-		SelectedActivityLocationID: selectedActivityLocationID,
-		UseMiles:                   req.UseMiles,
-		SMEEmail:                   currentSettings.SMEEmail,
-		CollectReviewerNotes:       currentSettings.CollectReviewerNotes,
-	}
-	if req.CollectReviewerNotes != nil {
-		settings.CollectReviewerNotes = *req.CollectReviewerNotes
-	}
 	if req.SMEEmail != nil {
-		settings.SMEEmail = strings.TrimSpace(*req.SMEEmail)
-		if settings.SMEEmail != "" {
-			address, parseErr := mail.ParseAddress(settings.SMEEmail)
-			if parseErr != nil || address.Address != settings.SMEEmail {
+		email := strings.TrimSpace(*req.SMEEmail)
+		req.SMEEmail = &email
+		if *req.SMEEmail != "" {
+			address, parseErr := mail.ParseAddress(*req.SMEEmail)
+			if parseErr != nil || address.Address != *req.SMEEmail {
 				h.handleValidationErrorHTMX(w, r, messageInvalidSMEEmail)
 				return
 			}
 		}
 	}
 
-	if err := h.DB.Settings().Update(r.Context(), settings); err != nil {
+	settings, err := h.DB.Settings().Patch(r.Context(), database.SettingsPatch{SelectedActivityLocationID: req.SelectedActivityLocationID, UseMiles: req.UseMiles, SMEEmail: req.SMEEmail, CollectReviewerNotes: req.CollectReviewerNotes})
+	if err != nil {
 		if h.checkNotFound(err) {
 			h.handleSelectedActivityLocationNotFound(w, r, selectedActivityLocationID)
 			return

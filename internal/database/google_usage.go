@@ -8,6 +8,7 @@ import (
 type UsageSKU string
 
 const (
+	UsageSKURouteMatrix  UsageSKU = "route_matrix"
 	UsageSKURoutes       UsageSKU = "routes"
 	UsageSKUGeocoding    UsageSKU = "geocoding"
 	UsageSKUAutocomplete UsageSKU = "autocomplete"

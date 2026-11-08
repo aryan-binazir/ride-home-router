@@ -98,7 +98,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	usage := db.GoogleUsage()
 	geocoder := geocoding.NewGoogleGeocoder(db.Settings().GoogleMapsKey, db.GeocodingGate(), usage)
-	distanceCalc, providerFree, err := routingDistanceSource(cfg.RoutingEngine, db.DistanceCache(), db.Settings().GoogleMapsKey)
+	distanceCalc, providerFree, err := routingDistanceSource(cfg.RoutingEngine, db.DistanceCache(), db.Settings().GoogleMapsKey, usage)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
@@ -624,12 +624,12 @@ func requestError(w http.ResponseWriter, r *http.Request, message string, status
 	http.Error(w, message, status)
 }
 
-func routingDistanceSource(engine string, cache database.DistanceCacheRepository, key distance.APIKeyProvider) (distance.SolveSource, bool, error) {
+func routingDistanceSource(engine string, cache database.DistanceCacheRepository, key distance.APIKeyProvider, usage geocoding.UsageReserver) (distance.SolveSource, bool, error) {
 	switch strings.ToLower(strings.TrimSpace(engine)) {
 	case "", "estimate":
 		return distance.NewEstimator(), true, nil
 	case "matrix":
-		return distance.NewGoogleCalculator(cache, key), false, nil
+		return distance.NewGoogleCalculator(cache, key, usage), false, nil
 	default:
 		return nil, false, fmt.Errorf("ROUTING_ENGINE must be \"estimate\" or \"matrix\"")
 	}

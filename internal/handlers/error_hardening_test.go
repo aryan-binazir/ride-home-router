@@ -301,3 +301,7 @@ func TestMobileLabelsOutageRetryRetainsMemberships(t *testing.T) {
 func dropLabelIDsMissingFromFailedRender(values url.Values) {
 	values.Del("label_ids")
 }
+
+func (errorSettings) Patch(context.Context, database.SettingsPatch) (*models.Settings, error) {
+	return nil, errors.New("settings unavailable")
+}

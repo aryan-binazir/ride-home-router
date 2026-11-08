@@ -89,6 +89,13 @@ type LabelRepository interface {
 	ListLabelIDsForDrivers(ctx context.Context) (map[int64][]int64, error)
 }
 
+type SettingsPatch struct {
+	SelectedActivityLocationID *int64
+	UseMiles                   bool
+	SMEEmail                   *string
+	CollectReviewerNotes       *bool
+}
+
 type SettingsRepository interface {
 	GoogleMapsKey(ctx context.Context) (string, error)
 	GoogleMapsKeyConfigured(ctx context.Context) (bool, error)
@@ -96,6 +103,7 @@ type SettingsRepository interface {
 	DeleteGoogleMapsKey(ctx context.Context) error
 	Get(ctx context.Context) (*models.Settings, error)
 	Update(ctx context.Context, s *models.Settings) error
+	Patch(ctx context.Context, patch SettingsPatch) (*models.Settings, error)
 }
 
 type ActivityLocationRepository interface {

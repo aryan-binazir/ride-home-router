@@ -227,7 +227,7 @@ func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
 		}
 		name := database.UsageSKU(strings.ToLower(strings.TrimSpace(sku)))
 		switch name {
-		case database.UsageSKURoutes, database.UsageSKUGeocoding, database.UsageSKUAutocomplete:
+		case database.UsageSKURouteMatrix, database.UsageSKURoutes, database.UsageSKUGeocoding, database.UsageSKUAutocomplete:
 			seeds[name] = n
 		default:
 			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: unknown sku")

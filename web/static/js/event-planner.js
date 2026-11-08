@@ -377,6 +377,7 @@
         cancel = timeout => clearTimeout(timeout),
     }) {
         const savesInFlight = new Set();
+        const uncertainSessions = new Set();
         const batchLimit = 64;
         const moveEndpoint = '/api/v1/routes/edit/move-participant';
 
@@ -391,12 +392,14 @@
         }
 
         function enqueue(move) {
+            if (uncertainSessions.has(move.session_id)) return;
             queue.push(move);
             scheduleFlush();
             pendingChanged();
         }
 
         function enqueueAction(sessionId, action) {
+            if (uncertainSessions.has(sessionId)) return Promise.resolve(false);
             return new Promise(resolve => {
                 queue.push({ session_id: sessionId, action, resolve });
                 pendingChanged();
@@ -474,7 +477,7 @@
         }
 
         function hasPendingFor(sessionId) {
-            return Boolean(sessionId) && (inFlightSessionId === sessionId || queue.some(move => move.session_id === sessionId));
+            return Boolean(sessionId) && (uncertainSessions.has(sessionId) || inFlightSessionId === sessionId || queue.some(move => move.session_id === sessionId));
         }
 
         function discardFor(sessionId) {
@@ -493,6 +496,7 @@
         async function flushFor(sessionId) {
             let succeeded = true;
             while (hasPendingFor(sessionId)) {
+                if (uncertainSessions.has(sessionId)) return false;
                 const result = await flushDetailed();
                 if (result.sessionOutcomes.get(sessionId) === false) succeeded = false;
             }
@@ -565,6 +569,13 @@
             }
         }
 
+        function markUncertain(sessionId) {
+            if (getInstalledSessionId() !== sessionId) return;
+            uncertainSessions.add(sessionId);
+            discardFor(sessionId);
+            notify("The route update could not be confirmed. Reload the page before saving or copying routes.", "error");
+        }
+
         function requireSession() {
             const sessionId = getInstalledSessionId();
             if (!sessionId) notify('That route plan is no longer available. Calculate it again.', 'error');
@@ -588,6 +599,10 @@
                     },
                     ...(payload ? { body: JSON.stringify(payload) } : {}),
                 });
+                if (!response.ok && ![400, 404].includes(response.status) && !endpoint.includes("/timings")) {
+                    markUncertain(sessionId);
+                    return false;
+                }
                 return applyEditResult({
                     requestedSessionId: sessionId,
                     ok: response.ok,
@@ -596,7 +611,8 @@
                 });
             } catch (error) {
                 console.error('Failed to update routes:', error);
-                notify('Could not update routes. Please try again.', 'error');
+                if (!endpoint.includes('/timings')) markUncertain(sessionId);
+                else notify('Could not update routes. Please try again.', 'error');
                 return false;
             }
         }

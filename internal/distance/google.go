@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
 	"sort"
 	"strconv"
@@ -42,14 +43,16 @@ type googleCalculator struct {
 	cache      database.DistanceCacheRepository
 	apiKey     APIKeyProvider
 	endpoint   string
+	usage      geocoding.UsageReserver
 }
 
-func NewGoogleCalculator(cache database.DistanceCacheRepository, apiKey APIKeyProvider) DistanceCalculator {
+func NewGoogleCalculator(cache database.DistanceCacheRepository, apiKey APIKeyProvider, usage geocoding.UsageReserver) DistanceCalculator {
 	return &googleCalculator{
 		httpClient: &http.Client{Timeout: googleHTTPTimeout},
 		cache:      cache,
 		apiKey:     apiKey,
 		endpoint:   googleRouteMatrixURL,
+		usage:      usage,
 	}
 }
 
@@ -597,6 +600,12 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 
 	log.Printf("[GOOGLE] Route matrix request: origins=%d destinations=%d elements=%d", len(origins), len(destinations), len(origins)*len(destinations))
 
+	if c.usage == nil {
+		return nil, errors.New("matrix usage ledger is not configured")
+	}
+	if err := c.usage.Reserve(ctx, database.UsageSKURouteMatrix, len(origins)*len(destinations)); err != nil {
+		return nil, err
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, &googleTransportError{Cause: err}

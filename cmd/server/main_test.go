@@ -152,9 +152,9 @@ func TestParseArgs(t *testing.T) {
 
 func TestGoogleUsageSeedFollowsThePacificMonth(t *testing.T) {
 	stillSeptemberInLosAngeles := time.Date(2026, time.October, 1, 3, 0, 0, 0, time.UTC)
-	seeds := googleUsageSeed("routes=2026-09:7000, geocoding=2026-10:5,route=2026-09:9,bad", stillSeptemberInLosAngeles)
-	if len(seeds) != 1 || seeds[database.UsageSKURoutes] != 7000 {
-		t.Fatalf("seeds = %#v, want only routes=7000", seeds)
+	seeds := googleUsageSeed("routes=2026-09:7000, geocoding=2026-10:5,route_matrix=2026-09:42,route=2026-09:9,bad", stillSeptemberInLosAngeles)
+	if len(seeds) != 2 || seeds[database.UsageSKURoutes] != 7000 || seeds[database.UsageSKURouteMatrix] != 42 {
+		t.Fatalf("seeds = %#v, want routes=7000 and route_matrix=42", seeds)
 	}
 	stillDecemberInLosAngeles := time.Date(2027, time.January, 1, 7, 59, 0, 0, time.UTC)
 	if seeds := googleUsageSeed("routes=2026-12:10", stillDecemberInLosAngeles); seeds[database.UsageSKURoutes] != 10 {

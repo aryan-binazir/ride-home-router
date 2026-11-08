@@ -11,17 +11,17 @@ type fakeCache struct {
 }
 
 func TestRoutingEngineSelection(t *testing.T) {
-	estimate, providerFree, err := routingDistanceSource("", nil, nil)
+	estimate, providerFree, err := routingDistanceSource("", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("default engine error = %v", err)
 	}
 	if _, ok := estimate.(interface{ NoPrewarm() bool }); !ok || !providerFree {
 		t.Fatalf("default engine = %T providerFree=%v, want the estimator", estimate, providerFree)
 	}
-	if _, _, err := routingDistanceSource("carrier-pigeon", nil, nil); err == nil {
+	if _, _, err := routingDistanceSource("carrier-pigeon", nil, nil, nil); err == nil {
 		t.Fatal("unknown engine should be rejected")
 	}
-	matrix, providerFree, err := routingDistanceSource("matrix", fakeCache{}, func(context.Context) (string, error) { return "k", nil })
+	matrix, providerFree, err := routingDistanceSource("matrix", fakeCache{}, func(context.Context) (string, error) { return "k", nil }, nil)
 	if err != nil {
 		t.Fatalf("matrix engine error = %v", err)
 	}
