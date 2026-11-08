@@ -493,7 +493,7 @@ func (h *Handler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	dbStatus := "connected"
 	code := http.StatusOK
 
-	if err := h.DB.HealthCheck(r.Context()); err != nil {
+	if err := h.healthProbe.check(r, h.DB.HealthCheck); err != nil {
 		status = "degraded"
 		dbStatus = "error"
 		code = http.StatusServiceUnavailable

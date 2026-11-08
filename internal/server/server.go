@@ -575,6 +575,9 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if httpx.RequestIsSecure(r) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
