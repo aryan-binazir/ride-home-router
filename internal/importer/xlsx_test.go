@@ -402,6 +402,29 @@ func TestXLSXParseWithManyMergedCellsCompletesQuickly(t *testing.T) {
 	}
 }
 
+func TestXLSXHugeRowNumberTerminates(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+	})
+	data = rewriteXLSXEntry(t, data, "xl/worksheets/sheet1.xml", func(contents []byte) []byte {
+		return bytes.Replace(contents, []byte(`</sheetData>`), []byte(`<row r="9000000000000000000"><c t="inlineStr"><is><t>x</t></is></c></row></sheetData>`), 1)
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Parse() error = nil, want a row-limit error")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Parse() did not return for a row number beyond the worksheet limit")
+	}
+}
+
 func TestXLSXResourceLimits(t *testing.T) {
 	header := make([]any, MaxColumns+1)
 	for i := range header {
