@@ -2229,6 +2229,8 @@ for (const failure of ['network', 'body', 'server']) {
         await app.settleRestore();
         assert.equal(app.copyButton.disabled, true);
         assert.equal(app.saveButton.disabled, true);
+        assert.match(app.banner.textContent, /Reload the page/);
+        assert.match(app.saveButton.getAttribute('title'), /Reload the page/);
     });
 }
 

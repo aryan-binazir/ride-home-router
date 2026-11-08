@@ -370,6 +370,8 @@
         afterRender();
     }
 
+    const UNCERTAIN_ROUTE_MESSAGE = 'The route update could not be confirmed. Reload the page before saving or copying routes.';
+
     function createRouteSessionOrchestrator({
         document, htmx, readPlanState, request, reportError, notify, afterRender,
         reportSaveBlocked, pendingChanged = () => {},
@@ -573,7 +575,7 @@
             if (getInstalledSessionId() !== sessionId) return;
             uncertainSessions.add(sessionId);
             discardFor(sessionId);
-            notify("The route update could not be confirmed. Reload the page before saving or copying routes.", "error");
+            notify(UNCERTAIN_ROUTE_MESSAGE, 'error');
         }
 
         function requireSession() {
@@ -705,6 +707,7 @@
             move, swap, reset, add, timings, openEditor, submitEditor, save, planChanged,
             clear: () => discardFor(getInstalledSessionId()),
             hasPending: () => hasPendingFor(getInstalledSessionId()),
+            requiresReload: () => uncertainSessions.has(getInstalledSessionId()),
         };
     }
 
@@ -1345,7 +1348,7 @@
         function setSessionActionsLocked(container, lockSelector, reason) {
             container.querySelectorAll(SESSION_ACTION_CONTROLS).forEach(control => {
                 if (lockSelector && control.matches(lockSelector)) {
-                    if (control.disabled) return;
+                    if (control.disabled && !control.dataset.planLocked) return;
                     control.disabled = true;
                     control.dataset.planLocked = '1';
                     control.setAttribute('title', reason);
@@ -1364,7 +1367,8 @@
             if (!container) return;
 
             const pendingEdits = routeSessionOrchestrator.hasPending();
-            const message = pendingEdits ? 'Updating routes. Copy, preview and save will be available in a moment.' : PLAN_STATE_MESSAGES[status] || '';
+            const message = routeSessionOrchestrator.requiresReload() ? UNCERTAIN_ROUTE_MESSAGE
+                : pendingEdits ? 'Updating routes. Copy, preview and save will be available in a moment.' : PLAN_STATE_MESSAGES[status] || '';
             let lockedActions = PLAN_STATE_LOCKS[status] || '';
             if (pendingEdits) {
                 lockedActions = [lockedActions, '[data-session-action="copy"], [data-session-action="preview"], [data-session-action="save"]'].filter(Boolean).join(', ');
