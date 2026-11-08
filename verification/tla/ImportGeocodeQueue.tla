@@ -1,51 +1,49 @@
 -------------------------- MODULE ImportGeocodeQueue --------------------------
 (***************************************************************************)
-(* The durable roster-import geocoding queue, shared by every server        *)
-(* instance through Postgres. See verification/tla/README.md for the        *)
-(* coverage record, bounds and assumptions.                                 *)
-(*                                                                          *)
-(* Code (each action names the code it stands for):                         *)
-(*   internal/postgres/import_jobs.go    Claim, RowsByIndices, Finish,      *)
-(*                                       Release, SelectImportRows,         *)
-(*                                       PatchImportSelections              *)
-(*   internal/importer/persistent.go     durableWorker, processJob,         *)
-(*                                       commitPersistent, CancelContext,   *)
-(*                                       SelectRowsContext                  *)
-(*   internal/importer/store.go          geocodeGroups, createBatch         *)
-(*   internal/postgres/workflows.go      Transact (FOR UPDATE), Delete      *)
-(*                                                                          *)
-(* One import session in preview. ApplyMapping has staged the rows and one  *)
-(* job per distinct address (geocodeGroups: a row is in at most one job;    *)
-(* rows sharing an address share a job). JobRows fixes that grouping.       *)
-(*                                                                          *)
-(* Abstractions, each argued against the code:                              *)
-(* - token[j] holds a worker id instead of a random claim token. A          *)
-(*   worker's durableWorker loop runs one job at a time and a restarted     *)
-(*   process starts with no job, so token[j] = w exactly when w's current   *)
-(*   run holds the newest claim. The claim's returned Attempts is kept per  *)
-(*   worker in round[w], since other claims may bump the stored value.      *)
-(* - leaseLive[j] is "claimed_until > clock_timestamp()". The single        *)
-(*   database clock makes expiry a step: LeaseExpires (time passes with     *)
-(*   nobody working the job) and ProviderStalls (the holder overruns its    *)
-(*   60s lease inside the provider call). ASSUMPTION: the holder cannot     *)
-(*   overrun outside the provider call. After it, the persist work has a 5s *)
-(*   context and a 5s lock_timeout, and the 30s workCtx leaves 25s or more  *)
-(*   of the 60s lease.                                                      *)
-(* - An expired but not yet cleaned-up session is "gone": Claim and Finish  *)
-(*   both require expires_at > clock_timestamp(), and commit's Transact     *)
-(*   finds no row. CleanupWorkflows deletes it later; the cascade changes   *)
-(*   nothing the model observes.                                            *)
-(* - attempts saturate at MaxGeocodeRounds + 1: processJob only compares    *)
-(*   job.Attempts using <= and < MaxGeocodeRounds.                          *)
-(* - The provider throttle (provider_throttles.next_at) only delays Claim.  *)
-(*   Fairness on Claim stands for "the throttle reopens".                   *)
-(* - Database errors (lock_timeout, connection loss) are not modelled. They *)
-(*   return early, and the deferred Release runs, like a retryable failure. *)
-(*                                                                          *)
-(* Each Guard* constant is one guard in the code, or a group of guards      *)
-(* that back each other up. The main config sets all of them TRUE. The     *)
-(* configs in mutations/ set some FALSE and must fail; scripts/tla.sh       *)
-(* checks both.                                                             *)
+(* The durable roster-import geocoding queue, shared by every server       *)
+(* instance through Postgres. See verification/tla/README.md.              *)
+(*                                                                         *)
+(* Code:                                                                   *)
+(*   internal/postgres/import_jobs.go    Claim, RowsByIndices, Finish,     *)
+(*                                       Release, SelectImportRows,        *)
+(*                                       PatchImportSelections             *)
+(*   internal/importer/persistent.go     durableWorker, processJob,        *)
+(*                                       commitPersistent, CancelContext,  *)
+(*                                       SelectRowsContext                 *)
+(*   internal/importer/store.go          geocodeGroups, createBatch        *)
+(*   internal/postgres/workflows.go      Transact (FOR UPDATE), Delete     *)
+(*                                                                         *)
+(* One import session in preview. ApplyMapping has staged the rows and one *)
+(* job per distinct address (geocodeGroups: a row is in at most one job;   *)
+(* rows sharing an address share a job). JobRows fixes that grouping.      *)
+(*                                                                         *)
+(* Abstractions:                                                           *)
+(* - token[j] holds a worker id instead of a random claim token. A         *)
+(*   worker's durableWorker loop runs one job at a time and a restarted    *)
+(*   process starts with no job, so token[j] = w exactly when w's current  *)
+(*   run holds the newest claim. The claim's returned Attempts is kept per *)
+(*   worker in round[w], since other claims may bump the stored value.     *)
+(* - leaseLive[j] is "claimed_until > clock_timestamp()". The single       *)
+(*   database clock makes expiry a step: LeaseExpires (time passes with    *)
+(*   nobody working the job) and ProviderStalls (the holder overruns its   *)
+(*   60s lease inside the provider call). ASSUMPTION: the holder cannot    *)
+(*   overrun outside the provider call. After it, the persist work has a   *)
+(*   5s context and a 5s lock_timeout, and the 30s workCtx leaves 25s or   *)
+(*   more of the 60s lease.                                                *)
+(* - An expired but not yet cleaned-up session is "gone": Claim and Finish *)
+(*   both require expires_at > clock_timestamp(), and commit's Transact    *)
+(*   finds no row. CleanupWorkflows deletes it later; the cascade changes  *)
+(*   nothing the model observes.                                           *)
+(* - attempts saturate at MaxGeocodeRounds + 1: processJob only compares   *)
+(*   job.Attempts using <= and < MaxGeocodeRounds.                         *)
+(* - The provider throttle (provider_throttles.next_at) only delays Claim. *)
+(*   Fairness on Claim stands for "the throttle reopens".                  *)
+(* - Database errors (lock_timeout, connection loss) are not modelled.     *)
+(*   They return early, and the deferred Release runs, like a retryable    *)
+(*   failure.                                                              *)
+(*                                                                         *)
+(* Each Guard* constant is one guard in the code, or a group of guards     *)
+(* that back each other up.                                                *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -53,18 +51,16 @@ CONSTANTS
     Workers,            \* server instances, one durableWorker each
     None,               \* model value: no claim token, no job
     JobRows,            \* job -> the import_rows indices it geocodes
-    MaxGeocodeRounds,   \* importer.maxGeocodeRounds = 3
-    MaxCrashes,         \* crashes outside the provider call (bounded)
+    MaxGeocodeRounds,   \* importer.maxGeocodeRounds
+    MaxCrashes,         \* crashes outside the provider call
     SelectableRows,     \* rows the person toggles while geocoding runs
     \* Claim's "attempts=attempts+1" reserves the round before the provider
-    \* call. FALSE: count the round in Release instead.
+    \* call.
     GuardClaimReservesAttempt,
     \* Finish marks the job done and writes its rows in one transaction.
-    \* FALSE: mark the job done, then write the rows in a second step.
     GuardFinishIsOneTransaction,
     \* Finish sets "selected=CASE WHEN failed THEN false ELSE selected END",
-    \* keeping the selection current in the database. FALSE: write back the
-    \* selection that processJob read through RowsByIndices.
+    \* not the selection processJob read through RowsByIndices.
     GuardFinishKeepsLiveSelection,
     \* commitPersistent returns ErrGeocodingInProgress for a pending row.
     GuardCommitChecksPending,
@@ -76,7 +72,6 @@ CONSTANTS
 Jobs == DOMAIN JobRows
 Rows == UNION {JobRows[j] : j \in Jobs}
 
-\* Two jobs: the first geocodes one address shared by two rows.
 DefaultJobRows == <<{1, 2}, {3}>>
 
 VARIABLES
@@ -87,8 +82,8 @@ VARIABLES
     attempts,     \* import_jobs.attempts
     geocode,      \* per row: "pending" (NeedsGeocoding), "ok" or "failed"
     selected,     \* import_rows.selected
-    pc,           \* worker step
-    job,          \* job the worker is processing
+    pc,
+    job,
     round,        \* job.Attempts as returned to the worker by Claim
     failed,       \* the worker will finish its job as failed
     seenSelected, \* import_rows.selected as read by RowsByIndices
@@ -127,7 +122,7 @@ TypeOK ==
     /\ committedPending \in BOOLEAN
 
 \* ApplyMapping stages rows and jobs and moves the session to previewing in
-\* one Transact: every job open, every row pending and selected by default.
+\* one Transact.
 Init ==
     /\ session = "previewing"
     /\ done = [j \in Jobs |-> FALSE]
@@ -150,8 +145,8 @@ Init ==
 Open(j) == ~GuardDoneJobsAreClosed \/ ~done[j]
 Live == session = "previewing"
 
-\* Leave the worker's run: back to the durableWorker loop with no job. The
-\* run's locals are reset so idle workers do not multiply states.
+\* Back to the durableWorker loop with no job. Resetting the run's locals
+\* only stops idle workers from multiplying states; the code never reads them.
 Idle(w) ==
     /\ pc' = [pc EXCEPT ![w] = "idle"]
     /\ job' = [job EXCEPT ![w] = None]
@@ -162,7 +157,6 @@ Idle(w) ==
 Goto(w, step) == pc' = [pc EXCEPT ![w] = step]
 
 -----------------------------------------------------------------------------
-(* Worker steps: durableWorker and processJob.                             *)
 
 \* importJobRepository.Claim: one UPDATE over a job picked FOR UPDATE SKIP
 \* LOCKED, whose lease is NULL or past, in a session that is neither consumed
@@ -208,9 +202,9 @@ ProviderReturns(w) ==
     /\ UNCHANGED <<session, done, token, leaseLive, attempts, geocode, selected,
                    crashes, job, round, seenSelected, ghostVars>>
 
-\* The process dies inside the provider call: a panic on a poison address,
-\* an OOM, a deploy that kills the container. No deferred Release runs.
-\* Unbounded: the retry budget, not luck, must end this loop.
+\* The process dies inside the provider call (a panic on a poison address,
+\* OOM, a deploy); no deferred Release runs. Unbounded, so the retry budget
+\* must end the loop.
 ProviderCrashes(w) ==
     /\ pc[w] = "provider"
     /\ Idle(w)
@@ -245,9 +239,8 @@ WriteResult(w, j) ==
 \* (FOR UPDATE, not consumed, not expired), then
 \*   UPDATE import_jobs SET done=true, claim_token=NULL, claimed_until=backoff
 \*   WHERE claim_token=$3 AND NOT done AND claimed_until>clock_timestamp()
-\* and, when that matched, writes every row of the job. A failed geocode
-\* deselects the rows. Zero jobs matched -> ErrWorkflowConflict, and the
-\* deferred Release still runs.
+\* and, when that matched, writes every row of the job. Zero jobs matched
+\* -> ErrWorkflowConflict, and the deferred Release still runs.
 Finish(w) ==
     LET j == job[w] IN
     /\ pc[w] = "finish"
@@ -266,8 +259,7 @@ Finish(w) ==
     /\ UNCHANGED <<session, attempts, crashes, job, round, failed, seenSelected,
                    choice, rounds, committedPending>>
 
-\* Mutation only (GuardFinishIsOneTransaction = FALSE): the separate row
-\* write after the job was marked done.
+\* Mutation only: not in the code.
 WriteRows(w) ==
     /\ pc[w] = "writeRows"
     /\ IF Live THEN WriteResult(w, job[w]) ELSE UNCHANGED <<geocode, selected>>
@@ -278,8 +270,6 @@ WriteRows(w) ==
 \* importJobRepository.Release, deferred by processJob on every return:
 \*   UPDATE import_jobs SET claim_token=NULL, claimed_until=backoff
 \*   WHERE claim_token=$3 AND NOT done
-\* A no-op when another worker took the claim over, or the job is done or
-\* deleted. Mutation GuardClaimReservesAttempt = FALSE counts the round here.
 Release(w) ==
     LET j == job[w] IN
     /\ pc[w] = "release"
@@ -292,7 +282,7 @@ Release(w) ==
     /\ Idle(w)
     /\ UNCHANGED <<session, done, geocode, selected, crashes, ghostVars>>
 
-\* The process dies outside the provider call (bounded by MaxCrashes).
+\* The process dies outside the provider call.
 Crash(w) ==
     /\ pc[w] \in {"read", "finish", "writeRows", "release"}
     /\ crashes < MaxCrashes
@@ -302,7 +292,6 @@ Crash(w) ==
                    ghostVars>>
 
 -----------------------------------------------------------------------------
-(* Time and the database clock.                                            *)
 
 HolderWorking(j) ==
     /\ token[j] # None
@@ -330,7 +319,6 @@ ProviderStalls(w) ==
                    workerVars, ghostVars>>
 
 -----------------------------------------------------------------------------
-(* The person importing, and session expiry.                               *)
 
 \* SelectRowsContext / the review page's selection patch: a Transact that
 \* rewrites import_rows.selected while the session is previewing.
@@ -342,8 +330,8 @@ Select(r, value) ==
                    workerVars, rounds, finishes, committedPending>>
 
 \* commitPersistent inside Transact: the session row lock serializes it with
-\* Finish. It rejects a consumed or non-previewing session (two separate
-\* checks), returns ErrGeocodingInProgress while a row needs geocoding,
+\* Finish. It rejects a consumed or non-previewing session, returns
+\* ErrGeocodingInProgress while a row needs geocoding,
 \* creates the roster rows, clears import rows and jobs, and marks the
 \* session consumed.
 Commit ==
@@ -391,7 +379,6 @@ Fairness ==
 Spec == Init /\ [][Next]_vars /\ Fairness
 
 -----------------------------------------------------------------------------
-(* Properties.                                                             *)
 
 \* A geocoding result lands on a job at most once, so a stale worker can
 \* never overwrite a resolved address (flip a match to an error and
@@ -414,9 +401,8 @@ GeocodingKeepsSelection ==
 CommitOnlyWhenResolved == ~committedPending
 
 \* While the import stays open, every row eventually finishes geocoding, so
-\* the person can commit. Holds under unbounded provider crashes and stalls.
-\* Cancelling or expiring the session is never forced, so TLC checks every
-\* behavior in which the session stays open forever.
+\* the person can commit, even under unbounded provider crashes and stalls.
+\* Abandon has no fairness, so this covers sessions that stay open forever.
 ImportEventuallyCommittable ==
     <>(~Live \/ \A r \in Rows: geocode[r] # "pending")
 

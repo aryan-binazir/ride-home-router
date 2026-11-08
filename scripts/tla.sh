@@ -7,10 +7,9 @@
 # Each verification/tla/<Spec>[.<check>].cfg must finish with no error.
 # Each verification/tla/mutations/<Spec>.<name>.cfg breaks a guard and must
 # fail on the property named in its "\* expect: invariant|property <Name>"
-# line, which proves the passing check can still fail.
+# line.
 #
-# TLC is tla2tools.jar v1.7.4, pinned by checksum and cached outside the
-# repo. Set TLA2TOOLS to use a local jar and JAVA to pick a Java 11+ binary.
+# Set TLA2TOOLS to use a local jar and JAVA to pick a Java 11+ binary.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -51,7 +50,6 @@ fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# tlc <spec.tla> <config> <log>
 tlc() {
 	local spec=$1 config=$2 log=$3
 	(cd "$dir" && "$java" -XX:+UseParallelGC -Djava.io.tmpdir="$work" -cp "$jar" tlc2.TLC \

@@ -1,41 +1,33 @@
 --------------------------- MODULE RouteSessionSave ---------------------------
 (***************************************************************************)
 (* Concurrent edits and saves of one durable route session, from any       *)
-(* number of browser tabs and server instances. See                         *)
-(* verification/tla/README.md for the coverage record, bounds and           *)
-(* assumptions.                                                             *)
-(*                                                                          *)
-(* Code (each action names the code it stands for):                         *)
-(*   internal/routesession/persistent.go  update, ResetContext,             *)
-(*                                        CommitEvent, DeleteContext        *)
-(*   internal/routesession/store.go       ApplyMoves and the other edits    *)
-(*   internal/postgres/workflows.go       Load, CompareAndSwap, Transact,   *)
-(*                                        Delete, CleanupWorkflows          *)
-(*   internal/handlers/events.go          commitEventSession, persistEvent, *)
-(*                                        HandleDeleteEvent                 *)
-(*   migrations/20260912211512_event_route_session.up.sql                   *)
-(*                                        events_route_session_id_idx       *)
-(*                                                                          *)
-(* Every durable edit (moves, swaps, driver changes, ResetContext) goes     *)
-(* through Store.update, in two steps as ADR 0008 asks:                     *)
-(* Load returns payload and revision without a lock; the edit is applied    *)
-(* and distances recalculated outside any transaction; CompareAndSwap then  *)
-(* writes the result under the row lock. The payload is modelled as the set *)
-(* of route edits it contains: an edit adds its id, a reset empties it.    *)
-(* The reviewer note is left out (a reset keeps it; the Event omits it).    *)
-(* The ghost "expected" applies each acknowledged request, in the order its *)
-(* write committed, to its own copy, so the payload must always equal it.   *)
-(* "Acknowledged" means the write committed; HTTP responses may still reach *)
-(* the browser in another order.                                            *)
-(*                                                                          *)
-(* A save is one step: CommitEvent runs inside Transact, which holds the    *)
-(* session row lock (FOR UPDATE) from the read until commit, and inserts    *)
-(* the Event in the same transaction.                                       *)
-(*                                                                          *)
-(* Each Guard* constant is one guard in the code, or a group of guards      *)
-(* that back each other up. The main config sets all of them TRUE. The     *)
-(* configs in mutations/ set some FALSE and must fail; scripts/tla.sh       *)
-(* checks both.                                                             *)
+(* number of browser tabs and server instances. See                        *)
+(* verification/tla/README.md.                                             *)
+(*                                                                         *)
+(* Code:                                                                   *)
+(*   internal/routesession/persistent.go  update, ResetContext,            *)
+(*                                        CommitEvent, DeleteContext       *)
+(*   internal/routesession/store.go       ApplyMoves and the other edits   *)
+(*   internal/postgres/workflows.go       Load, CompareAndSwap, Transact,  *)
+(*                                        Delete, CleanupWorkflows         *)
+(*   internal/handlers/events.go          commitEventSession,              *)
+(*                                        persistEvent, HandleDeleteEvent  *)
+(*   migrations/20260912211512_event_route_session.up.sql                  *)
+(*                                        events_route_session_id_idx      *)
+(*                                                                         *)
+(* Every durable edit (moves, swaps, driver changes, ResetContext) goes    *)
+(* through Store.update in two steps (ADR 0008): Load returns payload and  *)
+(* revision without a lock; the edit is applied and distances              *)
+(* recalculated outside any transaction; CompareAndSwap then writes under  *)
+(* the row lock. The payload is modelled as the set of route edits it      *)
+(* contains: an edit adds its id, a reset empties it. The reviewer note is *)
+(* left out (a reset keeps it; the Event omits it). The ghost "expected"   *)
+(* applies each acknowledged request, in the order its write committed,    *)
+(* to its own copy. "Acknowledged" means the write committed; HTTP         *)
+(* responses may still reach the browser in another order.                 *)
+(*                                                                         *)
+(* Each Guard* constant is one guard in the code, or a group of guards     *)
+(* that back each other up.                                                *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -55,7 +47,6 @@ CONSTANTS
 
 Requests == Edits \cup Resets
 
-\* The session payload after request q is applied to payload p.
 Apply(p, q) == IF q \in Resets THEN {} ELSE p \cup {q}
 
 VARIABLES
@@ -63,7 +54,7 @@ VARIABLES
     revision,     \* workflow_sessions.revision
     data,         \* workflow_sessions.payload: the edits it contains
     consumed,     \* workflow_sessions.consumed
-    pc,           \* request step
+    pc,
     seenRev,      \* revision returned by the request's Load
     seenData,     \* payload returned by the request's Load
     liveEvents,   \* Events rows for this route_session_id
@@ -124,8 +115,7 @@ EditLoads(q) ==
                    created, savedOk, ackAfterSave>>
 
 \* workflowRepository.CompareAndSwap, through Update and Transact: lock the
-\* row, reject a changed revision or a consumed record, write the payload
-\* the request computed from its Load, bump the revision.
+\* row, reject a changed revision or a consumed record.
 EditWrites(q) ==
     /\ pc[q] = "loaded"
     /\ IF /\ exists
@@ -140,13 +130,12 @@ EditWrites(q) ==
             /\ UNCHANGED <<data, revision, expected, ackAfterSave>>
     /\ UNCHANGED <<exists, consumed, seenRev, seenData, liveEvents, created, savedOk>>
 
-\* Store.CommitEvent inside Transact: lock the row, reject a consumed record
-\* with ErrAlreadyCommitted, build the CommitSnapshot from the payload,
-\* persistEvent -> CreateEvent in the same transaction, then mark the record
-\* consumed with payload {} and bump the revision. A failing CreateEvent
-\* (the unique index) rolls the whole transaction back. Not modelled: a later
-\* save of the cleared {} payload also fails eventsnapshot.Build (no route
-\* mode), a backstop outside CommitEvent's own contract.
+\* Store.CommitEvent inside Transact, one step: the row lock (FOR UPDATE) is
+\* held from the read until commit, and persistEvent -> CreateEvent runs in
+\* the same transaction; a failing CreateEvent (the unique index) rolls it
+\* all back. Not modelled: a later save of the cleared {} payload also fails
+\* eventsnapshot.Build (no route mode), a backstop outside CommitEvent's own
+\* contract.
 Save(s) ==
     /\ pc[s] = "start"
     /\ IF /\ exists
@@ -163,7 +152,7 @@ Save(s) ==
             /\ UNCHANGED <<liveEvents, created, savedOk, consumed, data, revision>>
     /\ UNCHANGED <<exists, seenRev, seenData, expected, ackAfterSave>>
 
-\* HandleDeleteEvent: the person deletes the saved Event later.
+\* HandleDeleteEvent.
 DeleteEvent(s) ==
     /\ s \in liveEvents
     /\ liveEvents' = liveEvents \ {s}
@@ -187,7 +176,6 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
-(* Properties.                                                             *)
 
 \* The live session holds exactly the acknowledged edits, applied in order:
 \* no edit reported as applied is silently undone by a concurrent one.
@@ -201,8 +189,8 @@ SavedEventMatchesAckedEdits == savedOk
 \* no longer reach the Event.
 NoEditAckedAfterSave == ~ackAfterSave
 
-\* One route session becomes at most one saved Event, however often Save is
-\* clicked, from however many tabs, and even after the Event is deleted.
+\* One route session becomes at most one saved Event, even after the Event
+\* is deleted.
 EventSavedAtMostOnce == created <= 1
 
 =============================================================================
