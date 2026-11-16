@@ -21,7 +21,7 @@ def main():
     wrapper.write_text('''#!/usr/bin/env python3
 import json, os, subprocess, sys, time
 args = sys.argv[1:]
-if args and args[0] == 'test' and '-json' not in args:
+if args and args[0] == 'test' and '-json' not in args and '-list' not in args:
     args.insert(1, '-json')
 start = time.monotonic()
 status = subprocess.call([os.environ['BENCH_REAL_GO'], *args])
