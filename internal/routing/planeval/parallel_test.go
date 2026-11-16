@@ -17,7 +17,7 @@ import (
 )
 
 func evaluationWorkers() (int, error) {
-	workers := min(4, runtime.GOMAXPROCS(0))
+	workers := min(2, runtime.GOMAXPROCS(0))
 	if value := os.Getenv("PLANNER_EVAL_WORKERS"); value != "" {
 		var err error
 		workers, err = strconv.Atoi(value)
