@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
-async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false} = {}) {
+async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false, inlineConfig = false, authSource = source} = {}) {
     const state = {heading: {hidden: true}, email: {hidden: true, textContent: ''}, listeners: {}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
     const clerk = {
         session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
@@ -15,7 +15,7 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
         signOut: options => { state.signOut = options; },
     };
     state.button.addEventListener = (_, callback) => { state.click = callback; };
-    await vm.runInNewContext(source, {
+    await vm.runInNewContext(authSource, {
         window: state.window = {Clerk: clerk},
         URL, Headers, Event,
         location: {pathname, search, href: 'https://app.example'+pathname+search, origin: 'https://app.example', replace: value => { state.redirect = value; }},
@@ -25,6 +25,7 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
             body: {prepend: node => { state.recovery = node; }},
             createElement: () => ({dataset: {}, setAttribute: () => {}, appendChild: node => { state.recoveryLink = node; }}),
             head: {appendChild: script => { state.script = script; if (scriptFails) script.onerror(); else script.onload(); }},
+            querySelector: () => inlineConfig ? {dataset: {publishableKey: 'pk_test_fixture', scriptUrl: 'https://fixture.clerk.accounts.dev/clerk.js'}} : null,
             querySelectorAll: () => [state.button],
         },
         fetch: async (url, options) => {
@@ -174,3 +175,29 @@ test('a speculative request shows recovery only once its caller would have sent 
     await assert.rejects(abandoned.window.authFetch('/api/v1/routes/session', {beforeRecovery: async () => { throw new Error('restore abandoned'); }}), /restore abandoned/);
     assert.equal(abandoned.recovery, undefined);
 });
+
+const before = fs.readFileSync(path.join(__dirname, '../../testdata/auth-before.js'), 'utf8');
+for (const scenario of [
+    {}, {signedIn: true}, {signedIn: true, status: 403},
+    {signedIn: true, status: 503}, {search: '?denied=1'},
+    {signedIn: true, search: '?denied=1', status: 503},
+    {configFails: true}, {clerkFails: true}, {scriptFails: true},
+    {pathname: '/participants', signedIn: true},
+    {pathname: '/participants', configFails: true},
+    {pathname: '/participants', clerkFails: true},
+    {pathname: '/participants', scriptFails: true},
+]) {
+    test(`auth output matches main: ${JSON.stringify(scenario)}`, async () => {
+        const old = await run({...scenario, authSource: before});
+        const updated = await run({...scenario, inlineConfig: !scenario.configFails});
+        const output = state => JSON.parse(JSON.stringify({
+            heading: state.heading, email: state.email, message: state.message,
+            retry: state.retry, button: state.button, options: state.options,
+            script: state.script, recovery: state.recovery, recoveryLink: state.recoveryLink,
+            redirect: state.redirect, loaded: state.loaded,
+            requests: state.requests.filter(url => url !== '/auth/config'),
+        }));
+        assert.deepEqual(output(updated), output(old));
+        assert.equal(updated.requests.includes('/auth/config'), !!scenario.configFails);
+    });
+}

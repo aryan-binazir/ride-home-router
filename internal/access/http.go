@@ -10,21 +10,22 @@ import (
 	"slices"
 )
 
-// The entire router must still be wrapped with Protect.
-func (a *Access) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /sign-in", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<!doctype html>
+func (a *Access) BrowserConfig() web.AuthConfig {
+	return web.AuthConfig{PublishableKey: a.cfg.PublishableKey, ScriptURL: a.issuer + "/npm/@clerk/clerk-js@5/dist/clerk.browser.js"}
+}
+
+var signInPage = template.Must(template.New("sign-in").Funcs(template.FuncMap{"asset": web.AssetURL}).Parse(web.AuthHeadTemplate + `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Sign in - Ride Home Router</title>
-<link rel="icon" type="image/svg+xml" href="` + web.AssetURL("img/favicon.svg") + `">
-<link rel="stylesheet" href="` + web.AssetURL("css/style.css") + `">
-<link rel="stylesheet" href="` + web.AssetURL("css/login.css") + `">
-<script src="` + web.AssetURL("js/auth.js") + `" defer></script>
+{{template "auth-head" .}}
+<link rel="icon" type="image/svg+xml" href="{{asset "img/favicon.svg"}}">
+<link rel="stylesheet" href="{{asset "css/style.css"}}">
+<link rel="stylesheet" href="{{asset "css/login.css"}}">
+<script src="{{asset "js/auth.js"}}" defer></script>
 </head>
 <body class="login-page">
 <main class="login-shell">
@@ -46,10 +47,16 @@ func (a *Access) Register(mux *http.ServeMux) {
 </main>
 </body>
 </html>`))
+
+// The entire router must still be wrapped with Protect.
+func (a *Access) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /sign-in", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = signInPage.Execute(w, a.BrowserConfig())
 	})
 	mux.HandleFunc("GET /auth/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"publishableKey": a.cfg.PublishableKey, "scriptURL": a.issuer + "/npm/@clerk/clerk-js@5/dist/clerk.browser.js"})
+		_ = json.NewEncoder(w).Encode(a.BrowserConfig())
 	})
 	mux.HandleFunc("/api/v1/access", a.manage)
 	mux.HandleFunc("GET /api/v1/access/admins", func(w http.ResponseWriter, r *http.Request) {

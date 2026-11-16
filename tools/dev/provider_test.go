@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"ride-home-router/internal/access"
@@ -174,5 +176,25 @@ func TestLoginAndRenewalRequireCapability(t *testing.T) {
 				t.Fatalf("%s accepted missing/wrong capability: %d", path, w.Code)
 			}
 		}
+	}
+}
+
+func TestLocalAuthResponseKeepsInlineConfigAndHintsOnStub(t *testing.T) {
+	p, err := newProvider("http://127.0.0.1:19876")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`<meta name="rhr-auth-config" data-script-url="https://%s/npm/@clerk/clerk-js@5/dist/clerk.browser.js"><link rel="preload" href="https://%s/npm/@clerk/clerk-js@5/dist/clerk.browser.js"><link rel="preconnect" href="https://%s">`, p.hostname, p.hostname, p.hostname)
+	response := &http.Response{Header: http.Header{"Content-Type": {"text/html; charset=utf-8"}}, Body: io.NopCloser(strings.NewReader(body))}
+	if err := p.localAuthResponse(response); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	local, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(local), p.hostname) || strings.Count(string(local), "/__dev/clerk.js") != 2 || !strings.Contains(string(local), `href="`+p.origin+`"`) || int64(len(local)) != response.ContentLength {
+		t.Fatalf("inline auth escaped local provider: %s", local)
 	}
 }

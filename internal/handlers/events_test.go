@@ -846,7 +846,7 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 	} {
 		templatesFS["templates/mobile/"+name] = &fstest.MapFile{Data: []byte(`{{define "mobile_content"}}test{{end}}`)}
 	}
-	renderer, err := templates.New(templatesFS)
+	renderer, err := templates.New(templatesFS, web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("load test templates: %v", err)
 	}

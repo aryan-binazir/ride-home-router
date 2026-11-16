@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 	"ride-home-router/internal/templateutil"
+	"ride-home-router/web"
 	"strings"
 )
 
@@ -34,8 +35,13 @@ type Renderer struct {
 	mobilePartials *template.Template
 }
 
-func New(templatesFS fs.FS) (*Renderer, error) {
-	base := template.New("").Funcs(templateutil.FuncMap())
+func New(templatesFS fs.FS, authConfig web.AuthConfig) (*Renderer, error) {
+	base := template.New("").Funcs(templateutil.FuncMap()).Funcs(template.FuncMap{
+		"authConfig": func() web.AuthConfig { return authConfig },
+	})
+	if _, err := base.Parse(web.AuthHeadTemplate); err != nil {
+		return nil, fmt.Errorf("parse auth head: %w", err)
+	}
 
 	layout, err := fs.ReadFile(templatesFS, "templates/layout.html")
 	if err != nil {

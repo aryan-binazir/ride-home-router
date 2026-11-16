@@ -9,7 +9,7 @@ import (
 func loadEmbeddedTemplates(t *testing.T) *templates.Renderer {
 	t.Helper()
 
-	renderer, err := templates.New(web.Templates)
+	renderer, err := templates.New(web.Templates, web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("load embedded templates: %v", err)
 	}
