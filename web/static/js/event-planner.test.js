@@ -2271,3 +2271,28 @@ test('failed timing reads and replaced-session failures do not lock the installe
     await settleEdits();
     assert.equal(old.orchestrator.hasPending(), false);
 });
+
+test('default ETA formatter matches the per-call Intl oracle across modes and time boundaries', () => {
+    const current = createRouteHandoff({ platform: {} });
+    const oracle = createRouteHandoff({ platform: {}, formatTime: value => new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric', minute: '2-digit',
+    }).format(value) });
+    for (const mode of ['pickup', 'dropoff']) {
+        for (const time of ['00:00', '12:00', '23:59', 'invalid']) {
+            for (const duration of ['0', '900', '86400', 'invalid']) {
+                const a = createRouteFixture({ mode });
+                const b = createRouteFixture({ mode });
+                for (const fixture of [a, b]) {
+                    fixture.container.dataset.routeTime = time;
+                    fixture.stop.dataset.stopCumulativeDurationSecs = duration;
+                    fixture.stopEta.textContent = 'stale';
+                }
+                current.populateEtas(a.container);
+                oracle.populateEtas(b.container);
+                assert.equal(a.stopEta.textContent, b.stopEta.textContent, `${mode}/${time}/${duration}`);
+                assert.deepEqual(a.container.dataset, b.container.dataset);
+                assert.deepEqual(a.stop.dataset, b.stop.dataset);
+            }
+        }
+    }
+});

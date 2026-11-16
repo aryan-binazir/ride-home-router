@@ -713,15 +713,18 @@
 
     const DROPOFF_ETA_SLACK_SECS = 2 * 60;
 
+    let clockTimeFormatter;
+
     function formatClockTime(value) {
         if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
             return '';
         }
 
-        return new Intl.DateTimeFormat(undefined, {
+        clockTimeFormatter ??= new Intl.DateTimeFormat(undefined, {
             hour: 'numeric',
             minute: '2-digit',
-        }).format(value);
+        });
+        return clockTimeFormatter.format(value);
     }
 
     function getStopEta(baseTime, cumulativeDurationSecs, routeDurationSecs, mode, formatTime) {
