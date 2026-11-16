@@ -448,6 +448,7 @@ func (l launcher) start(ctx context.Context, state *environment) error {
 	defer client.CloseIdleConnections()
 	for {
 		select {
+		//nolint:errcheck // The exit status is in dev.log, which the returned error points to.
 		case <-done:
 			return fmt.Errorf("dev runner exited; see %s", filepath.Join(l.directory, "dev.log"))
 		default:
