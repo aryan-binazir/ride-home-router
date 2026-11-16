@@ -36,6 +36,8 @@ Passing positive checks require exit zero, completion, a positive distinct-state
 
 Each TLC log must have exactly one final state summary and finish record; a negative control cannot also report positive completion. Each Go log must have exactly one package result. Mixed completion streams fail even when they contain the expected diagnostic.
 
+A Go test binary terminated by a signal is a tool failure even when `go test` returns 1 and the named assertion already failed. Signal diagnostics and runtime crash headers cannot count as mutation kills.
+
 Each run retains logs and `receipt.json` under `_scratch/tla/run-*`, including head, dirty state, all tracked input hashes, tool hashes, resource limits and check results. The combined command also retains a branch receipt under `_scratch/branch-gates/`. TLC state directories are removed after each check; logs and receipts remain. A retained input, working-tree or HEAD change invalidates it and prints the changed inputs. Receipts are evidence for that run, never reusable cached proof. Real-code mutation logs/receipts live under `_scratch/verification-mutations/run-*`. Run the gate again after changing the branch head.
 
 ## Model coverage

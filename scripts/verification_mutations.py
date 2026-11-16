@@ -57,7 +57,7 @@ def killed(case, status, events):
         and any(e.get("Test") == case["test"] and case["diagnostic"] in e.get("Output", "") for e in events)
         and not any(e.get("Action") in ('build-fail', 'skip') for e in events)
         and not any(e.get('Action') == 'fail' and e.get('Test') and not (case['test'] == e['Test'] or case['test'].startswith(e['Test'] + '/')) for e in events)
-        and not any(re.search(r'panic:|fatal error:|signal: killed|out of memory|WARNING: DATA RACE', e.get('Output', '')) for e in events)
+        and not any(re.search(r'panic:|fatal error:|signal:|\bSIG[A-Z]+:|out of memory|WARNING: DATA RACE', e.get('Output', '')) for e in events)
     )
 
 

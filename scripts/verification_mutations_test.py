@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import verification_mutations as mutations
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,30 @@ class MutationVerdictTest(unittest.TestCase):
             self.assertFalse(mutations.passed(self.case, 0, events))
         self.assertTrue(mutations.passed(self.case, 0, [{'Action': 'pass', 'Test': self.case['test']},
                                                      {'Action': 'pass', 'Package': 'example'}]))
+
+    def test_signaled_test_binary_is_not_a_named_kill(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'go.mod').write_text('module example.invalid/signalrepro\n\ngo 1.27\n')
+            (root / 'guard_test.go').write_text('''package signalrepro
+import ("os"; "syscall"; "testing")
+func TestGuard(t *testing.T) { t.Fatal("guard missing") }
+func TestMain(m *testing.M) {
+    code := m.Run()
+    if os.Getenv("RHR_MUTATION_SIGNAL_TEST") != "" {
+        _ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+        select {}
+    }
+    os.Exit(code)
+}
+''')
+            case = {'package': './...', 'run': '^TestGuard$', 'test': 'TestGuard', 'diagnostic': 'guard missing'}
+            with patch.object(mutations, 'ROOT', root):
+                for signal_mode, expected in (('', True), ('term', False)):
+                    with patch.dict(os.environ, RHR_MUTATION_SIGNAL_TEST=signal_mode):
+                        status, events = mutations.run_tests(case, root / f'{signal_mode or "normal"}.jsonl')
+                    self.assertEqual(status, 1)
+                    self.assertEqual(mutations.killed(case, status, events), expected)
 
 
 class MutationCLI(unittest.TestCase):
@@ -85,6 +110,8 @@ events=[]
 if overlay:
  events.append({'Action':'output','Package':'example','Test':'TestGuard','Output':'wrong reason' if mode=='wrong-diagnostic' else 'guard missing'})
 if mode=='go-timeout': events.append({'Action':'output','Output':'panic: test timed out after 90s'})
+if mode=='test-binary-signal': events.append({'Action':'output','Output':'signal: terminated'})
+if mode=='runtime-signal': events.append({'Action':'output','Output':'SIGSEGV: segmentation violation'})
 if mode=='compile': events.append({'Action':'build-fail'})
 if mode=='garbled-json': events.append({'Action':'output','Test':'TestGuard','Output':{}})
 events.append({'Action':action,'Package':'example','Test':'Other' if mode=='wrong-test' else 'TestGuard'})
@@ -138,7 +165,8 @@ sys.exit(1 if action=='fail' else 0)
         self.git('add', '.')
         self.git('commit', '-qm', 'one failure fixture')
         for fault in ('survives', 'wrong-diagnostic', 'wrong-test', 'compile', 'control-skip', 'unfinished',
-                      'missing-output', 'garbled', 'garbled-json', 'interleaved', 'truncated', 'oom-kill', 'crash', 'timeout', 'go-timeout'):
+                      'missing-output', 'garbled', 'garbled-json', 'interleaved', 'truncated', 'oom-kill', 'crash', 'timeout', 'go-timeout',
+                      'test-binary-signal', 'runtime-signal'):
             for jobs in (1, 3):
                 with self.subTest(fault=fault, jobs=jobs):
                     result, receipt = self.run_gate(jobs, fault)
