@@ -234,3 +234,24 @@ func TestRendererSharesAuthHeadAcrossDesktopAndMobile(t *testing.T) {
 		}
 	}
 }
+
+func TestLayoutDefinesAuthFetchBeforePageScripts(t *testing.T) {
+	renderer, err := templates.New(web.Templates, web.AuthConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := renderer.Render(&output, "settings.html", map[string]any{"Title": "Fixture", "ActivePage": "settings", "IsAdmin": true}); err != nil {
+		t.Fatal(err)
+	}
+	page := output.String()
+	auth := strings.Index(page, `js/auth.js`)
+	if auth < 0 {
+		t.Fatal("layout does not load auth.js")
+	}
+	for _, script := range []string{"js/settings.js", "js/event-planner.js", "js/editors.js", "js/roster.js"} {
+		if at := strings.Index(page, script); at < 0 || at < auth {
+			t.Errorf("%s must load after auth.js so its first requests use authFetch (auth.js at %d, %s at %d)", script, auth, script, at)
+		}
+	}
+}
