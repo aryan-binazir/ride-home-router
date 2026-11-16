@@ -102,14 +102,36 @@
     "source": "internal/access/access.go",
     "replace": [
       [
-        "identity.expires = time.Now().Add(30 * time.Second)",
-        "identity.expires = time.Now().Add(time.Hour)"
+        "const identityTTL = 30 * time.Second",
+        "const identityTTL = time.Hour"
       ]
     ],
     "package": "./internal/access",
     "run": "^TestVerificationIdentityCacheExpiry$",
     "test": "TestVerificationIdentityCacheExpiry",
     "diagnostic": "at expiry: 204"
+  },
+  {
+    "name": "identity-user-read-expiry",
+    "source": "internal/access/access.go",
+    "replace": [
+      ["identity.expires = result.expires", "identity.expires = time.Time{}"]
+    ],
+    "package": "./internal/access",
+    "run": "^TestClerkAcceptanceWindowFromLookupStart$/^session=200ms$/^user=100ms$/^deleted$/^at=1ns$",
+    "test": "TestClerkAcceptanceWindowFromLookupStart/session=200ms/user=100ms/deleted/at=1ns",
+    "diagnostic": "at anchored expiry: 204 want 401"
+  },
+  {
+    "name": "identity-terminal-denial-expiry",
+    "source": "internal/access/access.go",
+    "replace": [
+      ["if !identity.denied {", "if true {"]
+    ],
+    "package": "./internal/access",
+    "run": "^TestTerminalClerkDenialTTLStartsAtInsertion$/^session=200ms$/^user=100ms$/^banned$",
+    "test": "TestTerminalClerkDenialTTLStartsAtInsertion/session=200ms/user=100ms/banned",
+    "diagnostic": "before terminal-denial expiry: 204"
   },
   {
     "name": "jwt-expiry",

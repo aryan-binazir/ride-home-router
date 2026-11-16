@@ -40,6 +40,8 @@ type Store interface {
 	RecordAdminEmails(context.Context, []string) error
 }
 
+const identityTTL = 30 * time.Second
+
 type cachedIdentity struct {
 	userID  string
 	emails  []string
@@ -303,9 +305,19 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 		}
 		return identity, false, 0
 	}
-	// Ended sessions and deleted users stay denied, so remember them; otherwise
-	// replaying a token from a signed-out session costs a Clerk call per request.
 	denied := cachedIdentity{userID: userID, denied: true}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type userResult struct {
+		user    *clerk.User
+		err     error
+		expires time.Time
+	}
+	userDone := make(chan userResult, 1)
+	go func() {
+		user, err := a.users.Get(ctx, userID)
+		userDone <- userResult{user, err, time.Now().Add(identityTTL)}
+	}()
 	session, err := a.sessions.Get(ctx, sessionID)
 	if err != nil {
 		if clerkNotFound(err) {
@@ -320,7 +332,8 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 		a.rememberIdentity(sessionID, denied)
 		return cachedIdentity{}, true, http.StatusUnauthorized
 	}
-	user, err := a.users.Get(ctx, userID)
+	result := <-userDone
+	user, err := result.user, result.err
 	if err != nil {
 		if clerkNotFound(err) {
 			a.rememberIdentity(sessionID, denied)
@@ -331,6 +344,9 @@ func (a *Access) identity(ctx context.Context, sessionID, userID string) (cached
 		return cachedIdentity{}, true, http.StatusUnauthorized
 	}
 	identity := cachedIdentity{userID: user.ID, denied: user.Banned || user.Locked}
+	if !identity.denied {
+		identity.expires = result.expires
+	}
 	for _, email := range user.EmailAddresses {
 		if email == nil || email.Verification == nil || email.Verification.Status != "verified" {
 			continue
@@ -354,7 +370,9 @@ func (a *Access) lookupIdentity(sessionID string) (cachedIdentity, bool) {
 }
 
 func (a *Access) rememberIdentity(sessionID string, identity cachedIdentity) {
-	identity.expires = time.Now().Add(30 * time.Second)
+	if identity.expires.IsZero() {
+		identity.expires = time.Now().Add(identityTTL)
+	}
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
 	if a.identities == nil {
