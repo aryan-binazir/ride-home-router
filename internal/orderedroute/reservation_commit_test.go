@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-func dropCommitAcknowledgements(t *testing.T, parsed *url.URL, limit int32) (string, *atomic.Int32) {
+func dropCommitAcknowledgements(t *testing.T, parsed *url.URL, limit int32, beforeCommit ...bool) (string, *atomic.Int32) {
 	t.Helper()
 	upstreamAddress := parsed.Host
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
@@ -78,7 +78,11 @@ func dropCommitAcknowledgements(t *testing.T, parsed *url.URL, limit int32) (str
 					if err != nil {
 						break
 					}
-					if armed.Load() && packet[0] == 'C' && bytes.Equal(packet[5:], []byte("COMMIT\x00")) {
+					drop := armed.Load() && packet[0] == 'C' && bytes.Equal(packet[5:], []byte("COMMIT\x00"))
+					if len(beforeCommit) > 0 && beforeCommit[0] {
+						drop = packet[0] == 'C' && bytes.HasPrefix(packet[5:], []byte("UPDATE ")) && claimed.Add(1) <= limit
+					}
+					if drop {
 						dropped.Add(1)
 						break
 					}
@@ -206,5 +210,55 @@ func TestReservationUnknownCommitChargeBound(t *testing.T) {
 	candidate := runLostAckOutcome(t, true, 2)
 	if candidate.Successful != 0 || main.Successful != 0 || candidate.Reserved > main.Reserved {
 		t.Fatalf("candidate=%v exceeds main with every car faulted=%v", candidate, main)
+	}
+}
+
+func TestReservationConnectionLossBeforeCommitReachable(t *testing.T) {
+	for _, batch := range []bool{false, true} {
+		t.Run(fmt.Sprint(batch), func(t *testing.T) {
+			databaseURL := postgrestest.DatabaseURL(t)
+			ledger := postgrestest.OpenURL(t, databaseURL).GoogleUsage()
+			if err := ledger.SetCeiling(t.Context(), database.UsageSKURoutes, 100); err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(databaseURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxyURL, dropped := dropCommitAcknowledgements(t, parsed, 1, true)
+			proxyLedger := postgrestest.OpenURL(t, proxyURL).GoogleUsage()
+			firstDone := make(chan struct{})
+			server, _, _ := fakeRoutes(t, 500, 60)
+			client := newClient(staticKey("synthetic"), func(ctx context.Context, n int) error {
+				if !batch && n == 3 {
+					<-firstDone
+				}
+				err := proxyLedger.Reserve(ctx, database.UsageSKURoutes, n)
+				if n == 2 {
+					close(firstDone)
+				}
+				t.Logf("reservation units=%d errtype=%T err=%v", n, err, err)
+				return err
+			}, server.Client(), server.URL)
+			measure := client.measureBeforeBatching
+			if batch {
+				measure = client.Measure
+			}
+			results := measure(t.Context(), reservationRequests(0, 2, 3))
+			used, err := ledger.Reserved(t.Context(), database.UsageSKURoutes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			successful := 0
+			for _, r := range results {
+				if r.Err == nil {
+					successful++
+				}
+			}
+			t.Logf("batch=%v successful=%d reserved=%d dropped=%d", batch, successful, used, dropped.Load())
+			if dropped.Load() != 1 || successful != 2 || used != 3 {
+				t.Fatal("pre-commit connection loss differs from main")
+			}
+		})
 	}
 }
