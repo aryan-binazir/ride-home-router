@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"ride-home-router/internal/handlers"
 	"ride-home-router/web"
 	"strings"
@@ -24,18 +23,15 @@ func TestAssetCacheWarmVisit(t *testing.T) {
 	names := []string{"css/style.css", "css/editors.css", "js/htmx.min.js", "js/event-planner.js", "js/ui.js", "js/roster.js", "js/navigation.js", "js/editors.js", "js/auth.js"}
 	cold, warm, revalidations := 0, 0, 0
 	for _, name := range names {
-		headers := filepath.Join(t.TempDir(), "headers")
 		target := server.URL + web.AssetURL(name)
-		request := func(args ...string) string {
-			cmd := exec.CommandContext(t.Context(), "curl", append([]string{"--silent", "--show-error", "--fail", "--dump-header", headers, "--output", os.DevNull}, append(args, target)...)...)
-			if out, err := cmd.CombinedOutput(); err != nil {
+		request := func() string {
+			//nolint:gosec // The executable is fixed and the URL belongs to this test's loopback server.
+			cmd := exec.CommandContext(t.Context(), "curl", "--silent", "--show-error", "--fail", "--dump-header", "-", "--output", os.DevNull, target)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
 				t.Fatalf("curl: %v: %s", err, out)
 			}
-			b, err := os.ReadFile(headers)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return strings.ToLower(string(b))
+			return strings.ToLower(string(out))
 		}
 		h := request()
 		cold++
