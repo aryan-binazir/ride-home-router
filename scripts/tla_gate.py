@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 import urllib.request
-from verification_context import Snapshot, SignalInterrupted, digest, install_signal_handlers, run_command
+from verification_context import Snapshot, SignalInterrupted, concurrent_checks, digest, install_signal_handlers, run_command
 
 ROOT = Path(__file__).resolve().parents[1]
 DIR = ROOT / 'verification/tla'
@@ -51,12 +51,15 @@ def inventory():
 
 def classify(code, output, expected):
     errors = re.findall(r'^Error: (.*)$', output, re.M)
-    finished = bool(re.search(r'^Finished in .+', output, re.M))
+    finished = re.findall(r'^Finished in .+', output, re.M)
     counts = re.findall(r'([\d,]+) states generated, ([\d,]+) distinct states found, ([\d,]+) states left on queue\.', output)
-    if not finished or not counts or int(counts[-1][1].replace(',', '')) <= 0:
+    summaries = re.findall(r'^[\d,]+ states generated, [\d,]+ distinct states found, [\d,]+ states left on queue\.', output, re.M)
+    if not output.endswith('\n') or len(finished) != 1 or len(summaries) != 1 or not counts or int(counts[-1][1].replace(',', '')) <= 0:
         return False
     if expected is None:
         return code == 0 and not errors and int(counts[-1][2].replace(',', '')) == 0 and output.count('Model checking completed. No error has been found.') == 1
+    if 'Model checking completed. No error has been found.' in output:
+        return False
     if expected['kind'] == 'invariant':
         return code == 12 and errors == [f"Invariant {expected['name']} is violated.", 'The behavior up to this point is:']
     return code == 13 and errors == ['Temporal properties were violated.', 'The following behavior constitutes a counter-example:']
@@ -112,31 +115,46 @@ def main():
     workers = int(os.environ.get("TLA_WORKERS", "2"))
     heap = int(os.environ.get("TLA_HEAP_MB", "2048"))
     timeout = float(os.environ.get("TLA_TIMEOUT_SECONDS", "900"))
+    jobs = int(os.environ.get("TLA_JOBS", "4"))
     if not (1 <= workers <= 4 and 128 <= heap <= 8192 and 0 < timeout <= 3600):
         raise ValueError("limits: workers 1..4, heap 128..8192 MB, timeout >0..3600 seconds")
+    if not 1 <= jobs <= 4 or jobs * heap > 8192:
+        raise ValueError("limits: jobs 1..4, total Java heap <=8192 MB")
     logs = ROOT / "_scratch/tla"
     logs.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=logs))
     java_path = Path(shutil.which(java) or java).resolve()
     receipt = snapshot.receipt
-    receipt["runtime"] = {"java": str(java_path), "java_sha256": digest(java_path), "jar_sha256": SHA, "workers": workers, "heap_mb": heap, "timeout_seconds": timeout}
+    receipt["runtime"] = {"java": str(java_path), "java_sha256": digest(java_path), "jar_sha256": SHA, "workers": workers, "heap_mb": heap, "timeout_seconds": timeout, "jobs": jobs}
     receipt["checks"] = []
+    receipt["complete"] = False
+    (run / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print(f'{"PARTIAL developer run" if selected else "FULL gate"} at {snapshot.head}; logs: {run}', flush=True)
-    try:
-        for name in names:
-            log = run / (name.replace("/", "__") + ".log")
-            start = time.monotonic()
-            with tempfile.TemporaryDirectory(prefix="states-", dir=run) as metadir, log.open("w") as stream:
-                command = [java, f"-Xmx{heap}m", "-XX:+UseParallelGC", f"-XX:ActiveProcessorCount={workers}", f"-Djava.io.tmpdir={run}", "-cp", str(jar.resolve()), "tlc2.TLC", "-workers", str(workers), "-cleanup", "-metadir", metadir, "-config", name, checks[name]["spec"]]
-                try:
-                    code = run_command(command, cwd=DIR, stdout=stream, timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    code = -9
+
+    def check(name, cancelled):
+        log = run / (name.replace("/", "__") + ".log")
+        start = time.monotonic()
+        code = -1
+        try:
+            with tempfile.TemporaryDirectory(prefix="task-", dir=run) as temporary, log.open("w") as stream:
+                command = [java, f"-Xmx{heap}m", "-XX:+UseParallelGC", f"-XX:ActiveProcessorCount={workers}", f"-Djava.io.tmpdir={temporary}", "-cp", str(jar.resolve()), "tlc2.TLC", "-workers", str(workers), "-cleanup", "-metadir", str(Path(temporary) / "states"), "-config", name, checks[name]["spec"]]
+                code = run_command(command, cwd=DIR, stdout=stream, timeout=timeout, cancelled=cancelled)
             ok = classify(code, log.read_text(), checks[name]["expected"])
-            receipt["checks"].append({"config": name, "exit": code, "ok": ok, "seconds": round(time.monotonic() - start, 3), "log": str(log)})
-            print(f'{"ok" if ok else "FAIL"} {name} (exit {code})', flush=True)
-            if not ok:
-                print("\n".join(log.read_text().splitlines()[-15:]))
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            if isinstance(error, subprocess.TimeoutExpired):
+                code = -9
+            ok = False
+            with log.open("a") as stream:
+                stream.write(f"\nRunner failure: {error}\n")
+        return {"config": name, "exit": code, "ok": ok, "seconds": round(time.monotonic() - start, 3), "log": str(log)}
+
+    try:
+        with concurrent_checks(names, check, jobs) as results:
+            for result in results:
+                receipt["checks"].append(result)
+                print(f'{"ok" if result["ok"] else "FAIL"} {result["config"]} (exit {result["exit"]})', flush=True)
+                if not result["ok"]:
+                    print("\n".join(Path(result["log"]).read_text(errors="replace").splitlines()[-15:]))
     finally:
         unchanged = snapshot.finish()
         receipt["complete"] = len(receipt["checks"]) == len(names)
