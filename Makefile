@@ -55,7 +55,7 @@ vet:
 
 test: test-verification-tools
 	node --test web/static/js/*.test.js
-	go test -race -count=1 -coverprofile=coverage.out ./...
+	python3 scripts/test_go.py
 
 test-unit: test-verification-tools
 	node --test web/static/js/*.test.js
