@@ -46,7 +46,9 @@ def passed(case, status, events):
 
 def completed(events, action):
     terminals = [e for e in events if e.get('Action') in ('pass', 'fail', 'skip') and not e.get('Test') and e.get('Package')]
-    return len(terminals) == 1 and terminals[0] is events[-1] and events[-1].get('Action') == action
+    started = {(e.get('Package'), e['Test']) for e in events if e.get('Action') == 'run' and e.get('Test')}
+    ended = {(e.get('Package'), e['Test']) for e in events if e.get('Action') in ('pass', 'fail', 'skip') and e.get('Test')}
+    return len(terminals) == 1 and terminals[0] is events[-1] and events[-1].get('Action') == action and started <= ended
 
 
 def killed(case, status, events):

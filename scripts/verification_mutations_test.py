@@ -27,6 +27,12 @@ class MutationVerdictTest(unittest.TestCase):
                                (1, [{'Action': 'output', 'Output': 'panic: test timed out after 90s'}] + self.failure)]:
             self.assertFalse(mutations.killed(self.case, status, events))
 
+    def test_test_that_never_finished_is_not_a_kill_or_a_pass(self):
+        started = [{'Action': 'run', 'Test': 'TestGuard'}, {'Action': 'run', 'Test': 'TestGuard/lease'}]
+        self.assertFalse(mutations.killed(self.case, 1, started + self.failure))
+        self.assertTrue(mutations.killed(self.case, 1, started + self.failure[:2] + [{'Action': 'fail', 'Test': 'TestGuard'}, self.failure[-1]]))
+        self.assertFalse(mutations.passed(self.case, 0, started + [{'Action': 'pass', 'Test': self.case['test']}, {'Action': 'pass', 'Package': 'example'}]))
+
     def test_skip_or_incomplete_control_is_not_a_pass(self):
         for events in [[{'Action': 'skip', 'Test': self.case['test']}], [{'Action': 'pass', 'Package': 'example'}],
                        [{'Action': 'pass', 'Test': self.case['test']}]]:
