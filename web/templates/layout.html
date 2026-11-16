@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="{{asset "img/favicon.svg"}}">
     <link rel="stylesheet" href="{{asset "css/style.css"}}">
     {{if eq .ActivePage "home"}}<script>document.documentElement.classList.add('planner-restoring');</script>{{end}}
+    <script src="{{asset "js/auth.js"}}" defer></script>
     {{if eq .ActivePage "settings"}}{{if .IsAdmin}}
     <script>document.documentElement.classList.add('settings-restoring');</script>
     <script src="{{asset "js/settings.js"}}" defer onerror="document.documentElement.classList.add('settings-load-failed')"></script>
@@ -20,7 +21,6 @@
     <script src="{{asset "js/navigation.js"}}" defer></script>
     <link rel="stylesheet" href="{{asset "css/editors.css"}}">
     <script src="{{asset "js/editors.js"}}" defer></script>
-    <script src="{{asset "js/auth.js"}}" defer></script>
 </head>
 <body class="{{if eq .ActivePage "home"}}planner-page{{else}}standard-page{{end}}">
     <div class="app-shell">
