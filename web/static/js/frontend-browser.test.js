@@ -69,8 +69,9 @@ async function runBrowserCDP([executable, file, width, height, selector]) {
     } finally {
         socket?.close();
         if (child.exitCode === null && child.signalCode === null) {
+            const exited = once(child, 'exit');
             child.kill();
-            await Promise.race([once(child, 'exit'), pause(1000)]);
+            await exited;
         }
         fs.rmSync(directory, {recursive: true, force: true});
     }
