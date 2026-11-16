@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"ride-home-router/internal/distance"
@@ -266,13 +264,7 @@ func TestPlannerEvaluation(t *testing.T) {
 	if os.Getenv("PLANNER_EVAL") != "1" {
 		t.Skip("set PLANNER_EVAL=1 (make eval) to run the planner evaluation suite")
 	}
-	previous := log.Writer()
-	log.SetOutput(io.Discard)
-	t.Cleanup(func() { log.SetOutput(previous) })
-	results, err := Run(context.Background(), func() routing.Router { return routing.NewBalancedRouter(distance.NewEstimator()) }, Scenarios(), 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	results := runEvaluation(t)
 	t.Log("\n" + Table(results))
 	path := filepath.Join("testdata", "baseline.json")
 	var baseline []Result
