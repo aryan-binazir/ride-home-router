@@ -1,6 +1,6 @@
 module ride-home-router
 
-go 1.27
+go 1.27.4
 
 require (
 	github.com/clerk/clerk-sdk-go/v2 v2.7.0

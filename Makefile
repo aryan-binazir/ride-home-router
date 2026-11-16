@@ -41,7 +41,7 @@ check-branch:
 	python3 scripts/verification_context.py $(MAKE) -j1 check eval tla verification-mutations
 
 lint:
-	golangci-lint run ./...
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(shell cat .golangci-lint-version) run --allow-parallel-runners ./...
 
 verify:
 	go mod tidy -diff

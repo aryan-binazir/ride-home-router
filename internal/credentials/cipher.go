@@ -34,6 +34,7 @@ func (c *Cipher) Seal(plaintext, purpose string) (string, error) {
 	if c == nil {
 		return "", errors.New("credential encryption is not configured")
 	}
+	//nolint:gosec // G407: NewGCMWithRandomNonce generates the nonce itself and requires a nil one here.
 	return prefix + base64.StdEncoding.EncodeToString(c.aead.Seal(nil, nil, []byte(plaintext), []byte(purpose))), nil
 }
 

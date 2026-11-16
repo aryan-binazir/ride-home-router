@@ -129,6 +129,7 @@ func TestParallelCalculationJoinsWorkersOnParentCancellation(t *testing.T) {
 		case <-deadline.C:
 			cancel()
 			select {
+			//nolint:errcheck // Only completion matters: the test fails on the next line either way.
 			case <-done:
 			case <-time.After(5 * time.Second):
 				t.Fatal("calculation ignored cancellation")
