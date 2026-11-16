@@ -1,0 +1,226 @@
+{
+  "before": [
+    {
+      "profile": "desktop",
+      "visible": 2251,
+      "load": 102.06,
+      "starts": {
+        "planner/location-editor": 235,
+        "planner/participants": 296,
+        "planner/drivers": 356,
+        "routes/session": 433
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 1921,
+      "load": 107.42,
+      "starts": {
+        "planner/location-editor": 121,
+        "planner/participants": 158,
+        "planner/drivers": 196,
+        "routes/session": 228
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 1545,
+      "load": 107.42,
+      "starts": {
+        "planner/location-editor": 73,
+        "planner/participants": 183,
+        "planner/drivers": 236,
+        "routes/session": 262
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 1182,
+      "load": 109.07,
+      "starts": {
+        "planner/location-editor": 81,
+        "planner/participants": 115,
+        "planner/drivers": 134,
+        "routes/session": 169
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 1543,
+      "load": 109.07,
+      "starts": {
+        "planner/location-editor": 182,
+        "planner/participants": 569,
+        "planner/drivers": 710,
+        "routes/session": 764
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 2075,
+      "load": 108.72,
+      "starts": {
+        "planner/location-editor": 399,
+        "planner/participants": 616,
+        "planner/drivers": 836,
+        "routes/session": 1105
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 2492,
+      "load": 109.23,
+      "starts": {
+        "planner/location-editor": 448,
+        "planner/participants": 671,
+        "planner/drivers": 901,
+        "routes/session": 1261
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 2500,
+      "load": 109.23,
+      "starts": {
+        "planner/location-editor": 334,
+        "planner/participants": 547,
+        "planner/drivers": 764,
+        "routes/session": 1020
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 2534,
+      "load": 110.17,
+      "starts": {
+        "planner/location-editor": 356,
+        "planner/participants": 901,
+        "planner/drivers": 1140,
+        "routes/session": 1394
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 1877,
+      "load": 110.17,
+      "starts": {
+        "planner/location-editor": 426,
+        "planner/participants": 658,
+        "planner/drivers": 868,
+        "routes/session": 1134
+      }
+    }
+  ],
+  "after": [
+    {
+      "profile": "desktop",
+      "visible": 5404,
+      "load": 102.54,
+      "starts": {
+        "planner/participants": 114,
+        "planner/location-editor": 112,
+        "planner/drivers": 115,
+        "routes/session": 118
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 1898,
+      "load": 102.54,
+      "starts": {
+        "planner/location-editor": 73,
+        "planner/participants": 74,
+        "planner/drivers": 78,
+        "routes/session": 99
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 693,
+      "load": 102.54,
+      "starts": {
+        "planner/location-editor": 101,
+        "planner/participants": 103,
+        "planner/drivers": 104,
+        "routes/session": 109
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 778,
+      "load": 109.07,
+      "starts": {
+        "planner/location-editor": 72,
+        "planner/participants": 73,
+        "planner/drivers": 73,
+        "routes/session": 76
+      }
+    },
+    {
+      "profile": "desktop",
+      "visible": 472,
+      "load": 109.07,
+      "starts": {
+        "planner/location-editor": 52,
+        "planner/participants": 52,
+        "planner/drivers": 54,
+        "routes/session": 56
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 2061,
+      "load": 121.05,
+      "starts": {
+        "planner/location-editor": 338,
+        "planner/participants": 348,
+        "planner/drivers": 358,
+        "routes/session": 381
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 1826,
+      "load": 121.69,
+      "starts": {
+        "planner/location-editor": 393,
+        "planner/participants": 397,
+        "planner/drivers": 399,
+        "routes/session": 409
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 1455,
+      "load": 121.69,
+      "starts": {
+        "planner/location-editor": 474,
+        "routes/session": 497,
+        "planner/participants": 482,
+        "planner/drivers": 485
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 1405,
+      "load": 127.56,
+      "starts": {
+        "planner/location-editor": 351,
+        "planner/participants": 356,
+        "planner/drivers": 359,
+        "routes/session": 368
+      }
+    },
+    {
+      "profile": "mobile",
+      "visible": 1333,
+      "load": 127.56,
+      "starts": {
+        "planner/location-editor": 409,
+        "routes/session": 457,
+        "planner/participants": 411,
+        "planner/drivers": 418
+      }
+    }
+  ]
+}

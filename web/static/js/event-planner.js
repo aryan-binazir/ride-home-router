@@ -93,9 +93,13 @@
             abortRestore();
             restoreController = new AbortController();
             restoreFingerprint = readFingerprint();
-            const requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
+            let requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
             return {
                 signal: restoreController.signal,
+                draftRestored() {
+                    restoreFingerprint = readFingerprint();
+                    requestedFingerprint = session.fingerprint === null ? restoreFingerprint : session.fingerprint;
+                },
                 commit: id => markCalculated(id, requestedFingerprint),
                 finish() {
                     restoreController = null;
@@ -1515,29 +1519,31 @@
             if (calculate) calculate.disabled = true;
             let restored = false;
             try {
-                let activityLocation = form.querySelector('select[name="activity_location_id"]');
-                if (activityLocation && typeof draft.activityLocationId === 'string') {
-                    if (activityLocation.dataset?.onDemand && draft.activityLocationId) {
-                        if (!await restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
-                        activityLocation = form.querySelector('select[name="activity_location_id"]');
+                const fieldsRestored = (async () => {
+                    let activityLocation = form.querySelector('select[name="activity_location_id"]');
+                    if (activityLocation && typeof draft.activityLocationId === 'string') {
+                        if (activityLocation.dataset?.onDemand && draft.activityLocationId) {
+                            if (!await restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
+                            activityLocation = form.querySelector('select[name="activity_location_id"]');
+                        }
+                        activityLocation.value = draft.activityLocationId;
                     }
-                    activityLocation.value = draft.activityLocationId;
-                }
 
-                const mode = typeof draft.mode === 'string' && EVENT_PLANNER_MODES.has(draft.mode)
-                    ? draft.mode
-                    : null;
-                if (mode) {
-                    const modeInput = form.querySelector(`input[name="mode"][value="${mode}"]`);
-                    if (modeInput) modeInput.checked = true;
-                }
+                    const mode = typeof draft.mode === 'string' && EVENT_PLANNER_MODES.has(draft.mode)
+                        ? draft.mode
+                        : null;
+                    if (mode) {
+                        const modeInput = form.querySelector(`input[name="mode"][value="${mode}"]`);
+                        if (modeInput) modeInput.checked = true;
+                    }
 
-                const routeTime = form.querySelector('input[name="route_time"]');
-                if (routeTime && typeof draft.routeTime === 'string') {
-                    routeTime.value = draft.routeTime;
-                }
+                    const routeTime = form.querySelector('input[name="route_time"]');
+                    if (routeTime && typeof draft.routeTime === 'string') {
+                        routeTime.value = draft.routeTime;
+                    }
 
-                await planSelection.restore(draft);
+                })();
+                await planSelection.restore(draft, fieldsRestored);
                 restored = true;
             } finally {
                 plannerRestoreFailed = !restored;
@@ -1764,7 +1770,7 @@
             const pickerRequests = new Map();
             const pickerSearchTimers = new Map();
 
-            async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null) {
+            async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null, after = null) {
                 if (!['participants', 'drivers'].includes(kind)) return false;
                 const current = document.getElementById(`${kind}-picker`);
                 if (!current) return false;
@@ -1781,8 +1787,12 @@
                 const controller = new AbortController();
                 pickerRequests.set(kind, controller);
                 try {
-                    const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
-                    const html = await response.text();
+                    const received = (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal})
+                        .then(async response => ({response, html: await response.text()}))
+                        .catch(error => ({error}));
+                    if (after) await after;
+                    const {response, html, error} = await received;
+                    if (error) throw error;
                     if (pickerRequests.get(kind) !== controller) return false;
                     if (!response.ok) { showRouteError(html, response.headers?.get('HX-Trigger')); return false; }
                     const template = document.createElement('template');
@@ -1819,6 +1829,7 @@
                     saveEventPlannerDraft();
                     return true;
                 } catch (error) {
+                    if (after) await after;
                     if (error.name !== 'AbortError') showToast('Could not load people. Please try again.', 'error');
                     return false;
                 } finally { if (pickerRequests.get(kind) === controller) pickerRequests.delete(kind); }
@@ -1916,11 +1927,16 @@
                 };
             }
 
-            async function restore(draft) {
+            async function restore(draft, after) {
                 const form = getEventForm();
                 for (const kind of ['participants', 'drivers']) {
-                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource && !await requestPlannerPicker(kind, 0, false, draft)) throw new Error('could not restore selected people');
+                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource) {
+                        after = requestPlannerPicker(kind, 0, false, draft, after).then(restored => {
+                            if (!restored) throw new Error('could not restore selected people');
+                        });
+                    }
                 }
+                await after;
                 applyCheckedValues('.participant-checkbox', draft.participantIds);
                 applyCheckedValues('.driver-checkbox', draft.driverIds);
                 applyPlannerLabelFilters(draft.labelFilters);
@@ -2153,32 +2169,40 @@
             }
         });
 
-        function restoreRouteSession(session) {
+        function restoreRouteSession(session, restoredDraft) {
             var resultsSection = document.getElementById('results-section');
             if (!resultsSection) return;
 
             const restore = plannerState.beginRestore(session);
 
-            return (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
+            const received = (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
                 signal: AbortSignal.any([restore.signal, AbortSignal.timeout(15000)])
             })
-            .then(function(response) {
+            .then(async response => ({response, html: response.status === 204 || !response.ok ? null : await response.text()}))
+            .catch(error => ({error}));
+
+            return restoredDraft.then(async function() {
+                restore.draftRestored();
+                const {response, html, error} = await received;
+                if (restore.signal.aborted) return null;
+                if (error) throw error;
                 if (response.status === 204 || !response.ok) {
                     showToast('That route plan expired. Calculate routes again.', 'warning');
                     plannerState.clear();
                     return null;
                 }
-                return response.text();
+                return html;
             })
             .then(function(html) {
-                if (html) {
+                if (html && !restore.signal.aborted) {
                     installRouteResults({ target: resultsSection, html, htmx, afterRender: refreshResultsView });
                     restore.commit(getSessionId());
                 }
             })
-            .catch(function(err) {
-                if (err.name !== 'AbortError') {
+            .catch(async function(err) {
+                try { await restoredDraft; } catch { return; }
+                if (err.name !== 'AbortError' && !restore.signal.aborted) {
                     console.warn('Failed to restore route session', err);
                     showToast('Could not restore your routes. Check your connection and try again.', 'error');
                     plannerState.clear();
@@ -2196,10 +2220,9 @@
             ensureDefaultRouteTime();
 
             const activeSession = plannerState.restoreCandidate();
-            restoredDraft.then(() => {
-                planSelection.refreshStats();
-                if (activeSession) return restoreRouteSession(activeSession);
-            }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
+            const draftReady = restoredDraft.then(() => planSelection.refreshStats());
+            const restoredSession = activeSession ? restoreRouteSession(activeSession, draftReady) : null;
+            draftReady.then(() => restoredSession).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
                 .finally(() => document.documentElement?.classList.remove('planner-restoring'));
 
             function readCapacityShortageFingerprint(recalcForm) {

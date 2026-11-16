@@ -1030,7 +1030,7 @@ function storedSessionId(planner) {
 
 const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8');
 
-function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null, restoreStatus = 200 } = {}) {
+function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null, restoreStatus = 200, restoreFetch = null } = {}) {
     const initialSessionId = storedSession?.id || legacySessionId || 'session-1';
     const participants = ['1', '2'].map(value => domNode('input', {
         classes: ['participant-checkbox'],
@@ -1182,10 +1182,10 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         AbortController,
         AbortSignal,
         htmx: { process() {} },
-        fetch: async (url, options) => {
+        fetch: restoreFetch || (async (url, options) => {
             fetches.push({ url, options });
             return { ok: restoreStatus >= 200 && restoreStatus < 300, status: restoreStatus, text: async () => '<div>routes</div>' };
-        },
+        }),
         setTimeout: callback => {
             nextTimeoutId += 1;
             scheduledCallbacks.set(nextTimeoutId, callback);
@@ -1231,7 +1231,7 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
             for (const callback of callbacks) await callback();
         },
         async settleRestore() {
-            for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+            await new Promise(resolve => setImmediate(resolve));
         },
         saveSucceeded() {
             const saveResult = domNode('div', {
@@ -2129,9 +2129,8 @@ test('summarizeMeasuredCards adds up occupied cars only once every one of them h
 });
 
 test('planner stays hidden until saved route restoration finishes', async () => {
-    const app = bootPlanner({storedSession: {id: 'restored-session', fingerprint: 'saved'}});
     let resolveRequest;
-    app.context.fetch = () => new Promise(resolve => { resolveRequest = resolve; });
+    const app = bootPlanner({storedSession: {id: 'restored-session', fingerprint: 'saved'}, restoreFetch: () => new Promise(resolve => { resolveRequest = resolve; })});
     for (let turn = 0; turn < 12; turn++) await Promise.resolve();
     assert.equal(app.document.documentElement.classList.contains('planner-restoring'), true);
     assert.equal(typeof resolveRequest, 'function');
@@ -2270,4 +2269,25 @@ test('failed timing reads and replaced-session failures do not lock the installe
     assert.equal(await pending, false);
     await settleEdits();
     assert.equal(old.orchestrator.hasPending(), false);
+});
+
+test('early legacy restore captures the completed draft fingerprint', () => {
+    let fingerprint = 'empty';
+    const state = createPlannerState({readFingerprint: () => fingerprint, storage: {getItem() {},setItem() {},removeItem() {}},onChange() {}});
+    const restore = state.beginRestore({id:'legacy',fingerprint:null});
+    fingerprint = 'restored-draft';
+    restore.draftRestored();
+    restore.commit('legacy');
+    assert.equal(state.getSnapshot().status,'current');
+    restore.finish();
+});
+
+test('calculate discards an early session response even when fetch ignores abort', async () => {
+    let resolveRequest;
+    const app = bootPlanner({legacySessionId:'old',restoreFetch: () => new Promise(resolve => {resolveRequest=resolve;})});
+    app.startCalculation();
+    resolveRequest({ok:true,status:200,text:async()=>'<div>old routes</div>'});
+    await app.settleRestore();
+    assert.equal(app.resultsSection.innerHTML.includes('old routes'),false);
+    assert.equal(app.document.documentElement.classList.contains('planner-restoring'),false);
 });
