@@ -20,6 +20,12 @@ const (
 
 var ErrUsageExhausted = errors.New("google usage ceiling reached for this month")
 
+// UncommittedUsageError guarantees that the failed reservation charged no units.
+type UncommittedUsageError struct{ Err error }
+
+func (e *UncommittedUsageError) Error() string { return e.Err.Error() }
+func (e *UncommittedUsageError) Unwrap() error { return e.Err }
+
 // GoogleUsageLedger reserves provider attempts before they are dispatched so
 // spend stays inside the free tier by construction. Reservations are never
 // released: a failed or abandoned attempt still counts.

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"strconv"
@@ -83,8 +84,8 @@ func RequestsFor(points int) int {
 	return (legs + maxPointsPerRequest - 2) / (maxPointsPerRequest - 1)
 }
 
-// Measure returns one result per request, in order. Every billable attempt for
-// the whole batch is reserved first; if the ledger refuses, nothing is sent.
+// Measure returns one result per request, in order. Reservations cover whole
+// groups; a refused batch falls back to reserving each group independently.
 func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 	results := make([]Result, len(requests))
 	for i := range requests {
@@ -111,7 +112,9 @@ func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 
 	groups := make(map[string][]int)
 	var order []string
+	attempts := 0
 	for i, request := range requests {
+		attempts += RequestsFor(len(request.Points))
 		group := request.Group
 		if group == "" {
 			group = request.ID
@@ -121,6 +124,20 @@ func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 		}
 		groups[group] = append(groups[group], i)
 	}
+	reserved := false
+	if len(order) > 1 {
+		err := c.reserve(ctx, attempts)
+		if err != nil && !errors.Is(err, database.ErrUsageExhausted) {
+			if _, uncommitted := errors.AsType[*database.UncommittedUsageError](err); !uncommitted {
+				return failAll(fmt.Errorf("orderedroute: %w", err))
+			}
+			for _, index := range groups[order[0]] {
+				results[index].Err = fmt.Errorf("orderedroute: %w", err)
+			}
+			order = order[1:]
+		}
+		reserved = err == nil
+	}
 	var wg sync.WaitGroup
 	for _, group := range order {
 		indexes := groups[group]
@@ -129,11 +146,13 @@ func (c *Client) Measure(ctx context.Context, requests []Request) []Result {
 			for _, index := range indexes {
 				attempts += RequestsFor(len(requests[index].Points))
 			}
-			if err := c.reserve(ctx, attempts); err != nil {
-				for _, index := range indexes {
-					results[index].Err = fmt.Errorf("orderedroute: %w", err)
+			if !reserved {
+				if err := c.reserve(ctx, attempts); err != nil {
+					for _, index := range indexes {
+						results[index].Err = fmt.Errorf("orderedroute: %w", err)
+					}
+					return
 				}
-				return
 			}
 			var inner sync.WaitGroup
 			for _, index := range indexes {

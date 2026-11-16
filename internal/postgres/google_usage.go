@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"ride-home-router/internal/database"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type googleUsageRepository struct{ db *sql.DB }
@@ -25,11 +28,11 @@ func (r *googleUsageRepository) Reserve(ctx context.Context, sku database.UsageS
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return &database.UncommittedUsageError{Err: err}
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := r.ensureRow(ctx, tx, sku); err != nil {
-		return err
+		return &database.UncommittedUsageError{Err: err}
 	}
 	var reserved int
 	err = tx.QueryRowContext(ctx, `UPDATE google_usage SET reserved = reserved + $2 WHERE month_start = `+googleBillingMonth+` AND sku = $1 AND reserved + $2 <= ceiling RETURNING reserved`, string(sku), attempts).Scan(&reserved)
@@ -37,9 +40,18 @@ func (r *googleUsageRepository) Reserve(ctx context.Context, sku database.UsageS
 		return database.ErrUsageExhausted
 	}
 	if err != nil {
-		return err
+		return &database.UncommittedUsageError{Err: err}
 	}
-	return tx.Commit()
+	if err := ctx.Err(); err != nil {
+		return &database.UncommittedUsageError{Err: err}
+	}
+	err = tx.Commit()
+	var pgError *pgconn.PgError
+	if err != nil && (errors.Is(err, pgx.ErrTxCommitRollback) || err == sql.ErrTxDone ||
+		(errors.As(err, &pgError) && pgError.Severity == "ERROR" && pgError.Code != "40003" && pgError.Code != "08007")) {
+		return &database.UncommittedUsageError{Err: err}
+	}
+	return err
 }
 
 func (r *googleUsageRepository) Reserved(ctx context.Context, sku database.UsageSKU) (int, error) {
