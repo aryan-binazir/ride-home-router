@@ -219,7 +219,7 @@ func TestSetupRoutesRegistersImportEndpoints(t *testing.T) {
 
 func TestSetupRoutesDispatchesParticipantRestoreAndDeletedCollectionActions(t *testing.T) {
 	store := postgrestest.Open(t)
-	renderer, err := appTemplates.New(web.Templates)
+	renderer, err := appTemplates.New(web.Templates, web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("load templates: %v", err)
 	}

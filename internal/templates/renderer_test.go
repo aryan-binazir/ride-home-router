@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"ride-home-router/internal/templates"
+	"ride-home-router/web"
 	"strings"
 	"sync"
 	"testing"
@@ -48,7 +49,7 @@ func validTemplatesFS() fstest.MapFS {
 }
 
 func TestRendererRendersPageWithLayoutAndPartials(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS())
+	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -65,7 +66,7 @@ func TestRendererRendersPageWithLayoutAndPartials(t *testing.T) {
 }
 
 func TestRendererRendersPartialsWithoutLayout(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS())
+	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -91,7 +92,7 @@ func TestRendererRendersPartialsWithoutLayout(t *testing.T) {
 }
 
 func TestRendererRendersMobilePageWithLayout(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS())
+	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -108,7 +109,7 @@ func TestRendererRendersMobilePageWithLayout(t *testing.T) {
 }
 
 func TestRendererPrefersMobilePartialByLookup(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS())
+	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -129,7 +130,7 @@ func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 		templatesFS := validTemplatesFS()
 		delete(templatesFS, "templates/layout.html")
 
-		if _, err := templates.New(templatesFS); err == nil {
+		if _, err := templates.New(templatesFS, web.AuthConfig{}); err == nil {
 			t.Fatal("New() error = nil, want missing layout error")
 		}
 	})
@@ -138,7 +139,7 @@ func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 		templatesFS := validTemplatesFS()
 		delete(templatesFS, "templates/mobile/layout.html")
 
-		_, err := templates.New(templatesFS)
+		_, err := templates.New(templatesFS, web.AuthConfig{})
 		if err == nil {
 			t.Fatal("New() error = nil, want missing mobile layout error")
 		}
@@ -151,14 +152,14 @@ func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 		templatesFS := validTemplatesFS()
 		templatesFS["templates/index.html"] = &fstest.MapFile{Data: []byte(`{{define "content"}}`)}
 
-		if _, err := templates.New(templatesFS); err == nil {
+		if _, err := templates.New(templatesFS, web.AuthConfig{}); err == nil {
 			t.Fatal("New() error = nil, want invalid page error")
 		}
 	})
 }
 
 func TestRendererReturnsErrorForUnknownName(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS())
+	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -174,7 +175,7 @@ func TestRendererReturnsErrorForUnknownName(t *testing.T) {
 }
 
 func TestRendererSupportsConcurrentPageAndPartialRendering(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS())
+	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -214,5 +215,22 @@ func TestRendererSupportsConcurrentPageAndPartialRendering(t *testing.T) {
 
 	for err := range errors {
 		t.Error(err)
+	}
+}
+
+func TestRendererSharesAuthHeadAcrossDesktopAndMobile(t *testing.T) {
+	config := web.AuthConfig{PublishableKey: "pk_test_fixture", ScriptURL: "https://fixture.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"}
+	renderer, err := templates.New(web.Templates, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"participants.html", "mobile/error.html"} {
+		var output bytes.Buffer
+		if err := renderer.Render(&output, name, map[string]any{"Title": "Fixture", "Error": "Fixture"}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(output.String(), `data-script-url="`+config.ScriptURL+`"`) || !strings.Contains(output.String(), `data-publishable-key="`+config.PublishableKey+`"`) {
+			t.Fatalf("%s missing shared auth configuration", name)
+		}
 	}
 }

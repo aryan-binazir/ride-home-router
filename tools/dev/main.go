@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/server"
 	"ride-home-router/migrations"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -142,6 +144,7 @@ func run() error {
 	target, _ := url.Parse("http://" + backend)
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = &http.Transport{Proxy: nil}
+	proxy.ModifyResponse = p.localAuthResponse
 	public := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != listener.Addr().String() {
 			http.Error(w, "Forbidden", http.StatusForbidden)
@@ -205,4 +208,21 @@ func (w *cookieWriter) rename() {
 	for _, v := range values {
 		w.Header().Add("Set-Cookie", strings.Replace(v, "__session=", w.name+"=", 1))
 	}
+}
+
+func (p *provider) localAuthResponse(response *http.Response) error {
+	if !strings.HasPrefix(response.Header.Get("Content-Type"), "text/html") {
+		return nil
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil {
+		return err
+	}
+	body = []byte(strings.ReplaceAll(string(body), "https://"+p.hostname+"/npm/@clerk/clerk-js@5/dist/clerk.browser.js", "/__dev/clerk.js"))
+	body = []byte(strings.ReplaceAll(string(body), "https://"+p.hostname, p.origin))
+	response.Body = io.NopCloser(strings.NewReader(string(body)))
+	response.ContentLength = int64(len(body))
+	response.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	return nil
 }

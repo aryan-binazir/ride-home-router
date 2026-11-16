@@ -90,7 +90,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("authentication configuration: %w", err)
 	}
-	renderer, err := templates.New(web.Templates)
+	renderer, err := templates.New(web.Templates, gate.BrowserConfig())
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to load templates: %w", err)

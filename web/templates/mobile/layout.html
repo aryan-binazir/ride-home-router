@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>{{.Title}} · Ride Home Router</title>
+    {{template "auth-head" authConfig}}
   <link rel="stylesheet" href="/static/css/mobile.css">
   <script src="/static/js/htmx.min.js"></script>
   <script>htmx.config.timeout = 45000;</script>

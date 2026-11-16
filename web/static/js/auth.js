@@ -64,9 +64,14 @@
         return response;
     };
     try {
-        const response = await fetch('/auth/config', {cache: 'no-store'});
-        if (!response.ok) throw new Error('Authentication unavailable');
-        const config = await response.json();
+        let config = document.querySelector('meta[name="rhr-auth-config"]')?.dataset;
+        if (config) {
+            config = {publishableKey: config.publishableKey, scriptURL: config.scriptUrl};
+        } else {
+            const response = await fetch('/auth/config', {cache: 'no-store'});
+            if (!response.ok) throw new Error('Authentication unavailable');
+            config = await response.json();
+        }
         await new Promise((resolve, reject) => {
             const script = document.createElement('script');
             script.src = config.scriptURL;
