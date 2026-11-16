@@ -328,7 +328,11 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 	if err != nil {
 		log.Fatalf("failed to create static sub-filesystem: %v", err)
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS))))
+	staticHandler, err := staticFileHandler(staticSubFS)
+	if err != nil {
+		log.Fatalf("failed to hash static files: %v", err)
+	}
+	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler))
 
 	mux.HandleFunc("/healthz", requireMethod(http.MethodGet, handler.HandleReadinessCheck))
 	mux.HandleFunc("/api/v1/health", handler.HandleHealthCheck)
