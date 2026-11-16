@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 )
 
 type approvals struct {
@@ -246,27 +247,30 @@ func TestTerminalClerkDenialsAreCachedButOutagesAreNot(t *testing.T) {
 		status              int
 		calls               int32
 	}{
-		{"missing session", "member", "missing_session", 401, 1},
-		{"ended session", "member", "ended_session", 401, 1},
+		{"missing session", "member", "missing_session", 401, 2},
+		{"ended session", "member", "ended_session", 401, 2},
 		{"deleted user", "deleted", "deleted_user_session", 401, 2},
 		{"banned user", "banned", "banned_session", 401, 2},
-		{"Clerk outage", "member", "outage_session", 503, 3},
+		{"Clerk outage", "member", "outage_session", 503, 6},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			token := f.Token(tc.user, tc.session)
-			before := transport.calls.Load()
-			for range 3 {
-				r := httptest.NewRequestWithContext(t.Context(), "GET", "/api/v1/settings", nil)
-				r.Header.Set("Authorization", "Bearer "+token)
-				w := httptest.NewRecorder()
-				handler.ServeHTTP(w, r)
-				if w.Code != tc.status {
-					t.Fatalf("status=%d want %d", w.Code, tc.status)
+			synctest.Test(t, func(t *testing.T) {
+				token := f.Token(tc.user, tc.session)
+				before := transport.calls.Load()
+				for range 3 {
+					r := httptest.NewRequestWithContext(t.Context(), "GET", "/api/v1/settings", nil)
+					r.Header.Set("Authorization", "Bearer "+token)
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, r)
+					if w.Code != tc.status {
+						t.Fatalf("status=%d want %d", w.Code, tc.status)
+					}
 				}
-			}
-			if got := transport.calls.Load() - before; got != tc.calls {
-				t.Fatalf("Clerk calls=%d want %d", got, tc.calls)
-			}
+				synctest.Wait()
+				if got := transport.calls.Load() - before; got != tc.calls {
+					t.Fatalf("Clerk calls=%d want %d", got, tc.calls)
+				}
+			})
 		})
 	}
 }
