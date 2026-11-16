@@ -159,3 +159,20 @@ test('failed renewal tells a form to discard its pending confirmation', async()=
  await state.listeners.submit({target:form,preventDefault(){},stopImmediatePropagation(){}});
  assert.equal(failed,'auth:submitFailed');
 });
+
+for (const predecessorFails of [false, true]) {
+    test(`speculative restore auth recovery follows its predecessor, failed=${predecessorFails}`, async () => {
+        const state = await run({pathname: '/',status:403});
+        let complete, fail;
+        const beforeRecovery = new Promise((resolve,reject) => {complete=resolve;fail=reject;});
+        const request = state.window.authFetch('/api/v1/planner/drivers', {beforeRecovery});
+        const rejected = assert.rejects(request, predecessorFails ? /draft failed/ : /Your account does not have access. Your change was not saved./);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(state.requests.at(-1),'/api/v1/planner/drivers');
+        assert.equal(state.recovery,undefined);
+        assert.equal('beforeRecovery' in state.lastOptions,false);
+        if(predecessorFails) fail(new Error('draft failed')); else complete();
+        await rejected;
+        assert.equal(!!state.recovery,!predecessorFails);
+    });
+}

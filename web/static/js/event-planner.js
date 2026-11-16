@@ -1787,7 +1787,7 @@
                 const controller = new AbortController();
                 pickerRequests.set(kind, controller);
                 try {
-                    const received = (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal})
+                    const received = (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal, beforeRecovery: after})
                         .then(async response => ({response, html: await response.text()}))
                         .catch(error => ({error}));
                     if (after) await after;
@@ -2177,6 +2177,7 @@
 
             const received = (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                 headers: { 'HX-Request': 'true' },
+                beforeRecovery: restoredDraft,
                 signal: AbortSignal.any([restore.signal, AbortSignal.timeout(15000)])
             })
             .then(async response => ({response, html: response.status === 204 || !response.ok ? null : await response.text()}))
