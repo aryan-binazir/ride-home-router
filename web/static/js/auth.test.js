@@ -159,3 +159,18 @@ test('failed renewal tells a form to discard its pending confirmation', async()=
  await state.listeners.submit({target:form,preventDefault(){},stopImmediatePropagation(){}});
  assert.equal(failed,'auth:submitFailed');
 });
+test('a speculative request shows recovery only once its caller would have sent it', async () => {
+    const state = await run({signedIn: true, pathname: '/', responses: [403]});
+    let release;
+    const denied = state.window.authFetch('/api/v1/routes/session', {beforeRecovery: () => new Promise(resolve => { release = resolve; })});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(state.recovery, undefined);
+    assert.equal(state.lastOptions.beforeRecovery, undefined);
+    release();
+    await assert.rejects(denied, /not saved/);
+    assert.ok(state.recovery);
+
+    const abandoned = await run({signedIn: true, pathname: '/', responses: [403]});
+    await assert.rejects(abandoned.window.authFetch('/api/v1/routes/session', {beforeRecovery: async () => { throw new Error('restore abandoned'); }}), /restore abandoned/);
+    assert.equal(abandoned.recovery, undefined);
+});

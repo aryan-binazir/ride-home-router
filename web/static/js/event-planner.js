@@ -1787,7 +1787,7 @@
                 pickerRequests.set(kind, controller);
                 try {
                     const pending = (async () => {
-                        const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
+                        const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal, beforeRecovery: async () => { if (applyAfter && !await applyAfter) throw new Error('restore abandoned'); }});
                         return {response, html: await response.text()};
                     })().catch(error => ({error}));
                     if (applyAfter && !await applyAfter) {
@@ -2179,7 +2179,8 @@
             const pending = (async () => {
                 const response = await (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
                     headers: { 'HX-Request': 'true' },
-                    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)])
+                    beforeRecovery: () => restoredDraft,
+                    signal: controller.signal
                 });
                 return {response, html: response.status !== 204 && response.ok ? await response.text() : null};
             })().catch(error => ({error}));
@@ -2191,6 +2192,7 @@
             }
             const restore = plannerState.beginRestore(session);
             restore.signal.addEventListener('abort', () => controller.abort(), {once: true});
+            const deadline = setTimeout(() => controller.abort(new DOMException('The operation timed out.', 'TimeoutError')), 15000);
             try {
                 const result = await pending;
                 if (restore.signal.aborted) return;
@@ -2212,6 +2214,7 @@
                     plannerState.clear();
                 }
             } finally {
+                clearTimeout(deadline);
                 restore.finish();
             }
         }

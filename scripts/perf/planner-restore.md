@@ -8,7 +8,7 @@ NODE_PATH=/path/to/scratch/node_modules node scripts/perf/planner-restore.cjs /p
 
 The private `ready.json` is under the state directory printed by `make dev`. Do not publish it. `CHROMIUM` can override `/usr/bin/chromium`. The script owns and closes its Chromium process, CDP connection, temporary browser profile, contexts and edge proxy. It creates a real calculated session through the UI, then reopens the planner five times per profile with warm static assets. The proxy supplies Brotli q4 and four-hour static caching to match the finder experiment. An animation-frame sampler records when routes have geometry and `planner-restoring` has cleared. Resource Timing and CDP independently record request starts and durations.
 
-Measured on 2026-11-16, Chromium 155.0.8059.84. Baseline product code is `4f0a26b`; the runnable harness was committed first at `bdb7c1f`. Raw run evidence is in `planner-restore-results.json`. Times below are milliseconds from navigation start.
+Measured on 2026-11-16, Chromium 155.0.8059.84. Baseline product code is `4f0a26b`; the runnable harness was committed first at `bdb7c1f`. Raw run evidence is attached to the pull request. Times below are milliseconds from navigation start.
 
 | Profile | Before median [min, max] | After median [min, max] | Median reduction |
 | --- | ---: | ---: | ---: |

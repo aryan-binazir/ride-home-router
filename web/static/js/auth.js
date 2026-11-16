@@ -42,7 +42,7 @@
             return null;
         }
     }
-    window.authFetch = async function (url, options = {}) {
+    window.authFetch = async function (url, {beforeRecovery, ...options} = {}) {
         if (new URL(url, location.href).origin !== location.origin) {
             throw new Error('Authenticated requests must stay on this site.');
         }
@@ -56,6 +56,7 @@
             }
         }
         if (response.status === 401 || response.status === 403) {
+            if (beforeRecovery) await beforeRecovery();
             const text = response.status === 401 ? 'Your sign-in expired.' : 'Your account does not have access.';
             showRecovery(text);
             throw new Error(text + ' Your change was not saved.');
