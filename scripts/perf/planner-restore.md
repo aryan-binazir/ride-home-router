@@ -12,16 +12,18 @@ Measured on 2026-11-16, Chromium 155.0.8059.84. Baseline product code is `4f0a26
 
 | Profile | Before median [min, max] | After median [min, max] | Median reduction |
 | --- | ---: | ---: | ---: |
-| Desktop, 1440×900 | 792 [307, 2120] | 316 [187, 2342] | 60% |
-| Mobile, 390×844, DPR 3, 4× CPU, 150 ms RTT | 3952 [1673, 5739] | 1022 [790, 1941] | 74% |
+| Desktop, 1440×900 | 792 [307, 2120] | 1515 [1294, 1958] | No wall-time gain |
+| Mobile, 390×844, DPR 3, 4× CPU, 150 ms RTT | 3952 [1673, 5739] | 1575 [1190, 2477] | 60% |
 
-Mobile bandwidth is 1.44 Mbps down and 675 Kbps up. The machine was busy: one-minute load was 78–89 before and 96–106 after. Background session measurement also caused long server responses. The medians include those tails; they do not establish a fixed production speedup. Even the fastest mobile runs improved by 883 ms, or 53%.
+Mobile bandwidth is 1.44 Mbps down and 675 Kbps up. The machine was busy: one-minute load was 78–89 before and 132–143 for the final candidate. Background session measurement also caused long server responses. The medians include those tails; they do not establish a fixed production speedup or a desktop improvement. Even the fastest final mobile runs improved by 483 ms, or 29%.
+
+Two earlier candidate batches are also retained in the JSON. At load 96–106, the first had desktop/mobile medians of 316/1022 ms, with mobile range 790–1941 ms. At load 126–132, the confirmation had medians of 962/1686 ms, with mobile range 1378–3018 ms. The final batch rebuilt the committed product code at `56935f9`. No runs were dropped.
 
 | Median request start | Desktop before | Desktop after | Mobile before | Mobile after |
 | --- | ---: | ---: | ---: | ---: |
-| Location editor | 89 | 154 | 404 | 384 |
-| Participants picker | 216 | 155 | 684 | 397 |
-| Drivers picker | 249 | 157 | 900 | 402 |
-| Route session | 290 | 159 | 1335 | 414 |
+| Location editor | 89 | 390 | 404 | 659 |
+| Participants picker | 216 | 392 | 684 | 670 |
+| Drivers picker | 249 | 396 | 900 | 678 |
+| Route session | 290 | 400 | 1335 | 687 |
 
-Each run made four restore requests and rendered 24 route cards. The median first-to-last request-start gap fell from 149 to 10 ms on desktop and from 844 to 18 ms on mobile. This removes three serial network waits without changing request formats or adding a server endpoint. Local vehicle assignment fragments still follow picker application because their request uses the restored selected drivers. No additional optimization was retained or benchmarked.
+Each run made four restore requests and rendered 24 route cards. The median first-to-last request-start gap fell from 149 to 10 ms on desktop and from 844 to 28 ms on mobile. This removes three serial network waits without changing request formats or adding a server endpoint. Local vehicle assignment fragments still follow picker application because their request uses the restored selected drivers. No additional optimization was retained or benchmarked.

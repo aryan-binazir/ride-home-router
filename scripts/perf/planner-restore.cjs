@@ -54,11 +54,13 @@ async function main() {
     let browser;
     try {
         const activePort = path.join(directory, 'DevToolsActivePort');
-        for (let n = 0; !fs.existsSync(activePort); n++) {
+        let port = '';
+        for (let n = 0; !/^\d+$/.test(port); n++) {
             if (n > 300 || processChrome.exitCode !== null) throw Error('Chromium CDP did not start');
-            await delay(100);
+            if (fs.existsSync(activePort)) port = fs.readFileSync(activePort, 'utf8').split('\n')[0];
+            if (!/^\d+$/.test(port)) await delay(100);
         }
-        browser = await chromium.connectOverCDP(`http://127.0.0.1:${fs.readFileSync(activePort, 'utf8').split('\n')[0]}`);
+        browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
         const results = [];
         for (const mobile of [false, true]) {
             const context = await browser.newContext({viewport: mobile ? {width: 390, height: 844} : {width: 1440, height: 900}, deviceScaleFactor: mobile ? 3 : 1, isMobile: mobile, hasTouch: mobile});
