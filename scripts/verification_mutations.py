@@ -45,7 +45,8 @@ def passed(case, status, events):
 
 
 def completed(events, action):
-    return bool(events) and events[-1].get('Action') == action and not events[-1].get('Test') and bool(events[-1].get('Package'))
+    terminals = [e for e in events if e.get('Action') in ('pass', 'fail', 'skip') and not e.get('Test') and e.get('Package')]
+    return len(terminals) == 1 and terminals[0] is events[-1] and events[-1].get('Action') == action
 
 
 def killed(case, status, events):
@@ -127,7 +128,7 @@ def main():
                     print(f"ok {result['name']}: clean test passed; mutant failed its named assertion", flush=True)
                 else:
                     receipt['failures'].append(result)
-                    print(f"FAIL {result['name']}: {result['error']}", flush=True)
+                    print(f"verification-mutations: {result['error']}", file=sys.stderr, flush=True)
     finally:
         unchanged = snapshot.finish()
         receipt["complete"] = len(receipt["results"]) == len(selected)

@@ -34,6 +34,8 @@ Real-code mutations default to two concurrent control/mutant pairs. `VERIFICATIO
 
 Passing positive checks require exit zero, completion, a positive distinct-state count and an empty work queue. Negative controls require TLC's exact safety/liveness exit code and matching diagnostics; temporal controls isolate one property. Unexpected errors fail even when expected text also appears.
 
+Each TLC log must have exactly one final state summary and finish record; a negative control cannot also report positive completion. Each Go log must have exactly one package result. Mixed completion streams fail even when they contain the expected diagnostic.
+
 Each run retains logs and `receipt.json` under `_scratch/tla/run-*`, including head, dirty state, all tracked input hashes, tool hashes, resource limits and check results. The combined command also retains a branch receipt under `_scratch/branch-gates/`. TLC state directories are removed after each check; logs and receipts remain. A retained input, working-tree or HEAD change invalidates it and prints the changed inputs. Receipts are evidence for that run, never reusable cached proof. Real-code mutation logs/receipts live under `_scratch/verification-mutations/run-*`. Run the gate again after changing the branch head.
 
 ## Model coverage

@@ -51,12 +51,15 @@ def inventory():
 
 def classify(code, output, expected):
     errors = re.findall(r'^Error: (.*)$', output, re.M)
-    finished = bool(re.search(r'^Finished in .+', output, re.M))
+    finished = re.findall(r'^Finished in .+', output, re.M)
     counts = re.findall(r'([\d,]+) states generated, ([\d,]+) distinct states found, ([\d,]+) states left on queue\.', output)
-    if not output.endswith('\n') or not finished or not counts or int(counts[-1][1].replace(',', '')) <= 0:
+    summaries = re.findall(r'^[\d,]+ states generated, [\d,]+ distinct states found, [\d,]+ states left on queue\.', output, re.M)
+    if not output.endswith('\n') or len(finished) != 1 or len(summaries) != 1 or not counts or int(counts[-1][1].replace(',', '')) <= 0:
         return False
     if expected is None:
         return code == 0 and not errors and int(counts[-1][2].replace(',', '')) == 0 and output.count('Model checking completed. No error has been found.') == 1
+    if 'Model checking completed. No error has been found.' in output:
+        return False
     if expected['kind'] == 'invariant':
         return code == 12 and errors == [f"Invariant {expected['name']} is violated.", 'The behavior up to this point is:']
     return code == 13 and errors == ['Temporal properties were violated.', 'The following behavior constitutes a counter-example:']

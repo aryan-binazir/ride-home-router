@@ -50,7 +50,8 @@ class SerialOracleTest(unittest.TestCase):
         choices = [{'Action': 'pass', 'Test': case['test']}, {'Action': 'fail', 'Test': case['test']},
                    {'Action': 'output', 'Test': case['test'], 'Output': case['diagnostic']},
                    {'Action': 'fail', 'Test': 'TestOther'}, {'Action': 'build-fail'},
-                   {'Action': 'skip', 'Test': case['test']}, {'Action': 'output', 'Output': 'panic: timed out'}]
+                   {'Action': 'skip', 'Test': case['test']}, {'Action': 'output', 'Output': 'panic: timed out'},
+                   {'Action': 'pass', 'Package': 'p'}]
         for mask in itertools.product((False, True), repeat=len(choices)):
             prefix = [event for event, keep in zip(choices, mask) if keep]
             for terminal, status in itertools.product(([], [{'Action': 'pass', 'Package': 'p'}],

@@ -43,6 +43,7 @@ meta=pathlib.Path(sys.argv[sys.argv.index('-metadir')+1]);meta.mkdir(exist_ok=Tr
 tmp=pathlib.Path(next(a.split('=',1)[1] for a in sys.argv if a.startswith('-Djava.io.tmpdir=')))
 with open(pathlib.Path(__file__).parent/'_scratch/paths.jsonl','a') as journal:
  journal.write(__import__('json').dumps([str(meta),str(tmp)])+'\\n')
+if mode=='missing-output': sys.exit(0)
 if mode=='timeout':
  p=pathlib.Path('_scratch/child-pid');p.parent.mkdir(exist_ok=True);p.write_text(str(os.getpid()));time.sleep(30)
 if mode=='change-input': pathlib.Path('Tiny.tla').write_text('changed')
@@ -50,15 +51,16 @@ if mode=='change-head': subprocess.run(['git','-c','user.name=Test','-c','user.e
 cfg=pathlib.Path(sys.argv[sys.argv.index('-config')+1]).name
 if mode=='must-fail-passes': cfg='Tiny.cfg'
 if 'safety' in cfg:
- print('Error: Invariant Safe is violated.'); print('Error: The behavior up to this point is:'); code=12
+ print('Error: Invariant '+('Other' if mode=='wrong-reason' else 'Safe')+' is violated.'); print('Error: The behavior up to this point is:'); code=12
 elif 'live' in cfg:
- print('Error: Temporal properties were violated.'); print('Error: The following behavior constitutes a counter-example:'); code=13
+ print('Error: '+('Evaluation failed.' if mode=='wrong-reason' else 'Temporal properties were violated.')); print('Error: The following behavior constitutes a counter-example:'); code=13
 else:
  print('Model checking completed. No error has been found.'); code=0
-if mode=='wrong-reason': print('Error: unexpected property failed')
 if mode!='missing-counts': print('10 states generated, '+('0' if mode=='zero-states' else '8')+' distinct states found, '+('1' if mode=='queued' else '0')+' states left on queue.')
 if mode=='extra-error': print('Error: internal error')
 if mode!='unfinished': print('Finished in 1s at now')
+if mode=='interleaved':
+ print('Model checking completed. No error has been found.'); print('10 states generated, 8 distinct states found, 0 states left on queue.'); print('Finished in 1s at now')
 if mode=='truncated': print('truncated',end='')
 if mode=='garbled': sys.stdout.flush();os.write(1,b'\\xff')
 if mode=='oom-kill': sys.stdout.flush();os.kill(os.getpid(),9)
@@ -97,7 +99,7 @@ sys.exit(99 if mode=='exit99' else code)
 
     def test_faults(self):
         for fault in ('exit99', 'extra-error', 'missing-counts', 'unfinished', 'timeout', 'zero-states', 'queued',
-                      'must-fail-passes', 'wrong-reason', 'oom-kill', 'jvm-crash', 'truncated', 'garbled'):
+                      'must-fail-passes', 'wrong-reason', 'oom-kill', 'jvm-crash', 'truncated', 'garbled', 'interleaved', 'missing-output'):
             for jobs in (1, 4):
                 with self.subTest(fault=fault, jobs=jobs):
                     result = self.run_gate(fault=fault, jobs=jobs)

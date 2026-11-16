@@ -89,6 +89,7 @@ if mode=='compile': events.append({'Action':'build-fail'})
 if mode=='garbled-json': events.append({'Action':'output','Test':'TestGuard','Output':{}})
 events.append({'Action':action,'Package':'example','Test':'Other' if mode=='wrong-test' else 'TestGuard'})
 if mode!='unfinished': events.append({'Action':'fail' if action=='fail' else 'pass','Package':'example'})
+if mode=='interleaved': events=[{'Action':'pass','Test':'TestGuard','Package':'example'},{'Action':'pass','Package':'example'}]+events
 for event in events: print(json.dumps(event))
 with (root/'_scratch/finished.jsonl').open('a') as log:
  log.write(json.dumps([os.getpid(),time.monotonic()])+'\\n')
@@ -137,7 +138,7 @@ sys.exit(1 if action=='fail' else 0)
         self.git('add', '.')
         self.git('commit', '-qm', 'one failure fixture')
         for fault in ('survives', 'wrong-diagnostic', 'wrong-test', 'compile', 'control-skip', 'unfinished',
-                      'missing-output', 'garbled', 'garbled-json', 'truncated', 'oom-kill', 'crash', 'timeout', 'go-timeout'):
+                      'missing-output', 'garbled', 'garbled-json', 'interleaved', 'truncated', 'oom-kill', 'crash', 'timeout', 'go-timeout'):
             for jobs in (1, 3):
                 with self.subTest(fault=fault, jobs=jobs):
                     result, receipt = self.run_gate(jobs, fault)
