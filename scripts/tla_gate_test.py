@@ -36,27 +36,38 @@ class GateCLI(unittest.TestCase):
         (self.root / '.gitignore').write_text('_scratch/\n__pycache__/\n')
         fake = self.root / 'java'
         fake.write_text('''#!/usr/bin/env python3
-import os, pathlib, subprocess, sys, time
+import os, pathlib, resource, subprocess, sys, time
+resource.setrlimit(resource.RLIMIT_CORE,(0,0))
 mode=os.environ.get('FAULT', '')
 meta=pathlib.Path(sys.argv[sys.argv.index('-metadir')+1]);meta.mkdir(exist_ok=True);(meta/'owned-state').write_bytes(b'synthetic state bytes')
+tmp=pathlib.Path(next(a.split('=',1)[1] for a in sys.argv if a.startswith('-Djava.io.tmpdir=')))
+with open(pathlib.Path(__file__).parent/'_scratch/paths.jsonl','a') as journal:
+ journal.write(__import__('json').dumps([str(meta),str(tmp)])+'\\n')
 if mode=='timeout':
  p=pathlib.Path('_scratch/child-pid');p.parent.mkdir(exist_ok=True);p.write_text(str(os.getpid()));time.sleep(30)
 if mode=='change-input': pathlib.Path('Tiny.tla').write_text('changed')
 if mode=='change-head': subprocess.run(['git','-c','user.name=Test','-c','user.email=test@example.invalid','-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','--allow-empty','-qm','changed'],check=True)
 cfg=pathlib.Path(sys.argv[sys.argv.index('-config')+1]).name
+if mode=='must-fail-passes': cfg='Tiny.cfg'
 if 'safety' in cfg:
  print('Error: Invariant Safe is violated.'); print('Error: The behavior up to this point is:'); code=12
 elif 'live' in cfg:
  print('Error: Temporal properties were violated.'); print('Error: The following behavior constitutes a counter-example:'); code=13
 else:
  print('Model checking completed. No error has been found.'); code=0
+if mode=='wrong-reason': print('Error: unexpected property failed')
 if mode!='missing-counts': print('10 states generated, '+('0' if mode=='zero-states' else '8')+' distinct states found, '+('1' if mode=='queued' else '0')+' states left on queue.')
 if mode=='extra-error': print('Error: internal error')
 if mode!='unfinished': print('Finished in 1s at now')
+if mode=='truncated': print('truncated',end='')
+if mode=='garbled': sys.stdout.flush();os.write(1,b'\\xff')
+if mode=='oom-kill': sys.stdout.flush();os.kill(os.getpid(),9)
+if mode=='jvm-crash': sys.stdout.flush();os.kill(os.getpid(),11)
 sys.exit(99 if mode=='exit99' else code)
 ''')
         fake.chmod(0o755)
-        self.env = dict(os.environ, JAVA=str(fake), TLA2TOOLS=str(jar), TLA_TIMEOUT_SECONDS='2', TLA_WORKERS='2', TLA_HEAP_MB='2048', GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1')
+        (self.root / '_scratch').mkdir()
+        self.env = dict(os.environ, JAVA=str(fake), TLA2TOOLS=str(jar), TLA_TIMEOUT_SECONDS='10', TLA_WORKERS='2', TLA_HEAP_MB='2048', TLA_JOBS='4', GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1')
         self.git('init', '-q', str(self.root))
         self.assertEqual(self.run_gate('--refresh-manifest').returncode, 0)
         self.commit()
@@ -68,8 +79,8 @@ sys.exit(99 if mode=='exit99' else code)
         self.git('add', '.')
         self.git('commit', '--allow-empty', '-qm', 'fixture')
 
-    def run_gate(self, *args, fault=''):
-        env = dict(self.env, FAULT=fault)
+    def run_gate(self, *args, fault='', jobs=4):
+        env = dict(self.env, FAULT=fault, TLA_JOBS=str(jobs))
         if fault == 'timeout':
             env['TLA_TIMEOUT_SECONDS'] = '0.1'
         return subprocess.run(['bash', str(self.root / 'scripts/tla.sh'), *args], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
@@ -85,12 +96,43 @@ sys.exit(99 if mode=='exit99' else code)
         self.assertEqual(receipt['runtime']['workers'], 2)
 
     def test_faults(self):
-        for fault in ('exit99', 'extra-error', 'missing-counts', 'unfinished', 'timeout', 'zero-states', 'queued'):
-            with self.subTest(fault=fault):
-                result = self.run_gate(fault=fault)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
+        for fault in ('exit99', 'extra-error', 'missing-counts', 'unfinished', 'timeout', 'zero-states', 'queued',
+                      'must-fail-passes', 'wrong-reason', 'oom-kill', 'jvm-crash', 'truncated', 'garbled'):
+            for jobs in (1, 4):
+                with self.subTest(fault=fault, jobs=jobs):
+                    result = self.run_gate(fault=fault, jobs=jobs)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertTrue(list((self.root / '_scratch/tla').rglob('*.log')))
-        self.assertFalse(list((self.root / '_scratch/tla').glob('*/states-*')))
+        self.assertFalse(list((self.root / '_scratch/tla').glob('*/task-*')))
+
+    def test_serial_and_concurrent_classifications_match(self):
+        receipts = []
+        for jobs in (1, 4):
+            before = set((self.root / '_scratch/tla').glob('*/receipt.json')) if (self.root / '_scratch/tla').exists() else set()
+            result = self.run_gate(jobs=jobs)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            path, = set((self.root / '_scratch/tla').glob('*/receipt.json')) - before
+            receipt = json.loads(path.read_text())
+            self.assertTrue(receipt['complete'])
+            receipts.append([(c['config'], c['exit'], c['ok']) for c in receipt['checks']])
+        self.assertEqual(receipts[0], receipts[1])
+
+    def test_simultaneous_runs_own_distinct_state_and_temp_directories(self):
+        commands = [['bash', str(self.root / 'scripts/tla.sh')]] * 2
+        processes = [subprocess.Popen(command, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) for command in commands]
+        outputs = [process.communicate(timeout=20)[0] for process in processes]
+        for process, output in zip(processes, outputs):
+            self.assertEqual(process.returncode, 0, output)
+        paths = [json.loads(line) for line in (self.root / '_scratch/paths.jsonl').read_text().splitlines()]
+        self.assertEqual(len(paths), 6)
+        for column in (0, 1):
+            self.assertEqual(len({row[column] for row in paths}), 6)
+
+    def test_resource_limits(self):
+        for jobs in (0, 5):
+            self.assertNotEqual(self.run_gate(jobs=jobs).returncode, 0)
+        self.env['TLA_HEAP_MB'] = '4096'
+        self.assertNotEqual(self.run_gate().returncode, 0)
 
     def test_config_changes(self):
         path = self.configs / 'Tiny.cfg'
@@ -165,6 +207,8 @@ sys.exit(99 if mode=='exit99' else code)
             child = int(marker.read_text())
             process.send_signal(signal.SIGTERM)
             self.assertEqual(process.wait(timeout=10), 143)
+            receipt, = (self.root / '_scratch/tla').glob('*/receipt.json')
+            self.assertFalse(json.loads(receipt.read_text())['complete'])
             with self.assertRaises(ProcessLookupError):
                 os.kill(child, 0)
         finally:

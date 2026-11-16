@@ -1,4 +1,6 @@
 import hashlib
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -6,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +28,24 @@ def install_signal_handlers():
         signal.signal(signum, interrupt)
 
 
-def run_command(command, *, cwd, stdout=None, timeout=None):
+def run_command(command, *, cwd, stdout=None, timeout=None, cancelled=None):
+    if cancelled is not None and cancelled.is_set():
+        raise CancelledError()
     process = subprocess.Popen(command, cwd=cwd, stdout=stdout, stderr=subprocess.STDOUT, start_new_session=True)
     try:
-        return process.wait(timeout=timeout)
+        if cancelled is None:
+            return process.wait(timeout=timeout)
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            if cancelled is not None and cancelled.is_set():
+                raise CancelledError()
+            remaining = deadline - time.monotonic() if deadline is not None else None
+            if remaining is not None and remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                return process.wait(timeout=min(0.1, remaining) if remaining is not None else 0.1)
+            except subprocess.TimeoutExpired:
+                pass
     except BaseException:
         try:
             os.killpg(process.pid, signal.SIGTERM)
@@ -48,6 +65,19 @@ def run_command(command, *, cwd, stdout=None, timeout=None):
             pass
         process.wait()
         raise
+
+
+@contextmanager
+def concurrent_checks(items, check, jobs):
+    cancelled = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=jobs)
+    futures = []
+    try:
+        futures = [executor.submit(check, item, cancelled) for item in items]
+        yield (future.result() for future in futures)
+    finally:
+        cancelled.set()
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def git(root, *args):
