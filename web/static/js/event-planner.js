@@ -1518,29 +1518,31 @@
             if (calculate) calculate.disabled = true;
             let restored = false;
             try {
-                let activityLocation = form.querySelector('select[name="activity_location_id"]');
-                if (activityLocation && typeof draft.activityLocationId === 'string') {
-                    if (activityLocation.dataset?.onDemand && draft.activityLocationId) {
-                        if (!await restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
-                        activityLocation = form.querySelector('select[name="activity_location_id"]');
+                const restoreFields = (async () => {
+                    let activityLocation = form.querySelector('select[name="activity_location_id"]');
+                    if (activityLocation && typeof draft.activityLocationId === 'string') {
+                        if (activityLocation.dataset?.onDemand && draft.activityLocationId) {
+                            if (!await restorePlannerLocation(draft.activityLocationId)) throw new Error('Location restoration failed');
+                            activityLocation = form.querySelector('select[name="activity_location_id"]');
+                        }
+                        activityLocation.value = draft.activityLocationId;
                     }
-                    activityLocation.value = draft.activityLocationId;
-                }
 
-                const mode = typeof draft.mode === 'string' && EVENT_PLANNER_MODES.has(draft.mode)
-                    ? draft.mode
-                    : null;
-                if (mode) {
-                    const modeInput = form.querySelector(`input[name="mode"][value="${mode}"]`);
-                    if (modeInput) modeInput.checked = true;
-                }
+                    const mode = typeof draft.mode === 'string' && EVENT_PLANNER_MODES.has(draft.mode)
+                        ? draft.mode
+                        : null;
+                    if (mode) {
+                        const modeInput = form.querySelector(`input[name="mode"][value="${mode}"]`);
+                        if (modeInput) modeInput.checked = true;
+                    }
 
-                const routeTime = form.querySelector('input[name="route_time"]');
-                if (routeTime && typeof draft.routeTime === 'string') {
-                    routeTime.value = draft.routeTime;
-                }
+                    const routeTime = form.querySelector('input[name="route_time"]');
+                    if (routeTime && typeof draft.routeTime === 'string') {
+                        routeTime.value = draft.routeTime;
+                    }
+                })();
 
-                await planSelection.restore(draft);
+                await planSelection.restore(draft, restoreFields);
                 restored = true;
             } finally {
                 plannerRestoreFailed = !restored;
@@ -1767,7 +1769,7 @@
             const pickerRequests = new Map();
             const pickerSearchTimers = new Map();
 
-            async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null) {
+            async function requestPlannerPicker(kind, offset = 0, selectAll = false, restoreInputs = null, applyAfter = null) {
                 if (!['participants', 'drivers'].includes(kind)) return false;
                 const current = document.getElementById(`${kind}-picker`);
                 if (!current) return false;
@@ -1784,8 +1786,17 @@
                 const controller = new AbortController();
                 pickerRequests.set(kind, controller);
                 try {
-                    const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
-                    const html = await response.text();
+                    const pending = (async () => {
+                        const response = await (window.authFetch || fetch)(`/api/v1/planner/${kind}`, {method: 'POST', headers: {'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded'}, body: values, signal: controller.signal});
+                        return {response, html: await response.text()};
+                    })().catch(error => ({error}));
+                    if (applyAfter && !await applyAfter) {
+                        controller.abort();
+                        return false;
+                    }
+                    const result = await pending;
+                    if ('error' in result) throw result.error;
+                    const {response, html} = result;
                     if (pickerRequests.get(kind) !== controller) return false;
                     if (!response.ok) { showRouteError(html, response.headers?.get('HX-Trigger')); return false; }
                     const template = document.createElement('template');
@@ -1919,11 +1930,15 @@
                 };
             }
 
-            async function restore(draft) {
+            async function restore(draft, restoreFields) {
                 const form = getEventForm();
-                for (const kind of ['participants', 'drivers']) {
-                    if (document.getElementById(`${kind}-selection`)?.dataset?.pageSource && !await requestPlannerPicker(kind, 0, false, draft)) throw new Error('could not restore selected people');
-                }
+                const fieldsReady = Promise.resolve(restoreFields).then(() => true, () => false);
+                const participants = document.getElementById('participants-selection')?.dataset?.pageSource
+                    ? requestPlannerPicker('participants', 0, false, draft, fieldsReady) : fieldsReady;
+                const drivers = document.getElementById('drivers-selection')?.dataset?.pageSource
+                    ? requestPlannerPicker('drivers', 0, false, draft, participants) : participants;
+                await restoreFields;
+                if (!await participants || !await drivers) throw new Error('could not restore selected people');
                 applyCheckedValues('.participant-checkbox', draft.participantIds);
                 applyCheckedValues('.driver-checkbox', draft.driverIds);
                 applyPlannerLabelFilters(draft.labelFilters);
@@ -2156,40 +2171,49 @@
             }
         });
 
-        function restoreRouteSession(session) {
+        async function restoreRouteSession(session, restoredDraft) {
             var resultsSection = document.getElementById('results-section');
             if (!resultsSection) return;
 
+            const controller = new AbortController();
+            const pending = (async () => {
+                const response = await (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
+                    headers: { 'HX-Request': 'true' },
+                    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)])
+                });
+                return {response, html: response.status !== 204 && response.ok ? await response.text() : null};
+            })().catch(error => ({error}));
+            try {
+                await restoredDraft;
+            } catch (error) {
+                controller.abort();
+                throw error;
+            }
             const restore = plannerState.beginRestore(session);
-
-            return (window.authFetch || fetch)('/api/v1/routes/session?session_id=' + encodeURIComponent(session.id), {
-                headers: { 'HX-Request': 'true' },
-                signal: AbortSignal.any([restore.signal, AbortSignal.timeout(15000)])
-            })
-            .then(function(response) {
+            restore.signal.addEventListener('abort', () => controller.abort(), {once: true});
+            try {
+                const result = await pending;
+                if (restore.signal.aborted) return;
+                if ('error' in result) throw result.error;
+                const {response, html} = result;
                 if (response.status === 204 || !response.ok) {
                     showToast('That route plan expired. Calculate routes again.', 'warning');
                     plannerState.clear();
-                    return null;
+                    return;
                 }
-                return response.text();
-            })
-            .then(function(html) {
                 if (html) {
                     installRouteResults({ target: resultsSection, html, htmx, afterRender: refreshResultsView });
                     restore.commit(getSessionId());
                 }
-            })
-            .catch(function(err) {
+            } catch (err) {
                 if (err.name !== 'AbortError') {
                     console.warn('Failed to restore route session', err);
                     showToast('Could not restore your routes. Check your connection and try again.', 'error');
                     plannerState.clear();
                 }
-            })
-            .finally(function() {
+            } finally {
                 restore.finish();
-            });
+            }
         }
 
         if (getEventForm()) {
@@ -2199,10 +2223,9 @@
             ensureDefaultRouteTime();
 
             const activeSession = plannerState.restoreCandidate();
-            restoredDraft.then(() => {
-                planSelection.refreshStats();
-                if (activeSession) return restoreRouteSession(activeSession);
-            }).catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
+            const ready = restoredDraft.then(() => planSelection.refreshStats());
+            (activeSession ? restoreRouteSession(activeSession, ready) : ready)
+                .catch(() => showToast('Could not restore your draft. Reload or use Clear all to continue.', 'error'))
                 .finally(() => document.documentElement?.classList.remove('planner-restoring'));
 
             function readCapacityShortageFingerprint(recalcForm) {

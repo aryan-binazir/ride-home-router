@@ -119,7 +119,7 @@ async function main() {
         if (processChrome.exitCode === null) await once(processChrome, 'exit');
         proxy.closeAllConnections();
         await new Promise(resolve => proxy.close(resolve));
-        fs.rmSync(directory, {recursive: true, force: true});
+        fs.rmSync(directory, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
     }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
