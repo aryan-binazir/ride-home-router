@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
@@ -78,15 +79,13 @@ func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleNotFound(w, r, messageDriverNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to get driver: id=%d err=%v", id, err)
-		h.handleInternalError(w, r, err)
+		h.handleInternalError(w, r, fmt.Errorf("get driver %d: %w", id, err))
 		return
 	}
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load driver labels: id=%d err=%v", driver.ID, err)
-		h.handleInternalError(w, r, err)
+		h.handleInternalError(w, r, fmt.Errorf("load driver labels %d: %w", driver.ID, err))
 		return
 	}
 
@@ -179,13 +178,7 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to create driver: err=%s", logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("create driver: %w", err))
 		return
 	}
 
@@ -326,12 +319,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to update driver: id=%d err=%v", id, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("update driver %d: %w", id, err))
 		return
 	}
 
@@ -350,9 +338,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.driverResponse(r.Context(), driver)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to load driver labels after update: id=%d err=%s", driver.ID, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, r, err)
+		h.handleInternalError(w, r, fmt.Errorf("load driver labels after update %d: %w", driver.ID, err))
 		return
 	}
 
@@ -377,12 +363,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("[ERROR] Failed to delete driver: id=%d err=%v", id, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("delete driver %d: %w", id, err))
 		return
 	}
 
@@ -414,13 +395,7 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
 			return
 		}
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to restore driver: id=%d err=%s", id, logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("restore driver %d: %w", id, err))
 		return
 	}
 
