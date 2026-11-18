@@ -11,7 +11,6 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
@@ -44,7 +43,7 @@ type testDataStore struct {
 }
 
 func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *testing.T) {
-	tooMany := make([]string, plandraft.MaxSelectionSize+1)
+	tooMany := make([]string, maxSelectionSize+1)
 	for i := range tooMany {
 		tooMany[i] = strconv.Itoa(i + 1)
 	}
@@ -111,7 +110,7 @@ func TestRouteCalculationEndpoints_RejectInvalidFormSelectionsBeforeRouting(t *t
 }
 
 func TestRouteCalculationEndpoints_AcceptSelectionLimit(t *testing.T) {
-	selectionLimit := make([]string, plandraft.MaxSelectionSize)
+	selectionLimit := make([]string, maxSelectionSize)
 	for i := range selectionLimit {
 		selectionLimit[i] = strconv.Itoa(i + 1)
 	}
@@ -154,7 +153,7 @@ func TestRouteCalculationEndpoints_AcceptSelectionLimit(t *testing.T) {
 					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
 				}
 				if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, messageChooseValidRouteTime) {
-					t.Fatalf("HX-Trigger = %q, want route-time validation after accepting %d selections", got, plandraft.MaxSelectionSize)
+					t.Fatalf("HX-Trigger = %q, want route-time validation after accepting %d selections", got, maxSelectionSize)
 				}
 				if router.lastRequest != nil {
 					t.Fatalf("router received request %#v", router.lastRequest)

@@ -11,7 +11,6 @@ import (
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
 	"ride-home-router/internal/templates"
@@ -27,10 +26,13 @@ type Handler struct {
 	Renderer      *templates.Renderer
 	RouteSession  *routesession.Store
 	ImportSession *importer.Store
-	PlanDraft     *plandraft.Store
 
 	healthProbe, readinessProbe probeCache
 }
+
+type formError struct{ message string }
+
+func (e formError) Error() string { return e.message }
 
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`

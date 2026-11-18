@@ -1,5 +1,7 @@
 # Own mobile draft and route-session transitions together
 
+**Superseded.** The standalone `/m` site and its plan-draft lifecycle were removed.
+
 Mobile pickers and pruning previously had to clear a draft's session pointer while a handler helper deleted the displaced session. Calculation separately captured a revision, attempted adoption, deleted losing or displaced results, and checked for a competing live winner. Saving conditionally detached the session it had captured before persistence. These callers depended on ordering rules spanning two stores.
 
 A handlers-side mobile plan lifecycle now owns input edits, calculation adoption, and release after successful save. Its input callback exposes only the six route-defining fields. The module copies them back and captures and clears the attached session inside the existing draft update, then deletes the displaced session after the draft lock is released. Adoption accepts the original draft snapshot and completed session ID. It owns revision checking and deletes only the losing result or the successfully displaced session. A live competing winner stays attached. Save release compares the captured ID so an older commit cannot detach a newer result.

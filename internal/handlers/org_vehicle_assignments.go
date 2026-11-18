@@ -18,7 +18,7 @@ const (
 	selectedVanNotFoundMessage           = "The selected van is no longer available. Refresh the page and try again."
 )
 
-var errSelectedVanNotFound = mobileFormError{selectedVanNotFoundMessage}
+var errSelectedVanNotFound = formError{selectedVanNotFoundMessage}
 
 func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map[int64]int64, error) {
 	assignments := make(map[int64]int64)
@@ -45,10 +45,10 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 	for _, key := range assignmentKeys {
 		driverID, err := strconv.ParseInt(strings.TrimPrefix(key, "org_vehicle_"), 10, 64)
 		if err != nil {
-			return assignments, mobileFormError{invalidVanAssignmentMessage}
+			return assignments, formError{invalidVanAssignmentMessage}
 		}
 		if _, ok := selectedDrivers[driverID]; !ok {
-			return assignments, mobileFormError{unselectedDriverVanAssignmentMessage}
+			return assignments, formError{unselectedDriverVanAssignmentMessage}
 		}
 	}
 
@@ -59,7 +59,7 @@ func parseOrgVehicleAssignments(form url.Values, selectedDriverIDs []int64) (map
 		}
 		vehicleID, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil || vehicleID <= 0 {
-			return assignments, mobileFormError{invalidVanAssignmentMessage}
+			return assignments, formError{invalidVanAssignmentMessage}
 		}
 
 		assignments[driverID] = vehicleID
@@ -72,41 +72,11 @@ func validateUniqueOrgVehicleAssignments(assignments map[int64]int64) error {
 	vehicleOwners := make(map[int64]int64, len(assignments))
 	for driverID, vehicleID := range assignments {
 		if ownerID, exists := vehicleOwners[vehicleID]; exists && ownerID != driverID {
-			return mobileFormError{duplicateVanAssignmentMessage}
+			return formError{duplicateVanAssignmentMessage}
 		}
 		vehicleOwners[vehicleID] = driverID
 	}
 	return nil
-}
-
-func orgVehicleSeatCount(driverIDs []int64, drivers []models.Driver, assignments map[int64]int64, vehiclesByID map[int64]models.OrganizationVehicle) int {
-	total := 0
-	driversByID := make(map[int64]models.Driver, len(drivers))
-	for _, driver := range drivers {
-		driversByID[driver.ID] = driver
-	}
-	usedVehicles := make(map[int64]struct{}, len(assignments))
-	for _, driverID := range driverIDs {
-		driver, exists := driversByID[driverID]
-		if !exists {
-			continue
-		}
-		total += driver.VehicleCapacity
-		vehicleID, assigned := assignments[driver.ID]
-		if !assigned {
-			continue
-		}
-		if _, used := usedVehicles[vehicleID]; used {
-			continue
-		}
-		vehicle, exists := vehiclesByID[vehicleID]
-		if !exists {
-			continue
-		}
-		total += vehicle.Capacity - driver.VehicleCapacity
-		usedVehicles[vehicleID] = struct{}{}
-	}
-	return total
 }
 
 func loadAssignedOrgVehicles(ctx context.Context, repository database.OrganizationVehicleRepository, assignments map[int64]int64) (map[int64]*models.OrganizationVehicle, bool, error) {

@@ -121,10 +121,10 @@ func TestBrowserDenialAndClerkOutage(t *testing.T) {
 		hx                bool
 		want              int
 	}{
-		{"expired mobile post", "/m/people", f.Token("user_admin", "sess_admin", map[string]any{"exp": time.Now().Add(-time.Minute).Unix()}), false, 303},
+		{"expired page post", "/participants", f.Token("user_admin", "sess_admin", map[string]any{"exp": time.Now().Add(-time.Minute).Unix()}), false, 303},
 		{"expired API", "/api/v1/routes", "invalid", false, 401},
-		{"Clerk outage page", "/m/people", valid, false, 503},
-		{"Clerk outage HTMX", "/m/people", valid, true, 503},
+		{"Clerk outage page", "/participants", valid, false, 503},
+		{"Clerk outage HTMX", "/participants", valid, true, 503},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f.Fail("/v1/sessions/sess_admin", 503)

@@ -10,7 +10,6 @@ import (
 	"os"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/web"
 	"strings"
 	"sync/atomic"
@@ -22,7 +21,7 @@ func TestRouteEditorBrowserLoadsSearchesAndMovesOnDemand(t *testing.T) {
 	if browser == "" {
 		t.Skip("BROWSER_TEST_BINARY not set")
 	}
-	h, snapshot, _ := largeRouteFixture(t)
+	h, snapshot := largeRouteFixture(t)
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("../../web/static"))))
 	mux.HandleFunc("/api/v1/routes/editor", h.HandleRouteEditor)
@@ -170,52 +169,6 @@ func TestPlannerPagingBrowserKeepsSelectionsAndSelectsAllMatches(t *testing.T) {
 	}
 	if result.Error != "" || result.Selected != 2 || result.Seats != "8" || result.All != 60 || result.Rows != 50 {
 		t.Fatalf("paging: %s", raw)
-	}
-}
-
-func TestMobileVehicleChoiceAndPagingBrowser(t *testing.T) {
-	browser := os.Getenv("BROWSER_TEST_BINARY")
-	if browser == "" {
-		t.Skip("BROWSER_TEST_BINARY not set")
-	}
-	h, store := newTestPageHandler(t)
-	h.PlanDraft = plandraft.NewStore()
-	t.Cleanup(h.PlanDraft.Close)
-	for i := 1; i <= 60; i++ {
-		if _, err := store.Drivers().Create(t.Context(), &models.Driver{Name: fmt.Sprintf("Driver %03d", i), Address: "1 Test St", VehicleCapacity: 4}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := store.OrganizationVehicles().Create(t.Context(), &models.OrganizationVehicle{Name: "Test van", Capacity: 12}); err != nil {
-		t.Fatal(err)
-	}
-	mux := http.NewServeMux()
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("../../web/static"))))
-	mux.HandleFunc("/api/v1/planner/vehicle-editor", h.HandleVehicleEditor)
-	mux.HandleFunc("/m/plan/drivers", h.HandleMobileDrivers)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		recorder := httptest.NewRecorder()
-		h.HandleMobileDrivers(recorder, r)
-		for key, values := range recorder.Header() {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-		html := strings.ReplaceAll(recorder.Body.String(), `<script src="`+web.AssetURL("js/auth.js")+`" defer></script>`, "")
-		script := `<script>addEventListener('load',async()=>{const result={};const until=async(fn)=>{for(let n=0;n<200;n++){if(fn())return;await new Promise(r=>setTimeout(r,20))}throw Error('condition timeout')};try{result.initial=document.querySelectorAll('.mobile-driver-choice').length;document.querySelector('input[name="driver_ids"]').click();const control=document.querySelector('.van-assignment-inline');result.visible=!control.classList.contains('hidden');control.querySelector('button').click();await until(()=>document.querySelector('#route-editor input[name="vehicle_id"][value="1"]'));await new Promise(r=>setTimeout(r,100));const radio=document.querySelector('#route-editor input[name="vehicle_id"][value="1"]');radio.checked=true;radio.form.requestSubmit();await until(()=>document.querySelector('#mobile-van-assignment-1')?.value==='1');result.seats=document.getElementById('mobile-selected-seats').textContent;const next=Array.from(document.querySelectorAll('#mobile-driver-results button')).find(b=>b.textContent==='Next');if(!next)throw Error('missing next page');next.click();await until(()=>document.querySelectorAll('.mobile-driver-choice').length===10);document.querySelector('.mobile-driver-choice input[name="driver_ids"]').click();result.after=document.getElementById('mobile-selected-seats').textContent;result.selected=new FormData(document.getElementById('mobile-driver-picker')).getAll('driver_ids').length;}catch(e){result.error=String(e)}document.body.innerHTML='<pre id="browser-result"></pre>';document.getElementById('browser-result').textContent=JSON.stringify(result);});</script>`
-		_, _ = fmt.Fprint(w, strings.Replace(html, "</body>", script+"</body>", 1))
-	})
-	raw := runRouteBrowser(t, browser, mux)
-	var result struct {
-		Initial, Selected   int
-		Visible             bool
-		Seats, After, Error string
-	}
-	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Error != "" || result.Initial != 50 || !result.Visible || result.Seats != "12 seats selected" || result.After != "16 seats selected" || result.Selected != 2 {
-		t.Fatalf("mobile picker: %s", raw)
 	}
 }
 

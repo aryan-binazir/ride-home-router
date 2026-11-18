@@ -3,7 +3,7 @@
     const requests = new WeakMap();
     const dialog = () => document.getElementById('route-editor-dialog');
     const target = () => document.getElementById('route-editor');
-    const sessionId = () => document.querySelector('.routes-container, .mobile-routes')?.dataset.sessionId;
+    const sessionId = () => document.querySelector('.routes-container')?.dataset.sessionId;
     window.closeRouteEditor = () => {
         generation++;
         dialog()?.close();
@@ -16,7 +16,7 @@
         if (event.detail.target?.id === 'route-editor') generation++;
         const editorRequest = event.detail.target?.id === 'route-editor' || !!event.detail.elt?.closest('#route-editor');
         const path = event.detail.requestConfig?.path || '';
-        const routeRequest = path.startsWith('/api/v1/routes/') || path.startsWith('/m/routes/') || !!event.detail.elt?.closest('.mobile-routes, [data-editor-session]');
+        const routeRequest = path.startsWith('/api/v1/routes/') || !!event.detail.elt?.closest('[data-editor-session]');
         if (editorRequest || routeRequest) {
             requests.set(event.detail.xhr, {generation, sessionId: sessionId(), editorRequest, routeRequest});
         }
@@ -50,10 +50,6 @@
                 window.handleVanAssignmentChange?.();
                 select?.dispatchEvent(new Event('change', {bubbles: true}));
             }
-            window.closeRouteEditor();
-            return;
-        }
-        if (event.detail.target?.id === 'mobile-route-updates' || event.detail.target?.matches?.('.mobile-routes')) {
             window.closeRouteEditor();
             return;
         }

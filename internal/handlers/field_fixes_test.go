@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
@@ -16,7 +15,7 @@ import (
 func TestCalculateOverLimitSelectionNamesTheLimit(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 	form := url.Values{"activity_location_id": {"1"}, "route_time": {"18:30"}, "mode": {"dropoff"}, "driver_ids": {"1"}}
-	for i := range plandraft.MaxSelectionSize + 1 {
+	for i := range maxSelectionSize + 1 {
 		form.Add("participant_ids", strconv.Itoa(i+1))
 	}
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/calculate", strings.NewReader(form.Encode()))

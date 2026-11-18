@@ -128,31 +128,29 @@ func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
 		}
 	})
 
-	t.Run("mobile HTMX request renders mobile suggestions and fallback", func(t *testing.T) {
+	t.Run("HTMX suggestions use the display name when needed", func(t *testing.T) {
 		handler.Geocoder = addressSearchGeocoder{results: []geocoding.GeocodingResult{{DisplayName: "Display fallback"}}}
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
 		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
-		req.Header.Set("X-RHR-Mobile", "1")
 		rec := httptest.NewRecorder()
 
 		handler.HandleAddressSearch(rec, req)
 
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-address-suggestion="Display fallback"`) {
-			t.Fatalf("mobile response = %d body=%q", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-address="Display fallback"`) {
+			t.Fatalf("fallback response = %d body=%q", rec.Code, rec.Body.String())
 		}
 	})
 
-	t.Run("mobile HTMX request keeps no results branch", func(t *testing.T) {
+	t.Run("HTMX suggestions show the empty state", func(t *testing.T) {
 		handler.Geocoder = addressSearchGeocoder{}
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
 		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
-		req.Header.Set("X-RHR-Mobile", "1")
 		rec := httptest.NewRecorder()
 
 		handler.HandleAddressSearch(rec, req)
 
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No addresses found") {
-			t.Fatalf("mobile empty response = %d body=%q", rec.Code, rec.Body.String())
+			t.Fatalf("empty response = %d body=%q", rec.Code, rec.Body.String())
 		}
 	})
 
@@ -204,7 +202,7 @@ func TestGeocodingErrorMessageTellsAdminsWhenGoogleIsNotConfigured(t *testing.T)
 	if got := geocodingErrorMessage(err); got != messageAddressLookupNotConfigured {
 		t.Fatalf("geocodingErrorMessage() = %q, want %q", got, messageAddressLookupNotConfigured)
 	}
-	if got := geocodingErrorMessage(geocoding.ErrNoGeocodingResults); got != messageMobileAddressLookupFailed {
+	if got := geocodingErrorMessage(geocoding.ErrNoGeocodingResults); got != "Could not find that address. Check it and try again." {
 		t.Fatalf("no results message = %q", got)
 	}
 	if got := geocodingErrorMessage(&geocoding.ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: 503}); got != messageAddressLookupUnavailable {

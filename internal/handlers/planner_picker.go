@@ -39,13 +39,16 @@ func (h *Handler) HandlePlannerPicker(w http.ResponseWriter, r *http.Request) {
 	if kind == "drivers" {
 		name = "driver_ids"
 	}
-	ids, ok := parseMobileSelection(r.Form[name])
-	if !ok {
-		h.handleValidationErrorHTMX(w, r, mobileSelectionLimitMessage())
+	ids := parsePickerIDs(r.Form[name])
+	if len(ids) > maxSelectionSize {
+		h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("people"))
 		return
 	}
-	selected := mobileSelected(ids)
-	labels := parseMobileIDs(r.Form["label_ids"])
+	selected := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		selected[id] = true
+	}
+	labels := parsePickerIDs(r.Form["label_ids"])
 	search := strings.TrimSpace(r.Form.Get("search"))
 	offset, _ := strconv.Atoi(r.Form.Get("offset"))
 	view := IndexPageView{PagedPickers: true, AssignedVehicles: map[int64]*models.OrganizationVehicle{}}
@@ -81,8 +84,8 @@ func (h *Handler) HandlePlannerPicker(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		ids = selectedPickerIDs(selected)
-		if _, ok := parseMobileSelection(int64Strings(ids)); !ok {
-			h.handleValidationErrorHTMX(w, r, mobileSelectionLimitMessage())
+		if len(ids) > maxSelectionSize {
+			h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("people"))
 			return
 		}
 		chosen, err := h.DB.Participants().GetByIDs(r.Context(), ids)
@@ -128,8 +131,8 @@ func (h *Handler) HandlePlannerPicker(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		ids = selectedPickerIDs(selected)
-		if _, ok := parseMobileSelection(int64Strings(ids)); !ok {
-			h.handleValidationErrorHTMX(w, r, mobileSelectionLimitMessage())
+		if len(ids) > maxSelectionSize {
+			h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("people"))
 			return
 		}
 		chosen, err := h.DB.Drivers().GetByIDs(r.Context(), ids)
@@ -139,7 +142,7 @@ func (h *Handler) HandlePlannerPicker(w http.ResponseWriter, r *http.Request) {
 		}
 		assignments, err := parseOrgVehicleAssignments(r.Form, ids)
 		if err != nil {
-			h.handleValidationErrorHTMX(w, r, mobileVanAssignmentMessage(err))
+			h.handleValidationErrorHTMX(w, r, err.Error())
 			return
 		}
 		view.AssignedVehicles, _, err = loadAssignedOrgVehicles(r.Context(), h.DB.OrganizationVehicles(), assignments)
@@ -179,10 +182,15 @@ func selectedPickerIDs(selected map[int64]bool) []int64 {
 	return ids
 }
 
-func int64Strings(ids []int64) []string {
-	out := make([]string, len(ids))
-	for i, id := range ids {
-		out[i] = strconv.FormatInt(id, 10)
+func parsePickerIDs(values []string) []int64 {
+	seen := make(map[int64]bool, len(values))
+	ids := make([]int64, 0, len(values))
+	for _, value := range values {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err == nil && id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
 	}
-	return out
+	return ids
 }

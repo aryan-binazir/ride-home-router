@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	messageAddressLookupFailed                           = "Could not find that address. Check it and try again."
 	messageAddressRequired                               = "Enter an address."
 	messageChooseActivityLocationForEvent                = "Please choose an activity location for this event."
 	messageChooseRouteTime                               = "Choose a route time."
@@ -72,8 +73,6 @@ func messageEntityUpdated(entity, name string) string {
 	return fmt.Sprintf("%s '%s' updated.", entity, name)
 }
 
-func messageFailedToGeocodeAddress() string { return messageMobileAddressLookupFailed }
-
 func messageFailedToSaveLocation() string { return messageGenericInternalError }
 
 func messageFailedToSaveVan() string { return messageGenericInternalError }
@@ -120,10 +119,10 @@ func geocodingErrorMessage(err error) string {
 		return messageAddressLookupNotConfigured
 	}
 	if errors.Is(err, geocoding.ErrNoGeocodingResults) {
-		return messageFailedToGeocodeAddress()
+		return messageAddressLookupFailed
 	}
 	if failure, ok := errors.AsType[*geocoding.ErrGeocodingFailed](err); ok && failure.Reason == "no results found" && failure.Cause == nil {
-		return messageFailedToGeocodeAddress()
+		return messageAddressLookupFailed
 	}
 	return messageAddressLookupUnavailable
 }

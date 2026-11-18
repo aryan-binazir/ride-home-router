@@ -452,14 +452,14 @@ func parseLabelIDs(r *http.Request) ([]int64, error) {
 func (h *Handler) validateLabelIDs(ctx context.Context, labelIDs []int64) error {
 	uniqueIDs, ok := uniquePositiveIDs(labelIDs)
 	if !ok {
-		return mobileFormError{messageInvalidLabelSelection}
+		return formError{messageInvalidLabelSelection}
 	}
 	labels, err := h.DB.Labels().GetByIDs(ctx, uniqueIDs)
 	if err != nil {
 		return err
 	}
 	if len(labels) != len(uniqueIDs) {
-		return mobileFormError{messageInvalidLabelSelection}
+		return formError{messageInvalidLabelSelection}
 	}
 	return nil
 }

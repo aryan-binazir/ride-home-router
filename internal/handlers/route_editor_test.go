@@ -123,7 +123,7 @@ func TestStandaloneRouteEditorRequiresClaimedSource(t *testing.T) {
 func TestStandaloneRouteEditorFragmentHeaders(t *testing.T) {
 	for _, balance := range []string{"false", "true", ""} {
 		t.Run("balance="+balance, func(t *testing.T) {
-			h, session, _ := largeRouteFixture(t)
+			h, session := largeRouteFixture(t)
 			r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"move"}, "from_route_index": {"0"}, "participant_id": {"1"}, "destination": {"499"}})
 			r.Header.Set("X-Route-Fragment", "true")
 			r.Header.Set("X-Route-Balance", balance)
@@ -141,7 +141,7 @@ func TestStandaloneRouteEditorFragmentHeaders(t *testing.T) {
 }
 
 func TestStandaloneAddSecondDriverKeepsFragmentRendering(t *testing.T) {
-	h, session, _ := oneRouteWithUnusedDriver(t)
+	h, session := oneRouteWithUnusedDriver(t)
 	r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"add"}, "destination": {"2"}})
 	r.Header.Set("X-Route-Fragment", "true")
 	r.Header.Set("X-Route-Balance", "false")
@@ -156,7 +156,7 @@ func TestStandaloneAddSecondDriverKeepsFragmentRendering(t *testing.T) {
 }
 
 func TestStandaloneRouteEditorMoveMeasuresOnlyChangedOccupiedCar(t *testing.T) {
-	h, m, _, session := twoCarMobileFixture(t)
+	h, m, session := twoCarRouteFixture(t)
 	r := routeEditorFormRequest(url.Values{"session_id": {session.ID}, "action": {"move"}, "destination": {"1"}, "from_route_index": {"0"}, "participant_id": {"10"}})
 	w := httptest.NewRecorder()
 	h.HandleRouteEditorAction(w, r)

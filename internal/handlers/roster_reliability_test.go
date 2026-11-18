@@ -185,29 +185,15 @@ func TestJSONRosterCreateAcknowledgesCommitWhenLabelReadFails(t *testing.T) {
 
 func TestDuplicateRosterCreateRejected(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
-		for _, adapter := range []string{"desktop", "json", "mobile"} {
+		for _, adapter := range []string{"desktop", "json"} {
 			t.Run(kind+"/"+adapter, func(t *testing.T) {
 				h, _ := newTestManagementHandler(t)
-				create := func() *httptest.ResponseRecorder {
-					if adapter != "mobile" {
-						return rosterRequest(h, kind, http.MethodPost, "/api/v1/"+kind+"s", adapter == "desktop")
-					}
-					values := url.Values{"name": {"Test Person"}, "address": {"1 Original Road"}, "vehicle_capacity": {"4"}}
-					request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/m/people/"+kind+"s/new", strings.NewReader(values.Encode()))
-					request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-					response := httptest.NewRecorder()
-					if kind == "participant" {
-						h.HandleMobileParticipantForm(response, request)
-					} else {
-						h.HandleMobileDriverForm(response, request)
-					}
-					return response
-				}
-				first := create()
+				path := "/api/v1/" + kind + "s"
+				first := rosterRequest(h, kind, http.MethodPost, path, adapter == "desktop")
 				if first.Code >= 400 {
 					t.Fatalf("first create: %d %s", first.Code, first.Body.String())
 				}
-				second := create()
+				second := rosterRequest(h, kind, http.MethodPost, path, adapter == "desktop")
 				message := second.Body.String()
 				if adapter == "desktop" {
 					message = second.Header().Get("HX-Trigger")

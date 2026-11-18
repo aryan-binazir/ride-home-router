@@ -6,7 +6,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
 async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false, inlineConfig = false, authSource = source} = {}) {
-    const state = {heading: {hidden: true}, email: {hidden: true, textContent: ''}, listeners: {}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
+    const state = {heading: {hidden: true}, email: {hidden: true, textContent: ''}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
     const clerk = {
         session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
         user: signedIn ? {id: 'user_test', primaryEmailAddress: {emailAddress: 'ar@example.com'}} : null,
@@ -21,7 +21,6 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
         location: {pathname, search, href: 'https://app.example'+pathname+search, origin: 'https://app.example', replace: value => { state.redirect = value; }},
         document: {
             getElementById: id => id === 'auth-heading' ? state.heading : id === 'auth-email' ? state.email : id === 'auth-retry' ? state.retry : id === 'auth-status' ? state.message : {},
-            addEventListener: (name, listener) => { state.listeners[name] = listener; },
             body: {prepend: node => { state.recovery = node; }},
             createElement: () => ({dataset: {}, setAttribute: () => {}, appendChild: node => { state.recoveryLink = node; }}),
             head: {appendChild: script => { state.script = script; if (scriptFails) script.onerror(); else script.onload(); }},
@@ -58,7 +57,7 @@ test('only successful backend admission redirects a signed-in user to protected 
     }
 });
 test('protected pages load Clerk for refresh and expose sign-out', async () => {
-    const state = await run({signedIn: true, pathname: '/m'});
+    const state = await run({signedIn: true, pathname: '/participants'});
     assert.equal(state.loaded, true);
     assert.equal(state.options, undefined);
     assert.deepEqual(state.requests, ['/auth/config']);
@@ -100,30 +99,6 @@ test('auth fetch never retries 403 or 503 and never sends credentials off-site',
         assert.equal(state.requests.length, 2);
     }
 });
-test('mobile submission refreshes first and retains input when refresh fails', async () => {
-    for (const refreshToken of ['fresh-token', null]) {
-        const state = await run({signedIn: true, pathname: '/m/people', refreshToken});
-        let prevented = false;
-        let submitted = 0;
-        const button = {};
-        const form = {matches: () => true, requestSubmit: submitter => { assert.equal(submitter, button); submitted++; }};
-        await state.listeners.submit({target: form, submitter: button, preventDefault: () => {prevented = true;}, stopImmediatePropagation: () => {}});
-        assert.equal(prevented, true);
-        assert.equal(state.refreshes, 1);
-        assert.equal(submitted, refreshToken ? 1 : 0);
-        assert.equal(state.redirect, undefined);
-        if (!refreshToken) assert.match(state.recovery.textContent, /not been submitted/);
-    }
-});
-
-test('mobile Enter submission preserves the absence of a submitter', async () => {
-    const state = await run({signedIn: true, pathname: '/m/people'});
-    let submitted = false;
-    const form = {matches: () => true, requestSubmit: (...args) => { assert.equal(args.length, 0); submitted = true; }};
-    await state.listeners.submit({target: form, submitter: null, preventDefault: () => {}, stopImmediatePropagation: () => {}});
-    assert.equal(submitted, true);
-});
-
 test('denied accounts see their email and an explanation', async () => {
     for (const options of [{status: 403}, {status: 503, search: '?denied=1'}]) {
         const state = await run({signedIn: true, ...options});
@@ -136,7 +111,7 @@ test('denied accounts see their email and an explanation', async () => {
     }
 });
 test('app configuration failure explains that changes may not save', async () => {
-    const state = await run({pathname: '/m', configFails: true});
+    const state = await run({pathname: '/participants', configFails: true});
     assert.match(state.recovery.textContent, /Could not reach the sign-in service. Your changes may not save./);
 });
 
@@ -154,12 +129,6 @@ test('Clerk script and load failures explain sign-in unavailability', async () =
  }
 });
 
-test('failed renewal tells a form to discard its pending confirmation', async()=>{
- const state=await run({signedIn:true,pathname:'/m',refreshToken:null});let failed;
- const form={matches:()=>true,dispatchEvent:event=>{failed=event.type;}};
- await state.listeners.submit({target:form,preventDefault(){},stopImmediatePropagation(){}});
- assert.equal(failed,'auth:submitFailed');
-});
 test('a speculative request shows recovery only once its caller would have sent it', async () => {
     const state = await run({signedIn: true, pathname: '/', responses: [403]});
     let release;

@@ -119,16 +119,11 @@ func TestRosterLogsDoNotContainNames(t *testing.T) {
 		{"/api/v1/drivers", h.HandleCreateDriver},
 		{"/api/v1/activity-locations", h.HandleCreateActivityLocation},
 		{"/api/v1/org-vehicles", h.HandleCreateOrgVehicle},
-		{"/m/people/participants/new", h.HandleMobileParticipantForm},
-		{"/m/people/drivers/new", h.HandleMobileDriverForm},
-		{"/m/places/locations/new", h.HandleMobileLocationForm},
-		{"/m/places/vans/new", h.HandleMobileVanForm},
 	} {
 		r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tc.path, strings.NewReader(url.Values{"name": {privateName}, "address": {"123 Test Street"}, "capacity": {"4"}, "vehicle_capacity": {"4"}}.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		if !strings.HasPrefix(tc.path, "/m/") {
-			r.Header.Set("HX-Request", "true")
-		}
+		r.Header.Set("HX-Request", "true")
+
 		tc.handle(httptest.NewRecorder(), r)
 	}
 	if strings.Contains(logs.String(), privateName) {

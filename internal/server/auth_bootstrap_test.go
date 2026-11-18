@@ -26,7 +26,7 @@ func TestAuthBootstrapSharesOnlyPublicConfigAndPreservesHeaders(t *testing.T) {
 		t.Fatal("public config contract changed")
 	}
 	admin := fixture.Admin()
-	for _, path := range []string{"/sign-in", "/participants", "/m/people"} {
+	for _, path := range []string{"/sign-in", "/participants", "/drivers"} {
 		status, body, headers = client.request(base, "GET", path, admin, "", "", nil)
 		if status != http.StatusOK || headers.Get("Cache-Control") != "no-store" || headers.Get("Content-Security-Policy") != "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" {
 			t.Fatalf("%s status=%d cache=%q csp=%q", path, status, headers.Get("Cache-Control"), headers.Get("Content-Security-Policy"))

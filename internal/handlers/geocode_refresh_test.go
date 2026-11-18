@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/plandraft"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -72,7 +71,7 @@ func TestCalculateRefreshesExpiredCoordinates(t *testing.T) {
 			router := &captureRouter{result: &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: d, Stops: []models.RouteStop{{Participant: p}}}}}}
 			h.Router = router
 			form := url.Values{"participant_ids": {fmt.Sprint(p.ID)}, "driver_ids": {fmt.Sprint(d.ID)}, "activity_location_id": {fmt.Sprint(loc.ID)}, "route_time": {"18:30"}, "mode": {"dropoff"}}
-			response := postMobileForm(t, nil, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			response := postForm(t, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				r.Header.Set("HX-Request", "true")
 				h.HandleCalculateRoutes(w, r)
 			}))
@@ -119,8 +118,6 @@ func TestCalculateRefreshFailuresKeepPreviousCoordinatesAndStillPlan(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			h, s := newTestRouteHandler(t)
 			h.Geocoder = &refreshGeocoder{err: tc.err}
-			h.PlanDraft = plandraft.NewStore()
-			t.Cleanup(h.PlanDraft.Close)
 			ctx := t.Context()
 			p, err := s.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 1, Lng: 2})
 			if err != nil {
@@ -142,24 +139,12 @@ func TestCalculateRefreshFailuresKeepPreviousCoordinatesAndStillPlan(t *testing.
 				Summary: models.RoutingSummary{TotalParticipants: 1, TotalDriversUsed: 1},
 			}}
 			form := url.Values{"participant_ids": {fmt.Sprint(p.ID)}, "driver_ids": {fmt.Sprint(d.ID)}, "activity_location_id": {fmt.Sprint(loc.ID)}, "route_time": {"18:30"}, "mode": {"dropoff"}}
-			response := postMobileForm(t, nil, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			response := postForm(t, "/api/v1/routes/calculate", form, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				r.Header.Set("HX-Request", "true")
 				h.HandleCalculateRoutes(w, r)
 			}))
 			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Rider") {
 				t.Fatalf("desktop=%d %s", response.Code, response.Body.String())
-			}
-			id := h.PlanDraft.NewID()
-			h.PlanDraft.Update(id, func(draft *plandraft.Draft) {
-				draft.ParticipantIDs = []int64{p.ID}
-				draft.DriverIDs = []int64{d.ID}
-				draft.LocationID = loc.ID
-				draft.RouteTime = "18:30"
-				draft.Mode = "dropoff"
-			})
-			mobile := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, h.HandleMobileCalculate)
-			if mobile.Code != 303 || mobile.Header().Get("Location") != "/m/routes" {
-				t.Fatalf("mobile=%d %s", mobile.Code, mobile.Header())
 			}
 			saved, err := s.Participants().GetByID(ctx, p.ID)
 			if err != nil || saved.Lat != 1 || time.Since(saved.GeocodedAt) < 30*24*time.Hour {
@@ -239,7 +224,7 @@ func TestCalculateBoundsConcurrentRefresh(t *testing.T) {
 	}
 }
 
-func TestMobileLocationEditsRetainAndRenewFreshness(t *testing.T) {
+func TestLocationEditsRetainAndRenewFreshness(t *testing.T) {
 	h, s := newTestManagementHandler(t)
 	ctx := t.Context()
 	loc, err := s.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "Home", Lat: 1, Lng: 2, GeocodedAt: time.Now().Add(-31 * 24 * time.Hour)})
@@ -251,10 +236,15 @@ func TestMobileLocationEditsRetainAndRenewFreshness(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := loc.GeocodedAt
-	path := fmt.Sprintf("/m/places/locations/%d/edit", loc.ID)
+	path := fmt.Sprintf("/api/v1/activity-locations/%d", loc.ID)
 	for _, address := range []string{"Home", "New address"} {
-		response := postMobileForm(t, nil, path, url.Values{"name": {"Renamed gym"}, "address": {address}}, h.HandleMobileLocationForm)
-		if response.Code != 303 {
+		form := url.Values{"name": {"Renamed gym"}, "address": {address}}
+		request := httptest.NewRequestWithContext(ctx, http.MethodPut, path, strings.NewReader(form.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("HX-Request", "true")
+		response := httptest.NewRecorder()
+		h.HandleUpdateActivityLocation(response, request)
+		if response.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body)
 		}
 		saved, err := s.ActivityLocations().GetByID(ctx, loc.ID)

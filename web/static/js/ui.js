@@ -650,7 +650,6 @@ function toggleEventDetail(eventItem, eventId, toggle) {
 
   document.addEventListener("DOMContentLoaded", () => {
     ensureConfirmDialog();
-    if (document.querySelector(".mobile-shell")) return;
     initAll(document);
     initSettingsValidation();
     initAddressAutocomplete();
@@ -658,7 +657,6 @@ function toggleEventDetail(eventItem, eventId, toggle) {
   });
 
   document.addEventListener("htmx:load", (e) => {
-    if (document.querySelector(".mobile-shell")) return;
     initAll(e.target);
     initSettingsValidation();
     initAddressAutocomplete();

@@ -68,7 +68,7 @@ Back up the encryption key separately. Losing it requires restoring it or settin
 
 ## Use
 
-Add a place, add/import riders and drivers, assign vans, choose mode/time, calculate, adjust, copy and save. `/m` provides the phone workflow. Pickup ends at the activity; dropoff starts there. Follow numbered Maps legs in order.
+Add a place, add/import riders and drivers, assign vans, choose mode/time, calculate, adjust, copy and save. The planner adapts to phone screens. Pickup ends at the activity; dropoff starts there. Follow numbered Maps legs in order.
 
 ## How it runs
 
@@ -80,7 +80,7 @@ Postgres reserves Compute Routes, Geocoding and Autocomplete attempts and Comput
 
 Coordinates older than 30 days are refreshed before planning; failed refreshes retain prior coordinates. Address lookups share one request/second and cooldowns up to 15 minutes.
 
-Postgres persists drafts, route edits and imports across restarts/replicas; no sticky sessions or app volume. Drafts/routes expire after eight idle hours; imports after 30 minutes. Limits are 256 drafts, 256 routes and four imports. New drafts/routes evict the least recently used unfinished plan when full. Concurrent route edits return `409 SESSION_CONFLICT`; reload. Event saves/import commits consume their session atomically to prevent duplicate writes.
+Postgres persists route sessions and imports across restarts and replicas. Route sessions expire after eight idle hours and imports after 30 minutes. Limits are 256 route sessions and four imports. A new route session evicts the least recently used unfinished route session when full. Concurrent route edits return `409 SESSION_CONFLICT`; reload. Event saves/import commits consume their session atomically to prevent duplicate writes.
 
 CSV/XLSX imports geocode on the server. Parsed workflow payloads are capped at 24 MiB; valid rows can be saved despite invalid rows. Workers continue without a browser, recover after restart and allow up to nine Google attempts per unique address, with shared cooldowns. Exhausted addresses require a new import or reapplied mapping.
 
