@@ -55,7 +55,7 @@ func TestRosterEditorDriverRetainsCoordinatesAndLabelIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	editor := rosterEditor{db: store, geocoder: h.Geocoder}
-	created, err := editor.createDriver(ctx, driverEdit{Name: " Rider ", Address: " Address ", AddressName: "Home", LabelIDs: []int64{label.ID}, VehicleCapacity: 4})
+	created, err := editor.createDriver(ctx, rosterEdit{Name: " Rider ", Address: " Address ", AddressName: "Home", LabelIDs: []int64{label.ID}, VehicleCapacity: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestRosterEditorDriverRetainsCoordinatesAndLabelIntent(t *testing.T) {
 		t.Fatalf("created = %#v", created)
 	}
 	editor.geocoder = stubGeocoder{err: geocoding.ErrNoGeocodingResults}
-	updated, err := editor.updateDriver(ctx, created, driverEdit{Name: "Updated", Address: created.Address, VehicleCapacity: 5})
+	updated, err := editor.updateDriver(ctx, created, rosterEdit{Name: "Updated", Address: created.Address, VehicleCapacity: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestRosterEditorDriverRetainsCoordinatesAndLabelIntent(t *testing.T) {
 	if err != nil || len(labels) != 1 {
 		t.Fatalf("labels = %v, %v", labels, err)
 	}
-	_, err = editor.updateDriver(ctx, updated, driverEdit{Name: "Cleared", Address: created.Address, SetLabels: true, VehicleCapacity: 6})
+	_, err = editor.updateDriver(ctx, updated, rosterEdit{Name: "Cleared", Address: created.Address, SetLabels: true, VehicleCapacity: 6})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 			if kind == "participant" {
 				participant, err = editor.createParticipant(ctx, edit)
 			} else {
-				driver, err = editor.createDriver(ctx, driverEdit{participantEdit: edit, VehicleCapacity: 4})
+				driver, err = editor.createDriver(ctx, rosterEdit{participantEdit: edit, VehicleCapacity: 4})
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -130,7 +130,7 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 			if kind == "participant" {
 				participant, err = editor.updateParticipant(ctx, participant, edit)
 			} else {
-				driver, err = editor.updateDriver(ctx, driver, driverEdit{participantEdit: edit, VehicleCapacity: 5})
+				driver, err = editor.updateDriver(ctx, driver, rosterEdit{participantEdit: edit, VehicleCapacity: 5})
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -175,7 +175,7 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 					if kind == "participant" {
 						_, err = editor.updateParticipant(requestCtx, participant, failedEdit)
 					} else {
-						_, err = editor.updateDriver(requestCtx, driver, driverEdit{participantEdit: failedEdit, VehicleCapacity: 6})
+						_, err = editor.updateDriver(requestCtx, driver, rosterEdit{participantEdit: failedEdit, VehicleCapacity: 6})
 					}
 					if err == nil {
 						t.Fatal("expected failed edit")
@@ -251,7 +251,7 @@ func TestRosterEditorDriverGeocodeFreshness(t *testing.T) {
 	h, s := newTestManagementHandler(t)
 	ctx := t.Context()
 	editor := rosterEditor{db: s, geocoder: h.Geocoder}
-	d, err := editor.createDriver(ctx, driverEdit{Name: "Driver", Address: "Home", VehicleCapacity: 4})
+	d, err := editor.createDriver(ctx, rosterEdit{Name: "Driver", Address: "Home", VehicleCapacity: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestRosterEditorDriverGeocodeFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err = editor.updateDriver(ctx, d, driverEdit{Name: "Renamed", Address: d.Address, VehicleCapacity: 5})
+	d, err = editor.updateDriver(ctx, d, rosterEdit{Name: "Renamed", Address: d.Address, VehicleCapacity: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestRosterEditorDriverGeocodeFreshness(t *testing.T) {
 	if err != nil || !d.GeocodedAt.Equal(old) {
 		t.Fatalf("unchanged=%#v %v", d, err)
 	}
-	d, err = editor.updateDriver(ctx, d, driverEdit{Name: d.Name, Address: "New address", VehicleCapacity: 5})
+	d, err = editor.updateDriver(ctx, d, rosterEdit{Name: d.Name, Address: "New address", VehicleCapacity: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

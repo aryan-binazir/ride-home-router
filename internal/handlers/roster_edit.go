@@ -78,12 +78,12 @@ func (e rosterEditor) updateParticipant(ctx context.Context, existing *models.Pa
 	return e.db.Participants().Update(ctx, participant)
 }
 
-type driverEdit struct {
+type rosterEdit struct {
 	participantEdit
 	VehicleCapacity int
 }
 
-func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*models.Driver, error) {
+func (e rosterEditor) createDriver(ctx context.Context, edit rosterEdit) (*models.Driver, error) {
 	result, err := e.geocode(ctx, edit.Address)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (e rosterEditor) createDriver(ctx context.Context, edit driverEdit) (*model
 	return created, err
 }
 
-func (e rosterEditor) updateDriver(ctx context.Context, existing *models.Driver, edit driverEdit) (*models.Driver, error) {
+func (e rosterEditor) updateDriver(ctx context.Context, existing *models.Driver, edit rosterEdit) (*models.Driver, error) {
 	driver := &models.Driver{
 		ID: existing.ID, Name: edit.Name, Address: edit.Address, AddressName: edit.AddressName,
 		VehicleCapacity: edit.VehicleCapacity, Lat: existing.Lat, Lng: existing.Lng,
