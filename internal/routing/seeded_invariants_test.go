@@ -21,7 +21,12 @@ func TestBalancedRouterSeededInvariants(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 
 	run := func(seed uint64, households, capacities []int) {
-		t.Run(fmt.Sprintf("seed=%d/households=%v/seats=%v", seed, households, capacities), func(t *testing.T) {
+		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
+			t.Cleanup(func() {
+				if t.Failed() {
+					t.Logf("household sizes %v, car capacities %v", households, capacities)
+				}
+			})
 			for _, mode := range []routing.RouteMode{routing.RouteModePickup, routing.RouteModeDropoff} {
 				t.Run(string(mode), func(t *testing.T) {
 					runtime.GOMAXPROCS(1)
@@ -53,6 +58,7 @@ func TestBalancedRouterSeededInvariants(t *testing.T) {
 	run(201, []int{6, 5, 3}, []int{6, 5, 2})
 	run(202, []int{6, 2}, []int{4, 3, 1})
 	run(203, []int{2, 2, 2}, []int{3, 3})
+	run(205, []int{2, 2, 1}, []int{4, 1, 1})
 	for seed := range uint64(180) {
 		rng := rand.New(rand.NewPCG(seed, 1)) //nolint:gosec // Seeded test data.
 		householdLimit, capacityLimit := 6, 10
@@ -70,6 +76,18 @@ func TestBalancedRouterSeededInvariants(t *testing.T) {
 			capacities[i] = 1 + rng.IntN(capacityLimit)
 		}
 		run(seed, households, capacities)
+	}
+	for offset := range uint64(24) {
+		seed := 300 + offset
+		rng := rand.New(rand.NewPCG(seed, 1)) //nolint:gosec // Seeded test data.
+		largestCar := 1 + rng.IntN(4)
+		oversizedHousehold := largestCar + 1 + rng.IntN(min(largestCar, 6-largestCar))
+		intactHousehold := 1 + rng.IntN(largestCar)
+		capacities := []int{largestCar, largestCar, intactHousehold}
+		if offset%2 == 0 {
+			capacities = append(capacities, 1+rng.IntN(largestCar))
+		}
+		run(seed, []int{oversizedHousehold, intactHousehold}, capacities)
 	}
 }
 
@@ -107,11 +125,11 @@ func checkSeededRoster(t *testing.T, req routing.RoutingRequest, households, cap
 	riders := len(req.Participants)
 	largestCar := slices.Max(capacities)
 	checkOccupancy := riders <= 7 && (len(households) == 0 || slices.Max(households) <= largestCar)
-	best := -1
+	feasible, best := false, 0
 	if riders <= seats {
-		best = exhaustiveRosterPacking(households, capacities, checkOccupancy)
+		feasible, best = exhaustiveRosterPacking(households, capacities, checkOccupancy)
 	}
-	if best == -1 {
+	if !feasible {
 		failure, ok := errors.AsType[*routing.ErrRoutingFailed](err)
 		if plan != nil || !ok {
 			t.Fatalf("infeasible roster returned plan %v and error %v, want nil plan and ErrRoutingFailed", plan, err)
@@ -184,7 +202,7 @@ func checkSeededRoster(t *testing.T, req routing.RoutingRequest, households, cap
 	}
 }
 
-func exhaustiveRosterPacking(households, capacities []int, checkOccupancy bool) int {
+func exhaustiveRosterPacking(households, capacities []int, checkOccupancy bool) (feasible bool, maxOccupied int) {
 	largestCar := slices.Max(capacities)
 	var blocks []int
 	for _, size := range households {
@@ -194,17 +212,20 @@ func exhaustiveRosterPacking(households, capacities []int, checkOccupancy bool) 
 	}
 	slices.SortFunc(blocks, func(a, b int) int { return b - a })
 	free := slices.Clone(capacities)
-	best, target := -1, 0
+	target := 0
 	if checkOccupancy {
 		target = min(len(blocks), len(capacities))
 	}
 	var search func(int, int)
 	search = func(block, occupied int) {
-		if best >= target {
+		if feasible && maxOccupied == target {
 			return
 		}
 		if block == len(blocks) {
-			best = max(best, occupied)
+			feasible = true
+			if checkOccupancy {
+				maxOccupied = max(maxOccupied, occupied)
+			}
 			return
 		}
 		for i, seats := range free {
@@ -221,7 +242,7 @@ func exhaustiveRosterPacking(households, capacities []int, checkOccupancy bool) 
 		}
 	}
 	search(0, 0)
-	return best
+	return feasible, maxOccupied
 }
 
 func TestBalancedRouterPreCanceledEstimator(t *testing.T) {
