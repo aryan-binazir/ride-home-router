@@ -408,19 +408,11 @@ func (h *Handler) renderLabelsListWithToast(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) handleLabelValidationError(w http.ResponseWriter, r *http.Request, message string) {
-	if h.isHTMX(r) {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", message)
-		return
-	}
-	h.handleValidationError(w, r, message)
+	h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", message)
 }
 
 func (h *Handler) handleLabelNotFound(w http.ResponseWriter, r *http.Request) {
-	if h.isHTMX(r) {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageLabelNotFound)
-		return
-	}
-	h.handleNotFound(w, r, messageLabelNotFound)
+	h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageLabelNotFound)
 }
 
 func (h *Handler) handleLabelWriteError(w http.ResponseWriter, r *http.Request, err error) {

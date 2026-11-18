@@ -57,9 +57,7 @@ func newStore(ttl, cleanup time.Duration, now func() time.Time) *Store {
 
 func (s *Store) NewID() string {
 	var bytes [16]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		panic("plandraft: crypto/rand failed: " + err.Error())
-	}
+	rand.Read(bytes[:])
 	return hex.EncodeToString(bytes[:])
 }
 

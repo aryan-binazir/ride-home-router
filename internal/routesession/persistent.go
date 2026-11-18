@@ -75,17 +75,16 @@ func (s *Store) CreateContext(ctx context.Context, input CreateInput) (Snapshot,
 	snapshot := snapshotWithChanges(state, changedRoutes(nil, state.currentRoutes))
 	if s.records == nil {
 		s.insert(state)
-		log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
-		return snapshot, nil
+	} else {
+		data, err := encodeState(state)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		if err = s.records.Create(ctx, "route", snapshot.ID, data, s.ttl); err != nil {
+			return Snapshot{}, err
+		}
 	}
 	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
-	data, err := encodeState(state)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	if err = s.records.Create(ctx, "route", snapshot.ID, data, s.ttl); err != nil {
-		return Snapshot{}, err
-	}
 	return snapshot, nil
 }
 

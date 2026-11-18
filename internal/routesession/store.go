@@ -768,6 +768,6 @@ func copyDirty(source map[int]struct{}) map[int]struct{} {
 
 func generateID() string {
 	bytes := make([]byte, 16)
-	_, _ = rand.Read(bytes)
+	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }

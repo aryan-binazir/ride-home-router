@@ -115,15 +115,9 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		var owner [16]byte
 		var password, encryption [32]byte
-		if _, err = rand.Read(owner[:]); err != nil {
-			return err
-		}
-		if _, err = rand.Read(password[:]); err != nil {
-			return err
-		}
-		if _, err = rand.Read(encryption[:]); err != nil {
-			return err
-		}
+		rand.Read(owner[:])
+		rand.Read(password[:])
+		rand.Read(encryption[:])
 		state = environment{Root: root, Owner: hex.EncodeToString(owner[:]), Runtime: runtime, Password: base64.RawURLEncoding.EncodeToString(password[:]), EncryptionKey: base64.StdEncoding.EncodeToString(encryption[:])}
 		state.Container = "rhr-dev-" + state.Owner
 		if err = l.save("state.json", state); err != nil {

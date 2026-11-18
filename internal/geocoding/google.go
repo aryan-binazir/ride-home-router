@@ -116,19 +116,15 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 
 	var decoded googleGeocodeResponse
 	decodeErr := decodeGoogle(resp.Body, &decoded)
-	if decoded.Status == "" {
-		if resp.StatusCode != http.StatusOK {
-			if err := g.recordSharedCooldown(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
-				return nil, err
-			}
-			log.Printf("[ERROR] Google geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-			return nil, &ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+	if decoded.Status == "" && resp.StatusCode != http.StatusOK {
+		if err := g.recordSharedCooldown(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
+			return nil, err
 		}
-		log.Printf("[ERROR] Google geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
-		if decodeErr == nil {
-			decodeErr = errors.New("missing status")
-		}
-		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
+		log.Printf("[ERROR] Google geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		return nil, &ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+	}
+	if decoded.Status == "" && decodeErr == nil {
+		decodeErr = errors.New("missing status")
 	}
 	if decodeErr != nil {
 		log.Printf("[ERROR] Google geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))

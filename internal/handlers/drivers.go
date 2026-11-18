@@ -140,37 +140,21 @@ func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Name == "" || req.Address == "" {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-			return
-		}
-		h.handleValidationError(w, r, messageNameAndAddressRequired)
+		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-			return
-		}
-		h.handleValidationError(w, r, messageAddressNameTooLong())
+		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 		return
 	}
 
 	if req.VehicleCapacity < models.MinVehicleCapacity || req.VehicleCapacity > models.MaxVehicleCapacity {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
-			return
-		}
-		h.handleValidationError(w, r, messageVehicleCapacityOutOfRange())
+		h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 		log.Printf("[HTTP] POST /api/v1/drivers: invalid_labels err=%v", err)
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-		h.handleValidationError(w, r, messageInvalidLabelSelection)
+		h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 		return
 	}
 
@@ -233,11 +217,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-			return
-		}
-		h.handleValidationError(w, r, messageInvalidDriverID)
+		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 		return
 	}
 
@@ -245,11 +225,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.DB.Drivers().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			if h.isHTMX(r) {
-				h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-				return
-			}
-			h.handleNotFound(w, r, messageDriverNotFound)
+			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 			return
 		}
 		if h.isHTMX(r) {
@@ -311,38 +287,22 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Name == "" || req.Address == "" {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-			return
-		}
-		h.handleValidationError(w, r, messageNameAndAddressRequired)
+		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-			return
-		}
-		h.handleValidationError(w, r, messageAddressNameTooLong())
+		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 		return
 	}
 
 	if req.VehicleCapacity < models.MinVehicleCapacity || req.VehicleCapacity > models.MaxVehicleCapacity {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
-			return
-		}
-		h.handleValidationError(w, r, messageVehicleCapacityOutOfRange())
+		h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
 		return
 	}
 	if shouldSetLabels {
 		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_labels id=%d err=%v", id, err)
-			if h.isHTMX(r) {
-				h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-				return
-			}
-			h.handleValidationError(w, r, messageInvalidLabelSelection)
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 	}
@@ -363,11 +323,7 @@ func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Driver not found after update: id=%d", id)
-			if h.isHTMX(r) {
-				h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-				return
-			}
-			h.handleNotFound(w, r, messageDriverNotFound)
+			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 			return
 		}
 		log.Printf("[ERROR] Failed to update driver: id=%d err=%v", id, err)
@@ -409,11 +365,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-			return
-		}
-		h.handleValidationError(w, r, messageInvalidDriverID)
+		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
 		return
 	}
 
@@ -421,11 +373,7 @@ func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Drivers().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Driver not found for delete: id=%d", id)
-		if h.isHTMX(r) {
-			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-			return
-		}
-		h.handleNotFound(w, r, messageDriverNotFound)
+		h.handleNotFoundHTMX(w, r, messageDriverNotFound)
 		return
 	}
 	if err != nil {

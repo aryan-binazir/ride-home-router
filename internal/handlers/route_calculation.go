@@ -156,7 +156,9 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 	if err := ctx.Err(); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
-		_ = c.sessions.DeleteContext(cleanupCtx, session.ID)
+		if cleanupErr := c.sessions.DeleteContext(cleanupCtx, session.ID); cleanupErr != nil {
+			log.Printf("[ERROR] Delete canceled route session: %v", cleanupErr)
+		}
 		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
 	}
 
