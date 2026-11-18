@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
@@ -71,10 +72,7 @@ func (s *Store) CreateContext(ctx context.Context, kind Kind, filename string, g
 	if kind != KindParticipant && kind != KindDriver {
 		return Snapshot{}, errors.New("unsupported roster kind")
 	}
-	id, err := newSessionID()
-	if err != nil {
-		return Snapshot{}, err
-	}
+	id := newSessionID()
 	header := importHeader{Kind: kind, Filename: filename, Grid: storeGrid(*grid), Mapping: AutoMap(grid.Headers), Status: StatusMapping}
 	data, err := json.Marshal(header)
 	if err != nil {
@@ -183,7 +181,7 @@ func (s *Store) LoadReviewPage(ctx context.Context, id string, requested int) (R
 			if row.Index != start+i {
 				return errors.New("invalid import row sequence")
 			}
-			if err := json.Unmarshal(row.Data, &page.Rows[i].Row); err != nil {
+			if err := decodeImportRow(row, &page.Rows[i].Row); err != nil {
 				return err
 			}
 			page.Rows[i].Index = row.Index
@@ -204,6 +202,13 @@ func importProgressSnapshot(id string, status Status, counts database.ImportProg
 	return ProgressSnapshot{ID: id, Status: status, GeocodeProgress: GeocodeProgress{Done: counts.Done, Total: counts.Total, Running: counts.Running}, RowCount: counts.RowCount, SelectedCount: counts.SelectedCount}
 }
 
+func decodeImportRow(stored database.ImportRow, row *Row) error {
+	if err := json.Unmarshal(stored.Data, row); err != nil {
+		return fmt.Errorf("decode import row %d: %w", stored.Index, err)
+	}
+	return nil
+}
+
 func decodeImportRows(stored []database.ImportRow) ([]Row, []bool, error) {
 	rows := make([]Row, len(stored))
 	selected := make([]bool, len(stored))
@@ -211,7 +216,7 @@ func decodeImportRows(stored []database.ImportRow) ([]Row, []bool, error) {
 		if r.Index != i {
 			return nil, nil, errors.New("invalid import row sequence")
 		}
-		if err := json.Unmarshal(r.Data, &rows[i]); err != nil {
+		if err := decodeImportRow(r, &rows[i]); err != nil {
 			return nil, nil, err
 		}
 		selected[i] = r.Selected
@@ -401,12 +406,7 @@ func (s *Store) durableWorker(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		token, err := newSessionID()
-		var job database.ImportJob
-		var ok bool
-		if err == nil {
-			job, ok, err = s.durableJobs.Claim(ctx, token, time.Minute)
-		}
+		job, ok, err := s.durableJobs.Claim(ctx, newSessionID(), time.Minute)
 		if ctx.Err() != nil {
 			return
 		}
@@ -483,7 +483,7 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 		}
 		delete(wanted, index)
 		var row Row
-		if err = json.Unmarshal(storedRow.Data, &row); err != nil {
+		if err = decodeImportRow(storedRow, &row); err != nil {
 			return err
 		}
 		row.NeedsGeocoding = false

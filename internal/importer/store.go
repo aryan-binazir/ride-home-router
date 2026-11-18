@@ -276,12 +276,10 @@ func copyMapping(mapping Mapping) Mapping {
 	return copy
 }
 
-func newSessionID() (string, error) {
+func newSessionID() string {
 	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
 }
 
 func geocodeFailureMessage(err error) string {

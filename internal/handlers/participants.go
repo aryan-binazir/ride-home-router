@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"ride-home-router/internal/httpx"
@@ -78,15 +79,13 @@ func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
 			h.handleNotFound(w, r, "Rider not found. Refresh the page and try again.")
 			return
 		}
-		log.Printf("[ERROR] Failed to get participant: id=%d err=%v", id, err)
-		h.handleInternalError(w, r, err)
+		h.handleInternalError(w, r, fmt.Errorf("get participant %d: %w", id, err))
 		return
 	}
 
 	response, err := h.participantResponse(r.Context(), participant)
 	if err != nil {
-		log.Printf("[ERROR] Failed to load participant labels: id=%d err=%v", participant.ID, err)
-		h.handleInternalError(w, r, err)
+		h.handleInternalError(w, r, fmt.Errorf("load participant labels %d: %w", participant.ID, err))
 		return
 	}
 
@@ -104,8 +103,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
-			log.Printf("[ERROR] Failed to parse form: err=%v", err)
-			h.renderError(w, r, err)
+			h.renderError(w, r, fmt.Errorf("parse form: %w", err))
 			return
 		}
 		req.Name = r.FormValue("name")
@@ -134,28 +132,16 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	if req.Name == "" || req.Address == "" {
 		//nolint:gosec // G706: request fields are logged only as presence booleans.
 		log.Printf("[HTTP] POST /api/v1/participants: missing_name=%t missing_address=%t", req.Name == "", req.Address == "")
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-			return
-		}
-		h.handleValidationError(w, r, messageNameAndAddressRequired)
+		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-			return
-		}
-		h.handleValidationError(w, r, messageAddressNameTooLong())
+		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 		return
 	}
 	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 		log.Printf("[HTTP] POST /api/v1/participants: invalid_labels err=%v", err)
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-		h.handleValidationError(w, r, messageInvalidLabelSelection)
+		h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 		return
 	}
 
@@ -178,13 +164,7 @@ func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request
 	}
 
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to create participant: err=%s", logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("create participant: %w", err))
 		return
 	}
 
@@ -215,11 +195,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-			return
-		}
-		h.handleValidationError(w, r, messageInvalidParticipantID)
+		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 		return
 	}
 
@@ -229,19 +205,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found for update: id=%d", id)
-			if h.isHTMX(r) {
-				h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-				return
-			}
-			h.handleNotFound(w, r, messageParticipantNotFound)
+			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to get participant for update: id=%d err=%v", id, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("get participant for update %d: %w", id, err))
 		return
 	}
 
@@ -286,29 +253,17 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.Name == "" || req.Address == "" {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-			return
-		}
-		h.handleValidationError(w, r, messageNameAndAddressRequired)
+		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 		return
 	}
 	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-			return
-		}
-		h.handleValidationError(w, r, messageAddressNameTooLong())
+		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
 		return
 	}
 	if shouldSetLabels {
 		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 			log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_labels id=%d err=%v", id, err)
-			if h.isHTMX(r) {
-				h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-				return
-			}
-			h.handleValidationError(w, r, messageInvalidLabelSelection)
+			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return
 		}
 	}
@@ -328,19 +283,10 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if h.checkNotFound(err) {
 			log.Printf("[HTTP] Participant not found after update: id=%d", id)
-			if h.isHTMX(r) {
-				h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-				return
-			}
-			h.handleNotFound(w, r, messageParticipantNotFound)
+			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to update participant: id=%d err=%v", id, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("update participant %d: %w", id, err))
 		return
 	}
 
@@ -358,9 +304,7 @@ func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request
 
 	response, err := h.participantResponse(r.Context(), participant)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to load participant labels after update: id=%d err=%s", participant.ID, logutil.SafeString(err.Error()))
-		h.handleInternalError(w, r, err)
+		h.handleInternalError(w, r, fmt.Errorf("load participant labels after update %d: %w", participant.ID, err))
 		return
 	}
 
@@ -373,11 +317,7 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[HTTP] DELETE /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-			return
-		}
-		h.handleValidationError(w, r, messageInvalidParticipantID)
+		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
 		return
 	}
 
@@ -385,20 +325,11 @@ func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request
 	err = h.DB.Participants().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
 		log.Printf("[HTTP] Participant not found for delete: id=%d", id)
-		if h.isHTMX(r) {
-			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-			return
-		}
-		h.handleNotFound(w, r, messageParticipantNotFound)
+		h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
 		return
 	}
 	if err != nil {
-		log.Printf("[ERROR] Failed to delete participant: id=%d err=%v", id, err)
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("delete participant %d: %w", id, err))
 		return
 	}
 
@@ -430,13 +361,7 @@ func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Reques
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
 			return
 		}
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to restore participant: id=%d err=%s", id, logutil.SafeString(err.Error()))
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
+		h.renderError(w, r, fmt.Errorf("restore participant %d: %w", id, err))
 		return
 	}
 

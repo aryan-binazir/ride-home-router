@@ -36,7 +36,7 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int) ([]models
 	for rows.Next() {
 		event, err := scanEvent(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("scan listed event: %w", err)
 		}
 		events = append(events, event)
 	}
@@ -228,7 +228,7 @@ func (r *eventRepository) Create(ctx context.Context, event *models.Event, route
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("commit event creation: %w", err)
 	}
 	return created, nil
 }

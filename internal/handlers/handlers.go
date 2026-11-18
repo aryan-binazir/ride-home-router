@@ -108,15 +108,7 @@ func (h *Handler) handleNotFound(w http.ResponseWriter, r *http.Request, message
 }
 
 func (h *Handler) handleNotFoundHTMX(w http.ResponseWriter, r *http.Request, message string) {
-	if h.isHTMX(r) {
-		h.setHTMXToast(w, message, toastTypeError)
-		w.Header().Set(httpx.HeaderHXReswap, httpx.ReswapNone)
-		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = fmt.Fprintf(w, `<div class="alert alert-warning">%s</div>`, html.EscapeString(message))
-		return
-	}
-	h.handleNotFound(w, r, message)
+	h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", message)
 }
 
 func (h *Handler) handleValidationError(w http.ResponseWriter, r *http.Request, message string) {
@@ -180,16 +172,12 @@ func (h *Handler) handleGeocodingError(w http.ResponseWriter, r *http.Request, e
 	h.writeError(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(err), nil)
 }
 
-func (h *Handler) handleRoutingError(w http.ResponseWriter, r *http.Request, err error) {
-	if rerr, ok := err.(*routing.ErrRoutingFailed); ok {
-		h.writeError(w, r, http.StatusUnprocessableEntity, "ROUTING_FAILED", messageHouseholdsDoNotFit, RoutingErrorDetails{
-			UnassignedCount:   rerr.UnassignedCount,
-			TotalCapacity:     rerr.TotalCapacity,
-			TotalParticipants: rerr.TotalParticipants,
-		})
-		return
-	}
-	h.writeError(w, r, http.StatusUnprocessableEntity, "ROUTING_FAILED", routeCalculationValidationMessage(err), nil)
+func (h *Handler) handleRoutingError(w http.ResponseWriter, r *http.Request, err *routing.ErrRoutingFailed) {
+	h.writeError(w, r, http.StatusUnprocessableEntity, "ROUTING_FAILED", messageHouseholdsDoNotFit, RoutingErrorDetails{
+		UnassignedCount:   err.UnassignedCount,
+		TotalCapacity:     err.TotalCapacity,
+		TotalParticipants: err.TotalParticipants,
+	})
 }
 
 func (h *Handler) handleInternalError(w http.ResponseWriter, r *http.Request, err error) {
@@ -230,8 +218,8 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 }
 
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error) {
-	log.Printf("[ERROR] Request failed: %v", err)
 	if h.isHTMX(r) {
+		log.Printf("[ERROR] Request failed: %v", err)
 		h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusInternalServerError)
