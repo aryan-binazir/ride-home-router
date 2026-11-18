@@ -81,7 +81,7 @@ func (kind rosterKind[T, R]) get(h *Handler, w http.ResponseWriter, r *http.Requ
 	person, err := kind.repository(h.DB).GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			slog.Info("Roster person not found", "component", "http", "resource", kind.title, "id", id)
+			slog.Info("Roster person not found", "component", "http", "resource", kind.name, "id", id)
 			h.handleNotFound(w, r, kind.notFound)
 			return
 		}
@@ -129,7 +129,7 @@ func (kind rosterKind[T, R]) createPerson(h *Handler, w http.ResponseWriter, r *
 	if h.isHTMX(r) {
 		view, err := kind.page(h.DB, r)
 		if err != nil {
-			slog.Error("Failed to refresh roster after create", "resource", kind.plural, "error", fmt.Sprint(err))
+			slog.Error("Failed to refresh roster after create", "resource", kind.name, "error", fmt.Sprint(err))
 			h.setHTMXToastWithEvent(w, kind.createdEvent, kind.title+" saved. Refresh the page to see the updated roster.", toastTypeWarning)
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -186,7 +186,7 @@ func (kind rosterKind[T, R]) updatePerson(h *Handler, w http.ResponseWriter, r *
 	}
 	if err != nil {
 		if h.checkNotFound(err) {
-			slog.Info("Roster person not found after update", "component", "http", "resource", kind.title, "id", id)
+			slog.Info("Roster person not found after update", "component", "http", "resource", kind.name, "id", id)
 			h.handleNotFoundHTMX(w, r, kind.notFound)
 			return
 		}
@@ -350,7 +350,7 @@ func (kind rosterKind[T, R]) deletePerson(h *Handler, w http.ResponseWriter, r *
 	slog.Info("HTTP request", "component", "http", "method", "DELETE", "route", "/api/v1/"+kind.plural+"/{id}", "id", id)
 	err = kind.repository(h.DB).Delete(r.Context(), id)
 	if h.checkNotFound(err) {
-		slog.Info("Roster person not found for delete", "component", "http", "resource", kind.title, "id", id)
+		slog.Info("Roster person not found for delete", "component", "http", "resource", kind.name, "id", id)
 		h.handleNotFoundHTMX(w, r, kind.notFound)
 		return
 	}
@@ -379,7 +379,7 @@ func (kind rosterKind[T, R]) restorePerson(h *Handler, w http.ResponseWriter, r 
 	slog.Info("HTTP request", "component", "http", "method", "POST", "path", "/api/v1/"+kind.plural+"/restore", "id", id)
 	if err := kind.repository(h.DB).Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
-			slog.Info("Roster person not found for restore", "component", "http", "resource", kind.title, "id", id)
+			slog.Info("Roster person not found for restore", "component", "http", "resource", kind.name, "id", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", kind.notFound)
 			return
 		}

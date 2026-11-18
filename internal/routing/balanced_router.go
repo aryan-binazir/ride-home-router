@@ -3,10 +3,10 @@ package routing
 import (
 	"context"
 	"log/slog"
-	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"slices"
+	"strconv"
 	"time"
 )
 
@@ -168,7 +168,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	slog.Info("Route calculation completed",
 		"component", "balanced",
 		"drivers_used", result.Summary.TotalDriversUsed,
-		"total_distance_meters", math.RoundToEven(result.Summary.TotalDropoffDistanceMeters),
+		"total_distance_meters", strconv.FormatFloat(result.Summary.TotalDropoffDistanceMeters, 'f', 0, 64),
 	)
 	slog.Info("Route calculation total", "component", "timing", "duration", time.Since(totalStart))
 

@@ -25,6 +25,7 @@ For dual-format actions such as [roster writes](../internal/handlers/roster_pers
 | [`internal/handlers`](../internal/handlers) | Page and API adapters, request validation, and application orchestration. | See workflows and change table below. |
 | [`internal/httpx`](../internal/httpx) | HTTP helpers for HTMX detection, JSON decoding, and origin checks. | |
 | [`internal/importer`](../internal/importer) | CSV and XLSX parsing, mapping, review, and durable geocoding and commit. | [0007](adr/0007-durable-roster-import-lifecycle.md), [0012](adr/0012-import-review-ownership.md), [0015](adr/0015-import-commit-preparation.md), [0017](adr/0017-roster-workbook-intake.md) |
+| [`internal/logtest`](../internal/logtest) | Captures structured log output in Go tests. | |
 | [`internal/models`](../internal/models) | Shared domain records, route modes, and roster identity normalization. | |
 | [`internal/orderedroute`](../internal/orderedroute) | Google Compute Routes client for measuring fixed stop orders. | [0006](adr/0006-routing-cost-and-google-terms.md) |
 | [`internal/postgres`](../internal/postgres) | SQL repositories for application data, workflow transactions, and provider usage and cooldown. | [0002](adr/0002-explicit-database-migrations.md), [0007](adr/0007-durable-roster-import-lifecycle.md), [0008](adr/0008-route-session-transition-ownership.md), [0014](adr/0014-roster-create-ownership.md) |

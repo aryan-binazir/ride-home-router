@@ -8,6 +8,7 @@ import (
 	"ride-home-router/internal/models"
 	"slices"
 	"sort"
+	"strconv"
 )
 
 func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) (bool, error) {
@@ -596,7 +597,7 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 				"rider", memberNames[0],
 				"driver", route.driver.Name,
 				"position", bestPosition,
-				"rider_score_delta", math.RoundToEven(bestCost),
+				"rider_score_delta", strconv.FormatFloat(bestCost, 'f', 0, 64),
 			)
 		} else {
 			slog.Info("Assigned household group to driver",
@@ -604,7 +605,7 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 				"riders", memberNames,
 				"driver", route.driver.Name,
 				"position", bestPosition,
-				"rider_score_delta", math.RoundToEven(bestCost),
+				"rider_score_delta", strconv.FormatFloat(bestCost, 'f', 0, 64),
 				"size", len(bestGroup.members),
 			)
 		}

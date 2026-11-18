@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/distance"
@@ -330,7 +329,7 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		"path", r.URL.Path,
 		"drivers", result.Summary.TotalDriversUsed,
 		"org_vehicles", result.Summary.OrgVehiclesUsed,
-		"total_distance_meters", math.RoundToEven(result.Summary.TotalDropoffDistanceMeters),
+		"total_distance_meters", strconv.FormatFloat(result.Summary.TotalDropoffDistanceMeters, 'f', 0, 64),
 	)
 
 	timings := h.routeTimings(calculationCtx, session, allRouteIndexes(session))
