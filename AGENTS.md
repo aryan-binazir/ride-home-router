@@ -1,3 +1,7 @@
+# Architecture
+
+Before changing application code, use the [architecture map](docs/architecture.md) to find the owner, request flow, and focused checks. Use [CONTEXT.md](CONTEXT.md) for domain terms.
+
 # Verification before merging
 
 This repository uses local verification only. Keep GitHub Actions disabled and do not add CI workflows.
