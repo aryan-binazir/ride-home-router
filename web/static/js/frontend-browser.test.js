@@ -19,6 +19,7 @@ async function runBrowserCDP([executable, target, width, height, selector]) {
         `--user-data-dir=${directory}`, 'about:blank',
     ], {stdio: 'ignore'});
     const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const deadline = AbortSignal.timeout(35000);
     let socket;
     try {
         const portFile = path.join(directory, 'DevToolsActivePort');
@@ -28,14 +29,17 @@ async function runBrowserCDP([executable, target, width, height, selector]) {
             if (!port) await pause(25);
         }
         if (!port) throw new Error('Chromium did not start its debugging endpoint');
-        const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+        const pages = await (await fetch(`http://127.0.0.1:${port}/json`, {signal: deadline})).json();
         const page = pages.find(entry => entry.type === 'page');
         if (!page) throw new Error('Chromium did not open a page');
+        deadline.throwIfAborted();
         socket = new WebSocket(page.webSocketDebuggerUrl);
-        await new Promise((resolve, reject) => {
-            socket.addEventListener('open', resolve, {once: true});
-            socket.addEventListener('error', reject, {once: true});
+        const disconnected = new Promise((_, reject) => {
+            socket.addEventListener('error', () => reject(new Error('Chromium DevTools socket error')), {once: true});
+            socket.addEventListener('close', () => reject(new Error('Chromium closed its DevTools socket')), {once: true});
+            deadline.addEventListener('abort', () => reject(deadline.reason), {once: true});
         });
+        await Promise.race([once(socket, 'open'), disconnected]);
 
         let nextID = 0;
         const pending = new Map();
@@ -47,11 +51,11 @@ async function runBrowserCDP([executable, target, width, height, selector]) {
             if (message.error) reject(new Error(message.error.message));
             else resolve(message.result);
         });
-        const send = (method, params = {}) => new Promise((resolve, reject) => {
+        const send = (method, params = {}) => Promise.race([disconnected, new Promise((resolve, reject) => {
             const id = ++nextID;
             pending.set(id, [resolve, reject]);
             socket.send(JSON.stringify({id, method, params}));
-        });
+        })]);
         if (width && height) {
             await send('Emulation.setDeviceMetricsOverride', {
                 width: Number(width), height: Number(height), deviceScaleFactor: 1, mobile: false,
@@ -60,8 +64,7 @@ async function runBrowserCDP([executable, target, width, height, selector]) {
         const navigation = await send('Page.navigate', {url});
         if (navigation.errorText) throw new Error(`Browser navigation failed: ${navigation.errorText}`);
         const expression = `document.querySelector(${JSON.stringify(selector)})?.textContent`;
-        const deadline = performance.now() + 30000;
-        while (performance.now() < deadline) {
+        while (true) {
             const response = await send('Runtime.evaluate', {expression, returnByValue: true});
             if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
             const evidence = response.result.value;
@@ -71,7 +74,6 @@ async function runBrowserCDP([executable, target, width, height, selector]) {
             }
             await pause(20);
         }
-        throw new Error(`Browser fixture did not write ${selector} evidence`);
     } finally {
         socket?.close();
         if (child.exitCode === null && child.signalCode === null) {
