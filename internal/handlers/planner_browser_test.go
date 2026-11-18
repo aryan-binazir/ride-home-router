@@ -126,18 +126,26 @@ window.addEventListener('load',()=>{
 			if err := os.WriteFile(file, []byte(html[:strings.LastIndex(html, "</body>")]+script+html[strings.LastIndex(html, "</body>"):]), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
-			defer cancel()
-			//nolint:gosec // Fixed test runner; browser is an explicit test-only executable.
-			cmd := exec.CommandContext(ctx, "node", "../../web/static/js/frontend-browser.test.js", "--browser-cdp", browser, file, fmt.Sprint(size[0]), fmt.Sprint(size[1]), "#qa-result")
-			cmd.WaitDelay = 2 * time.Second
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("browser: %v: %s", err, out)
-			}
-			if string(out) != "PASS" {
+			out := runBrowserCDP(t, browser, file, fmt.Sprint(size[0]), fmt.Sprint(size[1]), "#qa-result")
+			if out != "PASS" {
 				t.Fatalf("layout regression: %s", out)
 			}
 		})
 	}
+}
+
+func runBrowserCDP(t *testing.T, browser, target, width, height, selector string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	//nolint:gosec // Fixed test runner; browser is an explicit test-only executable.
+	cmd := exec.CommandContext(ctx, "node", "../../web/static/js/frontend-browser.test.js", "--browser-cdp", browser, target, width, height, selector)
+	cmd.WaitDelay = 2 * time.Second
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("browser: %v: %s", err, stderr.String())
+	}
+	return string(out)
 }

@@ -9,10 +9,12 @@ const {once} = require('node:events');
 const {pathToFileURL} = require('node:url');
 const browser = process.env.BROWSER_TEST_BINARY;
 
-async function runBrowserCDP([executable, file, width, height, selector]) {
+async function runBrowserCDP([executable, target, width, height, selector]) {
+    const url = /^https?:\/\//i.test(target) ? target : pathToFileURL(target).href;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-cdp-'));
     const child = spawn(executable, [
-        '--headless', '--no-sandbox', '--disable-gpu', '--no-first-run',
+        '--headless', '--no-sandbox', '--disable-gpu', '--no-first-run', '--no-proxy-server',
+        '--password-store=basic',
         '--remote-allow-origins=*', '--remote-debugging-port=0',
         `--user-data-dir=${directory}`, 'about:blank',
     ], {stdio: 'ignore'});
@@ -50,12 +52,16 @@ async function runBrowserCDP([executable, file, width, height, selector]) {
             pending.set(id, [resolve, reject]);
             socket.send(JSON.stringify({id, method, params}));
         });
-        await send('Emulation.setDeviceMetricsOverride', {
-            width: Number(width), height: Number(height), deviceScaleFactor: 1, mobile: false,
-        });
-        await send('Page.navigate', {url: pathToFileURL(file).href});
+        if (width && height) {
+            await send('Emulation.setDeviceMetricsOverride', {
+                width: Number(width), height: Number(height), deviceScaleFactor: 1, mobile: false,
+            });
+        }
+        const navigation = await send('Page.navigate', {url});
+        if (navigation.errorText) throw new Error(`Browser navigation failed: ${navigation.errorText}`);
         const expression = `document.querySelector(${JSON.stringify(selector)})?.textContent`;
-        for (let i = 0; i < 250; i++) {
+        const deadline = performance.now() + 30000;
+        while (performance.now() < deadline) {
             const response = await send('Runtime.evaluate', {expression, returnByValue: true});
             if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
             const evidence = response.result.value;
@@ -73,7 +79,7 @@ async function runBrowserCDP([executable, file, width, height, selector]) {
             child.kill();
             await exited;
         }
-        fs.rmSync(directory, {recursive: true, force: true});
+        fs.rmSync(directory, {recursive: true, force: true, maxRetries: 3});
     }
 }
 
