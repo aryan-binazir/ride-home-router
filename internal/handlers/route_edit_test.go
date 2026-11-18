@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
@@ -21,8 +22,8 @@ func (routeEditDistanceCalculator) GetDistance(_ context.Context, origin, dest m
 }
 
 func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.T) {
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	h := &Handler{RouteSession: store}
 	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes:           []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10}}}}, {Driver: &models.Driver{ID: 2, VehicleCapacity: 2}}},
@@ -40,8 +41,8 @@ func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.
 }
 
 func TestHandleGetRouteSessionMissingReturnsNoContent(t *testing.T) {
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	h := &Handler{RouteSession: store}
 	w := httptest.NewRecorder()
 	h.HandleGetRouteSession(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id=missing", nil))
@@ -174,8 +175,8 @@ func TestHandleResetRoutesPreservesHTMXResetControl(t *testing.T) {
 
 func newRouteEditHandler(t *testing.T) (*Handler, routesession.Snapshot) {
 	t.Helper()
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	drivers := []models.Driver{{ID: 1, Name: "One", VehicleCapacity: 2}, {ID: 2, Name: "Two", VehicleCapacity: 2}, {ID: 3, Name: "Three", VehicleCapacity: 2}}
 	created := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{

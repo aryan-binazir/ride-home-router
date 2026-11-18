@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres/postgrestest"
@@ -55,8 +56,8 @@ func (c *blockingCalculator) GetDistance(ctx context.Context, origin, dest model
 func (c *blockingCalculator) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
 
 func TestCreateReturnsIndependentFreshSnapshot(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	routes := []models.CalculatedRoute{{
 		Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 2},
 		Stops:  []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Rider"}}},
@@ -99,8 +100,8 @@ func TestCreateSummaryMatchesCalculatedRoutingSummary(t *testing.T) {
 		t.Fatalf("calculated max detour = %.1f, want nonzero fixture", result.Summary.MaxDetourSecs)
 	}
 
-	store := routesession.NewStore(calc)
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calc, workflowtest.New())
+
 	snapshot := mustCreate(t, store, routesession.CreateInput{
 		Routes:          result.Routes,
 		SelectedDrivers: request.Drivers,
@@ -115,8 +116,8 @@ func TestCreateSummaryMatchesCalculatedRoutingSummary(t *testing.T) {
 }
 
 func TestApplyMovesRequiresClaimedSourceOnlyWhenRequested(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	created := mustCreate(t, store, testInput())
 	move := routesession.Move{ParticipantID: 10, FromRouteIndex: 1, ToRouteIndex: 1, InsertAtPosition: -1}
 
@@ -133,8 +134,8 @@ func TestApplyMovesRequiresClaimedSourceOnlyWhenRequested(t *testing.T) {
 }
 
 func TestApplyMovesOptimizesDestinationRouteForParticipantCompletion(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	created := mustCreate(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{
 			{
@@ -182,8 +183,8 @@ func TestApplyMovesOptimizesDestinationRouteForParticipantCompletion(t *testing.
 }
 
 func TestApplyMovesRollsBackWholeBatchOnValidationFailure(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	created := mustCreate(t, store, testInput())
 	_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{
 		{ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1},
@@ -200,8 +201,8 @@ func TestApplyMovesRollsBackWholeBatchOnValidationFailure(t *testing.T) {
 
 func TestApplyMovesRollsBackWholeBatchOnDistanceFailure(t *testing.T) {
 	distanceFailure := errors.New("distance failed")
-	store := routesession.NewStore(failingCalculator{err: distanceFailure})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(failingCalculator{err: distanceFailure}, workflowtest.New())
+
 	created := mustCreate(t, store, testInput())
 
 	_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
@@ -221,8 +222,8 @@ func TestApplyMovesRollsBackWholeBatchOnDistanceFailure(t *testing.T) {
 }
 
 func TestApplyMovesBatchMatchesSequentialBalancedIntermediateRecalculation(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	routes := []models.CalculatedRoute{
 		{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Lat: 1}}, {Participant: &models.Participant{ID: 11, Lat: 2}}}},
 		{Driver: &models.Driver{ID: 2, VehicleCapacity: 1}, EffectiveCapacity: 1, Stops: []models.RouteStop{}},
@@ -247,8 +248,8 @@ func TestApplyMovesBatchMatchesSequentialBalancedIntermediateRecalculation(t *te
 }
 
 func TestApplyMovesRecalculatesEveryDirtyRouteWhenBatchReturnsToBalance(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	routes := []models.CalculatedRoute{
 		{
 			Driver:              &models.Driver{ID: 1, Lat: 10, VehicleCapacity: 2},
@@ -281,8 +282,8 @@ func TestApplyMovesRecalculatesEveryDirtyRouteWhenBatchReturnsToBalance(t *testi
 }
 
 func TestApplyMovesResolvesDuplicateParticipantMovesSequentially(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	created := mustCreate(t, store, testInput())
 
 	got, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{
@@ -298,8 +299,8 @@ func TestApplyMovesResolvesDuplicateParticipantMovesSequentially(t *testing.T) {
 }
 
 func TestSwapDriversRejectsCapacityAndRollsBackDistanceFailure(t *testing.T) {
-	capacityStore := routesession.NewStore(calculator{})
-	t.Cleanup(capacityStore.Close)
+	capacityStore := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	capacityRoutes := testRoutes()
 	capacityRoutes[0].Stops = append(capacityRoutes[0].Stops, models.RouteStop{Participant: &models.Participant{ID: 11}})
 	capacityRoutes[1].EffectiveCapacity = 1
@@ -309,8 +310,8 @@ func TestSwapDriversRejectsCapacityAndRollsBackDistanceFailure(t *testing.T) {
 	}
 
 	distanceFailure := errors.New("distance failed")
-	failureStore := routesession.NewStore(failingCalculator{err: distanceFailure})
-	t.Cleanup(failureStore.Close)
+	failureStore := routesession.NewPersistentStore(failingCalculator{err: distanceFailure}, workflowtest.New())
+
 	created = mustCreate(t, failureStore, testInput())
 	if _, err := failureStore.SwapDrivers(context.Background(), created.ID, 0, 1); !errors.Is(err, distanceFailure) {
 		t.Fatalf("SwapDrivers error = %v, want distance failure", err)
@@ -322,8 +323,8 @@ func TestSwapDriversRejectsCapacityAndRollsBackDistanceFailure(t *testing.T) {
 }
 
 func TestSwapDriversMovesEffectiveCapacityWithDrivers(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	routes := testRoutes()
 	routes[0].EffectiveCapacity = 2
 	routes[1].EffectiveCapacity = 7
@@ -339,8 +340,8 @@ func TestSwapDriversMovesEffectiveCapacityWithDrivers(t *testing.T) {
 }
 
 func TestSwapDriversMovesOrgVehicleWithDriver(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	routes := testRoutes()
 	routes[0].EffectiveCapacity = 7
 	routes[0].OrgVehicleID = 30
@@ -360,8 +361,8 @@ func TestSwapDriversMovesOrgVehicleWithDriver(t *testing.T) {
 }
 
 func TestSwapResetAndAddDriverOperateThroughSnapshots(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	drivers := []models.Driver{{ID: 1, VehicleCapacity: 2}, {ID: 2, VehicleCapacity: 2}, {ID: 3, VehicleCapacity: 1}}
 	routes := testRoutes()
 	routes[1].EffectiveCapacity = 1
@@ -393,8 +394,8 @@ func TestSwapResetAndAddDriverOperateThroughSnapshots(t *testing.T) {
 }
 
 func TestCommitRejectsUnbalancedWithoutPersistence(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	routes := testRoutes()
 	routes[0].EffectiveCapacity = 0
 	routes[0].Driver.VehicleCapacity = 0
@@ -415,8 +416,8 @@ func TestCommitRejectsUnbalancedWithoutPersistence(t *testing.T) {
 }
 
 func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	created := mustCreate(t, store, testInput())
 	wantErr := errors.New("persistence failed")
 
@@ -441,8 +442,8 @@ func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testin
 }
 
 func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	created := mustCreate(t, store, testInput())
 
 	if err := commitSession(store, context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
@@ -460,8 +461,8 @@ func TestCommitSuccessDeletesSessionExactlyOnce(t *testing.T) {
 }
 
 func TestDeletePreservesSuccessfulCommitMarker(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, postgrestest.Open(t).Workflows())
+
 	created := mustCreate(t, store, testInput())
 
 	if err := commitSession(store, context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
@@ -478,69 +479,40 @@ func TestDeletePreservesSuccessfulCommitMarker(t *testing.T) {
 	}
 }
 
-func TestCommitWaitsForInFlightEditAndPersistsItsResult(t *testing.T) {
-	calc := newBlockingCalculator()
-	defer calc.unblock()
-	store := routesession.NewStore(calc)
-	t.Cleanup(store.Close)
-	created := mustCreate(t, store, testInput())
-
-	editDone := make(chan error, 1)
-	go func() {
-		_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
-			ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
-		}}, routesession.ApplyMovesOptions{})
-		editDone <- err
-	}()
-	<-calc.started
-
-	commitDone := make(chan error, 1)
-	var persisted models.RoutingResult
-	go func() {
-		commitDone <- commitSession(store, context.Background(), created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
-			persisted = payload.RoutingResult()
-			return nil
-		})
-	}()
-	select {
-	case err := <-commitDone:
-		t.Fatalf("Commit returned before the in-flight edit: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	calc.unblock()
-	if err := <-editDone; err != nil {
-		t.Fatalf("ApplyMoves error = %v", err)
-	}
-	if err := <-commitDone; err != nil {
-		t.Fatalf("Commit error = %v", err)
-	}
-	if len(persisted.Routes[0].Stops) != 0 || len(persisted.Routes[1].Stops) != 1 {
-		t.Fatalf("persisted routes did not include completed edit: %#v", persisted.Routes)
-	}
-}
-
 func TestCommitRejectsEditThatArrivesDuringPersistence(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
-	created := mustCreate(t, store, testInput())
+	store := routesession.NewPersistentStore(calculator{}, postgrestest.Open(t).Workflows())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	created, err := store.CreateContext(ctx, testInput())
+	if err != nil {
+		t.Fatal(err)
+	}
 	persistStarted := make(chan struct{})
 	releasePersist := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releasePersist) })
+	defer release()
 	commitDone := make(chan error, 1)
 	var persisted models.RoutingResult
 	go func() {
-		commitDone <- commitSession(store, context.Background(), created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
+		commitDone <- commitSession(store, ctx, created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
 			persisted = payload.RoutingResult()
 			close(persistStarted)
 			<-releasePersist
 			return nil
 		})
 	}()
-	<-persistStarted
+	select {
+	case <-persistStarted:
+	case err := <-commitDone:
+		t.Fatalf("commit returned before persistence: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 
 	editDone := make(chan error, 1)
 	go func() {
-		_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
+		_, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{
 			ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
 		}}, routesession.ApplyMovesOptions{})
 		editDone <- err
@@ -551,7 +523,7 @@ func TestCommitRejectsEditThatArrivesDuringPersistence(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	close(releasePersist)
+	release()
 	if err := <-commitDone; err != nil {
 		t.Fatalf("Commit error = %v", err)
 	}
@@ -564,155 +536,69 @@ func TestCommitRejectsEditThatArrivesDuringPersistence(t *testing.T) {
 }
 
 func TestCommitDoesNotBlockOtherSessions(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
-	committing := mustCreate(t, store, testInput())
-	other := mustCreate(t, store, testInput())
+	store := routesession.NewPersistentStore(calculator{}, postgrestest.Open(t).Workflows())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	committing, err := store.CreateContext(ctx, testInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.CreateContext(ctx, testInput())
+	if err != nil {
+		t.Fatal(err)
+	}
 	persistStarted := make(chan struct{})
 	releasePersist := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releasePersist) })
+	defer release()
 	commitDone := make(chan error, 1)
 	go func() {
-		commitDone <- commitSession(store, context.Background(), committing.ID, func(context.Context, routesession.CommitSnapshot) error {
+		commitDone <- commitSession(store, ctx, committing.ID, func(context.Context, routesession.CommitSnapshot) error {
 			close(persistStarted)
 			<-releasePersist
 			return nil
 		})
 	}()
-	<-persistStarted
-
-	otherDone := make(chan bool, 1)
-	go func() {
-		_, ok := mustLoad(t, store, other.ID)
-		otherDone <- ok
-	}()
 	select {
-	case ok := <-otherDone:
-		if !ok {
-			t.Fatal("other session disappeared during Commit")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Commit blocked access to another session")
+	case <-persistStarted:
+	case err := <-commitDone:
+		t.Fatalf("commit returned before persistence: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, ok, err := store.Load(ctx, other.ID); err != nil || !ok {
+		t.Fatalf("load another session during commit: found=%v err=%v", ok, err)
 	}
 
-	close(releasePersist)
+	release()
 	if err := <-commitDone; err != nil {
 		t.Fatalf("Commit error = %v", err)
 	}
 }
 
 func TestCommitUnlocksSessionWhenPersistencePanics(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
-	created := mustCreate(t, store, testInput())
-	panicDone := make(chan any, 1)
-	go func() {
-		defer func() { panicDone <- recover() }()
-		_ = commitSession(store, context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error {
+	store := routesession.NewPersistentStore(calculator{}, postgrestest.Open(t).Workflows())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	created, err := store.CreateContext(ctx, testInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered := func() (panicValue any) {
+		defer func() { panicValue = recover() }()
+		_ = commitSession(store, ctx, created.ID, func(context.Context, routesession.CommitSnapshot) error {
 			panic("persistence panic")
 		})
+		return nil
 	}()
-	if recovered := <-panicDone; recovered != "persistence panic" {
+	if recovered != "persistence panic" {
 		t.Fatalf("recovered panic = %v, want persistence panic", recovered)
 	}
 
-	snapshotDone := make(chan bool, 1)
-	go func() {
-		_, ok := mustLoad(t, store, created.ID)
-		snapshotDone <- ok
-	}()
-	select {
-	case ok := <-snapshotDone:
-		if !ok {
-			t.Fatal("session disappeared after persistence panic")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("session remained locked after persistence panic")
-	}
-}
-
-func TestStoreSupportsConcurrentSnapshotsAndResets(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
-	created := mustCreate(t, store, testInput())
-	var wait sync.WaitGroup
-	for range 50 {
-		wait.Go(func() { _, _ = mustLoad(t, store, created.ID) })
-		wait.Go(func() { _, _ = store.ResetContext(context.Background(), created.ID) })
-	}
-	wait.Wait()
-	if _, ok := mustLoad(t, store, created.ID); !ok {
-		t.Fatal("session disappeared during concurrent access")
-	}
-}
-
-func TestStoreSupportsConcurrentCreationAndAccessAtCapacity(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
-	ids := make([]string, 0, routesession.MaxConcurrentSessions)
-	for range routesession.MaxConcurrentSessions {
-		ids = append(ids, mustCreate(t, store, routesession.CreateInput{}).ID)
-	}
-
-	var wait sync.WaitGroup
-	for worker := range 16 {
-		wait.Go(func() {
-			for i := range 16 {
-				_, _ = mustLoad(t, store, ids[(worker+i)%len(ids)])
-				mustCreate(t, store, routesession.CreateInput{})
-			}
-		})
-	}
-	wait.Wait()
-
-	newest := mustCreate(t, store, routesession.CreateInput{})
-	if _, ok := mustLoad(t, store, newest.ID); !ok {
-		t.Fatal("new session disappeared after concurrent capacity eviction")
-	}
-}
-
-func TestDeleteWaitsForInFlightEditAndPreventsDetachedSuccess(t *testing.T) {
-	calc := newBlockingCalculator()
-	defer calc.unblock()
-	store := routesession.NewStore(calc)
-	t.Cleanup(store.Close)
-	created := mustCreate(t, store, testInput())
-
-	editDone := make(chan error, 1)
-	go func() {
-		_, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
-			ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
-		}}, routesession.ApplyMovesOptions{})
-		editDone <- err
-	}()
-	<-calc.started
-
-	deleteDone := make(chan error, 1)
-	go func() {
-		deleteDone <- store.DeleteContext(context.Background(), created.ID)
-	}()
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Fatal("Delete returned while an edit was still in flight")
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	calc.unblock()
-	if err := <-editDone; err != nil {
-		t.Fatalf("ApplyMoves: %v", err)
-	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Delete did not finish after the edit completed")
-	}
-	if _, ok := mustLoad(t, store, created.ID); ok {
-		t.Fatal("deleted session remained visible")
+	if _, ok, err := store.Load(ctx, created.ID); err != nil || !ok {
+		t.Fatalf("load after persistence panic: found=%v err=%v", ok, err)
 	}
 }
 
@@ -743,62 +629,52 @@ func (c *retryDistanceCalculator) GetDistance(ctx context.Context, origin, dest 
 }
 
 func TestSwapDriversRefreshesOtherDirtyRoutesBeforeCopyAndCommit(t *testing.T) {
-	for _, adapter := range []string{"memory", "durable"} {
-		t.Run(adapter, func(t *testing.T) {
-			ctx := context.Background()
-			calc := &retryDistanceCalculator{}
-			var store *routesession.Store
-			if adapter == "memory" {
-				store = routesession.NewStore(calc)
-				t.Cleanup(store.Close)
-			} else {
-				store = routesession.NewPersistentStore(calc, postgrestest.Open(t).Workflows())
-			}
-			input := routesession.CreateInput{
-				ActivityLocation: &models.ActivityLocation{}, Mode: models.RouteModeDropoff,
-				Routes: []models.CalculatedRoute{
-					{Driver: &models.Driver{ID: 1, Lat: 1, VehicleCapacity: 1}, EffectiveCapacity: 1, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Lat: 1}}}},
-					{Driver: &models.Driver{ID: 2, Lat: 2, VehicleCapacity: 3}, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 2, Lat: 2}}}},
-					{Driver: &models.Driver{ID: 3, Lat: 5, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 3, Lat: 8}}, {Participant: &models.Participant{ID: 4, Lat: 4}}}},
-				},
-			}
-			for i := range input.Routes {
-				if err := routing.PopulateRouteMetrics(ctx, calc, models.Coordinates{}, input.Mode, &input.Routes[i]); err != nil {
-					t.Fatal(err)
-				}
-			}
-			created := mustCreate(t, store, input)
-			moved, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 3, FromRouteIndex: 2, ToRouteIndex: 0, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{})
-			if err != nil || !moved.IsOutOfBalance {
-				t.Fatalf("move should temporarily exceed capacity: %v, unbalanced=%v", err, moved.IsOutOfBalance)
-			}
-			calc.fail = true
-			if _, swapErr := store.SwapDrivers(ctx, created.ID, 0, 1); swapErr == nil {
-				t.Fatal("swap must report failed recalculation of the unswapped route")
-			}
-			retained, ok := mustLoad(t, store, created.ID)
-			if !ok || !retained.IsOutOfBalance || retained.Routes[0].Driver.ID != 1 || retained.Routes[2].RouteDurationSecs != 13000 {
-				t.Fatalf("failed swap did not restore the prior plan: %#v", retained)
-			}
-			calc.fail = false
-			swapped, err := store.SwapDrivers(ctx, created.ID, 0, 1)
-			if err != nil || swapped.IsOutOfBalance {
-				t.Fatalf("swap should restore capacity: %v, unbalanced=%v", err, swapped.IsOutOfBalance)
-			}
-			if got := swapped.Routes[2]; got.RouteDurationSecs != 5000 || got.Stops[0].CumulativeDurationSecs != 4000 {
-				t.Fatalf("unswapped route metrics: duration=%v, rider ETA=%v; want 5000 and 4000", got.RouteDurationSecs, got.Stops[0].CumulativeDurationSecs)
-			}
-			if err := commitSession(store, ctx, created.ID, func(_ context.Context, saved routesession.CommitSnapshot) error {
-				if got := saved.Final[2]; got.TotalDistanceMeters != 5000 || got.Stops[0].CumulativeDistanceMeters != 4000 {
-					t.Fatalf("committed stale route metrics: %#v", got)
-				}
-				if saved.Summary.TotalDistanceMeters != swapped.Summary.TotalDistanceMeters {
-					t.Fatalf("commit summary differs from displayed summary")
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-		})
+	ctx := context.Background()
+	calc := &retryDistanceCalculator{}
+	store := routesession.NewPersistentStore(calc, postgrestest.Open(t).Workflows())
+	input := routesession.CreateInput{
+		ActivityLocation: &models.ActivityLocation{}, Mode: models.RouteModeDropoff,
+		Routes: []models.CalculatedRoute{
+			{Driver: &models.Driver{ID: 1, Lat: 1, VehicleCapacity: 1}, EffectiveCapacity: 1, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Lat: 1}}}},
+			{Driver: &models.Driver{ID: 2, Lat: 2, VehicleCapacity: 3}, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 2, Lat: 2}}}},
+			{Driver: &models.Driver{ID: 3, Lat: 5, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 3, Lat: 8}}, {Participant: &models.Participant{ID: 4, Lat: 4}}}},
+		},
+	}
+	for i := range input.Routes {
+		if err := routing.PopulateRouteMetrics(ctx, calc, models.Coordinates{}, input.Mode, &input.Routes[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	created := mustCreate(t, store, input)
+	moved, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 3, FromRouteIndex: 2, ToRouteIndex: 0, InsertAtPosition: -1}}, routesession.ApplyMovesOptions{})
+	if err != nil || !moved.IsOutOfBalance {
+		t.Fatalf("move should temporarily exceed capacity: %v, unbalanced=%v", err, moved.IsOutOfBalance)
+	}
+	calc.fail = true
+	if _, swapErr := store.SwapDrivers(ctx, created.ID, 0, 1); swapErr == nil {
+		t.Fatal("swap must report failed recalculation of the unswapped route")
+	}
+	retained, ok := mustLoad(t, store, created.ID)
+	if !ok || !retained.IsOutOfBalance || retained.Routes[0].Driver.ID != 1 || retained.Routes[2].RouteDurationSecs != 13000 {
+		t.Fatalf("failed swap did not restore the prior plan: %#v", retained)
+	}
+	calc.fail = false
+	swapped, err := store.SwapDrivers(ctx, created.ID, 0, 1)
+	if err != nil || swapped.IsOutOfBalance {
+		t.Fatalf("swap should restore capacity: %v, unbalanced=%v", err, swapped.IsOutOfBalance)
+	}
+	if got := swapped.Routes[2]; got.RouteDurationSecs != 5000 || got.Stops[0].CumulativeDurationSecs != 4000 {
+		t.Fatalf("unswapped route metrics: duration=%v, rider ETA=%v; want 5000 and 4000", got.RouteDurationSecs, got.Stops[0].CumulativeDurationSecs)
+	}
+	if err := commitSession(store, ctx, created.ID, func(_ context.Context, saved routesession.CommitSnapshot) error {
+		if got := saved.Final[2]; got.TotalDistanceMeters != 5000 || got.Stops[0].CumulativeDistanceMeters != 4000 {
+			t.Fatalf("committed stale route metrics: %#v", got)
+		}
+		if saved.Summary.TotalDistanceMeters != swapped.Summary.TotalDistanceMeters {
+			t.Fatalf("commit summary differs from displayed summary")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -37,15 +37,17 @@ func TestClearedPayloadRejectionReason(t *testing.T) {
 }
 
 func TestCallbackContractDoesNotRequireEventValidation(t *testing.T) {
-	s := routesession.NewStore(distance.NewEstimator())
-	defer s.Close()
+	s := routesession.NewPersistentStore(distance.NewEstimator(), postgrestest.Open(t).Workflows())
 	c, err := s.CreateContext(t.Context(), routesession.CreateInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	called := 0
-	err = s.CommitEvent(t.Context(), c.ID, func(_ context.Context, snap routesession.CommitSnapshot, _ database.WorkflowWrites) error {
+	err = s.CommitEvent(t.Context(), c.ID, func(_ context.Context, snap routesession.CommitSnapshot, writer database.WorkflowWrites) error {
 		called++
+		if writer == nil {
+			t.Fatal("route session save has no transaction writer")
+		}
 		if len(snap.Final) != 0 {
 			t.Fatal("unexpected routes")
 		}

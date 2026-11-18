@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"strings"
@@ -118,8 +119,8 @@ func TestStandaloneRouteEditorSearchAndPagingKeepFormNavigation(t *testing.T) {
 
 func oneRouteWithUnusedDriver(t *testing.T) (*Handler, routesession.Snapshot) {
 	t.Helper()
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	drivers := []models.Driver{{ID: 1, Name: "First driver", VehicleCapacity: 4}, {ID: 2, Name: "Unused driver", VehicleCapacity: 4}}
 	snapshot := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 4, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 1, Name: "Rider"}}}}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "Venue"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
 	return &Handler{Renderer: loadEmbeddedTemplates(t), RouteSession: store, Measurer: &stubMeasurer{}}, snapshot

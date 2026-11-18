@@ -37,35 +37,27 @@ PAGE|{{.DisplayedCount}}/{{.Total}}{{range .Events}}<div class="event-item">{{.I
 {{end}}
 `
 
-type failingEventRepository struct {
-	database.EventRepository
-	err error
+type eventWriteHookRepository struct {
+	database.WorkflowRepository
+	beforeCreate func(context.Context) error
 }
 
-func (r failingEventRepository) Create(context.Context, *models.Event, []models.EventRoute, *models.EventSummary) (*models.Event, error) {
-	return nil, r.err
+func (r eventWriteHookRepository) Transact(ctx context.Context, kind, id string, ttl time.Duration, update func(*database.WorkflowRecord, database.WorkflowWrites) error) error {
+	return r.WorkflowRepository.Transact(ctx, kind, id, ttl, func(record *database.WorkflowRecord, writer database.WorkflowWrites) error {
+		return update(record, eventWriteHook{WorkflowWrites: writer, beforeCreate: r.beforeCreate})
+	})
 }
 
-type eventRepositoryDataStore struct {
-	database.DataStore
-	events database.EventRepository
+type eventWriteHook struct {
+	database.WorkflowWrites
+	beforeCreate func(context.Context) error
 }
 
-type blockingEventRepository struct {
-	database.EventRepository
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
-}
-
-func (r *blockingEventRepository) Create(ctx context.Context, event *models.Event, routes []models.EventRoute, summary *models.EventSummary) (*models.Event, error) {
-	r.once.Do(func() { close(r.started) })
-	<-r.release
-	return r.EventRepository.Create(ctx, event, routes, summary)
-}
-
-func (s eventRepositoryDataStore) Events() database.EventRepository {
-	return s.events
+func (w eventWriteHook) CreateEvent(ctx context.Context, event *models.Event, routes []models.EventRoute, summary *models.EventSummary) (*models.Event, error) {
+	if err := w.beforeCreate(ctx); err != nil {
+		return nil, err
+	}
+	return w.WorkflowWrites.CreateEvent(ctx, event, routes, summary)
 }
 
 func TestHandleCreateEvent_MissingSessionRejectsPostedRoutes(t *testing.T) {
@@ -223,12 +215,25 @@ func TestHandleCreateEvent_ConcurrentRetryDoesNotCreateDuplicate(t *testing.T) {
 	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{Routes: result.Routes, Mode: result.Mode})
 	started := make(chan struct{})
 	release := make(chan struct{})
-	blockingRepo := &blockingEventRepository{EventRepository: store.Events(), started: started, release: release}
-	handler.DB = eventRepositoryDataStore{DataStore: store, events: blockingRepo}
+	var once sync.Once
+	handler.RouteSession = routesession.NewPersistentStore(routeEditDistanceCalculator{}, eventWriteHookRepository{
+		WorkflowRepository: store.Workflows(),
+		beforeCreate: func(ctx context.Context) error {
+			once.Do(func() { close(started) })
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	})
 	form := "event_date=2026-03-14&session_id=" + session.ID
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
 
 	save := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/events", strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
 		handler.HandleCreateEvent(rr, req)
@@ -236,7 +241,13 @@ func TestHandleCreateEvent_ConcurrentRetryDoesNotCreateDuplicate(t *testing.T) {
 	}
 	firstDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() { firstDone <- save() }()
-	<-started
+	select {
+	case <-started:
+	case first := <-firstDone:
+		t.Fatalf("save returned before its transaction write: %d %s", first.Code, first.Body.String())
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 	secondDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() { secondDone <- save() }()
 	close(release)
@@ -276,14 +287,12 @@ func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {
 		}},
 		Mode: models.RouteModeDropoff,
 	})
-	wantErr := errors.New("event persistence failed")
-	handler.DB = eventRepositoryDataStore{
-		DataStore: store,
-		events: failingEventRepository{
-			EventRepository: store.Events(),
-			err:             wantErr,
+	handler.RouteSession = routesession.NewPersistentStore(routeEditDistanceCalculator{}, eventWriteHookRepository{
+		WorkflowRepository: store.Workflows(),
+		beforeCreate: func(context.Context) error {
+			return errors.New("event persistence failed")
 		},
-	}
+	})
 
 	form := "event_date=2026-03-14&session_id=" + session.ID
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
@@ -820,10 +829,8 @@ func newTestEventHandler(t *testing.T, withLegacyHistory bool) (*Handler, *postg
 	handler := &Handler{
 		DB:           store,
 		Renderer:     newTestTemplates(t),
-		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
+		RouteSession: routesession.NewPersistentStore(routeEditDistanceCalculator{}, store.Workflows()),
 	}
-
-	t.Cleanup(handler.RouteSession.Close)
 
 	return handler, store
 }

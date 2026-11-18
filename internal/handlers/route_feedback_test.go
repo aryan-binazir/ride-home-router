@@ -219,8 +219,7 @@ func newRouteFeedbackHandler(t *testing.T) (*Handler, *postgres.Store, *pgx.Conn
 		t.Fatalf("connect for feedback assertions: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
-	handler := &Handler{DB: store, Renderer: newTestTemplates(t), RouteSession: routesession.NewStore(routeEditDistanceCalculator{})}
-	t.Cleanup(handler.RouteSession.Close)
+	handler := &Handler{DB: store, Renderer: newTestTemplates(t), RouteSession: routesession.NewPersistentStore(routeEditDistanceCalculator{}, store.Workflows())}
 	return handler, store, conn
 }
 

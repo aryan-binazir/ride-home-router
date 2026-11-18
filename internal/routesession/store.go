@@ -6,21 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routing"
 	"strings"
-	"sync"
-	"time"
-)
-
-const (
-	MaxConcurrentSessions  = 256
-	MaxCommittedSessions   = 256
-	defaultTTL             = 8 * time.Hour
-	defaultCleanupInterval = 15 * time.Minute
 )
 
 var (
@@ -111,40 +101,14 @@ type session struct {
 	routeTime         string
 	mode              models.RouteMode
 	reviewerNote      string
-	lastAccessedAt    time.Time
-	deleted           bool
-	mu                sync.Mutex
 }
 
 type Store struct {
-	records         database.WorkflowRepository
-	distanceCalc    distance.Lookup
-	sessions        map[string]*session
-	committed       map[string]time.Time
-	mu              sync.Mutex
-	ttl             time.Duration
-	cleanupInterval time.Duration
-	now             func() time.Time
-	stopCleanup     chan struct{}
-	cleanupDone     chan struct{}
-	closeOnce       sync.Once
+	records      database.WorkflowRepository
+	distanceCalc distance.Lookup
 }
 
-func NewStore(distanceCalc distance.Lookup) *Store {
-	return newStore(distanceCalc, defaultTTL, defaultCleanupInterval, time.Now)
-}
-
-func newStore(distanceCalc distance.Lookup, ttl, cleanupInterval time.Duration, now func() time.Time) *Store {
-	store := &Store{
-		distanceCalc: distanceCalc, sessions: make(map[string]*session), committed: make(map[string]time.Time), ttl: ttl,
-		cleanupInterval: cleanupInterval, now: now,
-		stopCleanup: make(chan struct{}), cleanupDone: make(chan struct{}),
-	}
-	go store.cleanupLoop()
-	return store
-}
-
-func newSession(input CreateInput, now time.Time) *session {
+func newSession(input CreateInput) *session {
 	state := &session{
 		id:                generateID(),
 		originalRoutes:    copyRoutes(input.Routes),
@@ -156,65 +120,28 @@ func newSession(input CreateInput, now time.Time) *session {
 		useMiles:          input.UseMiles,
 		routeTime:         input.RouteTime,
 		mode:              input.Mode,
-		lastAccessedAt:    now,
 	}
 	return state
-}
-
-func (s *Store) insert(state *session) {
-	s.mu.Lock()
-	evictedID := ""
-	if len(s.sessions) >= MaxConcurrentSessions {
-		evictedID = s.evictOldestSessionLocked()
-	}
-	s.sessions[state.id] = state
-	s.mu.Unlock()
-	if evictedID != "" {
-		log.Printf("[SESSION] Evicted route session at capacity: id=%s", evictedID)
-	}
-}
-
-func (s *Store) evictOldestSessionLocked() string {
-	oldestID := ""
-	var oldestAccess time.Time
-	for id, state := range s.sessions {
-		lastAccess := state.lastAccessedAt
-		if oldestID == "" || lastAccess.Before(oldestAccess) || (lastAccess.Equal(oldestAccess) && id < oldestID) {
-			oldestID = id
-			oldestAccess = lastAccess
-		}
-	}
-	if oldestID != "" {
-		delete(s.sessions, oldestID)
-	}
-	return oldestID
 }
 
 func (s *Store) ApplyMoves(ctx context.Context, id string, moves []Move, options ApplyMovesOptions) (Snapshot, error) {
 	return s.update(ctx, id, func(state *session) (Snapshot, error) {
 		before := routeIdentity(state.currentRoutes)
 
-		backupRoutes := copyRoutes(state.currentRoutes)
-		backupDirty := copyDirty(state.dirtyRouteIndexes)
-		rollback := func() { state.currentRoutes = backupRoutes; state.dirtyRouteIndexes = backupDirty }
 		for _, move := range moves {
 			from, ok := findParticipant(state.currentRoutes, move.ParticipantID)
 			if !ok {
-				rollback()
 				return Snapshot{}, ErrParticipantNotFound
 			}
 			if options.RequireClaimedSource && from != move.FromRouteIndex {
-				rollback()
 				return Snapshot{}, ErrParticipantNotInSource
 			}
 			if err := applyMove(state, move, from); err != nil {
-				rollback()
 				return Snapshot{}, err
 			}
 			_, unbalanced := capacityState(state.currentRoutes)
 			if !unbalanced {
 				if err := s.recalculateDirty(ctx, state); err != nil {
-					rollback()
 					return Snapshot{}, err
 				}
 			}
@@ -229,9 +156,7 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 		if first < 0 || first >= len(state.currentRoutes) || second < 0 || second >= len(state.currentRoutes) {
 			return Snapshot{}, ErrInvalidRouteIndex
 		}
-		backup := copyRoutes(state.currentRoutes)
-		backupDirty := copyDirty(state.dirtyRouteIndexes)
-		rollback := func() { state.currentRoutes = backup; state.dirtyRouteIndexes = backupDirty }
+		dirtyBefore := state.dirtyRouteIndexes
 		route1, route2 := &state.currentRoutes[first], &state.currentRoutes[second]
 		cap1, ok := routeCapacity(*route1)
 		if !ok {
@@ -251,16 +176,14 @@ func (s *Store) SwapDrivers(ctx context.Context, id string, first, second int) (
 		_, unbalanced := capacityState(state.currentRoutes)
 		if !unbalanced {
 			if err := s.recalculateDirty(ctx, state); err != nil {
-				rollback()
 				return Snapshot{}, err
 			}
 		}
 		for _, index := range []int{first, second} {
-			if dirtyRouteAlreadyOptimized(backupDirty, index, unbalanced) {
+			if dirtyRouteAlreadyOptimized(dirtyBefore, index, unbalanced) {
 				continue
 			}
 			if err := s.recalculateRoute(ctx, state, &state.currentRoutes[index]); err != nil {
-				rollback()
 				return Snapshot{}, err
 			}
 		}
@@ -298,46 +221,6 @@ func (s *Store) AddDriver(ctx context.Context, id string, driverID int64) (Snaps
 	})
 }
 
-func (s *Store) commitMemory(ctx context.Context, id string, persist func(context.Context, CommitSnapshot, database.WorkflowWrites) error) error {
-	state, err := s.lockSession(id)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) && s.wasCommitted(id) {
-			return ErrAlreadyCommitted
-		}
-		return err
-	}
-	unlocked := false
-	defer func() {
-		if !unlocked {
-			s.mu.Lock()
-			state.lastAccessedAt = s.now()
-			s.mu.Unlock()
-			state.mu.Unlock()
-		}
-	}()
-	payload, err := commitSnapshot(state)
-	if err != nil {
-		return err
-	}
-	if err := persist(ctx, payload, nil); err != nil {
-		return err
-	}
-	state.deleted = true
-	s.mu.Lock()
-	if _, exists := s.committed[id]; !exists && len(s.committed) >= MaxCommittedSessions {
-		s.evictOldestCommittedLocked()
-	}
-	s.committed[id] = s.now()
-	if s.sessions[id] == state {
-		delete(s.sessions, id)
-	}
-	s.mu.Unlock()
-	state.mu.Unlock()
-	unlocked = true
-	log.Printf("[SESSION] Deleted route session: id=%s", id)
-	return nil
-}
-
 func commitSnapshot(state *session) (CommitSnapshot, error) {
 	_, unbalanced := capacityState(state.currentRoutes)
 	if unbalanced {
@@ -356,139 +239,6 @@ func commitSnapshot(state *session) (CommitSnapshot, error) {
 		Changes:           routeChanges(state.originalRoutes, state.currentRoutes),
 		ReviewerNote:      state.reviewerNote,
 	}, nil
-}
-
-func (s *Store) evictOldestCommittedLocked() {
-	oldestID := ""
-	var oldestCommit time.Time
-	for id, committedAt := range s.committed {
-		if oldestID == "" || committedAt.Before(oldestCommit) || (committedAt.Equal(oldestCommit) && id < oldestID) {
-			oldestID = id
-			oldestCommit = committedAt
-		}
-	}
-	if oldestID != "" {
-		delete(s.committed, oldestID)
-	}
-}
-
-func (s *Store) deleteMemory(id string) {
-	if id == "" {
-		return
-	}
-	s.mu.Lock()
-	state := s.sessions[id]
-	s.mu.Unlock()
-	if state != nil {
-		state.mu.Lock()
-		state.deleted = true
-		state.mu.Unlock()
-		s.remove(id, state)
-		log.Printf("[SESSION] Deleted route session: id=%s", id)
-	}
-}
-
-func (s *Store) Close() {
-	if s.records == nil {
-		s.closeOnce.Do(func() { close(s.stopCleanup); <-s.cleanupDone })
-	}
-}
-
-func (s *Store) lockSession(id string) (*session, error) {
-	s.mu.Lock()
-	state := s.sessions[id]
-	s.mu.Unlock()
-	if state == nil {
-		return nil, ErrNotFound
-	}
-	state.mu.Lock()
-	if state.deleted {
-		state.mu.Unlock()
-		return nil, ErrNotFound
-	}
-	now := s.now()
-	s.mu.Lock()
-	live := s.sessions[id] == state
-	if !live {
-		s.mu.Unlock()
-		state.mu.Unlock()
-		return nil, ErrNotFound
-	}
-	if now.Sub(state.lastAccessedAt) > s.ttl {
-		state.deleted = true
-		delete(s.sessions, id)
-		s.mu.Unlock()
-		state.mu.Unlock()
-		return nil, ErrNotFound
-	}
-	state.lastAccessedAt = now
-	s.mu.Unlock()
-	return state, nil
-}
-
-func (s *Store) remove(id string, state *session) {
-	s.mu.Lock()
-	if s.sessions[id] == state {
-		delete(s.sessions, id)
-	}
-	s.mu.Unlock()
-}
-
-func (s *Store) wasCommitted(id string) bool {
-	s.mu.Lock()
-	committedAt, ok := s.committed[id]
-	if ok && s.now().Sub(committedAt) > s.ttl {
-		delete(s.committed, id)
-		ok = false
-	}
-	s.mu.Unlock()
-	return ok
-}
-
-func (s *Store) cleanupLoop() {
-	defer close(s.cleanupDone)
-	ticker := time.NewTicker(s.cleanupInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			s.deleteExpired(s.now())
-		case <-s.stopCleanup:
-			return
-		}
-	}
-}
-
-func (s *Store) deleteExpired(now time.Time) {
-	type candidate struct {
-		id    string
-		state *session
-	}
-	s.mu.Lock()
-	states := make([]candidate, 0, len(s.sessions))
-	for id, state := range s.sessions {
-		states = append(states, candidate{id: id, state: state})
-	}
-	for id, committedAt := range s.committed {
-		if now.Sub(committedAt) > s.ttl {
-			delete(s.committed, id)
-		}
-	}
-	s.mu.Unlock()
-	for _, candidate := range states {
-		id, state := candidate.id, candidate.state
-		if !state.mu.TryLock() {
-			continue
-		}
-		s.mu.Lock()
-		expired := s.sessions[id] == state && !state.deleted && now.Sub(state.lastAccessedAt) > s.ttl
-		if expired {
-			state.deleted = true
-			delete(s.sessions, id)
-		}
-		s.mu.Unlock()
-		state.mu.Unlock()
-	}
 }
 
 func (s *Store) recalculateDirty(ctx context.Context, state *session) error {
@@ -754,14 +504,6 @@ func copyVehicles(source map[int64]*models.OrganizationVehicle) map[int64]*model
 			copy := *vehicle
 			result[id] = &copy
 		}
-	}
-	return result
-}
-
-func copyDirty(source map[int]struct{}) map[int]struct{} {
-	result := make(map[int]struct{}, len(source))
-	for key := range source {
-		result[key] = struct{}{}
 	}
 	return result
 }

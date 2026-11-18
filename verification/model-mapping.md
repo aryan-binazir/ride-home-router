@@ -15,8 +15,8 @@ Use this record when covered code changes. `verification/README.md` holds bounds
 | | `Store.commitPersistent` | `Commit`, rejecting pending rows under the same lock |
 | | cancellation, deletion, TTL | `Abandon`; the model keeps closed job data as an overapproximation, not a physical cascade |
 | Route save | `routesession/persistent.go:update`, `workflowRepository.Load` | `EditLoads`, with computation outside the transaction |
-| | `workflowRepository.CompareAndSwap` | `EditWrites`, checking revision and consumption |
-| | `Store.CommitEvent`, `commitEventSession`, `workflowWrites.CreateEvent` | `Save`, with event creation and consumption sharing the transaction |
+| | `routesession/persistent.go:update`, `workflowRepository.CompareAndSwap` | `EditWrites`, gated on successful mutation, current revision, and a live session |
+| | `Store.CommitEvent`, `commitEventSession`, `persistEvent`, `workflowWrites.CreateEvent` | `Save`, with event creation and consumption sharing the transaction |
 | | transaction failure after callback | `SaveCommitFails`; the split-transaction control leaks an unconsumed Event |
 | | event deletion and workflow disposal | `DeleteEvent`, `Discard` |
 | Capacity | `workflowRepository.Create` advisory lock | `Begin`, scoped to schema and kind |
@@ -53,6 +53,6 @@ Several guards back each other up:
 4. Review properties, guards, bounds and code mapping, then refresh `checks.json`. It locks both specs and configs. Filtered runs work during development; full gates require a clean commit.
 5. Run the complete gate on the committed head. Move the sync commit only after verifying fidelity at that code revision.
 
-The route/auth mutation inventory also covers `internal/routesession/store.go`, `internal/routing/balanced_router.go`, `internal/access/access.go` and `internal/postgres/provider_throttle.go`. A refactor of these sites requires reassessing the test and updating its overlay, even when no TLA action changes.
+The move rollback control writes the decoded state even when the batch returns an error. The bounded move test compares persisted snapshots before and after a rejected batch to catch this write. Other mutation sites include `internal/routing/balanced_router.go`, `internal/access/access.go` and `internal/postgres/provider_throttle.go`. Reassess the test and its overlay when these sites change, even if the model actions still apply.
 
 The standalone plan-draft workflow was removed. Existing draft rows still expire through the shared workflow cleanup. The route, import, and capacity models cover the same live operations.

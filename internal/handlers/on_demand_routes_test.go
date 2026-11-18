@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"strings"
@@ -13,8 +14,8 @@ import (
 
 func largeRouteFixture(t *testing.T) (*Handler, routesession.Snapshot) {
 	t.Helper()
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	drivers := make([]models.Driver, 500)
 	routes := make([]models.CalculatedRoute, 500)
 	for i := range drivers {

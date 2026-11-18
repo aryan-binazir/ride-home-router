@@ -2,6 +2,7 @@ package routesession
 
 import (
 	"context"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"slices"
@@ -10,8 +11,8 @@ import (
 
 func changedFixture(t *testing.T) (*Store, Snapshot) {
 	t.Helper()
-	store := NewStore(distance.NewEstimator())
-	t.Cleanup(store.Close)
+	store := NewPersistentStore(distance.NewEstimator(), workflowtest.New())
+
 	riders := []*models.Participant{
 		{ID: 1, Name: "A", Address: "1 A St", Lat: 42.01, Lng: -71.01},
 		{ID: 2, Name: "B", Address: "2 B St", Lat: 42.02, Lng: -71.02},

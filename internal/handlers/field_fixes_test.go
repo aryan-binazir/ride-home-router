@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"strconv"
@@ -29,8 +30,8 @@ func TestCalculateOverLimitSelectionNamesTheLimit(t *testing.T) {
 }
 
 func TestEmptyCarIsLabelledEmptyNotMeasured(t *testing.T) {
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	rider := models.Participant{ID: 10, Name: "Rider", Address: "1 Main", Lat: 1, Lng: 1}
 	session := mustCreateRouteSession(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{

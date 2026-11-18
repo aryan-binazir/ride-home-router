@@ -3,14 +3,15 @@ package routesession_test
 import (
 	"context"
 	"errors"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"testing"
 )
 
 func TestCommitSnapshotIsDeepCopiedAcrossFailedPersistence(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	vehicle := &models.OrganizationVehicle{ID: 50, Name: "Van", Capacity: 8}
 	created := mustCreate(t, store, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/postgres/postgrestest"
 	"ride-home-router/internal/routesession"
@@ -276,8 +277,8 @@ func TestStandaloneRouteEditorMalformedSessionIDRetainsNotFound(t *testing.T) {
 }
 
 func TestStandaloneRouteEditorMoveAppendsWhenDestinationIsOverCapacity(t *testing.T) {
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	drivers := []models.Driver{{ID: 1, VehicleCapacity: 2}, {ID: 2, VehicleCapacity: 2}}
 	riders := []models.Participant{{ID: 10, Name: "Moving"}, {ID: 11, Name: "First"}, {ID: 12, Name: "Second"}}
 	session := mustCreateRouteSession(t, store, routesession.CreateInput{Routes: []models.CalculatedRoute{{Driver: &drivers[0], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &riders[0]}}}, {Driver: &drivers[1], EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &riders[1]}, {Participant: &riders[2]}}}}, SelectedDrivers: drivers, ActivityLocation: &models.ActivityLocation{Name: "HQ"}, RouteTime: "18:30", Mode: models.RouteModeDropoff})

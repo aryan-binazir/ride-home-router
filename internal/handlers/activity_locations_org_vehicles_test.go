@@ -44,10 +44,8 @@ func newTestManagementHandler(t *testing.T) (*Handler, *postgres.Store) {
 				Coords: models.Coordinates{Lat: 41.25, Lng: -72.75},
 			},
 		},
-		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
+		RouteSession: routesession.NewPersistentStore(routeEditDistanceCalculator{}, store.Workflows()),
 	}
-
-	t.Cleanup(handler.RouteSession.Close)
 
 	return handler, store
 }

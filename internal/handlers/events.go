@@ -273,7 +273,7 @@ func (h *Handler) commitEventSession(r *http.Request, sessionID, date, notes str
 	var captured routesession.CommitSnapshot
 	err := h.RouteSession.CommitEvent(r.Context(), sessionID, func(ctx context.Context, snapshot routesession.CommitSnapshot, writer database.WorkflowWrites) error {
 		var err error
-		createdEvent, savedRouteCount, err = h.persistEvent(ctx, date, notes, snapshot, writer)
+		createdEvent, savedRouteCount, err = persistEvent(ctx, date, notes, snapshot, writer)
 		captured = snapshot
 		return err
 	})
@@ -306,7 +306,7 @@ func (h *Handler) captureRouteFeedback(r *http.Request, createdEvent *models.Eve
 	}
 }
 
-func (h *Handler) persistEvent(ctx context.Context, date, notes string, session routesession.CommitSnapshot, writer database.WorkflowWrites) (*models.Event, int, error) {
+func persistEvent(ctx context.Context, date, notes string, session routesession.CommitSnapshot, writer database.WorkflowWrites) (*models.Event, int, error) {
 	if message := fieldLengthMessage("Notes", notes, models.MaxNotesLength); message != "" {
 		return nil, 0, eventValidationError{message: message}
 	}
@@ -343,12 +343,7 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 	}
 
 	event := &models.Event{RouteSessionID: session.SessionID, EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
-	var created *models.Event
-	if writer != nil {
-		created, err = writer.CreateEvent(ctx, event, snapshot.Routes, &snapshot.Summary)
-	} else {
-		created, err = h.DB.Events().Create(ctx, event, snapshot.Routes, &snapshot.Summary)
-	}
+	created, err := writer.CreateEvent(ctx, event, snapshot.Routes, &snapshot.Summary)
 	if err != nil {
 		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
 		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%s", logutil.SafeString(date), len(snapshot.Routes), logutil.SafeString(err.Error()))

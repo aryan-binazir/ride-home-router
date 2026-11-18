@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const sessionTTL = 8 * time.Hour
+
 type persistedState struct {
 	Original []models.CalculatedRoute
 	Current  []models.CalculatedRoute
@@ -64,43 +66,25 @@ func routeMetricsEstimated(ctx context.Context, calc distance.Lookup, state *ses
 }
 
 func NewPersistentStore(calc distance.Lookup, records database.WorkflowRepository) *Store {
-	if records == nil {
-		panic("routesession: workflow repository is required")
-	}
-	return &Store{distanceCalc: calc, records: records, ttl: defaultTTL, now: time.Now}
+	return &Store{distanceCalc: calc, records: records}
 }
 
 func (s *Store) CreateContext(ctx context.Context, input CreateInput) (Snapshot, error) {
-	state := newSession(input, s.now())
+	state := newSession(input)
 	snapshot := snapshotWithChanges(state, changedRoutes(nil, state.currentRoutes))
-	if s.records == nil {
-		s.insert(state)
-	} else {
-		data, err := encodeState(state)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		if err = s.records.Create(ctx, "route", snapshot.ID, data, s.ttl); err != nil {
-			return Snapshot{}, err
-		}
+	data, err := encodeState(state)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err = s.records.Create(ctx, "route", snapshot.ID, data, sessionTTL); err != nil {
+		return Snapshot{}, err
 	}
 	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
 	return snapshot, nil
 }
 
 func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
-	if s.records == nil {
-		state, err := s.lockSession(id)
-		if errors.Is(err, ErrNotFound) {
-			return Snapshot{}, false, nil
-		}
-		if err != nil {
-			return Snapshot{}, false, err
-		}
-		defer state.mu.Unlock()
-		return snapshotOf(state), true, nil
-	}
-	record, err := s.records.Load(ctx, "route", id, s.ttl)
+	record, err := s.records.Load(ctx, "route", id, sessionTTL)
 	if errors.Is(err, database.ErrNotFound) || record.Consumed {
 		return Snapshot{}, false, nil
 	}
@@ -115,15 +99,7 @@ func (s *Store) Load(ctx context.Context, id string) (Snapshot, bool, error) {
 }
 
 func (s *Store) update(ctx context.Context, id string, mutate func(*session) (Snapshot, error)) (Snapshot, error) {
-	if s.records == nil {
-		state, err := s.lockSession(id)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		defer state.mu.Unlock()
-		return mutate(state)
-	}
-	record, err := s.records.Load(ctx, "route", id, s.ttl)
+	record, err := s.records.Load(ctx, "route", id, sessionTTL)
 	if errors.Is(err, database.ErrNotFound) || record.Consumed {
 		return Snapshot{}, ErrNotFound
 	}
@@ -142,7 +118,7 @@ func (s *Store) update(ctx context.Context, id string, mutate func(*session) (Sn
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if err = s.records.CompareAndSwap(ctx, "route", id, record.Revision, data, s.ttl); err != nil {
+	if err = s.records.CompareAndSwap(ctx, "route", id, record.Revision, data, sessionTTL); err != nil {
 		if errors.Is(err, database.ErrNotFound) {
 			return Snapshot{}, ErrNotFound
 		}
@@ -161,22 +137,14 @@ func (s *Store) ResetContext(ctx context.Context, id string) (Snapshot, error) {
 }
 
 func (s *Store) DeleteContext(ctx context.Context, id string) error {
-	if s.records == nil {
-		s.deleteMemory(id)
-		return nil
-	}
 	return s.records.Delete(ctx, "route", id)
 }
 
-// CommitEvent atomically creates the event and consumes the route session.
-// The writer belongs to this transaction and must not escape the callback.
-// The callback must not call Store methods: memory sessions remain locked until
-// it returns, and lock waiters cannot cancel. Memory callbacks receive a nil writer.
+// CommitEvent runs persist and consumes the session in one transaction.
+// Use the writer only during persist. The callback must not re-enter the Store
+// while it holds the session row lock.
 func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context.Context, CommitSnapshot, database.WorkflowWrites) error) error {
-	if s.records == nil {
-		return s.commitMemory(ctx, id, persist)
-	}
-	err := s.records.Transact(ctx, "route", id, s.ttl, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
+	err := s.records.Transact(ctx, "route", id, sessionTTL, func(record *database.WorkflowRecord, w database.WorkflowWrites) error {
 		if record.Consumed {
 			return ErrAlreadyCommitted
 		}
