@@ -110,6 +110,17 @@ func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
 		}
 	})
 
+	t.Run("short query returns an empty fragment", func(t *testing.T) {
+		h := &Handler{}
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/address-search?address=123", nil)
+		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
+		w := httptest.NewRecorder()
+		h.HandleAddressSearch(w, req)
+		if w.Code != http.StatusOK || w.Body.Len() != 0 || w.Header().Get(httpx.HeaderContentType) != httpx.MediaTypeHTML {
+			t.Fatalf("short query: status=%d header=%v body=%s", w.Code, w.Header(), w.Body.String())
+		}
+	})
+
 	t.Run("HTMX request renders address suggestions HTML", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
 		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)

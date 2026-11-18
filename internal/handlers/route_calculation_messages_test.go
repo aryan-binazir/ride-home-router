@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -36,6 +37,7 @@ func TestCalculateDistanceFailureMessages(t *testing.T) {
 	}{
 		{"pair cap", fmt.Errorf("prewarm: %w", distance.ErrTooManyDistancePairs), http.StatusBadRequest, "TOO_MANY_DISTANCE_PAIRS", messageTooManyForOneCalculation},
 		{"temporary provider timeout", fmt.Errorf("provider: %w", os.ErrDeadlineExceeded), http.StatusServiceUnavailable, "DISTANCE_PROVIDER_FAILED", messageRouteCalculationUnavailable},
+		{"canceled solve", fmt.Errorf("solve: %w", context.Canceled), http.StatusServiceUnavailable, "CALCULATION_TIMED_OUT", messageCalculationTimedOut},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h.Router = &captureRouter{err: tc.err}

@@ -107,6 +107,13 @@ func TestStandaloneRouteEditorSearchAndPagingKeepFormNavigation(t *testing.T) {
 			t.Fatal("standalone editor is missing its return link")
 		}
 	}
+
+	bad := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/routes/editor?session_id="+snapshot.ID+"&action=invalid", nil)
+	w := httptest.NewRecorder()
+	h.HandleRouteEditor(w, bad)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), messageInvalidRequestBody) {
+		t.Fatalf("invalid action: status=%d body=%s", w.Code, w.Body.String())
+	}
 }
 
 func oneRouteWithUnusedDriver(t *testing.T) (*Handler, routesession.Snapshot) {

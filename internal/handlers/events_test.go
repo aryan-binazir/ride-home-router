@@ -168,7 +168,7 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	}
 }
 
-func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
+func TestHandleCreateEvent_ValidationFailureRetainsSession(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
@@ -180,24 +180,29 @@ func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
 		Mode: models.RouteModeDropoff,
 	})
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("session_id="+session.ID))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
-	var response ErrorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Error.Code != "VALIDATION_ERROR" || response.Error.Message != messageEventDateRequired {
-		t.Fatalf("error = %#v", response.Error)
+	for _, test := range []struct {
+		name, date, notes, message string
+	}{
+		{"missing date", "", "", messageEventDateRequired},
+		{"notes too long", "2026-09-08", strings.Repeat("x", models.MaxNotesLength+1), "Notes must be"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			form := url.Values{"session_id": {session.ID}, "event_date": {test.date}, "notes": {test.notes}}
+			rr := postForm(t, "/api/v1/events", form, handler.HandleCreateEvent)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			var response ErrorResponse
+			if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Error.Code != "VALIDATION_ERROR" || !strings.HasPrefix(response.Error.Message, test.message) {
+				t.Fatalf("error=%+v", response.Error)
+			}
+		})
 	}
 	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); !ok {
-		t.Fatal("session was removed after event date validation failed")
+		t.Fatal("session was removed after event validation failed")
 	}
 	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
 		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)

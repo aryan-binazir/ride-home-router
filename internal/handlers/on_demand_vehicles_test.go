@@ -81,6 +81,42 @@ func TestVehicleEditorReturnsBoundedChoicesWithoutChangingPlan(t *testing.T) {
 	}
 }
 
+func TestVehicleEditorChoosesOnlyAvailableVans(t *testing.T) {
+	h, store := newTestPageHandler(t)
+	driver, err := store.Drivers().Create(t.Context(), &models.Driver{Name: "Driver", Address: "1 Test St", VehicleCapacity: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	van, err := store.OrganizationVehicles().Create(t.Context(), &models.OrganizationVehicle{Name: "Available van", Capacity: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken, err := store.OrganizationVehicles().Create(t.Context(), &models.OrganizationVehicle{Name: "Assigned van", Capacity: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/v1/planner/vehicle-editor?driver_id=%d&shortage=1", driver.ID)
+	assignment := fmt.Sprintf("org_vehicle_%d", driver.ID+1)
+	form := url.Values{assignment: {fmt.Sprint(taken.ID)}}
+
+	w := postForm(t, path, form, h.HandleVehicleEditor)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Available van") || strings.Contains(w.Body.String(), "Assigned van") {
+		t.Fatalf("choices: %d %s", w.Code, w.Body.String())
+	}
+	form.Set("choose", "1")
+	form.Set("vehicle_id", fmt.Sprint(taken.ID))
+	w = postForm(t, path, form, h.HandleVehicleEditor)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Choose an available vehicle.") {
+		t.Fatalf("taken van: %d %s", w.Code, w.Body.String())
+	}
+	form.Set("vehicle_id", fmt.Sprint(van.ID))
+	w = postForm(t, path, form, h.HandleVehicleEditor)
+	if w.Code != http.StatusOK || w.Header().Get("HX-Retarget") != fmt.Sprintf("#shortage-van-control-%d", driver.ID) ||
+		!strings.Contains(w.Body.String(), "Available van") || !strings.Contains(w.Body.String(), `data-capacity="8"`) {
+		t.Fatalf("selected van: %d %v %s", w.Code, w.Header(), w.Body.String())
+	}
+}
+
 func TestSelectedVanPresentationToleratesMissingCurrentVans(t *testing.T) {
 	h, store := newTestPageHandler(t)
 	driver, err := store.Drivers().Create(t.Context(), &models.Driver{Name: "Selected driver", Address: "1 Test St", VehicleCapacity: 4})

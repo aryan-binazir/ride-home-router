@@ -80,7 +80,7 @@ Postgres reserves Compute Routes, Geocoding and Autocomplete attempts and Comput
 
 Coordinates older than 30 days are refreshed before planning; failed refreshes retain prior coordinates. Address lookups share one request/second and cooldowns up to 15 minutes.
 
-Postgres persists route sessions and imports across restarts and replicas. Route sessions expire after eight idle hours and imports after 30 minutes. Limits are 256 route sessions and four imports. A new route session evicts the least recently used unfinished route session when full. Concurrent route edits return `409 SESSION_CONFLICT`; reload. Event saves/import commits consume their session atomically to prevent duplicate writes.
+Postgres persists route sessions and imports across restarts and replicas. No sticky sessions or app volume are required. Route sessions expire after eight idle hours and imports after 30 minutes. Limits are 256 route sessions and four imports. A new route session evicts the least recently used unfinished route session when full. Concurrent route edits return `409 SESSION_CONFLICT`; reload. Event saves/import commits consume their session atomically to prevent duplicate writes.
 
 CSV/XLSX imports geocode on the server. Parsed workflow payloads are capped at 24 MiB; valid rows can be saved despite invalid rows. Workers continue without a browser, recover after restart and allow up to nine Google attempts per unique address, with shared cooldowns. Exhausted addresses require a new import or reapplied mapping.
 

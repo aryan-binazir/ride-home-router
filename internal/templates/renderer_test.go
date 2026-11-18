@@ -65,6 +65,7 @@ func TestRendererRendersPartialsWithoutLayout(t *testing.T) {
 		want string
 	}{
 		{name: "badge", want: "<strong>Ar</strong>"},
+		{name: "index.html#content", want: "Welcome, <strong>Ar</strong>"},
 		{name: "status", want: "desktop Ar"},
 		{name: "address_suggestions.html", want: "address: Ar"},
 	}
@@ -107,13 +108,12 @@ func TestRendererReturnsErrorForUnknownName(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	var output bytes.Buffer
-	err = renderer.Render(&output, "unknown", nil)
-	if err == nil {
-		t.Fatal("Render() error = nil, want unknown template error")
-	}
-	if !strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("Render() error = %q, want template name", err)
+	for _, name := range []string{"unknown", "unknown.html#content"} {
+		var output bytes.Buffer
+		err := renderer.Render(&output, name, nil)
+		if err == nil || !strings.Contains(err.Error(), "unknown") {
+			t.Fatalf("Render(%q) error = %v, want unknown template or page", name, err)
+		}
 	}
 }
 
