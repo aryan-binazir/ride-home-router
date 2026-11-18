@@ -438,6 +438,9 @@ func TestSoftDeleteRosterMigrationDownSucceedsWithoutArchivedRows(t *testing.T) 
 func TestSoftDeleteRosterMigrationDownWaitsForWriterBeforeCheckingArchivedRows(t *testing.T) {
 	db, migrator := openMigrator(t)
 	ctx := t.Context()
+	if err := migrator.Migrate(20260830000000); err != nil {
+		t.Fatalf("prepare soft-delete migration: %v", err)
+	}
 
 	var participantID int64
 	if err := db.QueryRowContext(ctx, `INSERT INTO participants (name, address, lat, lng) VALUES ('Concurrent Rider', '7 Main St', 40, -73) RETURNING id`).Scan(&participantID); err != nil {
