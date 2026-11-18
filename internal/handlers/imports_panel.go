@@ -129,14 +129,14 @@ func importFieldFromValue(value string, isDriver bool) (importer.Field, bool) {
 func newImportMappingView(snapshot importer.Snapshot, validationErrors []string) importMappingView {
 	isDriver := snapshot.Kind == importer.KindDriver
 	selectedByColumn := make(map[int]string, len(snapshot.Grid.Headers))
-	for _, binding := range importMappingColumns(snapshot.Mapping) {
-		if binding.column == importer.UnmappedColumn {
+	for _, binding := range snapshot.Mapping.Columns() {
+		if binding.Column == importer.UnmappedColumn {
 			continue
 		}
-		if binding.field == importer.FieldCapacity && !isDriver {
+		if binding.Field == importer.FieldCapacity && !isDriver {
 			continue
 		}
-		selectedByColumn[binding.column] = string(binding.field)
+		selectedByColumn[binding.Column] = string(binding.Field)
 	}
 
 	warningByColumn := make(map[int]string)
@@ -165,20 +165,6 @@ func newImportMappingView(snapshot importer.Snapshot, validationErrors []string)
 		Errors:    validationErrors,
 		Fields:    importFieldOptions(isDriver),
 		Columns:   columns,
-	}
-}
-
-type importMappingBinding struct {
-	field  importer.Field
-	column int
-}
-
-func importMappingColumns(mapping importer.Mapping) []importMappingBinding {
-	return []importMappingBinding{
-		{importer.FieldName, mapping.NameColumn},
-		{importer.FieldAddress, mapping.AddressColumn},
-		{importer.FieldAddressName, mapping.AddressNameColumn},
-		{importer.FieldCapacity, mapping.CapacityColumn},
 	}
 }
 

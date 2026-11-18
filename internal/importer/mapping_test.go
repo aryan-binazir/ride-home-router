@@ -7,9 +7,9 @@ import (
 
 func TestNewMappingStartsUnmapped(t *testing.T) {
 	mapping := NewMapping()
-	for _, binding := range mapping.columns() {
-		if binding.column != UnmappedColumn {
-			t.Errorf("%s column = %d, want %d", binding.field, binding.column, UnmappedColumn)
+	for _, binding := range mapping.Columns() {
+		if binding.Column != UnmappedColumn {
+			t.Errorf("%s column = %d, want %d", binding.Field, binding.Column, UnmappedColumn)
 		}
 	}
 	if mapping.Ambiguous == nil {

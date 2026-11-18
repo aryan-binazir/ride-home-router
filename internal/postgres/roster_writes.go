@@ -245,7 +245,7 @@ func (s *Store) PurgeDeletedRoster(ctx context.Context) error {
 	return nil
 }
 
-func addressMatchOrVerified(status string) string {
+func addressMatchOrVerified(status models.AddressMatch) models.AddressMatch {
 	if status == "" {
 		return models.AddressMatchVerified
 	}

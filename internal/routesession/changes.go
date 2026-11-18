@@ -8,14 +8,14 @@ import (
 )
 
 const (
-	ChangeParticipantMoved = "participant_moved"
-	ChangeDriversSwapped   = "drivers_swapped"
-	ChangeDriverReplaced   = "driver_replaced"
+	ChangeParticipantMoved models.RouteChangeKind = "participant_moved"
+	ChangeDriversSwapped   models.RouteChangeKind = "drivers_swapped"
+	ChangeDriverReplaced   models.RouteChangeKind = "driver_replaced"
 )
 
 // RouteChange names are for display only; feedback records keep the IDs.
 type RouteChange struct {
-	Kind            string
+	Kind            models.RouteChangeKind
 	ParticipantID   int64
 	ParticipantName string
 	FromDriverID    int64

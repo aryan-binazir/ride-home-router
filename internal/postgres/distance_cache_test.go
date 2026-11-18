@@ -29,10 +29,10 @@ func TestDistanceCacheGetBatch_HitsMissesAndDuplicates(t *testing.T) {
 		t.Fatalf("Set() error = %v", err)
 	}
 
-	result, err := store.DistanceCache().GetBatch(ctx, []struct{ Origin, Dest models.Coordinates }{
-		{Origin: origin, Dest: destHit},
-		{Origin: origin, Dest: destHit},
-		{Origin: origin, Dest: destMiss},
+	result, err := store.DistanceCache().GetBatch(ctx, []models.DistancePair{
+		{Origin: origin, Destination: destHit},
+		{Origin: origin, Destination: destHit},
+		{Origin: origin, Destination: destMiss},
 	})
 	if err != nil {
 		t.Fatalf("GetBatch() error = %v", err)

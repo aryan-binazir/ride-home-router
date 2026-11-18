@@ -50,17 +50,17 @@ type cachedIdentity struct {
 }
 
 type Access struct {
-	identityGates [64]chan struct{}
-	cacheMu       sync.Mutex
-	identities    map[string]cachedIdentity
-	cfg           Config
-	issuer        string
-	key           *clerk.JSONWebKey
-	parties       map[string]bool
-	admins        map[string]bool
-	users         *user.Client
-	sessions      *session.Client
-	store         Store
+	identityGates  [64]chan struct{}
+	cacheMu        sync.Mutex
+	identities     map[string]cachedIdentity
+	publishableKey string
+	issuer         string
+	key            *clerk.JSONWebKey
+	parties        map[string]bool
+	admins         map[string]bool
+	users          *user.Client
+	sessions       *session.Client
+	store          Store
 }
 
 type (
@@ -118,7 +118,7 @@ func New(cfg Config, store Store) (*Access, error) {
 	if !ok || rsaKey.N.BitLen() < 2048 {
 		return nil, errors.New("CLERK_JWT_KEY must be an RSA public key of at least 2048 bits")
 	}
-	a := &Access{cfg: cfg, issuer: "https://" + host, key: &clerk.JSONWebKey{Key: rsaKey, Algorithm: "RS256"}, parties: map[string]bool{}, admins: map[string]bool{}, store: store}
+	a := &Access{publishableKey: cfg.PublishableKey, issuer: "https://" + host, key: &clerk.JSONWebKey{Key: rsaKey, Algorithm: "RS256"}, parties: map[string]bool{}, admins: map[string]bool{}, store: store}
 	for i := range a.identityGates {
 		a.identityGates[i] = make(chan struct{}, 1)
 	}

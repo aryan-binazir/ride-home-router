@@ -115,7 +115,7 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 	h.renderTemplate(w, "driver_list", view)
 }
 
-func confirmedAddress(typed, geocoderLabel string) (string, string) {
+func confirmedAddress(typed, geocoderLabel string) (string, models.AddressMatch) {
 	if strings.TrimSpace(geocoderLabel) != "" {
 		typed = geocoderLabel
 	}
