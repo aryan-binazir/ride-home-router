@@ -42,7 +42,6 @@ const (
 	StatusPreviewing Status = "previewing"
 	StatusCommitting Status = "committing"
 	StatusCommitted  Status = "committed"
-	StatusFailed     Status = "failed"
 )
 
 type GeocodeProgress struct {
@@ -223,7 +222,7 @@ func geocodeGroups(rows []Row) []geocodeGroup {
 		if !rows[i].NeedsGeocoding || len(rows[i].Errors) > 0 {
 			continue
 		}
-		key := NormalizeRosterText(rows[i].Address)
+		key := models.NormalizeRosterField(rows[i].Address)
 		if key == "" {
 			continue
 		}

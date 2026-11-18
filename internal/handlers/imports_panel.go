@@ -318,8 +318,6 @@ func (h *Handler) renderImportStep(w http.ResponseWriter, r *http.Request, snaps
 		h.renderImportPreview(w, r, snapshot.ID)
 	case importer.StatusCommitted:
 		h.renderTemplate(w, "import_result", importCommitView{Message: importCommitMessage(snapshot.CommitResult), GuessedWarning: importGuessedWarning(snapshot.CommitResult)})
-	case importer.StatusFailed:
-		h.renderImportMessage(w, snapshot.ID, importFailureMessage(snapshot))
 	default:
 		h.renderImportMessage(w, snapshot.ID, importFailureMessage(snapshot))
 	}

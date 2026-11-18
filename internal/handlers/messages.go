@@ -49,7 +49,6 @@ const (
 	messageSelectedActivityLocationNotFoundChooseAnother = "Selected activity location not found. Choose another location."
 	messageSelectAtLeastOneDriver                        = "Please select at least one driver."
 	messageSelectAtLeastOneParticipant                   = "Please select at least one participant."
-	messageTargetVehicleAtCapacity                       = "That vehicle is full. Choose another vehicle."
 	messageOrganizationVehicleCapacityMustBeAtLeastOne   = "Capacity must be at least 1."
 
 	toastTypeError   = "error"

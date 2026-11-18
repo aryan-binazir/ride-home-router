@@ -547,23 +547,7 @@ function toggleEventDetail(eventItem, eventId, toggle) {
     if (!form || form.dataset.uiValidated === "true") return;
     form.dataset.uiValidated = "true";
 
-    const select = form.querySelector('select[name="selected_activity_location_id"]');
     const email = form.querySelector('input[name="sme_email"]');
-    if (select) {
-      select.addEventListener("invalid", (e) => {
-        e.preventDefault();
-        showToast('Please select an activity location.', 'warning');
-
-        const container = document.getElementById("activity-location-select");
-        if (container && container.classList.contains("is-enhanced")) {
-          openSelect(container);
-          const trigger = container.querySelector(".ui-select-trigger");
-          if (trigger) trigger.focus();
-        } else {
-          select.focus();
-        }
-      });
-    }
 
     if (email) {
       email.addEventListener("invalid", (e) => {
@@ -573,12 +557,6 @@ function toggleEventDetail(eventItem, eventId, toggle) {
       });
     }
 
-    form.addEventListener("submit", (e) => {
-      if (select && !select.value) {
-        e.preventDefault();
-        showToast('Please select an activity location.', 'warning');
-      }
-    });
   }
 
   document.addEventListener("click", (e) => {

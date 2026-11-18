@@ -8,11 +8,6 @@ import (
 	"ride-home-router/internal/models"
 )
 
-// MaxUncachedDistancePairs is the per-calculation billing ceiling.
-const MaxUncachedDistancePairs = distance.MaxUncachedDistancePairs
-
-var ErrTooManyDistancePairs = distance.ErrTooManyDistancePairs
-
 func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {
 	if local, ok := source.(interface{ NoPrewarm() bool }); !ok || !local.NoPrewarm() {
 		pairs, err := collectSolveDistancePairs(ctx, normalizeRouteMode(req.Mode), req.InstituteCoords, req.Participants, req.Drivers)

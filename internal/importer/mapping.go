@@ -38,7 +38,7 @@ func AutoMap(headers []string) Mapping {
 	for _, field := range fieldOrder {
 		var matches []int
 		for column, header := range headers {
-			if _, ok := fieldAliases[field][normalize(header)]; ok {
+			if _, ok := fieldAliases[field][models.NormalizeRosterField(header)]; ok {
 				matches = append(matches, column)
 				claimed[column] = true
 			}
@@ -183,9 +183,3 @@ func knownField(field Field) bool {
 		return false
 	}
 }
-
-func NormalizeRosterText(value string) string {
-	return models.NormalizeRosterField(value)
-}
-
-func normalize(value string) string { return models.NormalizeRosterField(value) }

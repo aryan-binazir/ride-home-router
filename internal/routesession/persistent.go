@@ -37,7 +37,7 @@ func (s *Store) decodeState(ctx context.Context, id string, data []byte) (*sessi
 	if p.Dirty == nil {
 		p.Dirty = make(map[int]struct{})
 	}
-	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, reviewerNote: p.Note, lastAccessedAt: s.now()}
+	state := &session{id: id, originalRoutes: p.Original, currentRoutes: p.Current, dirtyRouteIndexes: p.Dirty, selectedDrivers: p.Drivers, driverOrgVehicles: p.Vehicles, activityLocation: p.Location, useMiles: p.UseMiles, routeTime: p.Time, mode: p.Mode, reviewerNote: p.Note}
 	s.estimateStoredRoutes(ctx, state)
 	return state, nil
 }

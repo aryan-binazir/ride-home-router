@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	Issuer = "https://fixture.clerk.accounts.dev"
 	Origin = "http://127.0.0.1"
 )
 
@@ -180,15 +179,10 @@ func (f *Fixture) RoundTrip(r *http.Request) (*http.Response, error) {
 
 type BearerTransport struct {
 	Token string
-	Base  http.RoundTripper
 }
 
 func (b BearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone := r.Clone(r.Context())
 	clone.Header.Set("Authorization", "Bearer "+b.Token)
-	base := b.Base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(clone)
+	return http.DefaultTransport.RoundTrip(clone)
 }

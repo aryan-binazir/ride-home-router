@@ -524,3 +524,11 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 		}
 	}
 }
+
+func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {
+	before, err := rc.riderScore(ctx, driver, stops)
+	if err != nil {
+		return 0, err
+	}
+	return rc.groupInsertionDeltaRiderScoreFrom(ctx, driver, stops, group, pos, before)
+}
