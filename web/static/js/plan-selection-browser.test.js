@@ -121,14 +121,21 @@ for (const width of [390, 1280]) {
         ...[204,404,410].map(status=>({failure:'session',status,order:true})),
         ...['calculate','clear','input'].map(cancel=>({cancel})),
     ]) {
-        test(`draft/session restore matches serial oracle ${JSON.stringify(options)} at ${width}px`, {skip: !browser}, () => {
+        const retryableSessionFailure = options.failure === 'session' && (options.status === undefined || options.status === 500);
+        const behavior = retryableSessionFailure ? 'keeps the route plan for retry' : 'matches serial oracle';
+        test(`draft/session restore ${behavior} ${JSON.stringify(options)} at ${width}px`, {skip: !browser}, () => {
             const config = {draft: restoreDraft, location: true, paged: options.paged !== false,
                 session: {id:'s1',fingerprint:options.mismatch?'different inputs':restoreFingerprint}};
             const scenario = restoreScenario(options);
             const old = run(width, scenario, {...config, source:serialSource});
             const next = run(width, scenario, config);
             assert.deepEqual(next.initial, old.initial);
-            assert.deepEqual(next.final, old.final);
+            const expected = retryableSessionFailure ? {
+                ...old.final,
+                active: JSON.stringify(config.session),
+                toasts: ['Could not restore your routes. Check your connection and try again.'],
+            } : old.final;
+            assert.deepEqual(next.final, expected);
             assert.deepEqual(next.processed, old.processed);
             assert.equal(next.earlyVisible, false);
             if (options.cancel) assert.ok(next.aborted.includes('/api/v1/routes/session'));

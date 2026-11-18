@@ -2189,11 +2189,12 @@
                 if (restore.signal.aborted) return;
                 if ('error' in result) throw result.error;
                 const {response, html} = result;
-                if (response.status === 204 || !response.ok) {
+                if ([204, 404, 410].includes(response.status)) {
                     showToast('That route plan expired. Calculate routes again.', 'warning');
                     plannerState.clear();
                     return;
                 }
+                if (!response.ok) throw new Error('Route restore returned HTTP ' + response.status);
                 if (html) {
                     installRouteResults({ target: resultsSection, html, htmx, afterRender: refreshResultsView });
                     restore.commit(getSessionId());
@@ -2202,7 +2203,6 @@
                 if (err.name !== 'AbortError') {
                     console.warn('Failed to restore route session', err);
                     showToast('Could not restore your routes. Check your connection and try again.', 'error');
-                    plannerState.clear();
                 }
             } finally {
                 clearTimeout(deadline);
