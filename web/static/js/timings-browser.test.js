@@ -53,7 +53,7 @@ test('refreshRouteTotals fills the plan totals once every occupied car on screen
         const card = (index, timings, stops, meters, detour) => `<section class="route-card" data-route-index="${index}" data-timings="${timings}" data-total-distance-meters="${meters}" data-detour-secs="${detour}"><div class="route-stops">${'<div class="stop-item"></div>'.repeat(stops)}</div></section>`;
         const summary = `<div class="route-summary"><div class="value" data-summary="total-distance">—</div><div class="value" data-summary="max-detour">—</div><div class="value" data-summary="average-detour">—</div></div>`;
         const page = (cards, outOfBalance) => `<div class="routes-container" data-use-miles="true" data-out-of-balance="${outOfBalance}">${cards}${summary}</div>`;
-        const fixture = `<!doctype html><html><body><div id="results-section"></div><pre id="evidence">pending</pre>
+        const fixture = `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="results-section"></div><pre id="evidence">pending</pre>
 <script>${fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8')}</script><script>
 const target=document.getElementById('results-section');
 const read=()=>[...target.querySelectorAll('[data-summary]')].map(e=>e.textContent);
