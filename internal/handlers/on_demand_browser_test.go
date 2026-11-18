@@ -2,15 +2,12 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/plandraft"
@@ -18,7 +15,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestRouteEditorBrowserLoadsSearchesAndMovesOnDemand(t *testing.T) {
@@ -325,19 +321,5 @@ func runRouteBrowser(t *testing.T, browser string, mux *http.ServeMux) string {
 		mux.ServeHTTP(w, r)
 	}))
 	t.Cleanup(server.Close)
-	dir := t.TempDir()
-	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
-	defer cancel()
-	//nolint:gosec // Explicit opt-in browser binary for a synthetic local test server.
-	cmd := exec.CommandContext(ctx, browser, "--headless", "--no-sandbox", "--disable-gpu", "--no-first-run", "--no-proxy-server", "--user-data-dir="+filepath.Join(dir, "profile"), "--dump-dom", "--virtual-time-budget=15000", server.URL)
-	output, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("browser: %v", err)
-	}
-	start := strings.Index(string(output), `<pre id="browser-result">`)
-	if start < 0 {
-		t.Fatalf("browser did not complete (output %d bytes)", len(output))
-	}
-	raw, _, _ := strings.Cut(string(output)[start+len(`<pre id="browser-result">`):], "</pre>")
-	return raw
+	return runBrowserCDP(t, browser, server.URL, "", "", "#browser-result")
 }
