@@ -25,7 +25,7 @@ async function runBrowserCDP([executable, target, width, height, selector]) {
         let port;
         for (let i = 0; i < 200 && !port; i++) {
             if (fs.existsSync(portFile)) port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
-            else await pause(25);
+            if (!port) await pause(25);
         }
         if (!port) throw new Error('Chromium did not start its debugging endpoint');
         const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
