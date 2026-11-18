@@ -2,9 +2,11 @@
 //
 // The balanced router prepares distances and household data, seeds routes with
 // a bearing sweep or round-robin fallback, and tries to fill empty routes once
-// all participants are assigned. It orders stops, searches participant
-// assignments, checks for unassigned participants, tries whole-route swaps
-// between drivers, and builds the result. A swap triggers another ordering pass.
+// all participants are assigned. It orders stops, then searches participant
+// assignments, reordering stops after each accepted change. After checking for
+// unassigned participants, it tries whole-route swaps between drivers. If any
+// swap succeeds, that phase reruns stop ordering once. The router then builds
+// the result.
 //
 // The solution score compares these criteria in order.
 //
@@ -15,8 +17,12 @@
 //  5. Shorter total participant completion time.
 //  6. Shorter total drive duration.
 //
-// The ordering pass also uses the first four criteria to prune candidate stop
-// orders. The first two comparisons are exact. Each time comparison falls
-// through at a difference of 0.001 seconds or less. A full tie keeps the
-// current solution. For pickups, participant completion measures time aboard.
+// The first four criteria form the comparison prefix. The first two comparisons
+// are exact. Each time comparison falls through at a difference of
+// scoreImprovementEpsilon (0.001 seconds) or less. A full tie keeps the current
+// solution. For pickups, participant completion measures time aboard.
+//
+// The swap phase rejects swaps that increase total drive duration by more than
+// the tolerance. It discards the final reordering if total drive duration
+// exceeds the value at the start of the swap phase by more than the tolerance.
 package routing
