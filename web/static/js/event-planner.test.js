@@ -2075,12 +2075,23 @@ test('route error extraction rejects empty, oversized and non-word responses', a
 });
 
 test('expired restore responses clear the saved plan and explain recovery', async () => {
- for (const restoreStatus of [204,404,410,500]) {
+ for (const restoreStatus of [204,404,410]) {
   const app=bootPlanner({legacySessionId:'expired-plan',restoreStatus});
   await app.settleRestore();
   assert.equal(storedSessionId(app),null);
   assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,'That route plan expired. Calculate routes again.');
  }
+});
+
+test('a failed route restore keeps the plan available for the next reload', async () => {
+    const storedSession = { id: 'retry-plan', fingerprint: 'saved inputs' };
+    const app = bootPlanner({ storedSession, restoreStatus: 500 });
+
+    await app.settleRestore();
+
+    assert.deepEqual(JSON.parse(app.storage.getItem('ride-home-router:active-session:v2')), storedSession);
+    assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,
+        'Could not restore your routes. Check your connection and try again.');
 });
 test('route edits use the server conflict explanation from HX-Trigger', async () => {
  const app=bootPlanner();app.calculate();
