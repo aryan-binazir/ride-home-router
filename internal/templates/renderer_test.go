@@ -23,28 +23,17 @@ var pageNames = []string{
 	"history.html",
 }
 
-var mobilePageNames = []string{
-	"plan.html", "location.html", "riders.html", "drivers.html", "when.html", "routes.html",
-	"people.html", "person_form.html", "places.html", "place_form.html", "history.html", "history_detail.html", "error.html",
-}
-
 func validTemplatesFS() fstest.MapFS {
 	templatesFS := fstest.MapFS{
 		"templates/layout.html":                       {Data: []byte(`<header>Ride Home Router</header><main>{{template "content" .}}</main>`)},
 		"templates/partials/badge.html":               {Data: []byte(`{{define "badge"}}<strong>{{.}}</strong>{{end}}`)},
 		"templates/partials/status.html":              {Data: []byte(`{{define "status"}}desktop {{.}}{{end}}`)},
 		"templates/partials/address_suggestions.html": {Data: []byte(`address: {{.}}`)},
-		"templates/mobile/layout.html":                {Data: []byte(`<nav>Mobile</nav><main>{{template "mobile_content" .}}</main>`)},
-		"templates/mobile/partials/status.html":       {Data: []byte(`{{define "status"}}mobile {{.}}{{end}}`)},
 	}
 	for _, name := range pageNames {
 		templatesFS["templates/"+name] = &fstest.MapFile{Data: []byte(`{{define "content"}}page{{end}}`)}
 	}
-	for _, name := range mobilePageNames {
-		templatesFS["templates/mobile/"+name] = &fstest.MapFile{Data: []byte(`{{define "mobile_content"}}mobile page{{end}}`)}
-	}
 	templatesFS["templates/index.html"] = &fstest.MapFile{Data: []byte(`{{define "content"}}Welcome, {{template "badge" .}}{{end}}`)}
-	templatesFS["templates/mobile/plan.html"] = &fstest.MapFile{Data: []byte(`{{define "mobile_content"}}Plan for {{.}}{{end}}`)}
 	return templatesFS
 }
 
@@ -76,6 +65,8 @@ func TestRendererRendersPartialsWithoutLayout(t *testing.T) {
 		want string
 	}{
 		{name: "badge", want: "<strong>Ar</strong>"},
+		{name: "index.html#content", want: "Welcome, <strong>Ar</strong>"},
+		{name: "status", want: "desktop Ar"},
 		{name: "address_suggestions.html", want: "address: Ar"},
 	}
 	for _, test := range tests {
@@ -91,40 +82,6 @@ func TestRendererRendersPartialsWithoutLayout(t *testing.T) {
 	}
 }
 
-func TestRendererRendersMobilePageWithLayout(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	var output bytes.Buffer
-	if err := renderer.Render(&output, "mobile/plan.html", "Ar"); err != nil {
-		t.Fatalf("Render() error = %v", err)
-	}
-
-	const want = `<nav>Mobile</nav><main>Plan for Ar</main>`
-	if got := output.String(); got != want {
-		t.Fatalf("Render() = %q, want %q", got, want)
-	}
-}
-
-func TestRendererPrefersMobilePartialByLookup(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	var output bytes.Buffer
-	if err := renderer.Render(&output, "status", "ready"); err != nil {
-		t.Fatalf("Render() error = %v", err)
-	}
-
-	const want = "mobile ready"
-	if got := output.String(); got != want {
-		t.Fatalf("Render() = %q, want %q", got, want)
-	}
-}
-
 func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 	t.Run("missing layout", func(t *testing.T) {
 		templatesFS := validTemplatesFS()
@@ -132,19 +89,6 @@ func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 
 		if _, err := templates.New(templatesFS, web.AuthConfig{}); err == nil {
 			t.Fatal("New() error = nil, want missing layout error")
-		}
-	})
-
-	t.Run("missing mobile layout", func(t *testing.T) {
-		templatesFS := validTemplatesFS()
-		delete(templatesFS, "templates/mobile/layout.html")
-
-		_, err := templates.New(templatesFS, web.AuthConfig{})
-		if err == nil {
-			t.Fatal("New() error = nil, want missing mobile layout error")
-		}
-		if !strings.Contains(err.Error(), "read mobile layout") {
-			t.Fatalf("New() error = %q, want mobile layout context", err)
 		}
 	})
 
@@ -164,13 +108,12 @@ func TestRendererReturnsErrorForUnknownName(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	var output bytes.Buffer
-	err = renderer.Render(&output, "unknown", nil)
-	if err == nil {
-		t.Fatal("Render() error = nil, want unknown template error")
-	}
-	if !strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("Render() error = %q, want template name", err)
+	for _, name := range []string{"unknown", "unknown.html#content"} {
+		var output bytes.Buffer
+		err := renderer.Render(&output, name, nil)
+		if err == nil || !strings.Contains(err.Error(), "unknown") {
+			t.Fatalf("Render(%q) error = %v, want unknown template or page", name, err)
+		}
 	}
 }
 
@@ -218,13 +161,13 @@ func TestRendererSupportsConcurrentPageAndPartialRendering(t *testing.T) {
 	}
 }
 
-func TestRendererSharesAuthHeadAcrossDesktopAndMobile(t *testing.T) {
+func TestRendererIncludesSharedAuthConfig(t *testing.T) {
 	config := web.AuthConfig{PublishableKey: "pk_test_fixture", ScriptURL: "https://fixture.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"}
 	renderer, err := templates.New(web.Templates, config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"participants.html", "mobile/error.html"} {
+	for _, name := range []string{"participants.html", "history.html"} {
 		var output bytes.Buffer
 		if err := renderer.Render(&output, name, map[string]any{"Title": "Fixture", "Error": "Fixture"}); err != nil {
 			t.Fatal(err)

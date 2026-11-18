@@ -1,5 +1,4 @@
 .van-assignment-inline.hidden,.van-assignment-inline select[hidden]{display:none}
-.mobile-driver-choice .van-assignment-inline{padding:.5rem 1rem 1rem;gap:.5rem;align-items:center}
 
 .route-editor-dialog {
   width: min(34rem, calc(100vw - 24px));

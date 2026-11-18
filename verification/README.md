@@ -58,7 +58,7 @@ Read TLC results with `/statechart`; retain and replay each violation against re
 
 ## Audit findings outside this change
 
-The live-path matrix quota bypass, ambiguous edit-response save eligibility and settings field-preservation race were fixed separately in #138. This verification branch does not codify those bad outcomes as passing behavior. Mobile draft pruning also loses a newer selection when invoked directly, but its handlers are retired from the production mux; it is not a live-path claim. Month-of-dispatch billing across Pacific midnight and stale save acknowledgements need further runtime evidence. Planner integrity tests add driver uniqueness and membership oracles absent from the existing quality-evaluation validator; no solver defect was established.
+The live-path matrix quota bypass, ambiguous edit-response save eligibility and settings field-preservation race were fixed separately in #138. This verification branch does not codify those bad outcomes as passing behavior. Month-of-dispatch billing across Pacific midnight and stale save acknowledgements need further runtime evidence. Planner integrity tests add driver uniqueness and membership oracles absent from the existing quality-evaluation validator; no solver defect was established.
 
 A broken queue guard can overwrite a match or lose a row selection. A broken save guard can discard an acknowledged edit or create a duplicate Event. A broken capacity guard can admit excess work or delete a session even though its replacement failed. The replay tests make those consequences observable through stored rows and handler results.
 

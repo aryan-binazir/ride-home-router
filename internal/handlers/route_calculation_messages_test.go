@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,15 +9,12 @@ import (
 	"os"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
-	"ride-home-router/internal/plandraft"
 	"strings"
 	"testing"
 )
 
 func TestCalculateDistanceFailureMessages(t *testing.T) {
 	h, store := newTestRouteHandler(t)
-	h.PlanDraft = plandraft.NewStore()
-	t.Cleanup(h.PlanDraft.Close)
 	ctx := t.Context()
 	rider, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
 	if err != nil {
@@ -39,6 +37,7 @@ func TestCalculateDistanceFailureMessages(t *testing.T) {
 	}{
 		{"pair cap", fmt.Errorf("prewarm: %w", distance.ErrTooManyDistancePairs), http.StatusBadRequest, "TOO_MANY_DISTANCE_PAIRS", messageTooManyForOneCalculation},
 		{"temporary provider timeout", fmt.Errorf("provider: %w", os.ErrDeadlineExceeded), http.StatusServiceUnavailable, "DISTANCE_PROVIDER_FAILED", messageRouteCalculationUnavailable},
+		{"canceled solve", fmt.Errorf("solve: %w", context.Canceled), http.StatusServiceUnavailable, "CALCULATION_TIMED_OUT", messageCalculationTimedOut},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h.Router = &captureRouter{err: tc.err}
@@ -50,7 +49,7 @@ func TestCalculateDistanceFailureMessages(t *testing.T) {
 						}
 						h.HandleCalculateRoutes(w, r)
 					})
-					response := postMobileForm(t, nil, "/api/v1/routes/calculate", form, handler)
+					response := postForm(t, "/api/v1/routes/calculate", form, handler)
 					if response.Code != tc.status {
 						t.Fatalf("status = %d, body=%s", response.Code, response.Body)
 					}
@@ -69,24 +68,6 @@ func TestCalculateDistanceFailureMessages(t *testing.T) {
 					}
 				})
 			}
-			t.Run("mobile", func(t *testing.T) {
-				id := h.PlanDraft.NewID()
-				h.PlanDraft.Update(id, func(d *plandraft.Draft) {
-					d.ParticipantIDs = []int64{rider.ID}
-					d.DriverIDs = []int64{driver.ID}
-					d.LocationID = location.ID
-					d.RouteTime = "18:30"
-					d.Mode = "dropoff"
-				})
-				response := postMobileForm(t, mobileTestCookie(id), "/m/calculate", nil, h.HandleMobileCalculate)
-				target, err := url.Parse(response.Header().Get("Location"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				if response.Code != http.StatusSeeOther || target.Path != "/m" || target.Query().Get("error") != tc.message {
-					t.Fatalf("response = %d %s", response.Code, response.Header())
-				}
-			})
 		})
 	}
 }

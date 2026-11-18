@@ -13,7 +13,6 @@ type vehicleEditorView struct {
 	Driver      models.Driver
 	Vehicle     *models.OrganizationVehicle
 	Selected    bool
-	Mobile      bool
 	Shortage    bool
 	Choices     []editorChoice
 	Search      string
@@ -28,14 +27,14 @@ func (h *Handler) HandleVehicleAssignments(w http.ResponseWriter, r *http.Reques
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
-	ids, ok := parseMobileSelection(r.Form["driver_ids"])
-	if !ok {
-		h.handleValidationErrorHTMX(w, r, mobileSelectionLimitMessage())
+	ids := parsePickerIDs(r.Form["driver_ids"])
+	if len(ids) > maxSelectionSize {
+		h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("people"))
 		return
 	}
 	assignments, err := parseOrgVehicleAssignments(r.Form, ids)
 	if err != nil {
-		h.handleValidationErrorHTMX(w, r, mobileVanAssignmentMessage(err))
+		h.handleValidationErrorHTMX(w, r, err.Error())
 		return
 	}
 	var driverIDs []int64
@@ -85,20 +84,15 @@ func (h *Handler) HandleVehicleEditor(w http.ResponseWriter, r *http.Request) {
 		h.handleNotFoundHTMX(w, r, messageInvalidDriverID)
 		return
 	}
-	view := vehicleEditorView{Driver: *driver, Selected: true, Mobile: r.URL.Query().Get("mobile") == "1", Shortage: r.URL.Query().Get("shortage") == "1", Search: strings.TrimSpace(r.Form.Get("search"))}
+	view := vehicleEditorView{Driver: *driver, Selected: true, Shortage: r.URL.Query().Get("shortage") == "1", Search: strings.TrimSpace(r.Form.Get("search"))}
 	view.Include = "#event-form .van-assignment-select"
 	prefix := ""
-	if view.Mobile {
-		view.Include = "#mobile-driver-picker [name^='org_vehicle_']"
-		prefix = "mobile-"
-	} else if view.Shortage {
+	if view.Shortage {
 		view.Include = "#recalc-form .org-vehicle-select"
 		prefix = "shortage-"
 	}
 	q := url.Values{"driver_id": {strconv.FormatInt(id, 10)}}
-	if view.Mobile {
-		q.Set("mobile", "1")
-	} else if view.Shortage {
+	if view.Shortage {
 		q.Set("shortage", "1")
 	}
 	view.URL = "/api/v1/planner/vehicle-editor?" + q.Encode()

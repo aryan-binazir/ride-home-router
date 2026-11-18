@@ -82,30 +82,6 @@
             document.head.appendChild(script);
         });
         await window.Clerk.load();
-        const readyForms = new WeakSet();
-        const pendingForms = new WeakSet();
-        document.addEventListener('submit', async event => {
-            const form = event.target;
-            if (!form.matches('.mobile-shell form[method="post"]')) return;
-            if (readyForms.delete(form)) return;
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            if (pendingForms.has(form)) return;
-            pendingForms.add(form);
-            try {
-                const token = await window.Clerk.session?.getToken({skipCache: true});
-                if (!token) throw new Error('No active session');
-                readyForms.add(form);
-                if (event.submitter) form.requestSubmit(event.submitter);
-                else form.requestSubmit();
-            } catch (_) {
-                form.dispatchEvent?.(new Event('auth:submitFailed', {bubbles: true}));
-                showRecovery('Could not renew your sign-in. Your form has not been submitted.');
-            } finally {
-                readyForms.delete(form);
-                pendingForms.delete(form);
-            }
-        }, true);
         document.querySelectorAll('[data-sign-out]').forEach(button => {
             button.hidden = !window.Clerk.user;
             button.addEventListener('click', () => window.Clerk.signOut({redirectUrl: '/sign-in'}));

@@ -21,57 +21,35 @@ type routeEditorView struct {
 	Action        string
 	From          int
 	ParticipantID int64
-	Mobile        bool
 	Inline        bool
 	Choices       []editorChoice
 	Search        string
 	SearchURL     string
 	PreviousURL   string
 	NextURL       string
-	ReturnURL     string
 }
 
 func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
-	mobile := strings.HasPrefix(r.URL.Path, "/m/")
-	validationError := func(message string) {
-		if mobile && !h.isHTMX(r) {
-			h.mobileRedirectError(w, r, "/m/routes", message)
-			return
-		}
-		h.handleValidationErrorHTMX(w, r, message)
-	}
 	id := r.URL.Query().Get("session_id")
-	if mobile {
-		if _, _, ok := h.mobileRouteSession(w, r); !ok {
-			return
-		}
-	}
 	snapshot, found, err := h.RouteSession.Load(r.Context(), id)
 	if err != nil {
 		h.handleInternalError(w, r, err)
 		return
 	}
 	if !found {
-		if mobile && !h.isHTMX(r) {
-			h.mobileRedirectError(w, r, "/m/routes", messageSessionNotFound)
-			return
-		}
 		h.handleNotFoundHTMX(w, r, messageSessionNotFound)
 		return
 	}
 	action := r.URL.Query().Get("action")
 	from, parseErr := strconv.Atoi(r.URL.Query().Get("from_route_index"))
 	participantID, _ := strconv.ParseInt(r.URL.Query().Get("participant_id"), 10, 64)
-	view := routeEditorView{SessionID: id, Action: action, From: from, ParticipantID: participantID, Mobile: mobile, Inline: h.isHTMX(r), Search: strings.TrimSpace(r.URL.Query().Get("search")), SearchURL: r.URL.Path, ReturnURL: "/"}
-	if mobile {
-		view.ReturnURL = "/m/routes"
-	}
+	view := routeEditorView{SessionID: id, Action: action, From: from, ParticipantID: participantID, Inline: h.isHTMX(r), Search: strings.TrimSpace(r.URL.Query().Get("search")), SearchURL: r.URL.Path}
 	if action != "move" && action != "swap" && action != "add" {
-		validationError(messageInvalidRequestBody)
+		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
 		return
 	}
 	if action != "add" && (parseErr != nil || from < 0 || from >= len(snapshot.Routes)) {
-		validationError(messageInvalidRouteIndex)
+		h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
 		return
 	}
 	switch action {
@@ -83,12 +61,12 @@ func (h *Handler) HandleRouteEditor(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if view.Title == "" {
-			validationError("That rider is no longer on this route. Refresh the page and try again.")
+			h.handleValidationErrorHTMX(w, r, "That rider is no longer on this route. Refresh the page and try again.")
 			return
 		}
 	case "swap":
 		if snapshot.Routes[from].Driver == nil {
-			validationError(messageInvalidRouteIndex)
+			h.handleValidationErrorHTMX(w, r, messageInvalidRouteIndex)
 			return
 		}
 		view.Title = "Swap " + snapshot.Routes[from].Driver.Name
@@ -179,26 +157,5 @@ func (h *Handler) HandleRouteEditorAction(w http.ResponseWriter, r *http.Request
 		h.addDriver(w, r, id, destination)
 	default:
 		h.handleValidationErrorHTMX(w, r, messageInvalidRequestBody)
-	}
-}
-
-func (h *Handler) HandleMobileRouteEditorAction(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
-		return
-	}
-	switch r.Form.Get("action") {
-	case "move":
-		r.Form.Set("to_route_index", r.Form.Get("destination"))
-		h.HandleMobileMove(w, r)
-	case "swap":
-		r.Form.Set("route_index_1", r.Form.Get("from_route_index"))
-		r.Form.Set("route_index_2", r.Form.Get("destination"))
-		h.HandleMobileSwap(w, r)
-	case "add":
-		r.Form.Set("driver_id", r.Form.Get("destination"))
-		h.HandleMobileAddDriver(w, r)
-	default:
-		h.mobileRedirectError(w, r, "/m/routes", messageMobileInvalidForm)
 	}
 }

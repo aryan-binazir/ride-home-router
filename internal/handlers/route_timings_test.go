@@ -9,7 +9,7 @@ import (
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/orderedroute"
-	"ride-home-router/internal/plandraft"
+	"ride-home-router/internal/routesession"
 	"strconv"
 	"strings"
 	"sync"
@@ -220,19 +220,36 @@ func TestRouteSessionTimingsMeasureOnlyTheRequestedCar(t *testing.T) {
 	}
 }
 
-func TestMobileRouteTimingsRedirectsWholePageOnExpiredPlan(t *testing.T) {
-	handler, _, _ := measuredCalculateFixture(t)
-	handler.PlanDraft = plandraft.NewStore()
-	t.Cleanup(handler.PlanDraft.Close)
-	id := handler.PlanDraft.NewID()
-	handler.PlanDraft.Update(id, func(d *plandraft.Draft) { d.RouteSessionID = "gone" })
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/m/routes/timings", strings.NewReader(url.Values{"session_id": {"gone"}, "route_index": {"0"}}.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+func twoCarRouteFixture(t *testing.T) (*Handler, *stubMeasurer, routesession.Snapshot) {
+	t.Helper()
+	store := routesession.NewStore(routeEditDistanceCalculator{})
+	t.Cleanup(store.Close)
+	first := models.Driver{ID: 1, Name: "Dana Whitfield", Address: "4 Driver Rd", Lat: 40.3, Lng: -73.3, VehicleCapacity: 3}
+	second := models.Driver{ID: 2, Name: "Marcus Hill", Address: "5 Driver Rd", Lat: 40.4, Lng: -73.4, VehicleCapacity: 3}
+	riderOne := models.Participant{ID: 10, Name: "Maya Chen", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.1}
+	riderTwo := models.Participant{ID: 11, Name: "Leo Park", Address: "2 Rider Rd", Lat: 40.2, Lng: -73.2}
+	session := mustCreateRouteSession(t, store, routesession.CreateInput{
+		Routes: []models.CalculatedRoute{
+			{Driver: &first, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &riderOne}}},
+			{Driver: &second, EffectiveCapacity: 3, Stops: []models.RouteStop{{Participant: &riderTwo}}},
+		},
+		SelectedDrivers:  []models.Driver{first, second},
+		ActivityLocation: &models.ActivityLocation{Name: "Center", Address: "9 Event Ave", Lat: 41, Lng: -74},
+		RouteTime:        "18:30", Mode: models.RouteModeDropoff,
+	})
+	measurer := &stubMeasurer{}
+	handler := &Handler{Renderer: loadEmbeddedTemplates(t), RouteSession: store, Measurer: measurer}
+	return handler, measurer, session
+}
+
+func TestRouteTimingsRejectsExpiredSession(t *testing.T) {
+	handler, measurer, _ := twoCarRouteFixture(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/routes/session/timings", strings.NewReader(`{"session_id":"gone","route_index":0}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("HX-Request", "true")
-	req.AddCookie(mobileTestCookie(id))
 	rr := httptest.NewRecorder()
-	handler.HandleMobileRouteTimings(rr, req)
-	if rr.Code != http.StatusOK || rr.Header().Get("HX-Redirect") == "" || rr.Header().Get("Location") != "" {
-		t.Fatalf("htmx expiry must navigate via HX-Redirect: status=%d headers=%v", rr.Code, rr.Header())
+	handler.HandleRouteTimings(rr, req)
+	if rr.Code != http.StatusNotFound || !strings.Contains(rr.Header().Get("HX-Trigger"), messageSessionNotFound) || measurer.count() != 0 {
+		t.Fatalf("expired timings: status=%d headers=%v measured=%d", rr.Code, rr.Header(), measurer.count())
 	}
 }

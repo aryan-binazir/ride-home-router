@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"ride-home-router/internal/models"
 	"strings"
 	"testing"
@@ -25,26 +26,6 @@ func TestCapacityShortageDoesNotRepeatVehicleChoices(t *testing.T) {
 	}
 	if strings.Contains(page.String(), "Unselected fleet van") || strings.Count(page.String(), "<option") != 100 {
 		t.Fatal("shortage view renders every driver's full vehicle catalog")
-	}
-}
-
-func TestMobileDriverPickerDoesNotRepeatTheVanCatalog(t *testing.T) {
-	view := mobileDriversView{}
-	for i := range 500 {
-		view.Drivers = append(view.Drivers, models.Driver{ID: int64(i + 1), Name: fmt.Sprintf("Driver %d", i), VehicleCapacity: 4})
-	}
-	for i := range 150 {
-		view.Vehicles = append(view.Vehicles, models.OrganizationVehicle{ID: int64(i + 1), Name: fmt.Sprintf("Catalog Van %d", i), Capacity: 12})
-	}
-	var page bytes.Buffer
-	if err := loadEmbeddedTemplates(t).Render(&page, "mobile/drivers.html", view); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(page.String(), "Catalog Van") || strings.Count(page.String(), "<option") > 500 {
-		t.Fatal("mobile picker eagerly rendered the van catalog per driver")
-	}
-	if !strings.Contains(page.String(), "/api/v1/planner/vehicle-editor") {
-		t.Fatal("missing on-demand vehicle action")
 	}
 }
 
@@ -97,6 +78,42 @@ func TestVehicleEditorReturnsBoundedChoicesWithoutChangingPlan(t *testing.T) {
 	}
 	if !strings.Contains(body, "Van 01") || !strings.Contains(body, "Personal vehicle") || !strings.Contains(body, "Next") {
 		t.Fatal("missing usable vehicle choices/pagination")
+	}
+}
+
+func TestVehicleEditorChoosesOnlyAvailableVans(t *testing.T) {
+	h, store := newTestPageHandler(t)
+	driver, err := store.Drivers().Create(t.Context(), &models.Driver{Name: "Driver", Address: "1 Test St", VehicleCapacity: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	van, err := store.OrganizationVehicles().Create(t.Context(), &models.OrganizationVehicle{Name: "Available van", Capacity: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken, err := store.OrganizationVehicles().Create(t.Context(), &models.OrganizationVehicle{Name: "Assigned van", Capacity: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/v1/planner/vehicle-editor?driver_id=%d&shortage=1", driver.ID)
+	assignment := fmt.Sprintf("org_vehicle_%d", driver.ID+1)
+	form := url.Values{assignment: {fmt.Sprint(taken.ID)}}
+
+	w := postForm(t, path, form, h.HandleVehicleEditor)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Available van") || strings.Contains(w.Body.String(), "Assigned van") {
+		t.Fatalf("choices: %d %s", w.Code, w.Body.String())
+	}
+	form.Set("choose", "1")
+	form.Set("vehicle_id", fmt.Sprint(taken.ID))
+	w = postForm(t, path, form, h.HandleVehicleEditor)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Choose an available vehicle.") {
+		t.Fatalf("taken van: %d %s", w.Code, w.Body.String())
+	}
+	form.Set("vehicle_id", fmt.Sprint(van.ID))
+	w = postForm(t, path, form, h.HandleVehicleEditor)
+	if w.Code != http.StatusOK || w.Header().Get("HX-Retarget") != fmt.Sprintf("#shortage-van-control-%d", driver.ID) ||
+		!strings.Contains(w.Body.String(), "Available van") || !strings.Contains(w.Body.String(), `data-capacity="8"`) {
+		t.Fatalf("selected van: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 }
 
@@ -181,6 +198,35 @@ func TestSelectedVanPresentationPropagatesLookupFailure(t *testing.T) {
 		endpoint.handle(w, r)
 		if w.Code != http.StatusInternalServerError || !strings.Contains(w.Header().Get("HX-Trigger"), messageGenericInternalError) {
 			t.Fatalf("lookup failure %s: status=%d trigger=%q", endpoint.path, w.Code, w.Header().Get("HX-Trigger"))
+		}
+	}
+}
+
+func TestVehicleAssignmentEndpointsRejectInvalidAssignments(t *testing.T) {
+	h, _ := newTestPageHandler(t)
+	for _, endpoint := range []struct {
+		path   string
+		handle http.HandlerFunc
+	}{
+		{"/api/v1/planner/drivers", h.HandlePlannerPicker},
+		{"/api/v1/planner/vehicle-assignments", h.HandleVehicleAssignments},
+	} {
+		for _, test := range []struct {
+			name, key, value, message string
+		}{
+			{"invalid driver id", "org_vehicle_bad", "9", "Choose a valid van assignment."},
+			{"invalid van id", "org_vehicle_1", "bad", "Choose a valid van assignment."},
+			{"unselected driver", "org_vehicle_3", "9", "Select a driver before assigning a van."},
+			{"duplicate van", "org_vehicle_2", "9", "Assign each van to only one driver."},
+		} {
+			t.Run(endpoint.path+"/"+test.name, func(t *testing.T) {
+				form := url.Values{"driver_ids": {"1", "2"}, "org_vehicle_1": {"9"}}
+				form.Set(test.key, test.value)
+				w := postForm(t, endpoint.path, form, endpoint.handle)
+				if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), test.message) {
+					t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+				}
+			})
 		}
 	}
 }

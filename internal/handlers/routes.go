@@ -11,7 +11,6 @@ import (
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/logutil"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
@@ -34,6 +33,7 @@ type routeIntakePolicy struct {
 }
 
 const (
+	maxSelectionSize           = 500
 	routeSolveTimeout          = 30 * time.Second
 	messageCalculationTimedOut = "Calculating routes took too long. Select fewer people and try again."
 )
@@ -46,7 +46,7 @@ var (
 )
 
 func routeSelectionLimitMessage(selection string) string {
-	return fmt.Sprintf("Choose no more than %d %s.", plandraft.MaxSelectionSize, selection)
+	return fmt.Sprintf("Choose no more than %d %s.", maxSelectionSize, selection)
 }
 
 func routeCalculationTimeoutError(ctx context.Context, err error) error {
@@ -62,10 +62,10 @@ func routeCalculationTimeoutError(ctx context.Context, err error) error {
 func parseRouteTime(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", mobileFormError{messageChooseRouteTime}
+		return "", formError{messageChooseRouteTime}
 	}
 	if _, err := time.Parse("15:04", trimmed); err != nil {
-		return "", mobileFormError{messageChooseValidRouteTime}
+		return "", formError{messageChooseValidRouteTime}
 	}
 	return trimmed, nil
 }
@@ -94,7 +94,7 @@ func parseRouteForm(form url.Values) (CalculateRoutesRequest, error) {
 }
 
 func parseRouteIDs(values []string, tooLarge error) ([]int64, error) {
-	if len(values) > plandraft.MaxSelectionSize {
+	if len(values) > maxSelectionSize {
 		return nil, tooLarge
 	}
 	ids := make([]int64, 0, len(values))
@@ -194,11 +194,11 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 			return false
 		}
-		if len(req.ParticipantIDs) > plandraft.MaxSelectionSize {
+		if len(req.ParticipantIDs) > maxSelectionSize {
 			h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("participants"))
 			return false
 		}
-		if len(req.DriverIDs) > plandraft.MaxSelectionSize {
+		if len(req.DriverIDs) > maxSelectionSize {
 			h.handleValidationErrorHTMX(w, r, routeSelectionLimitMessage("drivers"))
 			return false
 		}

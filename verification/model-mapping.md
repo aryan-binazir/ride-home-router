@@ -55,4 +55,4 @@ Several guards back each other up:
 
 The route/auth mutation inventory also covers `internal/routesession/store.go`, `internal/routing/balanced_router.go`, `internal/access/access.go` and `internal/postgres/provider_throttle.go`. A refactor of these sites requires reassessing the test and updating its overlay, even when no TLA action changes.
 
-Plan-draft handlers are retired from the production mux. Model draft adoption if they become reachable again; they are not the next live target simply because `internal/plandraft` still exists.
+The standalone plan-draft workflow was removed. Existing draft rows still expire through the shared workflow cleanup. The route, import, and capacity models cover the same live operations.

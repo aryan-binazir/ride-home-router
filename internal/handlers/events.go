@@ -236,14 +236,17 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(sessionErr, routesession.ErrAlreadyCommitted):
+		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrNotFound):
+		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrUnbalanced):
+		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
 		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", logutil.SafeString(req.SessionID))
 		h.handleValidationError(w, r, messageRoutesMustBeBalancedBeforeSaving)
 		return
@@ -328,15 +331,14 @@ func (h *Handler) persistEvent(ctx context.Context, date, notes string, session 
 		return nil, 0, eventValidationError{message: message, cause: err}
 	}
 
-	live := routesession.Snapshot{ActivityLocation: session.ActivityLocation, RouteTime: session.RouteTime, Mode: session.Mode}
 	savedIndex := 0
 	for _, route := range session.Final {
 		if len(route.Stops) == 0 {
 			continue
 		}
 		// Saved handoff text carries no travel times: those are Google content we may not store.
-		snapshot.Routes[savedIndex].DriverHandoff = formatMobileHandoff(live, route, false, nil)
-		snapshot.Routes[savedIndex].ParentHandoff = formatMobileHandoff(live, route, true, nil)
+		snapshot.Routes[savedIndex].DriverHandoff = formatEventHandoff(session, route, false)
+		snapshot.Routes[savedIndex].ParentHandoff = formatEventHandoff(session, route, true)
 		savedIndex++
 	}
 

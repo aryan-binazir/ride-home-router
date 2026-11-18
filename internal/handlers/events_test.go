@@ -168,7 +168,7 @@ func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
 	}
 }
 
-func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
+func TestHandleCreateEvent_ValidationFailureRetainsSession(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
 		Routes: []models.CalculatedRoute{{
@@ -180,24 +180,29 @@ func TestHandleCreateEvent_LiveSessionWithoutDateRetainsSession(t *testing.T) {
 		Mode: models.RouteModeDropoff,
 	})
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("session_id="+session.ID))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
-	var response ErrorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Error.Code != "VALIDATION_ERROR" || response.Error.Message != messageEventDateRequired {
-		t.Fatalf("error = %#v", response.Error)
+	for _, test := range []struct {
+		name, date, notes, message string
+	}{
+		{"missing date", "", "", messageEventDateRequired},
+		{"notes too long", "2026-09-08", strings.Repeat("x", models.MaxNotesLength+1), "Notes must be"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			form := url.Values{"session_id": {session.ID}, "event_date": {test.date}, "notes": {test.notes}}
+			rr := postForm(t, "/api/v1/events", form, handler.HandleCreateEvent)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			var response ErrorResponse
+			if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Error.Code != "VALIDATION_ERROR" || !strings.HasPrefix(response.Error.Message, test.message) {
+				t.Fatalf("error=%+v", response.Error)
+			}
+		})
 	}
 	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); !ok {
-		t.Fatal("session was removed after event date validation failed")
+		t.Fatal("session was removed after event validation failed")
 	}
 	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
 		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
@@ -676,30 +681,30 @@ func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
 	}
 }
 
-func TestHandleListEvents_HTMXLoadMoreRendersAppendPartial(t *testing.T) {
+func TestHistoryPaginatesAndUpdatesTheDisplayedCount(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
-	for i := range 25 {
+	handler.Renderer = loadEmbeddedTemplates(t)
+	for i := range 21 {
 		createTestEvent(t, store, time.Date(2026, time.March, i+1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), "event "+strconv.Itoa(i))
 	}
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events?offset=20&limit=20", nil)
+	page := httptest.NewRecorder()
+	handler.HandleHistoryPage(page, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/history", nil))
+	first := page.Body.String()
+	if page.Code != http.StatusOK || strings.Count(first, `class="event-item"`) != 20 ||
+		!strings.Contains(first, "Showing 20 of 21 events") || !strings.Contains(first, `hx-get="/api/v1/events?offset=20&limit=20"`) {
+		t.Fatalf("first page: %d %s", page.Code, first)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/events?offset=20&limit=20", nil)
 	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleListEvents(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, "PAGE|25/25") {
-		t.Fatalf("expected append partial with updated counts, got %q", body)
-	}
-	if strings.Contains(body, "FULL|") {
-		t.Fatalf("expected append partial instead of full list, got %q", body)
-	}
-	if !strings.Contains(body, `hx-swap-oob="outerHTML"`) {
-		t.Fatalf("expected OOB updates in append partial, got %q", body)
+	page = httptest.NewRecorder()
+	handler.HandleListEvents(page, req)
+	second := page.Body.String()
+	if page.Code != http.StatusOK || strings.Count(second, `class="event-item"`) != 1 ||
+		!strings.Contains(second, "Showing 21 of 21 events") || !strings.Contains(second, `hx-swap-oob="outerHTML"`) ||
+		strings.Contains(second, "Load More") {
+		t.Fatalf("last page: %d %s", page.Code, second)
 	}
 }
 
@@ -828,7 +833,6 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 
 	templatesFS := fstest.MapFS{
 		"templates/layout.html":             {Data: []byte(`{{template "content" .}}`)},
-		"templates/mobile/layout.html":      {Data: []byte(`{{template "mobile_content" .}}`)},
 		"templates/partials/events.html":    {Data: []byte(testEventTemplates)},
 		"templates/editor.html":             {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/index.html":              {Data: []byte(`{{define "content"}}test{{end}}`)},
@@ -839,12 +843,6 @@ func newTestTemplates(t *testing.T) *templates.Renderer {
 		"templates/vans.html":               {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/settings.html":           {Data: []byte(`{{define "content"}}test{{end}}`)},
 		"templates/history.html":            {Data: []byte(`{{define "content"}}test{{end}}`)},
-	}
-	for _, name := range []string{
-		"plan.html", "location.html", "riders.html", "drivers.html", "when.html", "routes.html",
-		"people.html", "person_form.html", "places.html", "place_form.html", "history.html", "history_detail.html", "error.html",
-	} {
-		templatesFS["templates/mobile/"+name] = &fstest.MapFile{Data: []byte(`{{define "mobile_content"}}test{{end}}`)}
 	}
 	renderer, err := templates.New(templatesFS, web.AuthConfig{})
 	if err != nil {

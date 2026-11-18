@@ -40,7 +40,7 @@ func TestSharedPagesOnDesktopAndMobile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if resp.StatusCode != 200 || !strings.Contains(string(body), `id="primary-navigation"`) || strings.Contains(string(body), `class="mobile-shell"`) {
+			if resp.StatusCode != 200 || !strings.Contains(string(body), `id="primary-navigation"`) {
 				t.Fatalf("%s %s: status %d, missing shared shell", ua, path, resp.StatusCode)
 			}
 		}

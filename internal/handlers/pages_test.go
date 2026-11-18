@@ -111,8 +111,8 @@ func TestSharedLayoutOffersHeaderSignOut(t *testing.T) {
 	body := rr.Body.String()
 	headerEnd := strings.Index(body, "</header>")
 	signOut := strings.Index(body, "data-sign-out")
-	if headerEnd < 0 || signOut < 0 || signOut > headerEnd || strings.Contains(body, ">Mobile site</a>") {
-		t.Fatal("shared layout must place sign-out in the header and omit the retired mobile link")
+	if headerEnd < 0 || signOut < 0 || signOut > headerEnd {
+		t.Fatal("shared layout must place sign-out in the header")
 	}
 }
 

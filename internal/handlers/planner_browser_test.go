@@ -73,7 +73,6 @@ func TestPlannerBrowserContainment(t *testing.T) {
 window.addEventListener('load',()=>{
  const errors=[]; const check=(ok,msg)=>{if(!ok)errors.push(msg)};
  const wide=innerWidth>=821;
- check(!document.querySelector('.desktop-mode-footer'),'no retired mobile footer');
 
  const time=document.getElementById('route-time');
  const mode=document.querySelector('.route-options .radio-group');

@@ -120,7 +120,7 @@ func TestNavigationAndHTMXDenials(t *testing.T) {
 	}{
 		{"/settings", "text/html", "", 303, "/sign-in"},
 		{"/api/v1/settings", "text/html", "", 401, ""},
-		{"/m/plan/routes", "", "true", 401, "/sign-in"},
+		{"/", "", "true", 401, "/sign-in"},
 	} {
 		r := httptest.NewRequestWithContext(t.Context(), "GET", tc.path, nil)
 		r.Header.Set("Accept", tc.accept)

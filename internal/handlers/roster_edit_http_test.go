@@ -18,57 +18,35 @@ import (
 
 func TestRosterEditLookupAndValidationPrecedence(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
-		for _, mobile := range []bool{false, true} {
-			t.Run(kind+map[bool]string{false: "/json", true: "/mobile"}[mobile], func(t *testing.T) {
-				h, _ := newTestManagementHandler(t)
-				if mobile {
-					invoke := h.HandleMobileParticipantForm
-					if kind == "driver" {
-						invoke = h.HandleMobileDriverForm
-					}
-					rr := postMobileForm(t, nil, "/m/people/"+kind+"s/999999/edit", url.Values{}, invoke)
-					if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageNameAndAddressRequired) {
-						t.Fatalf("response = %d %s", rr.Code, rr.Body.String())
-					}
-					valid := url.Values{"name": {"Person"}, "address": {"Address"}, "vehicle_capacity": {"4"}}
-					rr = postMobileForm(t, nil, "/m/people/"+kind+"s/999999/edit", valid, invoke)
-					if rr.Code != http.StatusNotFound || !strings.Contains(rr.Body.String(), mobilePersonNotFoundMessage(kind)) || !strings.Contains(rr.Header().Get("Content-Type"), "text/html") {
-						t.Fatalf("valid missing edit = %d %s", rr.Code, rr.Body.String())
-					}
+		t.Run(kind, func(t *testing.T) {
+			h, _ := newTestManagementHandler(t)
+			for _, body := range []string{"{", `{"name":"","address":""}`} {
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/"+kind+"s/999999", strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				rr := httptest.NewRecorder()
+				if kind == "driver" {
+					h.HandleUpdateDriver(rr, req)
 				} else {
-					for _, body := range []string{"{", `{"name":"","address":""}`} {
-						req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/"+kind+"s/999999", strings.NewReader(body))
-						req.Header.Set("Content-Type", "application/json")
-						rr := httptest.NewRecorder()
-						if kind == "driver" {
-							h.HandleUpdateDriver(rr, req)
-						} else {
-							h.HandleUpdateParticipant(rr, req)
-						}
-						message := messageParticipantNotFound
-						if kind == "driver" {
-							message = messageDriverNotFound
-						}
-						want := `{"error":{"code":"NOT_FOUND","message":"` + message + `"}}` + "\n"
-						if rr.Code != http.StatusNotFound || rr.Body.String() != want {
-							t.Fatalf("response = %d %q, want 404 %q", rr.Code, rr.Body.String(), want)
-						}
-					}
+					h.HandleUpdateParticipant(rr, req)
 				}
-			})
-		}
+				message := messageParticipantNotFound
+				if kind == "driver" {
+					message = messageDriverNotFound
+				}
+				want := `{"error":{"code":"NOT_FOUND","message":"` + message + `"}}` + "\n"
+				if rr.Code != http.StatusNotFound || rr.Body.String() != want {
+					t.Fatalf("response = %d %q, want 404 %q", rr.Code, rr.Body.String(), want)
+				}
+			}
+		})
 	}
 }
 
 func TestRosterEditDriverCapacityAndLabelPrecedence(t *testing.T) {
 	h, _ := newTestManagementHandler(t)
-	rr := postMobileForm(t, nil, "/m/people/drivers/new", url.Values{"name": {"Driver"}, "address": {"Address"}, "vehicle_capacity": {"999"}, "label_ids": {"999999"}}, h.HandleMobileDriverForm)
-	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageInvalidLabelSelection) {
-		t.Fatalf("mobile = %d %s", rr.Code, rr.Body.String())
-	}
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(`{"name":"Driver","address":"Address","vehicle_capacity":999,"label_ids":[999999]}`))
 	req.Header.Set("Content-Type", "application/json")
-	rr = httptest.NewRecorder()
+	rr := httptest.NewRecorder()
 	h.HandleCreateDriver(rr, req)
 	if rr.Code != http.StatusBadRequest || rr.Body.String() != `{"error":{"code":"VALIDATION_ERROR","message":"`+messageVehicleCapacityOutOfRange()+`"}}`+"\n" {
 		t.Fatalf("json = %d %s", rr.Code, rr.Body.String())
@@ -77,7 +55,7 @@ func TestRosterEditDriverCapacityAndLabelPrecedence(t *testing.T) {
 
 func TestRosterEditGeocodeErrorPresentation(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
-		for _, surface := range []string{"json", "htmx", "mobile"} {
+		for _, surface := range []string{"json", "htmx"} {
 			for _, updating := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/update=%t", kind, surface, updating), func(t *testing.T) {
 					h, store := newTestManagementHandler(t)
@@ -99,10 +77,6 @@ func TestRosterEditGeocodeErrorPresentation(t *testing.T) {
 					case "htmx":
 						if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), messageAddressLookupUnavailable) || !strings.Contains(rr.Header().Get("HX-Trigger"), messageAddressLookupUnavailable) {
 							t.Fatalf("htmx = %d %s", rr.Code, rr.Body.String())
-						}
-					case "mobile":
-						if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageAddressLookupUnavailable) || strings.Contains(rr.Body.String(), "provider detail sentinel") || !strings.Contains(rr.Body.String(), "Must not persist") {
-							t.Fatalf("mobile = %d %s", rr.Code, rr.Body.String())
 						}
 					}
 					participants, err := store.Participants().List(context.Background(), "")
@@ -138,7 +112,7 @@ func TestRosterEditGeocodeErrorPresentation(t *testing.T) {
 
 func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
-		for _, surface := range []string{"json", "htmx", "mobile"} {
+		for _, surface := range []string{"json", "htmx"} {
 			t.Run(kind+"/"+surface, func(t *testing.T) {
 				h, store := newTestManagementHandler(t)
 				ctx := context.Background()
@@ -151,9 +125,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				wantStatus := http.StatusCreated
 				if surface == "htmx" {
 					wantStatus = http.StatusOK
-				}
-				if surface == "mobile" {
-					wantStatus = http.StatusSeeOther
 				}
 				if rr.Code != wantStatus {
 					t.Fatalf("create = %d %s", rr.Code, rr.Body.String())
@@ -178,9 +149,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 					id, name, address, addressName = people[0].ID, people[0].Name, people[0].Address, people[0].AddressName
 				}
 				wantName, wantAddress := " Person ", " Address "
-				if surface == "mobile" {
-					wantName, wantAddress = "Person", "Address"
-				}
 				if name != wantName || address != wantAddress || addressName != "Home" {
 					t.Fatalf("normalized = %q %q %q", name, address, addressName)
 				}
@@ -195,6 +163,11 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				}
 				if rr.Code != wantStatus {
 					t.Fatalf("malformed = %d %s", rr.Code, rr.Body.String())
+				}
+				form.Set("label_ids", strconv.FormatInt(label.ID+1000, 10))
+				rr = rosterEditHTTPRequest(t, h, kind, surface, id, form)
+				if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), messageInvalidLabelSelection) {
+					t.Fatalf("missing label = %d %s", rr.Code, rr.Body.String())
 				}
 				assertRosterEditLabels(t, h, kind, id, label.ID)
 				if kind == "participant" {
@@ -212,9 +185,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				form.Del("label_ids")
 				rr = rosterEditHTTPRequest(t, h, kind, surface, id, form)
 				wantStatus = http.StatusOK
-				if surface == "mobile" {
-					wantStatus = http.StatusSeeOther
-				}
 				if rr.Code != wantStatus || len(provider.addresses) != 0 {
 					t.Fatalf("unchanged address = %d calls=%v %s", rr.Code, provider.addresses, rr.Body.String())
 				}
@@ -231,9 +201,6 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				}
 				assertRosterEditLabels(t, h, kind, id)
 				wantName = " Updated "
-				if surface == "mobile" {
-					wantName = "Updated"
-				}
 				if kind == "participant" {
 					person, getErr := store.Participants().GetByID(ctx, id)
 					if getErr != nil || person.Name != wantName || person.Lat != 43 || person.Lng != -70 || person.Address != "Changed address" {
@@ -265,17 +232,6 @@ func rosterEditHTTPRequest(t *testing.T, h *Handler, kind, surface string, id in
 		if kind == "driver" {
 			invoke = h.HandleUpdateDriver
 		}
-	}
-	if surface == "mobile" {
-		path = "/m/people/" + kind + "s/new"
-		if id > 0 {
-			path = "/m/people/" + kind + "s/" + strconv.FormatInt(id, 10) + "/edit"
-		}
-		invoke = h.HandleMobileParticipantForm
-		if kind == "driver" {
-			invoke = h.HandleMobileDriverForm
-		}
-		return postMobileForm(t, nil, path, form, invoke)
 	}
 	body, contentType := form.Encode(), "application/x-www-form-urlencoded"
 	if surface == "json" {

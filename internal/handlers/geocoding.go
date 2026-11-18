@@ -52,9 +52,5 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] GET /api/v1/address-search: results_count=%d", len(results))
 
-	templateName := "address_suggestions.html"
-	if r.Header.Get("X-RHR-Mobile") == "1" {
-		templateName = "mobile_address_suggestions.html"
-	}
-	h.renderTemplate(w, templateName, results)
+	h.renderTemplate(w, "address_suggestions.html", results)
 }
