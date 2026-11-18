@@ -2,15 +2,9 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log"
 	"net/http"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
-	"strconv"
-	"strings"
 )
 
 type DriverListResponse struct {
@@ -23,464 +17,63 @@ type DriverResponse struct {
 	LabelIDs []int64 `json:"label_ids"`
 }
 
+var driverRoster = rosterKind[models.Driver, DriverResponse]{
+	name: "driver", title: "Driver", plural: "drivers",
+	listTemplate: "driver_list", deletedTemplate: "driver_deleted_list", formTemplate: "driver_form",
+	createdEvent: "driverCreated", updatedEvent: "driverUpdated",
+	invalidID: messageInvalidDriverID, invalidGetID: messageInvalidDriverID, notFound: messageDriverNotFound,
+	hasCapacity: true,
+
+	repository: func(db database.DataStore) rosterRepository[models.Driver] { return db.Drivers() },
+	labels:     database.LabelRepository.ListLabelsForDriver,
+	labelIDs:   database.LabelRepository.ListLabelIDsForDrivers,
+	identity:   func(p *models.Driver) (int64, string) { return p.ID, p.Name },
+	create:     rosterEditor.createDriver,
+	update:     rosterEditor.updateDriver,
+	response: func(p *models.Driver, ids []int64) DriverResponse {
+		return DriverResponse{Driver: *p, LabelIDs: ids}
+	},
+	jsonList: func(people []DriverResponse) any {
+		return DriverListResponse{Drivers: people, Total: len(people)}
+	},
+	listView: func(page rosterPage[models.Driver]) any { return driverListView(page) },
+	formView: func(person *models.Driver, labels []models.Label, selected map[int64]bool) any {
+		return DriverFormView{Driver: person, Labels: labels, SelectedLabelIDs: selected}
+	},
+}
+
 func (h *Handler) HandleListDrivers(w http.ResponseWriter, r *http.Request) {
-	reader := rosterReader{db: h.DB}
-	if h.isHTMX(r) {
-		view, err := reader.drivers(r)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		h.renderTemplate(w, "driver_list", view)
-		return
-	}
-	response, err := reader.driverJSON(r)
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, response)
+	driverRoster.list(h, w, r, false)
 }
 
 func (h *Handler) HandleListDeletedDrivers(w http.ResponseWriter, r *http.Request) {
-	reader := rosterReader{db: h.DB}
-	if h.isHTMX(r) {
-		view, err := reader.drivers(r)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		h.renderTemplate(w, "driver_deleted_list", view)
-		return
-	}
-	response, err := reader.driverJSON(r)
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, response)
+	driverRoster.list(h, w, r, true)
 }
 
 func (h *Handler) HandleGetDriver(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] GET /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, r, messageInvalidDriverID)
-		return
-	}
-
-	log.Printf("[HTTP] GET /api/v1/drivers/{id}: id=%d", id)
-	driver, err := h.DB.Drivers().GetByID(r.Context(), id)
-	if err != nil {
-		if h.checkNotFound(err) {
-			log.Printf("[HTTP] Driver not found: id=%d", id)
-			h.handleNotFound(w, r, messageDriverNotFound)
-			return
-		}
-		h.handleInternalError(w, r, fmt.Errorf("get driver %d: %w", id, err))
-		return
-	}
-
-	response, err := h.driverResponse(r.Context(), driver)
-	if err != nil {
-		h.handleInternalError(w, r, fmt.Errorf("load driver labels %d: %w", driver.ID, err))
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, response)
+	driverRoster.get(h, w, r)
 }
 
 func (h *Handler) HandleCreateDriver(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name            string  `json:"name"`
-		Address         string  `json:"address"`
-		AddressName     string  `json:"address_name"`
-		VehicleCapacity int     `json:"vehicle_capacity"`
-		LabelIDs        []int64 `json:"label_ids"`
-	}
-	var labelIDs []int64
-
-	if h.isHTMX(r) {
-		if err := r.ParseForm(); err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		req.Name = r.FormValue("name")
-		req.Address = r.FormValue("address")
-		req.AddressName = r.FormValue("address_name")
-		capacityStr := r.FormValue("vehicle_capacity")
-		if capacityStr != "" {
-			capacity, err := strconv.Atoi(capacityStr)
-			if err != nil {
-				h.handleValidationErrorHTMX(w, r, "Enter a valid vehicle capacity.")
-				return
-			}
-			req.VehicleCapacity = capacity
-		}
-		parsedLabelIDs, err := parseLabelIDs(r)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-		labelIDs = parsedLabelIDs
-	} else {
-		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, r, messageInvalidRequestBody)
-			return
-		}
-		labelIDs = req.LabelIDs
-	}
-	req.AddressName = strings.TrimSpace(req.AddressName)
-
-	if message := personLengthMessage(req.Name, req.Address); message != "" {
-		h.handleValidationErrorHTMX(w, r, message)
-		return
-	}
-	if req.Name == "" || req.Address == "" {
-		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-		return
-	}
-	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-		return
-	}
-
-	if req.VehicleCapacity < models.MinVehicleCapacity || req.VehicleCapacity > models.MaxVehicleCapacity {
-		h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
-		return
-	}
-	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
-		log.Printf("[HTTP] POST /api/v1/drivers: invalid_labels err=%v", err)
-		h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] POST /api/v1/drivers: capacity=%d", req.VehicleCapacity)
-	driver, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createDriver(r.Context(), driverEdit{
-		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
-		VehicleCapacity: req.VehicleCapacity,
-	})
-	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "DUPLICATE_ROSTER_ENTRY", duplicate.Error())
-		return
-	}
-	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
-		log.Print("[ERROR] Failed to geocode driver address")
-		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
-			return
-		}
-		h.handleGeocodingError(w, r, geocodeErr.err)
-		return
-	}
-
-	if err != nil {
-		h.renderError(w, r, fmt.Errorf("create driver: %w", err))
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Created driver: id=%d", driver.ID)
-	if h.isHTMX(r) {
-		view, err := (rosterReader{db: h.DB}).drivers(r)
-		if err != nil {
-			log.Printf("[ERROR] Failed to refresh drivers after create: err=%v", err)
-			h.setHTMXToastWithEvent(w, "driverCreated", "Driver saved. Refresh the page to see the updated roster.", toastTypeWarning)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		h.setHTMXToastWithEvent(w, "driverCreated", messageEntityAdded("Driver", driver.Name), toastTypeSuccess)
-		h.renderTemplate(w, "driver_list", view)
-		return
-	}
-
-	committedLabelIDs, _ := uniquePositiveIDs(labelIDs)
-	h.writeJSON(w, http.StatusCreated, DriverResponse{Driver: *driver, LabelIDs: committedLabelIDs})
+	driverRoster.createPerson(h, w, r)
 }
 
 func (h *Handler) HandleUpdateDriver(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
-	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
-		idStr = trimmedID
-	}
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-		return
-	}
-
-	log.Printf("[HTTP] PUT /api/v1/drivers/{id}: id=%d", id)
-	existing, err := h.DB.Drivers().GetByID(r.Context(), id)
-	if err != nil {
-		if h.checkNotFound(err) {
-			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-			return
-		}
-		if h.isHTMX(r) {
-			h.renderError(w, r, err)
-			return
-		}
-		h.handleInternalError(w, r, err)
-		return
-	}
-
-	var req struct {
-		Name            string   `json:"name"`
-		Address         string   `json:"address"`
-		AddressName     string   `json:"address_name"`
-		VehicleCapacity int      `json:"vehicle_capacity"`
-		LabelIDs        *[]int64 `json:"label_ids"`
-	}
-	var labelIDs []int64
-	shouldSetLabels := false
-
-	if h.isHTMX(r) {
-		if err := r.ParseForm(); err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		req.Name = r.FormValue("name")
-		req.Address = r.FormValue("address")
-		req.AddressName = r.FormValue("address_name")
-		capacityStr := r.FormValue("vehicle_capacity")
-		if capacityStr != "" {
-			capacity, err := strconv.Atoi(capacityStr)
-			if err != nil {
-				h.handleValidationErrorHTMX(w, r, "Enter a valid vehicle capacity.")
-				return
-			}
-			req.VehicleCapacity = capacity
-		}
-		parsedLabelIDs, err := parseLabelIDs(r)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-		labelIDs = parsedLabelIDs
-		shouldSetLabels = true
-	} else {
-		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, r, messageInvalidRequestBody)
-			return
-		}
-		if req.LabelIDs != nil {
-			labelIDs = *req.LabelIDs
-			shouldSetLabels = true
-		}
-	}
-	req.AddressName = strings.TrimSpace(req.AddressName)
-
-	if message := personLengthMessage(req.Name, req.Address); message != "" {
-		h.handleValidationErrorHTMX(w, r, message)
-		return
-	}
-	if req.Name == "" || req.Address == "" {
-		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-		return
-	}
-	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-		return
-	}
-
-	if req.VehicleCapacity < models.MinVehicleCapacity || req.VehicleCapacity > models.MaxVehicleCapacity {
-		h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
-		return
-	}
-	if shouldSetLabels {
-		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
-			log.Printf("[HTTP] PUT /api/v1/drivers/{id}: invalid_labels id=%d err=%v", id, err)
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-	}
-
-	driver, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).updateDriver(r.Context(), existing, driverEdit{
-		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs, SetLabels: shouldSetLabels,
-		VehicleCapacity: req.VehicleCapacity,
-	})
-	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
-		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
-			return
-		}
-		h.handleGeocodingError(w, r, geocodeErr.err)
-		return
-	}
-
-	if err != nil {
-		if h.checkNotFound(err) {
-			log.Printf("[HTTP] Driver not found after update: id=%d", id)
-			h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-			return
-		}
-		h.renderError(w, r, fmt.Errorf("update driver %d: %w", id, err))
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Updated driver: id=%d", driver.ID)
-	if h.isHTMX(r) {
-		view, err := (rosterReader{db: h.DB}).drivers(r)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		h.setHTMXToastWithEvent(w, "driverUpdated", messageEntityUpdated("Driver", driver.Name), toastTypeSuccess)
-		h.renderTemplate(w, "driver_list", view)
-		return
-	}
-
-	response, err := h.driverResponse(r.Context(), driver)
-	if err != nil {
-		h.handleInternalError(w, r, fmt.Errorf("load driver labels after update %d: %w", driver.ID, err))
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, response)
+	driverRoster.updatePerson(h, w, r)
 }
 
 func (h *Handler) HandleDeleteDriver(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-		return
-	}
-
-	log.Printf("[HTTP] DELETE /api/v1/drivers/{id}: id=%d", id)
-	err = h.DB.Drivers().Delete(r.Context(), id)
-	if h.checkNotFound(err) {
-		log.Printf("[HTTP] Driver not found for delete: id=%d", id)
-		h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-		return
-	}
-	if err != nil {
-		h.renderError(w, r, fmt.Errorf("delete driver %d: %w", id, err))
-		return
-	}
-
-	log.Printf("[HTTP] Deleted driver: id=%d", id)
-	if h.isHTMX(r) {
-		h.setHTMXToast(w, messageEntityDeleted("Driver"), toastTypeSuccess)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	driverRoster.deletePerson(h, w, r)
 }
 
 func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
-	id, err := parseRestoreID(r)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] POST /api/v1/drivers/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] POST /api/v1/drivers/restore: id=%d", id)
-	if err := h.DB.Drivers().Restore(r.Context(), id); err != nil {
-		if h.checkNotFound(err) {
-			//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-			log.Printf("[HTTP] Driver not found for restore: id=%d", id)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageDriverNotFound)
-			return
-		}
-		h.renderError(w, r, fmt.Errorf("restore driver %d: %w", id, err))
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Restored driver: id=%d", id)
-	if h.isHTMX(r) {
-		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Driver"), toastTypeSuccess)
-		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	driverRoster.restorePerson(h, w, r)
 }
 
 func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/drivers/")
-	idStr = strings.TrimSuffix(idStr, "/edit")
-
-	var driver *models.Driver
-	var (
-		labels           []models.Label
-		selectedLabelIDs map[int64]bool
-		err              error
-	)
-	if idStr != "new" && idStr != "" {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidDriverID)
-			return
-		}
-
-		driver, err = h.DB.Drivers().GetByID(r.Context(), id)
-		if err != nil {
-			if h.checkNotFound(err) {
-				h.handleNotFoundHTMX(w, r, messageDriverNotFound)
-				return
-			}
-			h.renderError(w, r, err)
-			return
-		}
-		labels, selectedLabelIDs, err = h.loadLabelsForDriver(r, driver.ID)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-	} else {
-		driver = &models.Driver{}
-		labels, err = h.DB.Labels().List(r.Context())
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		selectedLabelIDs = map[int64]bool{}
-	}
-
-	h.renderTemplate(w, "driver_form", DriverFormView{
-		Driver:           driver,
-		Labels:           labels,
-		SelectedLabelIDs: selectedLabelIDs,
-	})
+	driverRoster.form(h, w, r)
 }
 
-func (h *Handler) loadLabelsForDriver(r *http.Request, driverID int64) ([]models.Label, map[int64]bool, error) {
-	labels, err := h.DB.Labels().List(r.Context())
-	if err != nil {
-		return nil, nil, err
-	}
-	selectedLabels, err := h.DB.Labels().ListLabelsForDriver(r.Context(), driverID)
-	if err != nil {
-		return nil, nil, err
-	}
-	return labels, buildSelectedLabelIDMap(selectedLabels), nil
-}
-
-func (h *Handler) driverResponse(ctx context.Context, driver *models.Driver) (DriverResponse, error) {
-	labels, err := h.DB.Labels().ListLabelsForDriver(ctx, driver.ID)
-	if err != nil {
-		return DriverResponse{}, err
-	}
-	labelIDs := make([]int64, 0, len(labels))
-	for _, label := range labels {
-		labelIDs = append(labelIDs, label.ID)
-	}
-	return DriverResponse{
-		Driver:   *driver,
-		LabelIDs: labelIDs,
-	}, nil
+func (h *Handler) driverResponse(ctx context.Context, person *models.Driver) (DriverResponse, error) {
+	return driverRoster.responseWithLabels(h.DB, ctx, person)
 }

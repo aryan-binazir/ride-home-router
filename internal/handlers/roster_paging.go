@@ -52,88 +52,72 @@ func (q rosterReadQuery) window(total int) (int, int, rosterPagination) {
 	return start, end, page
 }
 
-func (reader rosterReader) participantRows(r *http.Request) ([]models.Participant, rosterReadQuery, error) {
-	query := rosterQuery(r, "participants")
+type rosterPage[T any] struct {
+	rows       []T
+	pagination rosterPagination
+	labels     []models.Label
+	labelIDs   map[int64][]int64
+}
+
+func (kind rosterKind[T, R]) rows(db database.DataStore, r *http.Request) ([]T, rosterReadQuery, error) {
+	query := rosterQuery(r, kind.plural)
+	repo := kind.repository(db)
 	if query.deleted {
-		rows, err := reader.db.Participants().ListDeleted(r.Context())
+		rows, err := repo.ListDeleted(r.Context())
 		return rows, query, err
 	}
-	rows, err := reader.db.Participants().List(r.Context(), query.search)
+	rows, err := repo.List(r.Context(), query.search)
 	return rows, query, err
 }
 
-func (reader rosterReader) driverRows(r *http.Request) ([]models.Driver, rosterReadQuery, error) {
-	query := rosterQuery(r, "drivers")
-	if query.deleted {
-		rows, err := reader.db.Drivers().ListDeleted(r.Context())
-		return rows, query, err
+func (kind rosterKind[T, R]) page(db database.DataStore, r *http.Request) (rosterPage[T], error) {
+	rows, query, err := kind.rows(db, r)
+	if err != nil {
+		return rosterPage[T]{}, err
 	}
-	rows, err := reader.db.Drivers().List(r.Context(), query.search)
-	return rows, query, err
+	labels, err := db.Labels().List(r.Context())
+	if err != nil {
+		return rosterPage[T]{}, err
+	}
+	labelIDs, err := kind.labelIDs(db.Labels(), r.Context())
+	if err != nil {
+		return rosterPage[T]{}, err
+	}
+	start, end, page := query.window(len(rows))
+	return rosterPage[T]{rows: rows[start:end], pagination: page, labels: labels, labelIDs: labelIDs}, nil
+}
+
+func (kind rosterKind[T, R]) listJSON(db database.DataStore, r *http.Request) (any, error) {
+	rows, _, err := kind.rows(db, r)
+	if err != nil {
+		return nil, err
+	}
+	labelIDs, err := kind.labelIDs(db.Labels(), r.Context())
+	if err != nil {
+		return nil, err
+	}
+	response := make([]R, 0, len(rows))
+	for i := range rows {
+		id, _ := kind.identity(&rows[i])
+		response = append(response, kind.response(&rows[i], append([]int64{}, labelIDs[id]...)))
+	}
+	return kind.jsonList(response), nil
 }
 
 func (reader rosterReader) participants(r *http.Request) (ParticipantListView, error) {
-	rows, query, err := reader.participantRows(r)
-	if err != nil {
-		return ParticipantListView{}, err
-	}
-	labels, err := reader.db.Labels().List(r.Context())
-	if err != nil {
-		return ParticipantListView{}, err
-	}
-	labelIDs, err := reader.db.Labels().ListLabelIDsForParticipants(r.Context())
-	if err != nil {
-		return ParticipantListView{}, err
-	}
-	start, end, page := query.window(len(rows))
-	return ParticipantListView{Participants: rows[start:end], Pagination: page, Labels: labels, LabelIDs: labelIDs}, nil
+	page, err := participantRoster.page(reader.db, r)
+	return participantListView(page), err
 }
 
 func (reader rosterReader) drivers(r *http.Request) (DriverListView, error) {
-	rows, query, err := reader.driverRows(r)
-	if err != nil {
-		return DriverListView{}, err
-	}
-	labels, err := reader.db.Labels().List(r.Context())
-	if err != nil {
-		return DriverListView{}, err
-	}
-	labelIDs, err := reader.db.Labels().ListLabelIDsForDrivers(r.Context())
-	if err != nil {
-		return DriverListView{}, err
-	}
-	start, end, page := query.window(len(rows))
-	return DriverListView{Drivers: rows[start:end], Pagination: page, Labels: labels, LabelIDs: labelIDs}, nil
+	page, err := driverRoster.page(reader.db, r)
+	return driverListView(page), err
 }
 
-func (reader rosterReader) participantJSON(r *http.Request) (ParticipantListResponse, error) {
-	rows, _, err := reader.participantRows(r)
-	if err != nil {
-		return ParticipantListResponse{}, err
-	}
-	labelIDs, err := reader.db.Labels().ListLabelIDsForParticipants(r.Context())
-	if err != nil {
-		return ParticipantListResponse{}, err
-	}
-	responses := make([]ParticipantResponse, 0, len(rows))
-	for _, row := range rows {
-		responses = append(responses, ParticipantResponse{Participant: row, LabelIDs: append([]int64{}, labelIDs[row.ID]...)})
-	}
-	return ParticipantListResponse{Participants: responses, Total: len(rows)}, nil
+func participantListView(page rosterPage[models.Participant]) ParticipantListView {
+	return ParticipantListView{Participants: page.rows, Pagination: page.pagination, Labels: page.labels, LabelIDs: page.labelIDs}
 }
 
-func (reader rosterReader) driverJSON(r *http.Request) (DriverListResponse, error) {
-	rows, _, err := reader.driverRows(r)
-	if err != nil {
-		return DriverListResponse{}, err
-	}
-	labelIDs, err := reader.db.Labels().ListLabelIDsForDrivers(r.Context())
-	if err != nil {
-		return DriverListResponse{}, err
-	}
-	responses := make([]DriverResponse, 0, len(rows))
-	for _, row := range rows {
-		responses = append(responses, DriverResponse{Driver: row, LabelIDs: append([]int64{}, labelIDs[row.ID]...)})
-	}
-	return DriverListResponse{Drivers: responses, Total: len(rows)}, nil
+func driverListView(page rosterPage[models.Driver]) DriverListView {
+	return DriverListView{Drivers: page.rows, Pagination: page.pagination, Labels: page.labels, LabelIDs: page.labelIDs}
 }

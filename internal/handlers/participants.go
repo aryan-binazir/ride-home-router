@@ -2,15 +2,9 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log"
 	"net/http"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
+	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
-	"strconv"
-	"strings"
 )
 
 type ParticipantListResponse struct {
@@ -23,430 +17,66 @@ type ParticipantResponse struct {
 	LabelIDs []int64 `json:"label_ids"`
 }
 
+var participantRoster = rosterKind[models.Participant, ParticipantResponse]{
+	name: "participant", title: "Participant", plural: "participants",
+	listTemplate: "participant_list", deletedTemplate: "participant_deleted_list", formTemplate: "participant_form",
+	createdEvent: "participantCreated", updatedEvent: "participantUpdated",
+	invalidID: messageInvalidParticipantID, invalidGetID: "Choose a valid rider. Refresh the page and try again.", notFound: messageParticipantNotFound,
+
+	repository: func(db database.DataStore) rosterRepository[models.Participant] { return db.Participants() },
+	labels:     database.LabelRepository.ListLabelsForParticipant,
+	labelIDs:   database.LabelRepository.ListLabelIDsForParticipants,
+	identity:   func(p *models.Participant) (int64, string) { return p.ID, p.Name },
+	create: func(e rosterEditor, ctx context.Context, edit driverEdit) (*models.Participant, error) {
+		return e.createParticipant(ctx, edit.participantEdit)
+	},
+	update: func(e rosterEditor, ctx context.Context, p *models.Participant, edit driverEdit) (*models.Participant, error) {
+		return e.updateParticipant(ctx, p, edit.participantEdit)
+	},
+	response: func(p *models.Participant, ids []int64) ParticipantResponse {
+		return ParticipantResponse{Participant: *p, LabelIDs: ids}
+	},
+	jsonList: func(people []ParticipantResponse) any {
+		return ParticipantListResponse{Participants: people, Total: len(people)}
+	},
+	listView: func(page rosterPage[models.Participant]) any { return participantListView(page) },
+	formView: func(person *models.Participant, labels []models.Label, selected map[int64]bool) any {
+		return ParticipantFormView{Participant: person, Labels: labels, SelectedLabelIDs: selected}
+	},
+}
+
 func (h *Handler) HandleListParticipants(w http.ResponseWriter, r *http.Request) {
-	reader := rosterReader{db: h.DB}
-	if h.isHTMX(r) {
-		view, err := reader.participants(r)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		h.renderTemplate(w, "participant_list", view)
-		return
-	}
-	response, err := reader.participantJSON(r)
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, response)
+	participantRoster.list(h, w, r, false)
 }
 
 func (h *Handler) HandleListDeletedParticipants(w http.ResponseWriter, r *http.Request) {
-	reader := rosterReader{db: h.DB}
-	if h.isHTMX(r) {
-		view, err := reader.participants(r)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		h.renderTemplate(w, "participant_deleted_list", view)
-		return
-	}
-	response, err := reader.participantJSON(r)
-	if err != nil {
-		h.handleInternalError(w, r, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, response)
+	participantRoster.list(h, w, r, true)
 }
 
 func (h *Handler) HandleGetParticipant(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] GET /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationError(w, r, "Choose a valid rider. Refresh the page and try again.")
-		return
-	}
-
-	log.Printf("[HTTP] GET /api/v1/participants/{id}: id=%d", id)
-	participant, err := h.DB.Participants().GetByID(r.Context(), id)
-	if err != nil {
-		if h.checkNotFound(err) {
-			log.Printf("[HTTP] Participant not found: id=%d", id)
-			h.handleNotFound(w, r, "Rider not found. Refresh the page and try again.")
-			return
-		}
-		h.handleInternalError(w, r, fmt.Errorf("get participant %d: %w", id, err))
-		return
-	}
-
-	response, err := h.participantResponse(r.Context(), participant)
-	if err != nil {
-		h.handleInternalError(w, r, fmt.Errorf("load participant labels %d: %w", participant.ID, err))
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, response)
+	participantRoster.get(h, w, r)
 }
 
 func (h *Handler) HandleCreateParticipant(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        string  `json:"name"`
-		Address     string  `json:"address"`
-		AddressName string  `json:"address_name"`
-		LabelIDs    []int64 `json:"label_ids"`
-	}
-	var labelIDs []int64
-
-	if h.isHTMX(r) {
-		if err := r.ParseForm(); err != nil {
-			h.renderError(w, r, fmt.Errorf("parse form: %w", err))
-			return
-		}
-		req.Name = r.FormValue("name")
-		req.Address = r.FormValue("address")
-		req.AddressName = r.FormValue("address_name")
-		parsedLabelIDs, err := parseLabelIDs(r)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-		labelIDs = parsedLabelIDs
-	} else {
-		if err := httpx.DecodeJSON(r, &req); err != nil {
-			log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
-			h.handleValidationError(w, r, messageInvalidRequestBody)
-			return
-		}
-		labelIDs = req.LabelIDs
-	}
-	req.AddressName = strings.TrimSpace(req.AddressName)
-
-	if message := personLengthMessage(req.Name, req.Address); message != "" {
-		h.handleValidationErrorHTMX(w, r, message)
-		return
-	}
-	if req.Name == "" || req.Address == "" {
-		//nolint:gosec // G706: request fields are logged only as presence booleans.
-		log.Printf("[HTTP] POST /api/v1/participants: missing_name=%t missing_address=%t", req.Name == "", req.Address == "")
-		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-		return
-	}
-	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-		return
-	}
-	if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
-		log.Printf("[HTTP] POST /api/v1/participants: invalid_labels err=%v", err)
-		h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-		return
-	}
-
-	log.Print("[HTTP] POST /api/v1/participants:")
-	participant, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).createParticipant(r.Context(), participantEdit{
-		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs,
-	})
-	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
-		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "DUPLICATE_ROSTER_ENTRY", duplicate.Error())
-		return
-	}
-	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
-		log.Print("[ERROR] Failed to geocode participant address")
-		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
-			return
-		}
-		h.handleGeocodingError(w, r, geocodeErr.err)
-		return
-	}
-
-	if err != nil {
-		h.renderError(w, r, fmt.Errorf("create participant: %w", err))
-		return
-	}
-
-	log.Printf("[HTTP] Created participant: id=%d", participant.ID)
-	if h.isHTMX(r) {
-		view, err := (rosterReader{db: h.DB}).participants(r)
-		if err != nil {
-			log.Printf("[ERROR] Failed to refresh participants after create: err=%v", err)
-			h.setHTMXToastWithEvent(w, "participantCreated", "Participant saved. Refresh the page to see the updated roster.", toastTypeWarning)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		h.setHTMXToastWithEvent(w, "participantCreated", messageEntityAdded("Participant", participant.Name), toastTypeSuccess)
-		h.renderTemplate(w, "participant_list", view)
-		return
-	}
-
-	uniqueLabelIDs, _ := uniquePositiveIDs(labelIDs)
-	h.writeJSON(w, http.StatusCreated, ParticipantResponse{Participant: *participant, LabelIDs: uniqueLabelIDs})
+	participantRoster.createPerson(h, w, r)
 }
 
 func (h *Handler) HandleUpdateParticipant(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
-	if trimmedID, ok := strings.CutSuffix(idStr, "/edit"); ok {
-		idStr = trimmedID
-	}
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-		return
-	}
-
-	log.Printf("[HTTP] PUT /api/v1/participants/{id}: id=%d", id)
-
-	existing, err := h.DB.Participants().GetByID(r.Context(), id)
-	if err != nil {
-		if h.checkNotFound(err) {
-			log.Printf("[HTTP] Participant not found for update: id=%d", id)
-			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-			return
-		}
-		h.renderError(w, r, fmt.Errorf("get participant for update %d: %w", id, err))
-		return
-	}
-
-	var req struct {
-		Name        string   `json:"name"`
-		Address     string   `json:"address"`
-		AddressName string   `json:"address_name"`
-		LabelIDs    *[]int64 `json:"label_ids"`
-	}
-	var labelIDs []int64
-	shouldSetLabels := false
-
-	if h.isHTMX(r) {
-		if err := r.ParseForm(); err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		req.Name = r.FormValue("name")
-		req.Address = r.FormValue("address")
-		req.AddressName = r.FormValue("address_name")
-		parsedLabelIDs, err := parseLabelIDs(r)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-		labelIDs = parsedLabelIDs
-		shouldSetLabels = true
-	} else {
-		if err := httpx.DecodeJSON(r, &req); err != nil {
-			h.handleValidationError(w, r, messageInvalidRequestBody)
-			return
-		}
-		if req.LabelIDs != nil {
-			labelIDs = *req.LabelIDs
-			shouldSetLabels = true
-		}
-	}
-	req.AddressName = strings.TrimSpace(req.AddressName)
-
-	if message := personLengthMessage(req.Name, req.Address); message != "" {
-		h.handleValidationErrorHTMX(w, r, message)
-		return
-	}
-	if req.Name == "" || req.Address == "" {
-		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-		return
-	}
-	if len([]rune(req.AddressName)) > models.MaxAddressNameLength {
-		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-		return
-	}
-	if shouldSetLabels {
-		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
-			log.Printf("[HTTP] PUT /api/v1/participants/{id}: invalid_labels id=%d err=%v", id, err)
-			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return
-		}
-	}
-
-	participant, err := (rosterEditor{db: h.DB, geocoder: h.Geocoder}).updateParticipant(r.Context(), existing, participantEdit{
-		Name: req.Name, Address: req.Address, AddressName: req.AddressName, LabelIDs: labelIDs, SetLabels: shouldSetLabels,
-	})
-	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
-		if h.isHTMX(r) {
-			h.handleHTMXErrorNoSwap(w, r, http.StatusUnprocessableEntity, "GEOCODING_FAILED", geocodingErrorMessage(geocodeErr.err))
-			return
-		}
-		h.handleGeocodingError(w, r, geocodeErr.err)
-		return
-	}
-
-	if err != nil {
-		if h.checkNotFound(err) {
-			log.Printf("[HTTP] Participant not found after update: id=%d", id)
-			h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-			return
-		}
-		h.renderError(w, r, fmt.Errorf("update participant %d: %w", id, err))
-		return
-	}
-
-	log.Printf("[HTTP] Updated participant: id=%d", participant.ID)
-	if h.isHTMX(r) {
-		view, err := (rosterReader{db: h.DB}).participants(r)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		h.setHTMXToastWithEvent(w, "participantUpdated", messageEntityUpdated("Participant", participant.Name), toastTypeSuccess)
-		h.renderTemplate(w, "participant_list", view)
-		return
-	}
-
-	response, err := h.participantResponse(r.Context(), participant)
-	if err != nil {
-		h.handleInternalError(w, r, fmt.Errorf("load participant labels after update %d: %w", participant.ID, err))
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, response)
+	participantRoster.updatePerson(h, w, r)
 }
 
 func (h *Handler) HandleDeleteParticipant(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] DELETE /api/v1/participants/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-		return
-	}
-
-	log.Printf("[HTTP] DELETE /api/v1/participants/{id}: id=%d", id)
-	err = h.DB.Participants().Delete(r.Context(), id)
-	if h.checkNotFound(err) {
-		log.Printf("[HTTP] Participant not found for delete: id=%d", id)
-		h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-		return
-	}
-	if err != nil {
-		h.renderError(w, r, fmt.Errorf("delete participant %d: %w", id, err))
-		return
-	}
-
-	log.Printf("[HTTP] Deleted participant: id=%d", id)
-	if h.isHTMX(r) {
-		h.setHTMXToast(w, messageEntityDeleted("Participant"), toastTypeSuccess)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	participantRoster.deletePerson(h, w, r)
 }
 
 func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Request) {
-	id, err := parseRestoreID(r)
-	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] POST /api/v1/participants/restore: invalid_id err=%s", logutil.SafeString(err.Error()))
-		h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] POST /api/v1/participants/restore: id=%d", id)
-	if err := h.DB.Participants().Restore(r.Context(), id); err != nil {
-		if h.checkNotFound(err) {
-			//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-			log.Printf("[HTTP] Participant not found for restore: id=%d", id)
-			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageParticipantNotFound)
-			return
-		}
-		h.renderError(w, r, fmt.Errorf("restore participant %d: %w", id, err))
-		return
-	}
-
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Restored participant: id=%d", id)
-	if h.isHTMX(r) {
-		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored("Participant"), toastTypeSuccess)
-		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	participantRoster.restorePerson(h, w, r)
 }
 
 func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/participants/")
-	idStr = strings.TrimSuffix(idStr, "/edit")
-
-	var participant *models.Participant
-	var (
-		labels           []models.Label
-		selectedLabelIDs map[int64]bool
-		err              error
-	)
-	if idStr != "new" && idStr != "" {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			h.handleValidationErrorHTMX(w, r, messageInvalidParticipantID)
-			return
-		}
-
-		participant, err = h.DB.Participants().GetByID(r.Context(), id)
-		if err != nil {
-			if h.checkNotFound(err) {
-				h.handleNotFoundHTMX(w, r, messageParticipantNotFound)
-				return
-			}
-			h.renderError(w, r, err)
-			return
-		}
-		labels, selectedLabelIDs, err = h.loadLabelsForParticipant(r, participant.ID)
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-	} else {
-		participant = &models.Participant{}
-		labels, err = h.DB.Labels().List(r.Context())
-		if err != nil {
-			h.renderError(w, r, err)
-			return
-		}
-		selectedLabelIDs = map[int64]bool{}
-	}
-
-	h.renderTemplate(w, "participant_form", ParticipantFormView{
-		Participant:      participant,
-		Labels:           labels,
-		SelectedLabelIDs: selectedLabelIDs,
-	})
+	participantRoster.form(h, w, r)
 }
 
-func (h *Handler) loadLabelsForParticipant(r *http.Request, participantID int64) ([]models.Label, map[int64]bool, error) {
-	labels, err := h.DB.Labels().List(r.Context())
-	if err != nil {
-		return nil, nil, err
-	}
-	selectedLabels, err := h.DB.Labels().ListLabelsForParticipant(r.Context(), participantID)
-	if err != nil {
-		return nil, nil, err
-	}
-	return labels, buildSelectedLabelIDMap(selectedLabels), nil
-}
-
-func (h *Handler) participantResponse(ctx context.Context, participant *models.Participant) (ParticipantResponse, error) {
-	labels, err := h.DB.Labels().ListLabelsForParticipant(ctx, participant.ID)
-	if err != nil {
-		return ParticipantResponse{}, err
-	}
-	labelIDs := make([]int64, 0, len(labels))
-	for _, label := range labels {
-		labelIDs = append(labelIDs, label.ID)
-	}
-	return ParticipantResponse{
-		Participant: *participant,
-		LabelIDs:    labelIDs,
-	}, nil
+func (h *Handler) participantResponse(ctx context.Context, person *models.Participant) (ParticipantResponse, error) {
+	return participantRoster.responseWithLabels(h.DB, ctx, person)
 }
