@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
+	"ride-home-router/internal/logtest"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -46,19 +46,26 @@ func (privacyLabelRepository) GetByIDs(context.Context, []int64) ([]models.Label
 	return nil, nil
 }
 
+func TestActivityLocationLogsInvalidPathAsOneLine(t *testing.T) {
+	var logs bytes.Buffer
+	logtest.Capture(t, &logs)
+	h := &Handler{}
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/activity-locations/bad%0D%0Avalue", nil)
+	w := httptest.NewRecorder()
+	h.HandleGetActivityLocation(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", w.Code)
+	}
+	output := logs.String()
+	if strings.Count(output, "\n") != 1 || strings.ContainsRune(output, '\r') ||
+		!strings.Contains(output, `method=GET`) || !strings.Contains(output, `path="/api/v1/activity-locations/bad\r\nvalue"`) {
+		t.Fatalf("expected one structured log with an escaped path, got %q", output)
+	}
+}
+
 func TestHandlerLogsDoNotContainAddressesOrAddressQueries(t *testing.T) {
 	var logs bytes.Buffer
-	previousOutput := log.Writer()
-	previousFlags := log.Flags()
-	previousPrefix := log.Prefix()
-	log.SetOutput(&logs)
-	log.SetFlags(0)
-	log.SetPrefix("")
-	t.Cleanup(func() {
-		log.SetOutput(previousOutput)
-		log.SetFlags(previousFlags)
-		log.SetPrefix(previousPrefix)
-	})
+	logtest.Capture(t, &logs)
 
 	handler := &Handler{
 		DB: privacyStore{
@@ -97,7 +104,11 @@ func TestHandlerLogsDoNotContainAddressesOrAddressQueries(t *testing.T) {
 			t.Fatalf("logs contain private value %q: %s", private, output)
 		}
 	}
-	for _, want := range []string{"POST /api/v1/participants", "PUT /api/v1/participants", "GET /api/v1/address-search"} {
+	for _, want := range []string{
+		"method=POST path=/api/v1/participants",
+		"method=PUT route=/api/v1/participants/{id}",
+		"method=GET path=/api/v1/address-search",
+	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("logs missing %q: %s", want, output)
 		}
@@ -108,9 +119,7 @@ func TestRosterLogsDoNotContainNames(t *testing.T) {
 	h, _ := newTestManagementHandler(t)
 	const privateName = "PrivateNameSentinelFalcon"
 	var logs bytes.Buffer
-	old := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(old) })
+	logtest.Capture(t, &logs)
 	for _, tc := range []struct {
 		path   string
 		handle http.HandlerFunc
@@ -125,6 +134,9 @@ func TestRosterLogsDoNotContainNames(t *testing.T) {
 		r.Header.Set("HX-Request", "true")
 
 		tc.handle(httptest.NewRecorder(), r)
+		if !strings.Contains(logs.String(), "method=POST path="+tc.path) {
+			t.Fatalf("logs missing create request for %s: %s", tc.path, logs.String())
+		}
 	}
 	if strings.Contains(logs.String(), privateName) {
 		t.Fatalf("name leaked: %s", logs.String())

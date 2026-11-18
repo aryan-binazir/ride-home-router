@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math"
 	"math/rand/v2"
 	"net"
@@ -604,7 +604,12 @@ func (c *googleCalculator) fetchMatrixOnce(ctx context.Context, origins, destina
 	if err := c.usage.Reserve(ctx, database.UsageSKURouteMatrix, len(origins)*len(destinations)); err != nil {
 		return nil, err
 	}
-	log.Printf("[GOOGLE] Route matrix request: origins=%d destinations=%d elements=%d", len(origins), len(destinations), len(origins)*len(destinations))
+	slog.Info("Route matrix request",
+		"component", "google",
+		"origins", len(origins),
+		"destinations", len(destinations),
+		"elements", len(origins)*len(destinations),
+	)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, &googleTransportError{Cause: err}

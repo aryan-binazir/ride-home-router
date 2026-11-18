@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
@@ -108,7 +108,12 @@ func withRetry(ctx context.Context, maxRetries int, attempt func(context.Context
 	for i := range attempts {
 		err := attempt(ctx)
 		if err == nil {
-			log.Printf("[GEOCODING] Retry operation outcome=success attempts=%d duration=%s", i+1, time.Since(started).Round(time.Millisecond))
+			slog.Info("Retry operation",
+				"component", "geocoding",
+				"outcome", "success",
+				"attempts", i+1,
+				"duration", time.Since(started).Round(time.Millisecond),
+			)
 			return nil
 		}
 
@@ -122,14 +127,19 @@ func withRetry(ctx context.Context, maxRetries int, attempt func(context.Context
 			break
 		}
 		if i < attempts-1 {
-			log.Printf("[GEOCODING] Retry %d/%d: backoff=%v", i+1, attempts, backoff)
+			slog.Info("Retry operation", "component", "geocoding", "attempt", i+1, "attempts", attempts, "backoff", backoff)
 			if err := waitForRetry(ctx, backoff); err != nil {
 				return err
 			}
 		}
 	}
 
-	log.Printf("[ERROR] Retry operation outcome=failed retries=%d duration=%s", attempts, time.Since(started).Round(time.Millisecond))
+	slog.Error("Retry operation",
+		"component", "geocoding",
+		"outcome", "failed",
+		"retries", attempts,
+		"duration", time.Since(started).Round(time.Millisecond),
+	)
 	return lastErr
 }
 

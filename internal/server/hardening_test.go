@@ -2,10 +2,10 @@ package server
 
 import (
 	"bytes"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/logtest"
 	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
@@ -13,11 +13,10 @@ import (
 )
 
 func TestRecoveryReportsFailureAndToast(t *testing.T) {
+	var logs bytes.Buffer
+	logtest.Capture(t, &logs)
 	for _, htmx := range []bool{false, true} {
-		var logs bytes.Buffer
-		previous := log.Writer()
-		log.SetOutput(&logs)
-		t.Cleanup(func() { log.SetOutput(previous) })
+		logs.Reset()
 		handler := recoverMiddleware(securityHeadersMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("test failure") })))
 		req := httptest.NewRequestWithContext(t.Context(), "GET", "/panic", nil)
 		if htmx {
@@ -31,7 +30,7 @@ func TestRecoveryReportsFailureAndToast(t *testing.T) {
 		if htmx && (!strings.Contains(w.Header().Get("HX-Trigger"), "An error occurred. Please try again.") || w.Header().Get("HX-Reswap") != "none") {
 			t.Fatalf("headers=%v", w.Header())
 		}
-		if !strings.Contains(logs.String(), "GET /panic 500") {
+		if !strings.Contains(logs.String(), "method=GET path=/panic status=500") {
 			t.Fatalf("log=%s", logs.String())
 		}
 	}
@@ -106,15 +105,13 @@ func TestStrictTransportSecurityOnlyForHTTPSOrigins(t *testing.T) {
 
 func TestRecoveryAbortsPartialResponses(t *testing.T) {
 	var logs bytes.Buffer
-	previous := log.Writer()
-	log.SetOutput(&logs)
-	defer log.SetOutput(previous)
+	logtest.Capture(t, &logs)
 	handler := recoverMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("partial")); panic("failed") }))
 	defer func() {
 		if got := recover(); got != http.ErrAbortHandler {
 			t.Fatalf("panic=%v", got)
 		}
-		if !strings.Contains(logs.String(), "GET /partial 500") {
+		if !strings.Contains(logs.String(), "method=GET path=/partial status=500") {
 			t.Fatalf("log=%s", logs.String())
 		}
 	}()

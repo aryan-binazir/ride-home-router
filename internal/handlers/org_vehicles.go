@@ -3,11 +3,10 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -24,10 +23,10 @@ func parseOrgVehicleID(path string) (int64, error) {
 }
 
 func (h *Handler) HandleListOrgVehicles(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[HTTP] GET /api/v1/org-vehicles")
+	slog.Info("HTTP request", "component", "http", "method", "GET", "path", "/api/v1/org-vehicles")
 	vehicles, err := h.DB.OrganizationVehicles().List(r.Context())
 	if err != nil {
-		log.Printf("[ERROR] Failed to list organization vehicles: err=%v", err)
+		slog.Error("Failed to list organization vehicles", "error", fmt.Sprint(err))
 		h.handleInternalError(w, r, err)
 		return
 	}
@@ -45,7 +44,7 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
-			log.Printf("[HTTP] POST /api/v1/org-vehicles: form_parse_error err=%v", err)
+			slog.Info("Form parse failed", "component", "http", "method", "POST", "path", "/api/v1/org-vehicles", "error", fmt.Sprint(err))
 			h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageInvalidFormData)
 			return
 		}
@@ -60,7 +59,7 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		}
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			log.Printf("[HTTP] POST /api/v1/org-vehicles: invalid_json err=%v", err)
+			slog.Info("Invalid JSON", "component", "http", "method", "POST", "path", "/api/v1/org-vehicles", "error", fmt.Sprint(err))
 			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
@@ -71,18 +70,18 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if req.Name == "" {
-		log.Printf("[HTTP] POST /api/v1/org-vehicles: missing name")
+		slog.Info("Missing name", "component", "http", "method", "POST", "path", "/api/v1/org-vehicles")
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageNameRequired)
 		return
 	}
 
 	if req.Capacity < 1 {
-		log.Printf("[HTTP] POST /api/v1/org-vehicles: invalid capacity=%d", req.Capacity)
+		slog.Info("Invalid capacity", "component", "http", "method", "POST", "path", "/api/v1/org-vehicles", "capacity", req.Capacity)
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageOrganizationVehicleCapacityMustBeAtLeastOne)
 		return
 	}
 
-	log.Printf("[HTTP] POST /api/v1/org-vehicles: capacity=%d", req.Capacity)
+	slog.Info("HTTP request", "component", "http", "method", "POST", "path", "/api/v1/org-vehicles", "capacity", req.Capacity)
 
 	vehicle := &models.OrganizationVehicle{
 		Name:     req.Name,
@@ -91,12 +90,12 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	createdVehicle, err := h.DB.OrganizationVehicles().Create(r.Context(), vehicle)
 	if err != nil {
-		log.Printf("[ERROR] Failed to create organization vehicle: err=%v", err)
+		slog.Error("Failed to create organization vehicle", "error", fmt.Sprint(err))
 		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageFailedToSaveVan())
 		return
 	}
 
-	log.Printf("[HTTP] Created organization vehicle: id=%d capacity=%d", createdVehicle.ID, createdVehicle.Capacity)
+	slog.Info("Created organization vehicle", "component", "http", "id", createdVehicle.ID, "capacity", createdVehicle.Capacity)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityAdded("Van", createdVehicle.Name), toastTypeSuccess)
@@ -110,22 +109,25 @@ func (h *Handler) HandleCreateOrgVehicle(w http.ResponseWriter, r *http.Request)
 func (h *Handler) HandleGetOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] GET /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "GET",
+			"route", "/api/v1/org-vehicles/{id}",
+			"path", r.URL.Path,
+			"error", err.Error(),
+		)
 		h.handleValidationError(w, r, messageInvalidOrganizationVehicleID)
 		return
 	}
 
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] GET /api/v1/org-vehicles/%d", id)
+	slog.Info("HTTP request", "component", "http", "method", "GET", "route", "/api/v1/org-vehicles/{id}", "id", id)
 	vehicle, err := h.DB.OrganizationVehicles().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
 			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 			return
 		}
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to get organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
+		slog.Error("Failed to get organization vehicle", "id", id, "error", err.Error())
 		h.handleInternalError(w, r, err)
 		return
 	}
@@ -161,8 +163,13 @@ func (h *Handler) HandleOrgVehicleForm(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] PUT /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "PUT",
+			"route", "/api/v1/org-vehicles/{id}",
+			"path", r.URL.Path,
+			"error", err.Error(),
+		)
 		h.handleHTMXErrorNoSwap(w, r, http.StatusBadRequest, "VALIDATION_ERROR", messageInvalidOrganizationVehicleID)
 		return
 	}
@@ -209,8 +216,13 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] PUT /api/v1/org-vehicles/%d: capacity=%d", id, req.Capacity)
+	slog.Info("HTTP request",
+		"component", "http",
+		"method", "PUT",
+		"route", "/api/v1/org-vehicles/{id}",
+		"id", id,
+		"capacity", req.Capacity,
+	)
 
 	vehicle := &models.OrganizationVehicle{
 		ID:       id,
@@ -220,8 +232,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 
 	updatedVehicle, err := h.DB.OrganizationVehicles().Update(r.Context(), vehicle)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to update organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
+		slog.Error("Failed to update organization vehicle", "id", id, "error", err.Error())
 		if errors.Is(err, database.ErrNotFound) {
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageOrganizationVehicleNotFound)
 			return
@@ -230,8 +241,7 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Updated organization vehicle: id=%d", id)
+	slog.Info("Updated organization vehicle", "component", "http", "id", id)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityUpdated("Van", updatedVehicle.Name), toastTypeSuccess)
@@ -245,18 +255,21 @@ func (h *Handler) HandleUpdateOrgVehicle(w http.ResponseWriter, r *http.Request)
 func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request) {
 	id, err := parseOrgVehicleID(r.URL.Path)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] DELETE /api/v1/org-vehicles/{id}: invalid_id path=%s err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "DELETE",
+			"route", "/api/v1/org-vehicles/{id}",
+			"path", r.URL.Path,
+			"error", err.Error(),
+		)
 		h.handleValidationErrorHTMX(w, r, messageInvalidOrganizationVehicleID)
 		return
 	}
 
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] DELETE /api/v1/org-vehicles/%d", id)
+	slog.Info("HTTP request", "component", "http", "method", "DELETE", "route", "/api/v1/org-vehicles/{id}", "id", id)
 
 	if err := h.DB.OrganizationVehicles().Delete(r.Context(), id); err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to delete organization vehicle: id=%d err=%s", id, logutil.SafeString(err.Error()))
+		slog.Error("Failed to delete organization vehicle", "id", id, "error", err.Error())
 		if errors.Is(err, database.ErrNotFound) {
 			h.handleNotFoundHTMX(w, r, messageOrganizationVehicleNotFound)
 			return
@@ -265,8 +278,7 @@ func (h *Handler) HandleDeleteOrgVehicle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Deleted organization vehicle: id=%d", id)
+	slog.Info("Deleted organization vehicle", "component", "http", "id", id)
 
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityDeleted("Van"), toastTypeSuccess)

@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"html/template"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/access"
-	"ride-home-router/internal/logutil"
 	"strings"
 )
 
@@ -74,18 +73,18 @@ func (h *Handler) HandleGoogleMapsKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.DB.Settings().SetGoogleMapsKey(r.Context(), key); err != nil {
-			log.Print("[ERROR] Google Maps credential update failed")
+			slog.Error("Google Maps credential update failed")
 			reject("Unable to save key", http.StatusServiceUnavailable)
 			return
 		}
-		log.Printf("[ADMIN] Google Maps credential replaced: actor=%q", logutil.SafeString(access.UserID(r.Context())))
+		slog.Info("Google Maps credential replaced", "component", "admin", "actor", access.UserID(r.Context()))
 	case http.MethodDelete:
 		if err := h.DB.Settings().DeleteGoogleMapsKey(r.Context()); err != nil {
-			log.Print("[ERROR] Google Maps credential deletion failed")
+			slog.Error("Google Maps credential deletion failed")
 			reject("Unable to delete key", http.StatusServiceUnavailable)
 			return
 		}
-		log.Printf("[ADMIN] Google Maps credential deleted: actor=%q", logutil.SafeString(access.UserID(r.Context())))
+		slog.Info("Google Maps credential deleted", "component", "admin", "actor", access.UserID(r.Context()))
 	default:
 		w.Header().Set("Allow", "GET, PUT, DELETE")
 		reject("Method Not Allowed", http.StatusMethodNotAllowed)
@@ -93,7 +92,7 @@ func (h *Handler) HandleGoogleMapsKey(w http.ResponseWriter, r *http.Request) {
 	}
 	configured, err := h.DB.Settings().GoogleMapsKeyConfigured(r.Context())
 	if err != nil {
-		log.Print("[ERROR] Google Maps credential status lookup failed")
+		slog.Error("Google Maps credential status lookup failed")
 		reject("Unable to load key status", http.StatusServiceUnavailable)
 		return
 	}

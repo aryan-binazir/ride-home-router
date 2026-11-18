@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/logtest"
 	"strings"
 	"testing"
 	"time"
@@ -220,10 +220,7 @@ func TestGoogleGeocoderNeverExposesAddressKeyOrURL(t *testing.T) {
 	const address = "8123 Private Sentinel Ave, Boston, MA 02110"
 	const key = "AIzaSecretKeySentinel"
 	var logs bytes.Buffer
-	previousOutput, previousFlags := log.Writer(), log.Flags()
-	log.SetOutput(&logs)
-	log.SetFlags(0)
-	t.Cleanup(func() { log.SetOutput(previousOutput); log.SetFlags(previousFlags) })
+	logtest.Capture(t, &logs)
 
 	refusing := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return nil, &url.Error{Op: request.Method, URL: request.URL.String(), Err: errors.New("connection refused")}

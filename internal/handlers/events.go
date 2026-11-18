@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/eventsnapshot"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routefeedback"
 	"ride-home-router/internal/routesession"
@@ -125,11 +124,11 @@ func (h *Handler) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("[HTTP] GET /api/v1/events: limit=%d offset=%d", limit, offset)
+	slog.Info("HTTP request", "component", "http", "method", "GET", "path", "/api/v1/events", "limit", limit, "offset", offset)
 
 	view, err := h.buildEventListView(r.Context(), limit, offset)
 	if err != nil {
-		log.Printf("[ERROR] Failed to build event list view: limit=%d offset=%d err=%v", limit, offset, err)
+		slog.Error("Failed to build event list view", "limit", limit, "offset", offset, "error", fmt.Sprint(err))
 		h.handleInternalError(w, r, err)
 		return
 	}
@@ -155,21 +154,26 @@ func (h *Handler) HandleGetEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] GET /api/v1/events/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "GET",
+			"route", "/api/v1/events/{id}",
+			"invalid_id", idStr,
+			"error", err.Error(),
+		)
 		h.handleValidationError(w, r, messageInvalidEventID)
 		return
 	}
 
-	log.Printf("[HTTP] GET /api/v1/events/{id}: id=%d", id)
+	slog.Info("HTTP request", "component", "http", "method", "GET", "route", "/api/v1/events/{id}", "id", id)
 	event, routes, summary, err := h.DB.Events().GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			log.Printf("[HTTP] Event not found: id=%d", id)
+			slog.Info("Event not found", "component", "http", "id", id)
 			h.handleNotFound(w, r, messageEventNotFound)
 			return
 		}
-		log.Printf("[ERROR] Failed to get event: id=%d err=%v", id, err)
+		slog.Error("Failed to get event", "id", id, "error", fmt.Sprint(err))
 		h.handleInternalError(w, r, err)
 		return
 	}
@@ -207,7 +211,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get(httpx.HeaderContentType)
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
-			log.Printf("[HTTP] POST /api/v1/events: form_parse_error err=%v", err)
+			slog.Info("Form parse failed", "component", "http", "method", "POST", "path", "/api/v1/events", "error", fmt.Sprint(err))
 			h.handleValidationError(w, r, messageInvalidFormData)
 			return
 		}
@@ -217,7 +221,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		req.SessionID = r.FormValue("session_id")
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			log.Printf("[HTTP] POST /api/v1/events: invalid_body err=%v", err)
+			slog.Info("Invalid request body", "component", "http", "method", "POST", "path", "/api/v1/events", "error", fmt.Sprint(err))
 			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
@@ -225,7 +229,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	if req.SessionID == "" {
-		log.Printf("[HTTP] POST /api/v1/events: missing session_id")
+		slog.Info("Missing session ID", "component", "http", "method", "POST", "path", "/api/v1/events")
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	}
@@ -236,18 +240,25 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(sessionErr, routesession.ErrAlreadyCommitted):
-		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
-		log.Printf("[HTTP] POST /api/v1/events: session_already_committed session_id=%s", logutil.SafeString(req.SessionID))
+		slog.Info("Route session already committed",
+			"component", "http",
+			"method", "POST",
+			"path", "/api/v1/events",
+			"session_id", req.SessionID,
+		)
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrNotFound):
-		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
-		log.Printf("[HTTP] POST /api/v1/events: session_not_found session_id=%s", logutil.SafeString(req.SessionID))
+		slog.Info("Route session not found", "component", "http", "method", "POST", "path", "/api/v1/events", "session_id", req.SessionID)
 		h.handleHTMXErrorNoSwap(w, r, http.StatusConflict, "SESSION_EXPIRED", messageRoutePlanExpired)
 		return
 	case errors.Is(sessionErr, routesession.ErrUnbalanced):
-		//nolint:gosec // G706: the session ID is escaped with logutil.SafeString.
-		log.Printf("[HTTP] POST /api/v1/events: blocked save for out-of-balance session_id=%s", logutil.SafeString(req.SessionID))
+		slog.Info("Save blocked for out-of-balance route session",
+			"component", "http",
+			"method", "POST",
+			"path", "/api/v1/events",
+			"session_id", req.SessionID,
+		)
 		h.handleValidationError(w, r, messageRoutesMustBeBalancedBeforeSaving)
 		return
 	case sessionErr != nil:
@@ -255,7 +266,12 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] Created event: id=%d date=%s routes=%d", createdEvent.ID, createdEvent.EventDate.Format("2006-01-02"), savedRouteCount)
+	slog.Info("Created event",
+		"component", "http",
+		"id", createdEvent.ID,
+		"date", createdEvent.EventDate.Format("2006-01-02"),
+		"routes", savedRouteCount,
+	)
 
 	if h.isHTMX(r) {
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
@@ -291,7 +307,12 @@ func (h *Handler) captureRouteFeedback(r *http.Request, createdEvent *models.Eve
 	defer cancel()
 	settings, err := h.DB.Settings().Get(feedbackCtx)
 	if err != nil {
-		log.Printf("[FEEDBACK] settings read failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+		slog.Error("Settings read failed",
+			"component", "feedback",
+			"event_id", createdEvent.ID,
+			"session_id", snapshot.SessionID,
+			"error", fmt.Sprint(err),
+		)
 		return
 	}
 	email, ok := routefeedback.ShouldCapture(r, settings)
@@ -302,7 +323,12 @@ func (h *Handler) captureRouteFeedback(r *http.Request, createdEvent *models.Eve
 	record.EventID = createdEvent.ID
 	record.SMEEmail = email
 	if err := h.DB.RouteFeedback().Create(feedbackCtx, &record); err != nil {
-		log.Printf("[FEEDBACK] create failed event_id=%d session_id=%s err=%v", createdEvent.ID, snapshot.SessionID, err)
+		slog.Error("Create failed",
+			"component", "feedback",
+			"event_id", createdEvent.ID,
+			"session_id", snapshot.SessionID,
+			"error", fmt.Sprint(err),
+		)
 	}
 }
 
@@ -311,19 +337,24 @@ func persistEvent(ctx context.Context, date, notes string, session routesession.
 		return nil, 0, eventValidationError{message: message}
 	}
 	if date == "" {
-		log.Printf("[HTTP] POST /api/v1/events: missing event_date")
+		slog.Info("Missing event date", "component", "http", "method", "POST", "path", "/api/v1/events")
 		return nil, 0, eventValidationError{message: messageEventDateRequired}
 	}
 	eventDate, err := time.Parse("2006-01-02", date)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] POST /api/v1/events: invalid_date=%s err=%s", logutil.SafeString(date), logutil.SafeString(err.Error()))
+		slog.Info("Invalid date",
+			"component", "http",
+			"method", "POST",
+			"path", "/api/v1/events",
+			"invalid_date", date,
+			"error", err.Error(),
+		)
 		return nil, 0, eventValidationError{message: messageInvalidEventDateFormat, cause: err}
 	}
 
 	snapshot, err := eventsnapshot.Build(session.RoutingResult())
 	if err != nil {
-		log.Printf("[HTTP] POST /api/v1/events: invalid_routes err=%v", err)
+		slog.Info("Invalid routes", "component", "http", "method", "POST", "path", "/api/v1/events", "error", fmt.Sprint(err))
 		message := messageGenericInternalError
 		if errors.Is(err, models.ErrInvalidRouteMode) {
 			message = messageInvalidRouteMode
@@ -345,8 +376,7 @@ func persistEvent(ctx context.Context, date, notes string, session routesession.
 	event := &models.Event{RouteSessionID: session.SessionID, EventDate: eventDate, Notes: notes, Mode: snapshot.Mode}
 	created, err := writer.CreateEvent(ctx, event, snapshot.Routes, &snapshot.Summary)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to create event: date=%s routes=%d err=%s", logutil.SafeString(date), len(snapshot.Routes), logutil.SafeString(err.Error()))
+		slog.Error("Failed to create event", "date", date, "routes", len(snapshot.Routes), "error", err.Error())
 		return nil, 0, err
 	}
 	return created, len(snapshot.Routes), nil
@@ -356,26 +386,31 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[HTTP] DELETE /api/v1/events/{id}: invalid_id=%s err=%s", logutil.SafeString(idStr), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "DELETE",
+			"route", "/api/v1/events/{id}",
+			"invalid_id", idStr,
+			"error", err.Error(),
+		)
 		h.handleValidationError(w, r, messageInvalidEventID)
 		return
 	}
 
-	log.Printf("[HTTP] DELETE /api/v1/events/{id}: id=%d", id)
+	slog.Info("HTTP request", "component", "http", "method", "DELETE", "route", "/api/v1/events/{id}", "id", id)
 	err = h.DB.Events().Delete(r.Context(), id)
 	if h.checkNotFound(err) {
-		log.Printf("[HTTP] Event not found for delete: id=%d", id)
+		slog.Info("Event not found for delete", "component", "http", "id", id)
 		h.handleNotFound(w, r, messageEventNotFound)
 		return
 	}
 	if err != nil {
-		log.Printf("[ERROR] Failed to delete event: id=%d err=%v", id, err)
+		slog.Error("Failed to delete event", "id", id, "error", fmt.Sprint(err))
 		h.handleInternalError(w, r, err)
 		return
 	}
 
-	log.Printf("[HTTP] Deleted event: id=%d", id)
+	slog.Info("Deleted event", "component", "http", "id", id)
 
 	if h.isHTMX(r) {
 		limit := defaultEventListPageSize

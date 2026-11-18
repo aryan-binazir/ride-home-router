@@ -5,12 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"ride-home-router/migrations"
 	"strings"
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 

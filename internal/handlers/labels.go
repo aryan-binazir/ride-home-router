@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
@@ -424,7 +424,7 @@ func (h *Handler) handleLabelWriteError(w http.ResponseWriter, r *http.Request, 
 		h.handleLabelValidationError(w, r, messageDuplicateLabelName)
 		return
 	}
-	log.Printf("[ERROR] Failed to write label: err=%v", err)
+	slog.Error("Failed to write label", "error", fmt.Sprint(err))
 	if h.isHTMX(r) {
 		h.handleHTMXErrorNoSwap(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError)
 		return

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -41,8 +41,10 @@ type applicationServer interface {
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := run(os.Args[1:]); err != nil {
-		log.Fatalf("Fatal error: %v", err)
+		slog.Error("Fatal error", "error", fmt.Sprint(err))
+		os.Exit(1)
 	}
 }
 
@@ -84,12 +86,12 @@ func serve(srv applicationServer, shutdown <-chan os.Signal) error {
 	if err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
-	log.Printf("Ride Home Router listening on http://%s", actualAddr)
+	slog.Info("Ride Home Router listening", "url", "http://"+actualAddr)
 
 	var serveErr error
 	select {
 	case sig := <-shutdown:
-		log.Printf("Received signal %v, starting graceful shutdown", sig)
+		slog.Info("Received signal, starting graceful shutdown", "signal", fmt.Sprint(sig))
 	case err := <-srv.Errors():
 		serveErr = fmt.Errorf("server stopped unexpectedly: %w", err)
 	}
@@ -112,7 +114,7 @@ func serve(srv applicationServer, shutdown <-chan os.Signal) error {
 		return err
 	}
 
-	log.Println("Server stopped")
+	slog.Info("Server stopped")
 	return nil
 }
 
@@ -174,7 +176,7 @@ func parseArgs(args []string) (options, error) {
 		insecure = insecure || fallback.TLSConfig == nil
 	}
 	if !loopback && insecure {
-		log.Print("[WARN] Database connection permits unencrypted transport on a public listener")
+		slog.Warn("Database connection permits unencrypted transport on a public listener")
 	}
 	return opts, nil
 }
@@ -212,17 +214,17 @@ func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
 		}
 		sku, rest, ok := strings.Cut(entry, "=")
 		if !ok {
-			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
+			slog.Warn("GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
 			continue
 		}
 		seedMonth, count, ok := strings.Cut(rest, ":")
 		n, err := strconv.Atoi(strings.TrimSpace(count))
 		if !ok || err != nil || n < 0 {
-			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
+			slog.Warn("GOOGLE_USAGE_SEED entry ignored: expected sku=YYYY-MM:count")
 			continue
 		}
 		if strings.TrimSpace(seedMonth) != month {
-			log.Printf("[INFO] GOOGLE_USAGE_SEED entry for %s ignored in %s", strings.TrimSpace(seedMonth), month)
+			slog.Info("GOOGLE_USAGE_SEED entry ignored", "seed_month", strings.TrimSpace(seedMonth), "month", month)
 			continue
 		}
 		name := database.UsageSKU(strings.ToLower(strings.TrimSpace(sku)))
@@ -230,7 +232,7 @@ func googleUsageSeed(value string, now time.Time) map[database.UsageSKU]int {
 		case database.UsageSKURouteMatrix, database.UsageSKURoutes, database.UsageSKUGeocoding, database.UsageSKUAutocomplete:
 			seeds[name] = n
 		default:
-			log.Printf("[WARN] GOOGLE_USAGE_SEED entry ignored: unknown sku")
+			slog.Warn("GOOGLE_USAGE_SEED entry ignored: unknown sku")
 		}
 	}
 	return seeds

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
@@ -163,7 +163,7 @@ func (h *Handler) setHTMXToastWithEvent(w http.ResponseWriter, eventName, messag
 func (h *Handler) setHTMXTrigger(w http.ResponseWriter, payload htmxTriggerPayload) {
 	bytes, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[ERROR] Failed to marshal HX-Trigger toast payload: %v", err)
+		slog.Error("Failed to marshal HX-Trigger toast payload", "error", fmt.Sprint(err))
 		return
 	}
 
@@ -187,7 +187,7 @@ func (h *Handler) handleInternalError(w http.ResponseWriter, r *http.Request, er
 		h.handleHTMXErrorNoSwap(w, r, http.StatusTooManyRequests, "WORKFLOW_CAPACITY", database.ErrWorkflowCapacity.Error())
 		return
 	}
-	log.Printf("[ERROR] Internal error: %v", err)
+	slog.Error("Internal error", "error", fmt.Sprint(err))
 	h.writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError, nil)
 }
 
@@ -213,15 +213,14 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 
 	if err := h.Renderer.Render(w, name, data); err != nil {
-		//nolint:gosec // G706: %q quotes and escapes both the template name and error message.
-		log.Printf("[ERROR] Template render error: template=%q err=%q", name, err)
+		slog.Error("Template render error", "template", name, "error", fmt.Sprint(err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error) {
 	if h.isHTMX(r) {
-		log.Printf("[ERROR] Request failed: %v", err)
+		slog.Error("Request failed", "error", fmt.Sprint(err))
 		h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusInternalServerError)

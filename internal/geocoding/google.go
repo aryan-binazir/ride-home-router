@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/database"
@@ -109,7 +109,11 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 	}
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[ERROR] Google geocode outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "request_failed",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider request failed", Cause: newRedactedTransportError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -120,35 +124,61 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 		if err := g.recordSharedCooldown(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
-		log.Printf("[ERROR] Google geocode outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "http_error",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 	}
 	if decoded.Status == "" && decodeErr == nil {
 		decodeErr = errors.New("missing status")
 	}
 	if decodeErr != nil {
-		log.Printf("[ERROR] Google geocode outcome=decode_failed status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "decode_failed",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: decodeErr}
 	}
 	switch decoded.Status {
 	case "OK":
 	case "ZERO_RESULTS":
-		log.Printf("[GEOCODING] Google geocode outcome=zero_results duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Info("Google geocode",
+			"component", "geocoding",
+			"outcome", "zero_results",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "no results found", Cause: ErrNoGeocodingResults}
 	case "REQUEST_DENIED", "OVER_DAILY_LIMIT":
-		log.Printf("[ERROR] Google geocode outcome=denied duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "denied",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider not configured", Cause: ErrNotConfigured, Configuration: true}
 	case "OVER_QUERY_LIMIT":
-		log.Printf("[ERROR] Google geocode outcome=quota duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode", "component", "geocoding", "outcome", "quota", "duration", time.Since(started).Round(time.Millisecond))
 		if err := g.recordSharedCooldown(ctx, http.StatusTooManyRequests, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
 		return nil, &ErrGeocodingFailed{Reason: "provider quota exceeded", HTTPStatus: http.StatusTooManyRequests, RetryAfter: googleQuotaCooldown, Temporary: true}
 	case "UNKNOWN_ERROR":
-		log.Printf("[ERROR] Google geocode outcome=unknown_error duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "unknown_error",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider temporarily unavailable", Temporary: true}
 	default:
-		log.Printf("[ERROR] Google geocode outcome=unexpected_status duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "unexpected_status",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider rejected the request"}
 	}
 	if len(decoded.Results) == 0 {
@@ -157,10 +187,19 @@ func (g *googleGeocoder) Geocode(ctx context.Context, address string) (*Geocodin
 	result := decoded.Results[0]
 	loc := result.Geometry.Location
 	if loc.Lat == nil || loc.Lng == nil || *loc.Lat < -90 || *loc.Lat > 90 || *loc.Lng < -180 || *loc.Lng > 180 {
-		log.Printf("[ERROR] Google geocode outcome=invalid_coordinates duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google geocode",
+			"component", "geocoding",
+			"outcome", "invalid_coordinates",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "invalid coordinates"}
 	}
-	log.Printf("[GEOCODING] Google geocode outcome=success status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+	slog.Info("Google geocode",
+		"component", "geocoding",
+		"outcome", "success",
+		"status", resp.StatusCode,
+		"duration", time.Since(started).Round(time.Millisecond),
+	)
 	return &GeocodingResult{
 		Coords:           models.Coordinates{Lat: *loc.Lat, Lng: *loc.Lng},
 		DisplayName:      result.FormattedAddress,
@@ -264,7 +303,11 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 	req.Header.Set("X-Goog-Api-Key", key)
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[ERROR] Google search outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google search",
+			"component", "geocoding",
+			"outcome", "request_failed",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider request failed", Cause: newRedactedTransportError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -272,19 +315,33 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 	switch {
 	case resp.StatusCode == http.StatusOK:
 	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden, googleKeyRejected(resp):
-		log.Printf("[ERROR] Google search outcome=denied status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		slog.Error("Google search",
+			"component", "geocoding",
+			"outcome", "denied",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider not configured", Cause: ErrNotConfigured, Configuration: true}
 	default:
 		if err := g.recordSharedCooldown(ctx, resp.StatusCode, resp.Header.Get("Retry-After")); err != nil {
 			return nil, err
 		}
-		log.Printf("[ERROR] Google search outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		slog.Error("Google search",
+			"component", "geocoding",
+			"outcome", "http_error",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 	}
 
 	var decoded googleAutocompleteResponse
 	if err := decodeGoogle(resp.Body, &decoded); err != nil {
-		log.Printf("[ERROR] Google search outcome=decode_failed duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Error("Google search",
+			"component", "geocoding",
+			"outcome", "decode_failed",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &ErrGeocodingFailed{Reason: "malformed provider response", Cause: err}
 	}
 	limit = max(1, min(limit, googleMaxSuggestions))
@@ -302,7 +359,12 @@ func (g *googleGeocoder) searchOnce(ctx context.Context, query string, limit int
 			break
 		}
 	}
-	log.Printf("[GEOCODING] Google search outcome=success results_count=%d duration=%s", len(results), time.Since(started).Round(time.Millisecond))
+	slog.Info("Google search",
+		"component", "geocoding",
+		"outcome", "success",
+		"results_count", len(results),
+		"duration", time.Since(started).Round(time.Millisecond),
+	)
 	return results, nil
 }
 

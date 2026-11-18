@@ -1,7 +1,8 @@
 package handlers
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -14,10 +15,10 @@ import (
 )
 
 func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[HTTP] GET /api/v1/settings")
+	slog.Info("HTTP request", "component", "http", "method", "GET", "path", "/api/v1/settings")
 	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
-		log.Printf("[ERROR] Failed to get settings: err=%v", err)
+		slog.Error("Failed to get settings", "error", fmt.Sprint(err))
 		h.handleInternalError(w, r, err)
 		return
 	}
@@ -38,7 +39,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	if h.isHTMX(r) {
 		if err := r.ParseForm(); err != nil {
-			log.Printf("[ERROR] Failed to parse form: err=%v", err)
+			slog.Error("Failed to parse form", "error", fmt.Sprint(err))
 			h.setHTMXToast(w, messageInvalidFormData, toastTypeError)
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -55,7 +56,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			log.Printf("[HTTP] PUT /api/v1/settings: invalid_body err=%v", err)
+			slog.Info("Invalid request body", "component", "http", "method", "PUT", "path", "/api/v1/settings", "error", fmt.Sprint(err))
 			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
@@ -80,7 +81,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 					h.handleSelectedActivityLocationNotFound(w, r, selectedActivityLocationID)
 					return
 				}
-				log.Printf("[ERROR] Failed to get activity location: err=%v", err)
+				slog.Error("Failed to get activity location", "error", fmt.Sprint(err))
 				if h.isHTMX(r) {
 					h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 					w.WriteHeader(http.StatusInternalServerError)
@@ -110,7 +111,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			h.handleSelectedActivityLocationNotFound(w, r, selectedActivityLocationID)
 			return
 		}
-		log.Printf("[ERROR] Failed to update settings: err=%v", err)
+		slog.Error("Failed to update settings", "error", fmt.Sprint(err))
 		if h.isHTMX(r) {
 			h.setHTMXToast(w, messageGenericInternalError, toastTypeError)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -120,7 +121,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] Updated settings: selected_location_id=%d", settings.SelectedActivityLocationID)
+	slog.Info("Updated settings", "component", "http", "selected_location_id", settings.SelectedActivityLocationID)
 	if h.isHTMX(r) {
 		message := messagePreferencesSaved
 		if location != nil {
@@ -146,6 +147,6 @@ func reviewerFieldsFromForm(form url.Values) (email string, collectNotes bool, s
 }
 
 func (h *Handler) handleSelectedActivityLocationNotFound(w http.ResponseWriter, r *http.Request, id int64) {
-	log.Printf("[HTTP] PUT /api/v1/settings: activity location not found: id=%d", id)
+	slog.Info("Activity location not found", "component", "http", "method", "PUT", "path", "/api/v1/settings", "id", id)
 	h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", messageSelectedActivityLocationNotFound)
 }

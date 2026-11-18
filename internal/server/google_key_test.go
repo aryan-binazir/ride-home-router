@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"reflect"
 	"regexp"
 	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/logtest"
 	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
@@ -26,14 +26,12 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	previousLog := log.Writer()
-	log.SetOutput(audit)
 	t.Cleanup(func() {
-		log.SetOutput(previousLog)
 		if err := audit.Close(); err != nil {
 			t.Error(err)
 		}
 	})
+	logtest.Capture(t, audit)
 	const endpoint = "/api/v1/settings/google-maps-key"
 	const firstKey = "SyntheticFirst-Q7m9_google-secret-0123456789"
 	const secondKey = "SyntheticSecond-R8n0_google-secret-9876543210"
@@ -314,9 +312,9 @@ func TestGoogleMapsKeySecurityIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, actor := range []string{`actor="user_admin"`, `actor="second"`} {
+	for _, actor := range []string{"user_admin", "second"} {
 		for _, action := range []string{"replaced", "deleted"} {
-			if !strings.Contains(string(logs), "Google Maps credential "+action+": "+actor) {
+			if !strings.Contains(string(logs), `msg="Google Maps credential `+action+`" component=admin actor=`+actor+"\n") {
 				t.Errorf("credential audit omitted %s by verified %s", action, actor)
 			}
 		}

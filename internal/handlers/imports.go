@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"ride-home-router/internal/database"
@@ -128,7 +128,7 @@ func (h *Handler) HandleCreateImport(w http.ResponseWriter, r *http.Request) {
 	if r.MultipartForm != nil {
 		defer func() {
 			if err := r.MultipartForm.RemoveAll(); err != nil {
-				log.Printf("[ERROR] Failed to remove import multipart files: err=%v", err)
+				slog.Error("Failed to remove import multipart files", "error", fmt.Sprint(err))
 			}
 		}()
 	}
@@ -384,7 +384,7 @@ func (h *Handler) writeImportStoreError(w http.ResponseWriter, r *http.Request, 
 	case errors.Is(err, importer.ErrStoreClosed):
 		return h.writeImportError(w, r, sessionID, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Imports are temporarily unavailable. Try again shortly.", nil)
 	default:
-		log.Printf("[ERROR] Internal error: %v", err)
+		slog.Error("Internal error", "error", fmt.Sprint(err))
 		return h.writeImportError(w, r, sessionID, http.StatusInternalServerError, "INTERNAL_ERROR", messageGenericInternalError, nil)
 	}
 }
@@ -500,12 +500,25 @@ func logImportRequest(method, action, id string, status, rows int, started time.
 		action = "unknown"
 	}
 	if rows >= 0 {
-		//nolint:gosec // G706: %q escapes every request-derived string; the remaining fields are numeric or durations.
-		log.Printf("[HTTP] Import request: method=%q action=%q session=%q status=%d rows=%d duration=%s", method, action, shortImportSessionID(id), status, rows, time.Since(started).Round(time.Millisecond))
+		slog.Info("Import request",
+			"component", "http",
+			"method", method,
+			"action", action,
+			"session", shortImportSessionID(id),
+			"status", status,
+			"rows", rows,
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return
 	}
-	//nolint:gosec // G706: %q escapes every request-derived string; the remaining fields are numeric or durations.
-	log.Printf("[HTTP] Import request: method=%q action=%q session=%q status=%d duration=%s", method, action, shortImportSessionID(id), status, time.Since(started).Round(time.Millisecond))
+	slog.Info("Import request",
+		"component", "http",
+		"method", method,
+		"action", action,
+		"session", shortImportSessionID(id),
+		"status", status,
+		"duration", time.Since(started).Round(time.Millisecond),
+	)
 }
 
 func sanitizeImportRequestPath(r *http.Request, id, action string, pathOK bool) {

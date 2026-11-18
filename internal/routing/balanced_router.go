@@ -2,7 +2,8 @@ package routing
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"math"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"slices"
@@ -31,8 +32,12 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 
 	mode := normalizeRouteMode(req.Mode)
 
-	log.Printf("[BALANCED] Starting calculation: participants=%d drivers=%d mode=%s",
-		len(req.Participants), len(req.Drivers), mode)
+	slog.Info("Starting route calculation",
+		"component", "balanced",
+		"participants", len(req.Participants),
+		"drivers", len(req.Drivers),
+		"mode", string(mode),
+	)
 
 	if len(req.Participants) == 0 {
 		return &models.RoutingResult{
@@ -69,7 +74,7 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("[TIMING] Prewarm cache: %v", time.Since(prewarmStart))
+	slog.Info("Prewarmed cache", "component", "timing", "duration", time.Since(prewarmStart))
 	rc := newRouteContext(distanceLookup, req.InstituteCoords, mode)
 
 	routes := make(map[int64]*balancedRoute)
@@ -112,24 +117,28 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 			return nil, err
 		}
 		if repairs > 0 {
-			log.Printf("[BALANCED] Phase 1 filled %d additional driver routes", repairs)
+			slog.Info("Phase 1 filled additional driver routes", "component", "balanced", "routes", repairs)
 		}
 	}
-	log.Printf("[BALANCED] Phase 1 seed: %s", seedName)
-	log.Printf("[TIMING] Phase 1 (%s): %v", seedName, time.Since(phase1Start))
+	slog.Info("Phase 1 seed selected", "component", "balanced", "seed", seedName)
+	slog.Info("Phase 1 completed", "component", "timing", "seed", seedName, "duration", time.Since(phase1Start))
 
 	phase2Start := time.Now()
 	if err := rc.optimizeRouteOrders(ctx, routes, driverIDs); err != nil {
 		return nil, err
 	}
-	log.Printf("[TIMING] Phase 2 (route ordering): %v", time.Since(phase2Start))
+	slog.Info("Phase 2 completed route ordering", "component", "timing", "duration", time.Since(phase2Start))
 
 	phase3Start := time.Now()
 	iterations, err := optimizeAssignments(ctx, rc, routes, driverIDs)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("[TIMING] Phase 3 (assignment search): %v (iterations=%d)", time.Since(phase3Start), iterations)
+	slog.Info("Phase 3 completed assignment search",
+		"component", "timing",
+		"duration", time.Since(phase3Start),
+		"iterations", iterations,
+	)
 
 	if len(unassigned) > 0 {
 		totalCapacity := 0
@@ -149,16 +158,19 @@ func (r *BalancedRouter) CalculateRoutes(ctx context.Context, req *RoutingReques
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("[TIMING] Phase 4 (driver swaps): %v (swaps=%d)", time.Since(phase4Start), swaps)
+	slog.Info("Phase 4 completed driver swaps", "component", "timing", "duration", time.Since(phase4Start), "swaps", swaps)
 
 	result, err := buildResult(ctx, rc, routes, len(req.Participants))
 	if err != nil {
 		return nil, err
 	}
 
-	log.Printf("[BALANCED] Complete: drivers_used=%d total_distance=%.0fm",
-		result.Summary.TotalDriversUsed, result.Summary.TotalDropoffDistanceMeters)
-	log.Printf("[TIMING] TOTAL: %v", time.Since(totalStart))
+	slog.Info("Route calculation completed",
+		"component", "balanced",
+		"drivers_used", result.Summary.TotalDriversUsed,
+		"total_distance_meters", math.RoundToEven(result.Summary.TotalDropoffDistanceMeters),
+	)
+	slog.Info("Route calculation total", "component", "timing", "duration", time.Since(totalStart))
 
 	return result, nil
 }

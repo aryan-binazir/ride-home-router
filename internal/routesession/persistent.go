@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
@@ -79,7 +79,13 @@ func (s *Store) CreateContext(ctx context.Context, input CreateInput) (Snapshot,
 	if err = s.records.Create(ctx, "route", snapshot.ID, data, sessionTTL); err != nil {
 		return Snapshot{}, err
 	}
-	log.Printf("[SESSION] Created route session: id=%s routes=%d drivers=%d mode=%s", state.id, len(input.Routes), len(input.SelectedDrivers), input.Mode)
+	slog.Info("Created route session",
+		"component", "session",
+		"session_id", state.id,
+		"routes", len(input.Routes),
+		"drivers", len(input.SelectedDrivers),
+		"mode", string(input.Mode),
+	)
 	return snapshot, nil
 }
 
@@ -167,7 +173,7 @@ func (s *Store) CommitEvent(ctx context.Context, id string, persist func(context
 		return ErrNotFound
 	}
 	if err == nil {
-		log.Printf("[SESSION] Deleted route session: id=%s", id)
+		slog.Info("Deleted route session", "component", "session", "session_id", id)
 	}
 	return err
 }

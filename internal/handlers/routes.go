@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"log"
+	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
@@ -132,7 +132,7 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 	contentType := r.Header.Get(httpx.HeaderContentType)
 	if httpx.HasFormContentType(contentType) {
 		if err := r.ParseForm(); err != nil {
-			log.Printf("[HTTP] POST /api/v1/routes/calculate: form_parse_error err=%v", err)
+			slog.Info("Form parse failed", "component", "http", "method", "POST", "path", "/api/v1/routes/calculate", "error", fmt.Sprint(err))
 			h.handleValidationError(w, r, messageInvalidFormData)
 			return
 		}
@@ -142,10 +142,16 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 			h.handleValidationErrorHTMX(w, r, routeFormValidationMessage(err))
 			return
 		}
-		log.Printf("[HTTP] POST /api/v1/routes/calculate: form_data participants=%v drivers=%v", req.ParticipantIDs, req.DriverIDs)
+		slog.Info("Route calculation form parsed",
+			"component", "http",
+			"method", "POST",
+			"path", "/api/v1/routes/calculate",
+			"participants", req.ParticipantIDs,
+			"drivers", req.DriverIDs,
+		)
 	} else {
 		if err := httpx.DecodeJSON(r, &req); err != nil {
-			log.Printf("[HTTP] POST /api/v1/routes/calculate: invalid_json err=%v", err)
+			slog.Info("Invalid JSON", "component", "http", "method", "POST", "path", "/api/v1/routes/calculate", "error", fmt.Sprint(err))
 			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return
 		}
@@ -161,7 +167,12 @@ func (h *Handler) HandleCalculateRoutes(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		log.Printf("[HTTP] POST /api/v1/routes/calculate-with-org-vehicles: form_parse_error err=%v", err)
+		slog.Info("Form parse failed",
+			"component", "http",
+			"method", "POST",
+			"path", "/api/v1/routes/calculate-with-org-vehicles",
+			"error", fmt.Sprint(err),
+		)
 		h.handleValidationErrorHTMX(w, r, messageInvalidFormData)
 		return
 	}
@@ -183,14 +194,12 @@ func (h *Handler) HandleCalculateRoutesWithOrgVehicles(w http.ResponseWriter, r 
 func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req CalculateRoutesRequest, policy routeIntakePolicy) {
 	validateSelections := func() bool {
 		if len(req.ParticipantIDs) == 0 {
-			//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-			log.Printf("[HTTP] POST %s: missing participants", logutil.SafeString(r.URL.Path))
+			slog.Info("Missing participants", "component", "http", "method", "POST", "path", r.URL.Path)
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneParticipant)
 			return false
 		}
 		if len(req.DriverIDs) == 0 {
-			//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-			log.Printf("[HTTP] POST %s: missing drivers", logutil.SafeString(r.URL.Path))
+			slog.Info("Missing drivers", "component", "http", "method", "POST", "path", r.URL.Path)
 			h.handleValidationErrorHTMX(w, r, messageSelectAtLeastOneDriver)
 			return false
 		}
@@ -232,9 +241,15 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		return
 	}
 
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] POST %s: participants=%d drivers=%d org_assignments=%d mode=%s",
-		logutil.SafeString(r.URL.Path), len(req.ParticipantIDs), len(req.DriverIDs), len(orgVehicleAssignments), logutil.SafeString(string(mode)))
+	slog.Info("Route calculation requested",
+		"component", "http",
+		"method", "POST",
+		"path", r.URL.Path,
+		"participants", len(req.ParticipantIDs),
+		"drivers", len(req.DriverIDs),
+		"org_assignments", len(orgVehicleAssignments),
+		"mode", string(mode),
+	)
 
 	calculationCtx, cancel := context.WithTimeout(r.Context(), routeSolveTimeout)
 	defer cancel()
@@ -265,16 +280,21 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 		return
 	}
 	if outcome.Kind == routeCalculationRouteFailure {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] POST %s: route calculation failed: err=%s", logutil.SafeString(r.URL.Path), logutil.SafeString(outcome.Err.Error()))
+		slog.Error("Route calculation failed", "component", "http", "method", "POST", "path", r.URL.Path, "error", outcome.Err.Error())
 		h.handleRouteCalculationError(w, r, outcome.Err)
 		return
 	}
 	if outcome.Kind == routeCalculationShortage {
 		shortage := outcome.Shortage
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] POST %s: routing failed: participants=%d unassigned=%d capacity=%d reason=%s",
-			logutil.SafeString(r.URL.Path), shortage.RoutingError.TotalParticipants, shortage.RoutingError.UnassignedCount, shortage.RoutingError.TotalCapacity, logutil.SafeString(shortage.RoutingError.Reason))
+		slog.Error("Routing failed",
+			"component", "http",
+			"method", "POST",
+			"path", r.URL.Path,
+			"participants", shortage.RoutingError.TotalParticipants,
+			"unassigned", shortage.RoutingError.UnassignedCount,
+			"capacity", shortage.RoutingError.TotalCapacity,
+			"reason", shortage.RoutingError.Reason,
+		)
 		if policy.alwaysRenderResultsHTML || h.isHTMX(r) {
 			if policy.warnOnShortage {
 				message := messageHouseholdsDoNotFit
@@ -304,9 +324,14 @@ func (h *Handler) runRouteIntake(w http.ResponseWriter, r *http.Request, req Cal
 
 	result := outcome.Result
 	session := outcome.Session
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[HTTP] POST %s: routes calculated: drivers=%d org_vehicles=%d total_distance=%.0f",
-		logutil.SafeString(r.URL.Path), result.Summary.TotalDriversUsed, result.Summary.OrgVehiclesUsed, result.Summary.TotalDropoffDistanceMeters)
+	slog.Info("Routes calculated",
+		"component", "http",
+		"method", "POST",
+		"path", r.URL.Path,
+		"drivers", result.Summary.TotalDriversUsed,
+		"org_vehicles", result.Summary.OrgVehiclesUsed,
+		"total_distance_meters", math.RoundToEven(result.Summary.TotalDropoffDistanceMeters),
+	)
 
 	timings := h.routeTimings(calculationCtx, session, allRouteIndexes(session))
 	if policy.alwaysRenderResultsHTML || h.isHTMX(r) {

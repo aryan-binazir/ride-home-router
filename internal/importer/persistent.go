@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"time"
@@ -411,11 +411,11 @@ func (s *Store) durableWorker(ctx context.Context) {
 			return
 		}
 		if err != nil {
-			log.Printf("[IMPORT] Claim job: %v", err)
+			slog.Error("Claim job", "component", "import", "error", fmt.Sprint(err))
 		}
 		if ok && err == nil {
 			if err = s.processJob(ctx, job); err != nil && !errors.Is(err, database.ErrNotFound) && !errors.Is(err, database.ErrWorkflowConflict) && ctx.Err() == nil {
-				log.Printf("[IMPORT] Process job: %v", err)
+				slog.Error("Process job", "component", "import", "error", fmt.Sprint(err))
 			}
 			delay = activeInterval
 			timer.Reset(delay)
@@ -433,7 +433,7 @@ func (s *Store) processJob(ctx context.Context, job database.ImportJob) error {
 		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
 		if err := s.durableJobs.Release(releaseCtx, job); err != nil {
-			log.Printf("[IMPORT] Release job: %v", err)
+			slog.Error("Release job", "component", "import", "error", fmt.Sprint(err))
 		}
 	}()
 	workCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

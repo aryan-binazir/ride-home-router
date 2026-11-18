@@ -2,7 +2,7 @@ package routing
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"maps"
 	"math"
 	"ride-home-router/internal/models"
@@ -44,10 +44,10 @@ func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute mo
 		if !ok {
 			repaired, err := repairSweep(ctx, institute, workingRoutes, orderedDriverIDs, groups, splittableHouseholds, reserveEveryDriver)
 			if err != nil || !repaired {
-				log.Printf("[BALANCED] Phase 1 sweep repair failed with %d groups left", len(groups))
+				slog.Info("Phase 1 sweep repair failed", "component", "balanced", "groups_remaining", len(groups))
 				return false, err
 			}
-			log.Printf("[BALANCED] Phase 1 sweep repair placed %d groups into spare seats", len(groups))
+			slog.Info("Phase 1 sweep repair placed groups into spare seats", "component", "balanced", "groups_placed", len(groups))
 			for _, id := range orderedDriverIDs {
 				if len(workingRoutes[id].stops) > 0 {
 					driversWithGroups[id] = struct{}{}
@@ -155,7 +155,7 @@ func repairSweep(ctx context.Context, institute models.Coordinates, routes map[i
 			break
 		}
 		if !placed {
-			log.Printf("[BALANCED] Phase 1 sweep repair: no remaining group fits empty driver %d", driverID)
+			slog.Info("Phase 1 sweep repair found no group that fits empty driver", "component", "balanced", "driver_id", driverID)
 			return false, nil
 		}
 	}
@@ -209,7 +209,12 @@ func repairSweep(ctx context.Context, institute models.Coordinates, routes map[i
 			break
 		}
 		if !placed {
-			log.Printf("[BALANCED] Phase 1 sweep repair: no car with %d seats can take group %s (%d candidates by seats)", assignedCount, participantGroupKey(group), len(candidates))
+			slog.Info("Phase 1 sweep repair found no vehicle that fits group",
+				"component", "balanced",
+				"seats", assignedCount,
+				"group", participantGroupKey(group),
+				"candidates", len(candidates),
+			)
 			return false, nil
 		}
 		if assignedCount == len(group.members) {
@@ -456,8 +461,12 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 	}
 
 	totalParticipants := len(unassigned)
-	log.Printf("[BALANCED] Distributing %d participants (%d household groups) across %d drivers",
-		totalParticipants, len(groups), len(driverIDs))
+	slog.Info("Distributing participants across drivers",
+		"component", "balanced",
+		"participants", totalParticipants,
+		"household_groups", len(groups),
+		"drivers", len(driverIDs),
+	)
 
 	driverIndex := 0
 	insertionRoundLimit := totalParticipants * len(driverIDs) * 2
@@ -582,11 +591,22 @@ func roundRobinInsertion(ctx context.Context, rc routeContext, routes map[int64]
 		}
 
 		if len(bestGroup.members) == 1 {
-			log.Printf("[BALANCED] Assigned %s to %s (pos=%d, rider_score_delta=%.0f)",
-				memberNames[0], route.driver.Name, bestPosition, bestCost)
+			slog.Info("Assigned rider to driver",
+				"component", "balanced",
+				"rider", memberNames[0],
+				"driver", route.driver.Name,
+				"position", bestPosition,
+				"rider_score_delta", math.RoundToEven(bestCost),
+			)
 		} else {
-			log.Printf("[BALANCED] Assigned household group [%v] to %s (pos=%d, rider_score_delta=%.0f, size=%d)",
-				memberNames, route.driver.Name, bestPosition, bestCost, len(bestGroup.members))
+			slog.Info("Assigned household group to driver",
+				"component", "balanced",
+				"riders", memberNames,
+				"driver", route.driver.Name,
+				"position", bestPosition,
+				"rider_score_delta", math.RoundToEven(bestCost),
+				"size", len(bestGroup.members),
+			)
 		}
 
 		originalGroup := groups[bestGroupIndex]

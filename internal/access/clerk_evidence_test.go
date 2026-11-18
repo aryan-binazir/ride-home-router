@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/access/accesstest"
+	"ride-home-router/internal/logtest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,11 +151,7 @@ func TestEvidenceMatrix(t *testing.T) {
 						}
 						row := evidenceRow{Name: name}
 						var logs bytes.Buffer
-						originalWriter, originalFlags := log.Writer(), log.Flags()
-						log.SetOutput(&logs)
-						log.SetFlags(0)
-						defer log.SetOutput(originalWriter)
-						defer log.SetFlags(originalFlags)
+						logtest.Capture(t, &logs)
 						for range 3 {
 							logs.Reset()
 							w := evidenceRequest(h, token)
