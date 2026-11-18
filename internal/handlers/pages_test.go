@@ -361,10 +361,8 @@ func newTestPageHandler(t *testing.T) (*Handler, *postgres.Store) {
 	handler := &Handler{
 		DB:           store,
 		Renderer:     loadEmbeddedTemplates(t),
-		RouteSession: routesession.NewStore(routeEditDistanceCalculator{}),
+		RouteSession: routesession.NewPersistentStore(routeEditDistanceCalculator{}, store.Workflows()),
 	}
-
-	t.Cleanup(handler.RouteSession.Close)
 
 	return handler, store
 }

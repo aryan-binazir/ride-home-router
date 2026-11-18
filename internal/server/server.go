@@ -221,9 +221,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.cleanupCancel()
 		<-s.cleanupDone
 	}
-	if s.handler != nil && s.handler.RouteSession != nil {
-		s.handler.RouteSession.Close()
-	}
 	if s.handler != nil && s.handler.ImportSession != nil {
 		s.handler.ImportSession.Close()
 	}

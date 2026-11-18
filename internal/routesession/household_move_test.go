@@ -2,14 +2,15 @@ package routesession_test
 
 import (
 	"context"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
 	"testing"
 )
 
 func TestApplyMovesMovesTheWholeHousehold(t *testing.T) {
-	store := routesession.NewStore(calculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
+
 	sibling1 := &models.Participant{ID: 1, Name: "Amelia Bennett", Address: "12 Oak St", Lat: 1, Lng: 1}
 	sibling2 := &models.Participant{ID: 2, Name: "Noah Bennett", Address: "12 Oak St", Lat: 1, Lng: 1}
 	other := &models.Participant{ID: 3, Name: "Owen Carter", Address: "40 Elm St", Lat: 2, Lng: 2}

@@ -13,7 +13,53 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
+
+func TestPostgresRouteSessionExpiry(t *testing.T) {
+	ctx := t.Context()
+	url := postgrestest.DatabaseURL(t)
+	db := postgrestest.OpenURL(t, url)
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	store := routesession.NewPersistentStore(calculator{}, db.Workflows())
+	created, err := store.CreateContext(ctx, testInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFullTTL := func() {
+		t.Helper()
+		var fullTTL bool
+		err := conn.QueryRow(ctx, `SELECT expires_at BETWEEN clock_timestamp() + interval '479 minutes' AND clock_timestamp() + interval '8 hours' FROM workflow_sessions WHERE kind='route' AND id=$1`, created.ID).Scan(&fullTTL)
+		if err != nil || !fullTTL {
+			t.Fatalf("expected 8h route session TTL: fullTTL=%v err=%v", fullTTL, err)
+		}
+	}
+	assertFullTTL()
+	if _, err := conn.Exec(ctx, `UPDATE workflow_sessions SET expires_at=clock_timestamp()+interval '1 minute' WHERE kind='route' AND id=$1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.Load(ctx, created.ID); !ok || err != nil {
+		t.Fatalf("load live session: found=%v err=%v", ok, err)
+	}
+	assertFullTTL()
+	if _, err := conn.Exec(ctx, `UPDATE workflow_sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE kind='route' AND id=$1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.Load(ctx, created.ID); ok || err != nil {
+		t.Fatalf("load expired session: found=%v err=%v", ok, err)
+	}
+	if err := commitSession(store, ctx, created.ID, func(context.Context, routesession.CommitSnapshot) error {
+		t.Fatal("expired session reached persistence")
+		return nil
+	}); !errors.Is(err, routesession.ErrNotFound) {
+		t.Fatalf("commit expired session: %v", err)
+	}
+}
 
 func TestPersistentLoadScrubsOldProviderMetricsWithoutWritingUntilEdit(t *testing.T) {
 	db := postgrestest.Open(t)
@@ -178,6 +224,56 @@ func TestPersistentRouteConflictDoesNotOverwriteOtherInstance(t *testing.T) {
 	got, ok, err := b.Load(t.Context(), created.ID)
 	if err != nil || !ok || len(got.Routes[0].Stops) != 1 || len(got.Routes[1].Stops) != 0 {
 		t.Fatalf("stale edit overwrote reset: %+v %v", got, err)
+	}
+}
+
+func TestPostgresRouteSessionSaveAndDiscardFenceInFlightEdit(t *testing.T) {
+	for _, action := range []string{"save", "discard"} {
+		t.Run(action, func(t *testing.T) {
+			db := postgrestest.Open(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			calc := newBlockingCalculator()
+			defer calc.unblock()
+			store := routesession.NewPersistentStore(calc, db.Workflows())
+			created, err := store.CreateContext(ctx, testInput())
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 10, ToRouteIndex: 1}}, routesession.ApplyMovesOptions{})
+				done <- err
+			}()
+			select {
+			case <-calc.started:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+
+			want := routesession.ErrNotFound
+			if action == "save" {
+				want = database.ErrWorkflowConflict
+				err = commitSession(store, ctx, created.ID, func(_ context.Context, snapshot routesession.CommitSnapshot) error {
+					if len(snapshot.Final[0].Stops) != 1 || len(snapshot.Final[1].Stops) != 0 {
+						t.Fatalf("save included unacknowledged edit: %+v", snapshot.Final)
+					}
+					return nil
+				})
+			} else {
+				err = store.DeleteContext(ctx, created.ID)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			calc.unblock()
+			if err := <-done; !errors.Is(err, want) {
+				t.Fatalf("edit after %s: got %v, want %v", action, err, want)
+			}
+			if _, ok, err := store.Load(ctx, created.ID); ok || err != nil {
+				t.Fatalf("session after %s: found=%v err=%v", action, ok, err)
+			}
+		})
 	}
 }
 

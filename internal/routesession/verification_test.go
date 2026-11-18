@@ -1,10 +1,10 @@
 package routesession_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"reflect"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/distance"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routesession"
@@ -12,13 +12,13 @@ import (
 )
 
 func TestVerificationBoundedMoveIntegrity(t *testing.T) {
-	ctx := context.Background()
 	for _, mode := range []models.RouteMode{models.RouteModeDropoff, models.RouteModePickup} {
 		for first := range 27 {
 			for second := range 27 {
 				t.Run(fmt.Sprintf("%s/%d/%d", mode, first, second), func(t *testing.T) {
-					s := routesession.NewStore(distance.NewEstimator())
-					t.Cleanup(s.Close)
+					ctx := t.Context()
+					s := routesession.NewPersistentStore(distance.NewEstimator(), workflowtest.New())
+
 					drivers := []models.Driver{{ID: 1, VehicleCapacity: 2}, {ID: 2, VehicleCapacity: 2}, {ID: 3, VehicleCapacity: 2}}
 					routes := make([]models.CalculatedRoute, 3)
 					for i := range routes {
@@ -50,6 +50,10 @@ func TestVerificationBoundedMoveIntegrity(t *testing.T) {
 							t.Fatalf("mode=%s commands=%d,%d counts=%v drivers=%v", mode, first, second, counts, ds)
 						}
 
+						before, found, err := s.Load(ctx, snap.ID)
+						if err != nil || !found {
+							t.Fatalf("load before failed batch: found=%v err=%v", found, err)
+						}
 						_, err = s.ApplyMoves(ctx, snap.ID, []routesession.Move{{ParticipantID: p, ToRouteIndex: (dest + 1) % 3}, {ParticipantID: 999, ToRouteIndex: 0}}, routesession.ApplyMovesOptions{})
 						if !errors.Is(err, routesession.ErrParticipantNotFound) {
 							t.Fatal(err)
@@ -58,7 +62,7 @@ func TestVerificationBoundedMoveIntegrity(t *testing.T) {
 						if loadErr != nil || !ok {
 							t.Fatalf("load after rollback: found=%v err=%v", ok, loadErr)
 						}
-						if !reflect.DeepEqual(after.Routes, snap.Routes) {
+						if !reflect.DeepEqual(after, before) {
 							t.Fatalf("failed batch changed state; mode=%s commands=%d,%d", mode, first, second)
 						}
 					}

@@ -85,11 +85,11 @@
   },
   {
     "name": "move-rollback",
-    "source": "internal/routesession/store.go",
+    "source": "internal/routesession/persistent.go",
     "replace": [
       [
-        "if !ok {\n\t\t\t\trollback()\n\t\t\t\treturn Snapshot{}, ErrParticipantNotFound",
-        "if !ok {\n\t\t\t\treturn Snapshot{}, ErrParticipantNotFound"
+        "result, err := mutate(state)\n\tif err != nil {\n\t\treturn Snapshot{}, err\n\t}",
+        "result, err := mutate(state)\n\tif err != nil {\n\t\tif data, encodeErr := encodeState(state); encodeErr == nil {\n\t\t\t_ = s.records.CompareAndSwap(ctx, \"route\", id, record.Revision, data, sessionTTL)\n\t\t}\n\t\treturn Snapshot{}, err\n\t}"
       ]
     ],
     "package": "./internal/routesession",

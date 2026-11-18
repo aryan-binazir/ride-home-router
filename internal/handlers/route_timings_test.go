@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/database"
+	"ride-home-router/internal/database/workflowtest"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/orderedroute"
 	"ride-home-router/internal/routesession"
@@ -222,8 +223,8 @@ func TestRouteSessionTimingsMeasureOnlyTheRequestedCar(t *testing.T) {
 
 func twoCarRouteFixture(t *testing.T) (*Handler, *stubMeasurer, routesession.Snapshot) {
 	t.Helper()
-	store := routesession.NewStore(routeEditDistanceCalculator{})
-	t.Cleanup(store.Close)
+	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
+
 	first := models.Driver{ID: 1, Name: "Dana Whitfield", Address: "4 Driver Rd", Lat: 40.3, Lng: -73.3, VehicleCapacity: 3}
 	second := models.Driver{ID: 2, Name: "Marcus Hill", Address: "5 Driver Rd", Lat: 40.4, Lng: -73.4, VehicleCapacity: 3}
 	riderOne := models.Participant{ID: 10, Name: "Maya Chen", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.1}
