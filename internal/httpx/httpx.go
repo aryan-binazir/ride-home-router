@@ -17,12 +17,10 @@ var loopbackHostnames = [...]string{"localhost", "127.0.0.1", "::1"}
 var ErrJSONContentTypeRequired = errors.New("Content-Type must be application/json")
 
 const (
-	HeaderContentType  = "Content-Type"
-	HeaderHXCurrentURL = "HX-Current-URL"
-	HeaderHXRequest    = "HX-Request"
-	HeaderHXReswap     = "HX-Reswap"
-	HeaderHXTarget     = "HX-Target"
-	HeaderHXTrigger    = "HX-Trigger"
+	HeaderContentType = "Content-Type"
+	HeaderHXRequest   = "HX-Request"
+	HeaderHXReswap    = "HX-Reswap"
+	HeaderHXTrigger   = "HX-Trigger"
 
 	MediaTypeJSON      = "application/json"
 	MediaTypeHTML      = "text/html; charset=utf-8"

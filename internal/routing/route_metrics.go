@@ -48,7 +48,6 @@ type routeMetrics struct {
 	FinalLegDistanceMeters  float64
 	TotalDistanceMeters     float64
 	TotalStopDurationSecs   float64
-	FinalLegDurationSecs    float64
 	RouteDurationSecs       float64
 	BaselineDurationSecs    float64
 	DetourSecs              float64
@@ -165,21 +164,12 @@ func (rc routeContext) evaluateParticipants(ctx context.Context, driver *models.
 	}
 
 	metrics.FinalLegDistanceMeters = finalLeg.DistanceMeters
-	metrics.FinalLegDurationSecs = finalLeg.DurationSecs
 	metrics.TotalDistanceMeters = metrics.TotalStopDistanceMeters + finalLeg.DistanceMeters
 	metrics.RouteDurationSecs = metrics.TotalStopDurationSecs + finalLeg.DurationSecs
 	metrics.BaselineDurationSecs = baseline.DurationSecs
 	metrics.DetourSecs = metrics.RouteDurationSecs - baseline.DurationSecs
 
 	return metrics, nil
-}
-
-func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {
-	before, err := rc.riderScore(ctx, driver, stops)
-	if err != nil {
-		return 0, err
-	}
-	return rc.groupInsertionDeltaRiderScoreFrom(ctx, driver, stops, group, pos, before)
 }
 
 func (rc routeContext) groupInsertionDeltaRiderScoreFrom(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int, before float64) (float64, error) {

@@ -147,7 +147,6 @@ func assembleMeasuredMetrics(legs []orderedroute.Leg, baseline orderedroute.Leg,
 	}
 	final := legs[len(legs)-1]
 	metrics.FinalLegDistanceMeters = final.DistanceMeters
-	metrics.FinalLegDurationSecs = final.DurationSecs
 	metrics.TotalDistanceMeters = metrics.TotalStopDistanceMeters + final.DistanceMeters
 	metrics.RouteDurationSecs = metrics.TotalStopDurationSecs + final.DurationSecs
 	metrics.BaselineDurationSecs = baseline.DurationSecs

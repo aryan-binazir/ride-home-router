@@ -42,13 +42,11 @@ type routeCalculationInput struct {
 }
 
 type routeCalculationOutcome struct {
-	Kind             routeCalculationKind
-	Result           *models.RoutingResult
-	Session          routesession.Snapshot
-	Shortage         *routeCalculationShortageContext
-	ActivityLocation *models.ActivityLocation
-	UseMiles         bool
-	Err              error
+	Kind     routeCalculationKind
+	Result   *models.RoutingResult
+	Session  routesession.Snapshot
+	Shortage *routeCalculationShortageContext
+	Err      error
 }
 
 type routeCalculationShortageContext struct {
@@ -161,11 +159,9 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 	}
 
 	return routeCalculationOutcome{
-		Kind:             routeCalculationSuccess,
-		Result:           result,
-		Session:          session,
-		ActivityLocation: activityLocation,
-		UseMiles:         settings.UseMiles,
+		Kind:    routeCalculationSuccess,
+		Result:  result,
+		Session: session,
 	}
 }
 

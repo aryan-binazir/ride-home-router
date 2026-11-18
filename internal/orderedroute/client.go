@@ -174,9 +174,6 @@ func (c *Client) measureRoute(ctx context.Context, key string, points []models.C
 		}
 		legs = append(legs, chunk...)
 	}
-	if len(legs) != len(points)-1 {
-		return nil, errors.New("orderedroute: provider returned an unexpected number of legs")
-	}
 	return legs, nil
 }
 

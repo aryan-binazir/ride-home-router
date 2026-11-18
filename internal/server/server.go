@@ -20,7 +20,6 @@ import (
 	"ride-home-router/internal/importer"
 	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/orderedroute"
-	"ride-home-router/internal/plandraft"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/routesession"
 	"ride-home-router/internal/routing"
@@ -118,7 +117,6 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		})
 	}
 	importSession := importer.NewPersistentStore(ctx, geocoder, db, db.Workflows(), db.ImportJobs())
-	planDraft := plandraft.NewPersistentStore(db.Workflows())
 
 	handler := &handlers.Handler{
 		DB:            db,
@@ -128,7 +126,6 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		Renderer:      renderer,
 		RouteSession:  routeSession,
 		ImportSession: importSession,
-		PlanDraft:     planDraft,
 	}
 
 	mux := setupRoutes(handler, web.Static)
@@ -229,9 +226,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.handler != nil && s.handler.ImportSession != nil {
 		s.handler.ImportSession.Close()
-	}
-	if s.handler != nil && s.handler.PlanDraft != nil {
-		s.handler.PlanDraft.Close()
 	}
 	shutdownErr := s.httpServer.Shutdown(ctx)
 	if s.serveDone != nil {

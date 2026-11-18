@@ -19,7 +19,7 @@ func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 	rows := make([]Row, len(g.rows))
 	existingPairs := make(map[string]struct{}, len(existing))
 	for _, entry := range existing {
-		if key := duplicateKey(entry.Name, entry.Address); key != "" {
+		if key := DuplicateKey(entry.Name, entry.Address); key != "" {
 			existingPairs[key] = struct{}{}
 		}
 	}
@@ -52,7 +52,7 @@ func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 
 		validateCapacity(&row, source.cells, m, kind)
 
-		if key := duplicateKey(row.Name, row.Address); key != "" {
+		if key := DuplicateKey(row.Name, row.Address); key != "" {
 			if _, ok := seenPairs[key]; ok {
 				row.DuplicateInFile = true
 			} else {
@@ -156,8 +156,6 @@ func mappedCell(cells []string, column int) string {
 func DuplicateKey(name, address string) string {
 	return models.RosterKey(name, address)
 }
-
-func duplicateKey(name, address string) string { return DuplicateKey(name, address) }
 
 func (r *Row) addError(message string) {
 	if message != "" && !containsString(r.Errors, message) {

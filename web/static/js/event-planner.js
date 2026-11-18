@@ -1601,15 +1601,6 @@
             input.value = getDefaultRouteTimeValue();
         }
 
-        function escapeHtml(value) {
-            return String(value || '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
         function createPlanSelection() {
             function getCheckedInputs(selector) {
                 return Array.from(document.querySelectorAll(selector)).filter(input => input.checked);

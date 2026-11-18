@@ -21,7 +21,6 @@ const (
 type Mix map[Region]float64
 
 type centroid struct {
-	Name   string
 	Region Region
 	Lat    float64
 	Lng    float64
@@ -29,21 +28,21 @@ type centroid struct {
 }
 
 var centroids = []centroid{
-	{"Trinity Park", Durham, 36.011, -78.911, "Monmouth Ave"},
-	{"Hope Valley", Durham, 35.946, -78.957, "Dover Rd"},
-	{"Southpoint/Woodcroft", Durham, 35.923, -78.938, "Woodcroft Pkwy"},
-	{"Duke Park", Durham, 36.018, -78.891, "Acadia St"},
-	{"Northgate Park", Durham, 36.029, -78.900, "Lavender Ave"},
-	{"Southern Village", ChapelHill, 35.880, -79.066, "Market St"},
-	{"Meadowmont", ChapelHill, 35.904, -79.009, "Meadowmont Ln"},
-	{"Governors Club", ChapelHill, 35.846, -79.034, "Governors Dr"},
-	{"Downtown Carrboro", Carrboro, 35.912, -79.078, "N Greensboro St"},
-	{"North Carrboro", Carrboro, 35.931, -79.089, "Hillsborough Rd"},
-	{"North Hills", Raleigh, 35.839, -78.646, "Northbrook Dr"},
-	{"Five Points", Raleigh, 35.809, -78.646, "Whitaker Mill Rd"},
-	{"Brier Creek", Raleigh, 35.912, -78.791, "Brier Creek Pkwy"},
-	{"Cary Parkway", Raleigh, 35.766, -78.823, "SW Cary Pkwy"},
-	{"Morrisville", Raleigh, 35.828, -78.837, "Morrisville Carpenter Rd"},
+	{Durham, 36.011, -78.911, "Monmouth Ave"},
+	{Durham, 35.946, -78.957, "Dover Rd"},
+	{Durham, 35.923, -78.938, "Woodcroft Pkwy"},
+	{Durham, 36.018, -78.891, "Acadia St"},
+	{Durham, 36.029, -78.900, "Lavender Ave"},
+	{ChapelHill, 35.880, -79.066, "Market St"},
+	{ChapelHill, 35.904, -79.009, "Meadowmont Ln"},
+	{ChapelHill, 35.846, -79.034, "Governors Dr"},
+	{Carrboro, 35.912, -79.078, "N Greensboro St"},
+	{Carrboro, 35.931, -79.089, "Hillsborough Rd"},
+	{Raleigh, 35.839, -78.646, "Northbrook Dr"},
+	{Raleigh, 35.809, -78.646, "Whitaker Mill Rd"},
+	{Raleigh, 35.912, -78.791, "Brier Creek Pkwy"},
+	{Raleigh, 35.766, -78.823, "SW Cary Pkwy"},
+	{Raleigh, 35.828, -78.837, "Morrisville Carpenter Rd"},
 }
 
 var (
