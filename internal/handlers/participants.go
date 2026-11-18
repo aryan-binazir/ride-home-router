@@ -27,10 +27,10 @@ var participantRoster = rosterKind[models.Participant, ParticipantResponse]{
 	labels:     database.LabelRepository.ListLabelsForParticipant,
 	labelIDs:   database.LabelRepository.ListLabelIDsForParticipants,
 	identity:   func(p *models.Participant) (int64, string) { return p.ID, p.Name },
-	create: func(e rosterEditor, ctx context.Context, edit driverEdit) (*models.Participant, error) {
+	create: func(e rosterEditor, ctx context.Context, edit rosterEdit) (*models.Participant, error) {
 		return e.createParticipant(ctx, edit.participantEdit)
 	},
-	update: func(e rosterEditor, ctx context.Context, p *models.Participant, edit driverEdit) (*models.Participant, error) {
+	update: func(e rosterEditor, ctx context.Context, p *models.Participant, edit rosterEdit) (*models.Participant, error) {
 		return e.updateParticipant(ctx, p, edit.participantEdit)
 	},
 	response: func(p *models.Participant, ids []int64) ParticipantResponse {
@@ -75,8 +75,4 @@ func (h *Handler) HandleRestoreParticipant(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) HandleParticipantForm(w http.ResponseWriter, r *http.Request) {
 	participantRoster.form(h, w, r)
-}
-
-func (h *Handler) participantResponse(ctx context.Context, person *models.Participant) (ParticipantResponse, error) {
-	return participantRoster.responseWithLabels(h.DB, ctx, person)
 }

@@ -33,8 +33,8 @@ type rosterKind[T, R any] struct {
 	labels     func(database.LabelRepository, context.Context, int64) ([]models.Label, error)
 	labelIDs   func(database.LabelRepository, context.Context) (map[int64][]int64, error)
 	identity   func(*T) (id int64, name string)
-	create     func(rosterEditor, context.Context, driverEdit) (*T, error)
-	update     func(rosterEditor, context.Context, *T, driverEdit) (*T, error)
+	create     func(rosterEditor, context.Context, rosterEdit) (*T, error)
+	update     func(rosterEditor, context.Context, *T, rosterEdit) (*T, error)
 	response   func(*T, []int64) R
 	jsonList   func([]R) any
 	listView   func(rosterPage[T]) any
@@ -101,7 +101,6 @@ func (kind rosterKind[T, R]) createPerson(h *Handler, w http.ResponseWriter, r *
 	}
 
 	if kind.hasCapacity {
-		//nolint:gosec // G706: capacity is an integer.
 		log.Printf("[HTTP] POST /api/v1/drivers: capacity=%d", edit.VehicleCapacity)
 	} else {
 		log.Print("[HTTP] POST /api/v1/participants:")
@@ -214,7 +213,7 @@ type rosterPersonBody struct {
 	LabelIDs    *[]int64 `json:"label_ids"`
 }
 
-func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http.Request, creating bool, id int64) (driverEdit, bool) {
+func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http.Request, creating bool, id int64) (rosterEdit, bool) {
 	var body struct {
 		rosterPersonBody
 		VehicleCapacity int `json:"vehicle_capacity"`
@@ -227,7 +226,7 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 				err = fmt.Errorf("parse form: %w", err)
 			}
 			h.renderError(w, r, err)
-			return driverEdit{}, false
+			return rosterEdit{}, false
 		}
 		body.Name = r.FormValue("name")
 		body.Address = r.FormValue("address")
@@ -237,7 +236,7 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 				capacity, err := strconv.Atoi(value)
 				if err != nil {
 					h.handleValidationErrorHTMX(w, r, "Enter a valid vehicle capacity.")
-					return driverEdit{}, false
+					return rosterEdit{}, false
 				}
 				body.VehicleCapacity = capacity
 			}
@@ -246,7 +245,7 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 		labelIDs, err = parseLabelIDs(r)
 		if err != nil {
 			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return driverEdit{}, false
+			return rosterEdit{}, false
 		}
 		setLabels = true
 	} else {
@@ -259,7 +258,7 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 				log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
 			}
 			h.handleValidationError(w, r, messageInvalidRequestBody)
-			return driverEdit{}, false
+			return rosterEdit{}, false
 		}
 		if body.LabelIDs != nil {
 			labelIDs = *body.LabelIDs
@@ -270,23 +269,22 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 
 	if message := personLengthMessage(body.Name, body.Address); message != "" {
 		h.handleValidationErrorHTMX(w, r, message)
-		return driverEdit{}, false
+		return rosterEdit{}, false
 	}
 	if body.Name == "" || body.Address == "" {
 		if creating && !kind.hasCapacity {
-			//nolint:gosec // G706: request fields are logged only as presence booleans.
 			log.Printf("[HTTP] POST /api/v1/participants: missing_name=%t missing_address=%t", body.Name == "", body.Address == "")
 		}
 		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
-		return driverEdit{}, false
+		return rosterEdit{}, false
 	}
 	if len([]rune(body.AddressName)) > models.MaxAddressNameLength {
 		h.handleValidationErrorHTMX(w, r, messageAddressNameTooLong())
-		return driverEdit{}, false
+		return rosterEdit{}, false
 	}
 	if kind.hasCapacity && (body.VehicleCapacity < models.MinVehicleCapacity || body.VehicleCapacity > models.MaxVehicleCapacity) {
 		h.handleValidationErrorHTMX(w, r, messageVehicleCapacityOutOfRange())
-		return driverEdit{}, false
+		return rosterEdit{}, false
 	}
 	if setLabels {
 		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
@@ -296,10 +294,10 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 				log.Printf("[HTTP] PUT /api/v1/%s/{id}: invalid_labels id=%d err=%v", kind.plural, id, err)
 			}
 			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
-			return driverEdit{}, false
+			return rosterEdit{}, false
 		}
 	}
-	return driverEdit{
+	return rosterEdit{
 		Name: body.Name, Address: body.Address, AddressName: body.AddressName, LabelIDs: labelIDs, SetLabels: setLabels,
 		VehicleCapacity: body.VehicleCapacity,
 	}, true

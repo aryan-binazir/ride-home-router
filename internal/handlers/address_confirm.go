@@ -49,7 +49,7 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Confirmed participant address: id=%d", id)
 	if !h.isHTMX(r) {
-		response, err := h.participantResponse(r.Context(), participant)
+		response, err := participantRoster.responseWithLabels(h.DB, r.Context(), participant)
 		if err != nil {
 			h.handleInternalError(w, r, err)
 			return
@@ -98,7 +98,7 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
 	log.Printf("[HTTP] Confirmed driver address: id=%d", id)
 	if !h.isHTMX(r) {
-		response, err := h.driverResponse(r.Context(), driver)
+		response, err := driverRoster.responseWithLabels(h.DB, r.Context(), driver)
 		if err != nil {
 			h.handleInternalError(w, r, err)
 			return

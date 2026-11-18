@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
@@ -72,8 +71,4 @@ func (h *Handler) HandleRestoreDriver(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleDriverForm(w http.ResponseWriter, r *http.Request) {
 	driverRoster.form(h, w, r)
-}
-
-func (h *Handler) driverResponse(ctx context.Context, person *models.Driver) (DriverResponse, error) {
-	return driverRoster.responseWithLabels(h.DB, ctx, person)
 }
