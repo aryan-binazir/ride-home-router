@@ -15,14 +15,14 @@ import (
 const SolveTimeout = 30 * time.Second
 
 type Result struct {
-	Key       string    `json:"key"`
-	Scenario  string    `json:"scenario"`
-	Mode      string    `json:"mode"`
-	Seed      uint64    `json:"seed"`
-	Riders    int       `json:"riders"`
-	Drivers   int       `json:"drivers"`
-	Metrics   Metrics   `json:"metrics"`
-	WorstCars []CarNote `json:"-"`
+	Key       string           `json:"key"`
+	Scenario  string           `json:"scenario"`
+	Mode      models.RouteMode `json:"mode"`
+	Seed      uint64           `json:"seed"`
+	Riders    int              `json:"riders"`
+	Drivers   int              `json:"drivers"`
+	Metrics   Metrics          `json:"metrics"`
+	WorstCars []CarNote        `json:"-"`
 }
 
 type CarNote struct {
@@ -41,7 +41,7 @@ func Run(ctx context.Context, newRouter func() routing.Router, scenarios []Scena
 			roster := Generate(scenario, seed)
 			for _, mode := range []models.RouteMode{models.RouteModeDropoff, models.RouteModePickup} {
 				result := Result{
-					Key: fmt.Sprintf("%s/%s/%d", scenario.Name, mode, seed), Scenario: scenario.Name, Mode: string(mode), Seed: seed,
+					Key: fmt.Sprintf("%s/%s/%d", scenario.Name, mode, seed), Scenario: scenario.Name, Mode: mode, Seed: seed,
 					Riders: len(roster.Participants), Drivers: len(roster.Drivers),
 				}
 				req := &routing.RoutingRequest{InstituteCoords: roster.Venue, Participants: roster.Participants, Drivers: roster.Drivers, Mode: routing.RouteMode(mode)}

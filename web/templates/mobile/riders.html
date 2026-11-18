@@ -39,7 +39,7 @@
       <label class="mobile-row mobile-choice">
         <input type="checkbox" name="participant_ids" value="{{.ID}}" {{if index $.Selected .ID}}checked{{end}}>
         <span><b>{{.Name}}</b><small>{{displayAddress .AddressName .Address}}</small></span>
-        {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.LabelIDs .ID))}}
+        {{template "mobile_labels" (labelNamesFor $.Labels $.LabelIDs .ID)}}
       </label>
       {{else}}<p class="mobile-empty">No participants match your search.</p>{{end}}
     </div>

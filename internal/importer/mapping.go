@@ -100,9 +100,9 @@ func (m Mapping) Assign(assignments []FieldColumn, width int) MappingTransition 
 	}
 
 	claimed := make(map[int]bool)
-	for _, binding := range next.columns() {
-		if binding.column >= 0 {
-			claimed[binding.column] = true
+	for _, binding := range next.Columns() {
+		if binding.Column >= 0 {
+			claimed[binding.Column] = true
 		}
 	}
 	for _, columns := range next.Ambiguous {
@@ -158,14 +158,8 @@ func (m Mapping) column(field Field) int {
 	}
 }
 
-func (m Mapping) columns() []struct {
-	field  Field
-	column int
-} {
-	return []struct {
-		field  Field
-		column int
-	}{
+func (m Mapping) Columns() []FieldColumn {
+	return []FieldColumn{
 		{FieldName, m.NameColumn},
 		{FieldAddress, m.AddressColumn},
 		{FieldAddressName, m.AddressNameColumn},

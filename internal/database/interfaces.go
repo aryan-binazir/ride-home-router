@@ -137,7 +137,7 @@ type EventRepository interface {
 
 type DistanceCacheRepository interface {
 	Get(ctx context.Context, origin, dest models.Coordinates) (*models.DistanceCacheEntry, error)
-	GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error)
+	GetBatch(ctx context.Context, pairs []models.DistancePair) (map[string]*models.DistanceCacheEntry, error)
 	Set(ctx context.Context, entry *models.DistanceCacheEntry) error
 	SetBatch(ctx context.Context, entries []models.DistanceCacheEntry) error
 	Clear(ctx context.Context) error

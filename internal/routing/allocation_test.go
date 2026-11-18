@@ -39,14 +39,14 @@ func (s warmProviderCache) Get(ctx context.Context, a, b models.Coordinates) (*m
 	return &models.DistanceCacheEntry{Origin: a, Destination: b, DistanceMeters: v.DistanceMeters, DurationSecs: v.DurationSecs}, nil
 }
 
-func (s warmProviderCache) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
+func (s warmProviderCache) GetBatch(ctx context.Context, pairs []models.DistancePair) (map[string]*models.DistanceCacheEntry, error) {
 	entries := make(map[string]*models.DistanceCacheEntry, len(pairs))
 	for _, pair := range pairs {
-		entry, err := s.Get(ctx, pair.Origin, pair.Dest)
+		entry, err := s.Get(ctx, pair.Origin, pair.Destination)
 		if err != nil {
 			return nil, err
 		}
-		entries[distance.PairCacheKey(pair.Origin, pair.Dest)] = entry
+		entries[distance.PairCacheKey(pair.Origin, pair.Destination)] = entry
 	}
 	return entries, nil
 }

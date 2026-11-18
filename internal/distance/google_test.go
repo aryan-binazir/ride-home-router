@@ -46,12 +46,12 @@ func (c *mockDistanceCache) Get(_ context.Context, origin, dest models.Coordinat
 	return nil, database.ErrCacheMiss
 }
 
-func (c *mockDistanceCache) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
+func (c *mockDistanceCache) GetBatch(ctx context.Context, pairs []models.DistancePair) (map[string]*models.DistanceCacheEntry, error) {
 	result := make(map[string]*models.DistanceCacheEntry)
 	for _, pair := range pairs {
-		entry, _ := c.Get(ctx, pair.Origin, pair.Dest)
+		entry, _ := c.Get(ctx, pair.Origin, pair.Destination)
 		if entry != nil {
-			result[c.cacheKey(pair.Origin, pair.Dest)] = entry
+			result[c.cacheKey(pair.Origin, pair.Destination)] = entry
 		}
 	}
 	return result, nil

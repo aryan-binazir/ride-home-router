@@ -1,7 +1,6 @@
 package templateutil
 
 import (
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"ride-home-router/internal/models"
@@ -34,13 +33,6 @@ func FuncMap() template.FuncMap {
 		},
 		"currentDate": func() string {
 			return time.Now().Format("2006-01-02")
-		},
-		"toJSONRaw": func(v any) template.JS {
-			b, err := json.Marshal(v)
-			if err != nil {
-				return template.JS("[]")
-			}
-			return template.JS(b) //nolint:gosec // G203: json.Marshal output embedded as JS literal in JSON script block.
 		},
 		"formatDistance": func(meters float64, useMiles bool) string {
 			if useMiles {

@@ -169,13 +169,13 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	}
 
 	results := make([]DistanceResult, len(destinations))
-	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(destinations))
+	cachePairs := make([]models.DistancePair, 0, len(destinations))
 	cacheIndexes := make([]int, 0, len(destinations))
 	for i, dest := range destinations {
 		if SamePoint(origin, dest) {
 			continue
 		}
-		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: origin, Dest: dest})
+		cachePairs = append(cachePairs, models.DistancePair{Origin: origin, Destination: dest})
 		cacheIndexes = append(cacheIndexes, i)
 	}
 
@@ -188,7 +188,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 	var missingIndexes []int
 	for pairIndex, pair := range cachePairs {
 		resultIndex := cacheIndexes[pairIndex]
-		entry := cached[PairCacheKey(pair.Origin, pair.Dest)]
+		entry := cached[PairCacheKey(pair.Origin, pair.Destination)]
 		if entry != nil {
 			results[resultIndex] = DistanceResult{
 				DistanceMeters: entry.DistanceMeters,
@@ -196,7 +196,7 @@ func (c *googleCalculator) GetDistancesFromPoint(ctx context.Context, origin mod
 			}
 			continue
 		}
-		missingDestinations = append(missingDestinations, pair.Dest)
+		missingDestinations = append(missingDestinations, pair.Destination)
 		missingIndexes = append(missingIndexes, resultIndex)
 	}
 
@@ -273,7 +273,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 	if len(pairs) == 0 {
 		return nil
 	}
-	cachePairs := make([]struct{ Origin, Dest models.Coordinates }, 0, len(pairs))
+	cachePairs := make([]models.DistancePair, 0, len(pairs))
 	cacheKeys := make([]string, 0, len(pairs))
 	seen := make(map[string]bool, len(pairs))
 	for _, pair := range pairs {
@@ -286,7 +286,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 		}
 		seen[key] = true
 		cacheKeys = append(cacheKeys, key)
-		cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{pair.Origin, pair.Destination})
+		cachePairs = append(cachePairs, pair)
 	}
 	var missing map[string]bool
 	var byOrigin map[string][]models.Coordinates
@@ -309,7 +309,7 @@ func (c *googleCalculator) PrewarmPairs(ctx context.Context, pairs []DistancePai
 			}
 			missing[key] = true
 			originKey := coordinatePointKey(pair.Origin)
-			byOrigin[originKey] = append(byOrigin[originKey], pair.Dest)
+			byOrigin[originKey] = append(byOrigin[originKey], pair.Destination)
 			origins[originKey] = pair.Origin
 		}
 		if len(missing) > MaxUncachedDistancePairs {
@@ -474,14 +474,14 @@ type matrixIndex struct {
 }
 
 func (c *googleCalculator) hydrateMatrixFromCache(ctx context.Context, points []models.Coordinates, matrix [][]DistanceResult) (map[matrixIndex]struct{}, error) {
-	var cachePairs []struct{ Origin, Dest models.Coordinates }
+	var cachePairs []models.DistancePair
 	var indexes []matrixIndex
 	for originIndex, origin := range points {
 		for destIndex, dest := range points {
 			if originIndex == destIndex || SamePoint(origin, dest) {
 				continue
 			}
-			cachePairs = append(cachePairs, struct{ Origin, Dest models.Coordinates }{Origin: origin, Dest: dest})
+			cachePairs = append(cachePairs, models.DistancePair{Origin: origin, Destination: dest})
 			indexes = append(indexes, matrixIndex{origin: originIndex, destination: destIndex})
 		}
 	}
@@ -494,7 +494,7 @@ func (c *googleCalculator) hydrateMatrixFromCache(ctx context.Context, points []
 	missing := make(map[matrixIndex]struct{})
 	for i, pair := range cachePairs {
 		index := indexes[i]
-		entry := cached[PairCacheKey(pair.Origin, pair.Dest)]
+		entry := cached[PairCacheKey(pair.Origin, pair.Destination)]
 		if entry == nil {
 			missing[index] = struct{}{}
 			continue

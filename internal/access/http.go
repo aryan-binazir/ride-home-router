@@ -11,7 +11,7 @@ import (
 )
 
 func (a *Access) BrowserConfig() web.AuthConfig {
-	return web.AuthConfig{PublishableKey: a.cfg.PublishableKey, ScriptURL: a.issuer + "/npm/@clerk/clerk-js@5/dist/clerk.browser.js"}
+	return web.AuthConfig{PublishableKey: a.publishableKey, ScriptURL: a.issuer + "/npm/@clerk/clerk-js@5/dist/clerk.browser.js"}
 }
 
 var signInPage = template.Must(template.New("sign-in").Funcs(template.FuncMap{"asset": web.AssetURL}).Parse(web.AuthHeadTemplate + `<!doctype html>
@@ -175,7 +175,9 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"emails": visible})
+	_ = json.NewEncoder(w).Encode(struct {
+		Emails []string `json:"emails"`
+	}{Emails: visible})
 }
 
 func nonAdminEmails(emails []string, admins map[string]bool) []string {

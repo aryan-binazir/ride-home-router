@@ -46,7 +46,7 @@ func (r *distanceCacheRepository) Get(ctx context.Context, origin, dest models.C
 	return &entry, nil
 }
 
-func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ Origin, Dest models.Coordinates }) (map[string]*models.DistanceCacheEntry, error) {
+func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []models.DistancePair) (map[string]*models.DistanceCacheEntry, error) {
 	result := make(map[string]*models.DistanceCacheEntry, len(pairs))
 	if len(pairs) == 0 {
 		return result, nil
@@ -55,15 +55,15 @@ func (r *distanceCacheRepository) GetBatch(ctx context.Context, pairs []struct{ 
 	seen := make(map[string]struct{}, len(pairs))
 	var originLats, originLngs, destLats, destLngs []float64
 	for _, pair := range pairs {
-		key := cacheKey(pair.Origin, pair.Dest)
+		key := cacheKey(pair.Origin, pair.Destination)
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
 		originLats = append(originLats, models.RoundCoordinate(pair.Origin.Lat))
 		originLngs = append(originLngs, models.RoundCoordinate(pair.Origin.Lng))
-		destLats = append(destLats, models.RoundCoordinate(pair.Dest.Lat))
-		destLngs = append(destLngs, models.RoundCoordinate(pair.Dest.Lng))
+		destLats = append(destLats, models.RoundCoordinate(pair.Destination.Lat))
+		destLngs = append(destLngs, models.RoundCoordinate(pair.Destination.Lng))
 	}
 
 	rows, err := r.db.QueryContext(ctx, `

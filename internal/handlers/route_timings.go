@@ -12,14 +12,16 @@ import (
 	"time"
 )
 
+type timingStatus string
+
 const (
-	timingMeasured    = "measured"
-	timingStale       = "stale"
-	timingExhausted   = "exhausted"
-	timingUnavailable = "unavailable"
-	timingFailed      = "failed"
-	timingPaused      = "paused"
-	timingEmpty       = "empty"
+	timingMeasured    timingStatus = "measured"
+	timingStale       timingStatus = "stale"
+	timingExhausted   timingStatus = "exhausted"
+	timingUnavailable timingStatus = "unavailable"
+	timingFailed      timingStatus = "failed"
+	timingPaused      timingStatus = "paused"
+	timingEmpty       timingStatus = "empty"
 
 	messageTimingsExhausted   = "Timings unavailable this month."
 	messageTimingsUnavailable = "Timings need the Google Maps key. Ask an administrator."
@@ -34,22 +36,22 @@ const (
 )
 
 type RouteTiming struct {
-	Status  string
+	Status  timingStatus
 	Message string
 	Route   *models.CalculatedRoute
 }
 
 type RouteTimingJSON struct {
-	Status                     string    `json:"status"`
-	Message                    string    `json:"message,omitempty"`
-	TotalDropoffDistanceMeters float64   `json:"total_dropoff_distance_meters,omitempty"`
-	DistanceToDriverHomeMeters float64   `json:"distance_to_driver_home_meters,omitempty"`
-	TotalDistanceMeters        float64   `json:"total_distance_meters,omitempty"`
-	BaselineDurationSecs       float64   `json:"baseline_duration_secs,omitempty"`
-	RouteDurationSecs          float64   `json:"route_duration_secs,omitempty"`
-	DetourSecs                 float64   `json:"detour_secs,omitempty"`
-	StopCumulativeDurationSecs []float64 `json:"stop_cumulative_duration_secs,omitempty"`
-	StopDistanceFromPrevMeters []float64 `json:"stop_distance_from_prev_meters,omitempty"`
+	Status                     timingStatus `json:"status"`
+	Message                    string       `json:"message,omitempty"`
+	TotalDropoffDistanceMeters float64      `json:"total_dropoff_distance_meters,omitempty"`
+	DistanceToDriverHomeMeters float64      `json:"distance_to_driver_home_meters,omitempty"`
+	TotalDistanceMeters        float64      `json:"total_distance_meters,omitempty"`
+	BaselineDurationSecs       float64      `json:"baseline_duration_secs,omitempty"`
+	RouteDurationSecs          float64      `json:"route_duration_secs,omitempty"`
+	DetourSecs                 float64      `json:"detour_secs,omitempty"`
+	StopCumulativeDurationSecs []float64    `json:"stop_cumulative_duration_secs,omitempty"`
+	StopDistanceFromPrevMeters []float64    `json:"stop_distance_from_prev_meters,omitempty"`
 }
 
 func allRouteIndexes(snapshot routesession.Snapshot) []int {

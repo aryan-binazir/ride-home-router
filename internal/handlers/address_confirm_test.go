@@ -297,8 +297,8 @@ func TestRosterConfirmationLeavingFilterClampsPage(t *testing.T) {
 			persisted := httptest.NewRecorder()
 			get(persisted, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 			var person struct {
-				Address      string `json:"address"`
-				AddressMatch string `json:"address_match"`
+				Address      string              `json:"address"`
+				AddressMatch models.AddressMatch `json:"address_match"`
 			}
 			if err := json.Unmarshal(persisted.Body.Bytes(), &person); err != nil || persisted.Code != http.StatusOK || person.Address != "Confirmed Oak Road" || person.AddressMatch != models.AddressMatchConfirmed {
 				t.Fatalf("confirmed record = %s, %v", persisted.Body.String(), err)

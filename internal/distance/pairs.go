@@ -5,10 +5,7 @@ import (
 	"ride-home-router/internal/models"
 )
 
-type DistancePair struct {
-	Origin      models.Coordinates
-	Destination models.Coordinates
-}
+type DistancePair = models.DistancePair
 
 func coordinatePointKey(coord models.Coordinates) string {
 	return fmt.Sprintf(

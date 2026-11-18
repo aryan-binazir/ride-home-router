@@ -26,7 +26,7 @@
       <span>
         <b>{{.Name}}{{if eq .AddressMatch "guessed"}} <em class="mobile-address-flag" title="Check this address">Check address</em>{{end}}</b>
         <small>{{displayAddress .AddressName .Address}}</small>
-        {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.ParticipantLabels .ID))}}
+        {{template "mobile_labels" (labelNamesFor $.Labels $.ParticipantLabels .ID)}}
       </span>
       <i></i>
     </a>
@@ -46,7 +46,7 @@
       <span>
         <b>{{.Name}}{{if eq .AddressMatch "guessed"}} <em class="mobile-address-flag" title="Check this address">Check address</em>{{end}}</b>
         <small>{{displayAddress .AddressName .Address}} · {{.VehicleCapacity}} seats</small>
-        {{template "mobile_labels" (dict "Names" (labelNamesFor $.Labels $.DriverLabels .ID))}}
+        {{template "mobile_labels" (labelNamesFor $.Labels $.DriverLabels .ID)}}
       </span>
       <i></i>
     </a>

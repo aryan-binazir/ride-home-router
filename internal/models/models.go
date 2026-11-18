@@ -67,6 +67,11 @@ type Coordinates struct {
 	Lng float64 `json:"lng"`
 }
 
+type DistancePair struct {
+	Origin      Coordinates
+	Destination Coordinates
+}
+
 type RouteMode string
 
 const (
@@ -91,13 +96,15 @@ func RoundCoordinate(coord float64) float64 {
 	return math.Round(coord*100000) / 100000
 }
 
+type AddressMatch string
+
 const (
-	AddressMatchVerified  = "verified"
-	AddressMatchGuessed   = "guessed"
-	AddressMatchConfirmed = "confirmed"
+	AddressMatchVerified  AddressMatch = "verified"
+	AddressMatchGuessed   AddressMatch = "guessed"
+	AddressMatchConfirmed AddressMatch = "confirmed"
 )
 
-func AddressMatchFor(guessed bool) string {
+func AddressMatchFor(guessed bool) AddressMatch {
 	if guessed {
 		return AddressMatchGuessed
 	}
@@ -105,18 +112,18 @@ func AddressMatchFor(guessed bool) string {
 }
 
 type Participant struct {
-	GeocodedAt     time.Time  `json:"-"`
-	ID             int64      `json:"id"`
-	Name           string     `json:"name"`
-	Address        string     `json:"address"`
-	MatchedAddress string     `json:"matched_address,omitempty"`
-	AddressMatch   string     `json:"address_match,omitempty"`
-	AddressName    string     `json:"address_name"`
-	Lat            float64    `json:"lat"`
-	Lng            float64    `json:"lng"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	GeocodedAt     time.Time    `json:"-"`
+	ID             int64        `json:"id"`
+	Name           string       `json:"name"`
+	Address        string       `json:"address"`
+	MatchedAddress string       `json:"matched_address,omitempty"`
+	AddressMatch   AddressMatch `json:"address_match,omitempty"`
+	AddressName    string       `json:"address_name"`
+	Lat            float64      `json:"lat"`
+	Lng            float64      `json:"lng"`
+	CreatedAt      time.Time    `json:"created_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	DeletedAt      *time.Time   `json:"deleted_at,omitempty"`
 }
 
 func (p *Participant) GetCoords() Coordinates {
@@ -124,19 +131,19 @@ func (p *Participant) GetCoords() Coordinates {
 }
 
 type Driver struct {
-	GeocodedAt      time.Time  `json:"-"`
-	ID              int64      `json:"id"`
-	Name            string     `json:"name"`
-	Address         string     `json:"address"`
-	MatchedAddress  string     `json:"matched_address,omitempty"`
-	AddressMatch    string     `json:"address_match,omitempty"`
-	AddressName     string     `json:"address_name"`
-	Lat             float64    `json:"lat"`
-	Lng             float64    `json:"lng"`
-	VehicleCapacity int        `json:"vehicle_capacity"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
+	GeocodedAt      time.Time    `json:"-"`
+	ID              int64        `json:"id"`
+	Name            string       `json:"name"`
+	Address         string       `json:"address"`
+	MatchedAddress  string       `json:"matched_address,omitempty"`
+	AddressMatch    AddressMatch `json:"address_match,omitempty"`
+	AddressName     string       `json:"address_name"`
+	Lat             float64      `json:"lat"`
+	Lng             float64      `json:"lng"`
+	VehicleCapacity int          `json:"vehicle_capacity"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+	DeletedAt       *time.Time   `json:"deleted_at,omitempty"`
 }
 
 func (d *Driver) GetCoords() Coordinates {
@@ -197,11 +204,13 @@ type RouteFeedbackRecord struct {
 	ReviewerNote  string                `json:"reviewer_note"`
 }
 
+type RouteChangeKind string
+
 type RouteFeedbackChange struct {
-	Kind          string `json:"kind"`
-	ParticipantID int64  `json:"participant_id,omitempty"`
-	FromDriverID  int64  `json:"from_driver_id,omitempty"`
-	ToDriverID    int64  `json:"to_driver_id,omitempty"`
+	Kind          RouteChangeKind `json:"kind"`
+	ParticipantID int64           `json:"participant_id,omitempty"`
+	FromDriverID  int64           `json:"from_driver_id,omitempty"`
+	ToDriverID    int64           `json:"to_driver_id,omitempty"`
 }
 
 type RouteFeedbackInput struct {

@@ -68,9 +68,9 @@ func Validate(g *Grid, m Mapping, kind Kind, existing []Existing) []Row {
 
 func xlsxCellErrors(cells []string, row int, mapping Mapping) []string {
 	var rowErrors []string
-	mapped := make(map[int]struct{}, len(mapping.columns()))
-	for _, binding := range mapping.columns() {
-		column := binding.column
+	mapped := make(map[int]struct{}, len(mapping.Columns()))
+	for _, binding := range mapping.Columns() {
+		column := binding.Column
 		if column < 0 || column >= len(cells) {
 			continue
 		}
@@ -102,19 +102,19 @@ func validateMapping(m Mapping, kind Kind, width int) []string {
 	}
 
 	used := make(map[int]Field)
-	for _, binding := range m.columns() {
-		if binding.column == UnmappedColumn {
+	for _, binding := range m.Columns() {
+		if binding.Column == UnmappedColumn {
 			continue
 		}
-		if binding.column < 0 || binding.column >= width {
-			validationErrors = append(validationErrors, fmt.Sprintf("mapping for %s refers to invalid column %d", binding.field, binding.column))
+		if binding.Column < 0 || binding.Column >= width {
+			validationErrors = append(validationErrors, fmt.Sprintf("mapping for %s refers to invalid column %d", binding.Field, binding.Column))
 			continue
 		}
-		if previous, ok := used[binding.column]; ok {
-			validationErrors = append(validationErrors, fmt.Sprintf("column %d cannot map to both %s and %s", binding.column, previous, binding.field))
+		if previous, ok := used[binding.Column]; ok {
+			validationErrors = append(validationErrors, fmt.Sprintf("column %d cannot map to both %s and %s", binding.Column, previous, binding.Field))
 			continue
 		}
-		used[binding.column] = binding.field
+		used[binding.Column] = binding.Field
 	}
 	return validationErrors
 }
