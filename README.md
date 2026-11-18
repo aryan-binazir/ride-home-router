@@ -4,15 +4,11 @@ Self-hosted event pickup and dropoff planning. Go server, browser UI, Postgres, 
 
 ## Run locally
 
-`make dev` requires Linux, Go 1.27 and rootless Podman. Use `DEV_RUNTIME=docker make dev` with a compatible Docker runtime. Checks also need Node 24, `jq`, network access for the Go vulnerability database and `golangci-lint` from [.golangci-lint-version](.golangci-lint-version).
-
 ```sh
 make dev
 ```
 
-Open the printed login URL to enter as an approved synthetic member. The printed identity chooser also offers admin and denied accounts. This environment has seeded data and synthetic provider responses and travel estimates; no Clerk or Google credentials are needed.
-
-`make dev-status` prints URLs and logs. `make dev-stop` preserves data; stop and start after source changes to rebuild. `make dev-reset` deletes and recreates only this worktree's local data. Keep the state directory and login URLs private. See the [local development runbook](docs/runbooks/local-development.md) for isolation, identities and lifecycle details.
+Open the printed login URL to use the seeded app. See the [local development runbook](docs/runbooks/local-development.md) for prerequisites, identities, and lifecycle commands.
 
 ### Use real providers locally
 
@@ -27,7 +23,7 @@ make serve
 
 Open <http://127.0.0.1:8080>, sign in as an admin, and add the Google Maps key in Settings.
 
-`make serve` migrates before starting. Postgres uses port 5434 with development and test databases. `make postgres-down` deletes both.
+`make serve` migrates before starting. The local Postgres container listens on port 5434 by default and holds the development and test databases. `make postgres-down` removes the container. A subsequent `make postgres-up` creates fresh databases.
 
 ## Configuration
 
@@ -68,19 +64,19 @@ Back up the encryption key separately. Losing it requires restoring it or settin
 
 ## Use
 
-Add a place, add/import riders and drivers, assign vans, choose mode/time, calculate, adjust, copy and save. The planner adapts to phone screens. Pickup ends at the activity; dropoff starts there. Follow numbered Maps legs in order.
+Add a place and add or import riders and drivers. Assign vans, choose a mode and time, calculate and adjust routes, then copy handoffs and save the event. Pickup ends at the activity. Dropoff starts there. Follow numbered Maps legs in order.
 
 ## How it runs
 
-The default planner uses straight-line estimates, respects capacity, groups households where possible and balances routes; it is not globally optimal. Google measures occupied cars afterward, including a direct driver baseline for detour. Long routes split into requests with at most ten intermediate waypoints. Edits measure changed cars; reopened live plans offer per-car timings. Missing keys or exhausted usage leave itineraries available without timings.
+The default planner estimates routes locally and respects vehicle capacity. Google measures occupied cars afterward, including a direct driver baseline for detour. Long routes split into requests with at most ten intermediate waypoints. Edits measure changed cars, and reopened live sessions offer per-car timings. Missing keys or exhausted usage leave itineraries available without timings. See the [architecture map](docs/architecture.md) for the planning and import flows.
 
-Measured distances, durations and stop ETAs exist only in the current response. New saved events retain assignments, stop order, addresses, Maps links and user-entered schedule times, including handoff snapshots that survive roster edits. History does not fetch timings; older saved content remains unchanged.
+Saved events retain handoff text after roster edits. History shows the saved itineraries without requesting new timings. See [event save and History](internal/handlers/events.go).
 
 Postgres reserves Compute Routes, Geocoding and Autocomplete attempts and Compute Route Matrix elements before dispatch, with a default ceiling of 8,000 units per SKU per Pacific-calendar month. Matrix attempts reserve origins × destinations, including retries, under `route_matrix` (Compute Route Matrix Essentials). Seed prior usage when deploying mid-month. This ledger does not cover other applications. Matrix mode retains cached distances and four concurrent distance preparations. Its 60,000-uncached-element calculation limit is also subject to the remaining monthly element allowance; one large calculation can exhaust that allowance. See the [routing decision](docs/adr/0006-routing-cost-and-google-terms.md).
 
-Coordinates older than 30 days are refreshed before planning; failed refreshes retain prior coordinates. Address lookups share one request/second and cooldowns up to 15 minutes.
+The planner tries to refresh coordinates at least 30 days old within a five-second budget. Failed refreshes retain prior coordinates. Geocoding and autocomplete share provider cooldowns of up to 15 minutes. See [coordinate refresh](internal/handlers/route_calculation.go) and [provider cooldown](internal/postgres/provider_throttle.go).
 
-Postgres persists route sessions and imports across restarts and replicas. No sticky sessions or app volume are required. Route sessions expire after eight idle hours and imports after 30 minutes. Limits are 256 route sessions and four imports. A new route session evicts the least recently used unfinished route session when full. Concurrent route edits return `409 SESSION_CONFLICT`; reload. Event saves/import commits consume their session atomically to prevent duplicate writes.
+Postgres persists route sessions and imports across restarts and replicas. Route sessions expire after eight idle hours and imports after 30 idle minutes. Limits are 256 active route sessions and four active imports. At capacity, a new route session can evict the earliest-expiring unlocked active session. See [workflow capacity and expiry](internal/postgres/workflows.go).
 
 CSV/XLSX imports geocode on the server. Parsed workflow payloads are capped at 24 MiB; valid rows can be saved despite invalid rows. Workers continue without a browser, recover after restart and allow up to nine Google attempts per unique address, with shared cooldowns. Exhausted addresses require a new import or reapplied mapping.
 
@@ -103,31 +99,13 @@ make migrate-create name=add_route_notes
 make migrate-down CONFIRM=yes
 ```
 
-Keep applied SQL immutable; add paired migrations. Generated down files remain disabled until implemented. Migration commands need no Clerk configuration. The runner serializes migrations and refuses dirty state or missing/disabled/comment-only rollbacks. `migrate down --confirm` targets `DATABASE_URL`; require a verified backup and compatible application rollback.
+Generated down files remain disabled until implemented. Migration commands need no Clerk configuration. The runner serializes migrations and refuses dirty state or missing, disabled, or comment-only rollbacks. `make migrate-down` is restricted to the local database. The direct `migrate down --confirm` command targets `DATABASE_URL`. Use a verified backup and a compatible application rollback.
 
-For dirty state, inspect `schema_migrations`, the failed SQL and actual schema. Repair the version to match the proven schema, never merely clear `dirty`: failed up/down operations may record their target before SQL completes. If uncertain, restore a verified backup. See the [migration decision](docs/adr/0002-explicit-database-migrations.md).
+For dirty state, inspect `schema_migrations`, the failed SQL and actual schema. Failed up/down operations may record their target before SQL completes. Repair the version to match the proven schema. If uncertain, restore a verified backup. See the [migration decision](docs/adr/0002-explicit-database-migrations.md) for the rules on applied SQL and rollback.
 
 ## Verify
 
-Before merging, run the full gate with Chrome/Chromium and a local test Postgres database. Replace the browser path and database URL as needed; the example uses the test database created by `make postgres-up`.
-
-```sh
-BROWSER_TEST_BINARY=/path/to/chrome-or-chromium \
-TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5434/ride_home_router_test?sslmode=disable' \
-make check
-```
-
-All lint, module checks, reachable-vulnerability scan, vet, JavaScript, browser and Go race tests must pass. Fix reachable vulnerabilities by upgrading; list an ID in [.govulncheck-ignore](.govulncheck-ignore) only with a written reason. No running app or npm dependencies are required. Use a separate local test database, including when developing with `make dev`.
-
-`make check-unit` skips database tests and is insufficient before merging. Browser tests skip when `BROWSER_TEST_BINARY` is unset; the full pre-merge gate requires them.
-
-For planner-related changes, also run:
-
-```sh
-make eval
-```
-
-`make eval` compares synthetic rosters against a committed baseline and writes `_scratch/planner-eval-report.md`. Passing establishes no material regression, not optimal routes. This repository has no CI. See [AGENTS.md](AGENTS.md) for the required local pre-merge checks.
+Follow the [local gate in AGENTS.md](AGENTS.md#verification-before-merging). Checks also need Python 3, Node 24, `jq`, and network access for the Go vulnerability database. The [Makefile](Makefile) runs the pinned Go linter. Fix reachable vulnerabilities by upgrading. List an ID in [.govulncheck-ignore](.govulncheck-ignore) only with a written reason.
 
 ## License and disclaimer
 
