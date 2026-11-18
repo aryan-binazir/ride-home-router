@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -67,17 +66,22 @@ func (kind rosterKind[T, R]) get(h *Handler, w http.ResponseWriter, r *http.Requ
 	idText := strings.TrimPrefix(r.URL.Path, "/api/v1/"+kind.plural+"/")
 	id, err := strconv.ParseInt(idText, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: the ID and parse error are escaped.
-		log.Printf("[HTTP] GET /api/v1/%s/{id}: invalid_id=%s err=%s", kind.plural, logutil.SafeString(idText), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "GET",
+			"route", "/api/v1/"+kind.plural+"/{id}",
+			"invalid_id", idText,
+			"error", err.Error(),
+		)
 		h.handleValidationError(w, r, kind.invalidGetID)
 		return
 	}
 
-	log.Printf("[HTTP] GET /api/v1/%s/{id}: id=%d", kind.plural, id)
+	slog.Info("HTTP request", "component", "http", "method", "GET", "route", "/api/v1/"+kind.plural+"/{id}", "id", id)
 	person, err := kind.repository(h.DB).GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
-			log.Printf("[HTTP] %s not found: id=%d", kind.title, id)
+			slog.Info("Roster person not found", "component", "http", "resource", kind.name, "id", id)
 			h.handleNotFound(w, r, kind.notFound)
 			return
 		}
@@ -101,9 +105,9 @@ func (kind rosterKind[T, R]) createPerson(h *Handler, w http.ResponseWriter, r *
 	}
 
 	if kind.hasCapacity {
-		log.Printf("[HTTP] POST /api/v1/drivers: capacity=%d", edit.VehicleCapacity)
+		slog.Info("HTTP request", "component", "http", "method", "POST", "path", "/api/v1/drivers", "capacity", edit.VehicleCapacity)
 	} else {
-		log.Print("[HTTP] POST /api/v1/participants:")
+		slog.Info("HTTP request", "component", "http", "method", "POST", "path", "/api/v1/participants")
 	}
 	person, err := kind.create(rosterEditor{db: h.DB, geocoder: h.Geocoder}, r.Context(), edit)
 	if duplicate, ok := errors.AsType[rosterDuplicateError](err); ok {
@@ -111,7 +115,7 @@ func (kind rosterKind[T, R]) createPerson(h *Handler, w http.ResponseWriter, r *
 		return
 	}
 	if geocodeErr, ok := errors.AsType[rosterGeocodeError](err); ok {
-		log.Printf("[ERROR] Failed to geocode %s address", kind.name)
+		slog.Error("Failed to geocode roster person address", "resource", kind.name)
 		h.renderRosterGeocodingError(w, r, geocodeErr.err)
 		return
 	}
@@ -121,11 +125,11 @@ func (kind rosterKind[T, R]) createPerson(h *Handler, w http.ResponseWriter, r *
 	}
 
 	id, name := kind.identity(person)
-	log.Printf("[HTTP] Created %s: id=%d", kind.name, id)
+	slog.Info("Created roster person", "component", "http", "resource", kind.name, "id", id)
 	if h.isHTMX(r) {
 		view, err := kind.page(h.DB, r)
 		if err != nil {
-			log.Printf("[ERROR] Failed to refresh %s after create: err=%v", kind.plural, err)
+			slog.Error("Failed to refresh roster after create", "resource", kind.name, "error", fmt.Sprint(err))
 			h.setHTMXToastWithEvent(w, kind.createdEvent, kind.title+" saved. Refresh the page to see the updated roster.", toastTypeWarning)
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -143,17 +147,22 @@ func (kind rosterKind[T, R]) updatePerson(h *Handler, w http.ResponseWriter, r *
 	idText := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/"+kind.plural+"/"), "/edit")
 	id, err := strconv.ParseInt(idText, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: the ID and parse error are escaped.
-		log.Printf("[HTTP] PUT /api/v1/%s/{id}: invalid_id=%s err=%s", kind.plural, logutil.SafeString(idText), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "PUT",
+			"route", "/api/v1/"+kind.plural+"/{id}",
+			"invalid_id", idText,
+			"error", err.Error(),
+		)
 		h.handleValidationErrorHTMX(w, r, kind.invalidID)
 		return
 	}
-	log.Printf("[HTTP] PUT /api/v1/%s/{id}: id=%d", kind.plural, id)
+	slog.Info("HTTP request", "component", "http", "method", "PUT", "route", "/api/v1/"+kind.plural+"/{id}", "id", id)
 	existing, err := kind.repository(h.DB).GetByID(r.Context(), id)
 	if err != nil {
 		if h.checkNotFound(err) {
 			if !kind.hasCapacity {
-				log.Printf("[HTTP] Participant not found for update: id=%d", id)
+				slog.Info("Participant not found for update", "component", "http", "id", id)
 			}
 			h.handleNotFoundHTMX(w, r, kind.notFound)
 			return
@@ -177,7 +186,7 @@ func (kind rosterKind[T, R]) updatePerson(h *Handler, w http.ResponseWriter, r *
 	}
 	if err != nil {
 		if h.checkNotFound(err) {
-			log.Printf("[HTTP] %s not found after update: id=%d", kind.title, id)
+			slog.Info("Roster person not found after update", "component", "http", "resource", kind.name, "id", id)
 			h.handleNotFoundHTMX(w, r, kind.notFound)
 			return
 		}
@@ -186,7 +195,7 @@ func (kind rosterKind[T, R]) updatePerson(h *Handler, w http.ResponseWriter, r *
 	}
 
 	personID, name := kind.identity(person)
-	log.Printf("[HTTP] Updated %s: id=%d", kind.name, personID)
+	slog.Info("Updated roster person", "component", "http", "resource", kind.name, "id", personID)
 	if h.isHTMX(r) {
 		view, err := kind.page(h.DB, r)
 		if err != nil {
@@ -255,7 +264,7 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 		}
 		if err := httpx.DecodeJSON(r, target); err != nil {
 			if creating && !kind.hasCapacity {
-				log.Printf("[HTTP] POST /api/v1/participants: invalid_body err=%v", err)
+				slog.Info("Invalid request body", "component", "http", "method", "POST", "path", "/api/v1/participants", "error", fmt.Sprint(err))
 			}
 			h.handleValidationError(w, r, messageInvalidRequestBody)
 			return rosterEdit{}, false
@@ -273,7 +282,13 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 	}
 	if body.Name == "" || body.Address == "" {
 		if creating && !kind.hasCapacity {
-			log.Printf("[HTTP] POST /api/v1/participants: missing_name=%t missing_address=%t", body.Name == "", body.Address == "")
+			slog.Info("Missing participant fields",
+				"component", "http",
+				"method", "POST",
+				"path", "/api/v1/participants",
+				"missing_name", body.Name == "",
+				"missing_address", body.Address == "",
+			)
 		}
 		h.handleValidationErrorHTMX(w, r, messageNameAndAddressRequired)
 		return rosterEdit{}, false
@@ -289,9 +304,15 @@ func (kind rosterKind[T, R]) readEdit(h *Handler, w http.ResponseWriter, r *http
 	if setLabels {
 		if err := h.validateLabelIDs(r.Context(), labelIDs); err != nil {
 			if creating {
-				log.Printf("[HTTP] POST /api/v1/%s: invalid_labels err=%v", kind.plural, err)
+				slog.Info("Invalid labels", "component", "http", "method", "POST", "path", "/api/v1/"+kind.plural, "error", fmt.Sprint(err))
 			} else {
-				log.Printf("[HTTP] PUT /api/v1/%s/{id}: invalid_labels id=%d err=%v", kind.plural, id, err)
+				slog.Info("Invalid labels",
+					"component", "http",
+					"method", "PUT",
+					"route", "/api/v1/"+kind.plural+"/{id}",
+					"id", id,
+					"error", fmt.Sprint(err),
+				)
 			}
 			h.handleValidationErrorHTMX(w, r, messageInvalidLabelSelection)
 			return rosterEdit{}, false
@@ -315,16 +336,21 @@ func (kind rosterKind[T, R]) deletePerson(h *Handler, w http.ResponseWriter, r *
 	idText := strings.TrimPrefix(r.URL.Path, "/api/v1/"+kind.plural+"/")
 	id, err := strconv.ParseInt(idText, 10, 64)
 	if err != nil {
-		//nolint:gosec // G706: the ID and parse error are escaped.
-		log.Printf("[HTTP] DELETE /api/v1/%s/{id}: invalid_id=%s err=%s", kind.plural, logutil.SafeString(idText), logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID",
+			"component", "http",
+			"method", "DELETE",
+			"route", "/api/v1/"+kind.plural+"/{id}",
+			"invalid_id", idText,
+			"error", err.Error(),
+		)
 		h.handleValidationErrorHTMX(w, r, kind.invalidID)
 		return
 	}
 
-	log.Printf("[HTTP] DELETE /api/v1/%s/{id}: id=%d", kind.plural, id)
+	slog.Info("HTTP request", "component", "http", "method", "DELETE", "route", "/api/v1/"+kind.plural+"/{id}", "id", id)
 	err = kind.repository(h.DB).Delete(r.Context(), id)
 	if h.checkNotFound(err) {
-		log.Printf("[HTTP] %s not found for delete: id=%d", kind.title, id)
+		slog.Info("Roster person not found for delete", "component", "http", "resource", kind.name, "id", id)
 		h.handleNotFoundHTMX(w, r, kind.notFound)
 		return
 	}
@@ -333,7 +359,7 @@ func (kind rosterKind[T, R]) deletePerson(h *Handler, w http.ResponseWriter, r *
 		return
 	}
 
-	log.Printf("[HTTP] Deleted %s: id=%d", kind.name, id)
+	slog.Info("Deleted roster person", "component", "http", "resource", kind.name, "id", id)
 	if h.isHTMX(r) {
 		h.setHTMXToast(w, messageEntityDeleted(kind.title), toastTypeSuccess)
 		w.WriteHeader(http.StatusOK)
@@ -345,18 +371,15 @@ func (kind rosterKind[T, R]) deletePerson(h *Handler, w http.ResponseWriter, r *
 func (kind rosterKind[T, R]) restorePerson(h *Handler, w http.ResponseWriter, r *http.Request) {
 	id, err := parseRestoreID(r)
 	if err != nil {
-		//nolint:gosec // G706: the parse error is escaped.
-		log.Printf("[HTTP] POST /api/v1/%s/restore: invalid_id err=%s", kind.plural, logutil.SafeString(err.Error()))
+		slog.Info("Invalid ID", "component", "http", "method", "POST", "path", "/api/v1/"+kind.plural+"/restore", "error", err.Error())
 		h.handleValidationErrorHTMX(w, r, kind.invalidID)
 		return
 	}
 
-	//nolint:gosec // G706: the request-derived ID is an integer.
-	log.Printf("[HTTP] POST /api/v1/%s/restore: id=%d", kind.plural, id)
+	slog.Info("HTTP request", "component", "http", "method", "POST", "path", "/api/v1/"+kind.plural+"/restore", "id", id)
 	if err := kind.repository(h.DB).Restore(r.Context(), id); err != nil {
 		if h.checkNotFound(err) {
-			//nolint:gosec // G706: the request-derived ID is an integer.
-			log.Printf("[HTTP] %s not found for restore: id=%d", kind.title, id)
+			slog.Info("Roster person not found for restore", "component", "http", "resource", kind.name, "id", id)
 			h.handleHTMXErrorNoSwap(w, r, http.StatusNotFound, "NOT_FOUND", kind.notFound)
 			return
 		}
@@ -364,8 +387,7 @@ func (kind rosterKind[T, R]) restorePerson(h *Handler, w http.ResponseWriter, r 
 		return
 	}
 
-	//nolint:gosec // G706: the request-derived ID is an integer.
-	log.Printf("[HTTP] Restored %s: id=%d", kind.name, id)
+	slog.Info("Restored roster person", "component", "http", "resource", kind.name, "id", id)
 	if h.isHTMX(r) {
 		h.setHTMXToastWithEvent(w, "rosterRestored", messageEntityRestored(kind.title), toastTypeSuccess)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)

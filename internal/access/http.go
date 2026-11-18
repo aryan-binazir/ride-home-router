@@ -3,9 +3,8 @@ package access
 import (
 	"encoding/json"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/web"
 	"slices"
 )
@@ -105,7 +104,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 	}
 	if !IsAdmin(r.Context()) {
-		log.Print("[AUTH] denied: non-admin access management")
+		slog.Info("Denied: non-admin access management", "component", "auth")
 		reject("Forbidden", http.StatusForbidden)
 		return
 	}
@@ -147,13 +146,12 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 			message = "Access removed."
 		}
 		if err != nil {
-			log.Print("[ERROR] auth approval mutation failed")
+			slog.Error("Auth approval mutation failed", "component", "auth")
 			reject("The service is temporarily unavailable. Try again in a minute.", http.StatusServiceUnavailable)
 			return
 		}
 		p, _ := r.Context().Value(principalKey{}).(principal)
-		//nolint:gosec // G706: every request-derived string is escaped with logutil.SafeString and quoted.
-		log.Printf("[AUTH] access change: actor=%q method=%q email=%q", logutil.SafeString(p.UserID), logutil.SafeString(r.Method), logutil.SafeString(email))
+		slog.Info("Access change", "component", "auth", "actor", p.UserID, "method", r.Method, "email", email)
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
 		reject("Method Not Allowed", http.StatusMethodNotAllowed)
@@ -161,7 +159,7 @@ func (a *Access) manage(w http.ResponseWriter, r *http.Request) {
 	}
 	emails, err := a.store.ApprovedEmails(r.Context())
 	if err != nil {
-		log.Print("[ERROR] auth approval list failed")
+		slog.Error("Auth approval list failed", "component", "auth")
 		reject("The service is temporarily unavailable. Try again in a minute.", http.StatusServiceUnavailable)
 		return
 	}

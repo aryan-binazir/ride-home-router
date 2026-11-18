@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -187,7 +187,7 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		}
 		raw := token(r)
 		if raw == "" || len(raw) > 16384 {
-			log.Print("[AUTH] denied: missing or malformed session credential")
+			slog.Info("Denied: missing or malformed session credential", "component", "auth")
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
@@ -198,7 +198,7 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		}{}
 		claims, err := jwt.Verify(ctx, &jwt.VerifyParams{Token: raw, JWK: a.key, CustomClaimsConstructor: func(context.Context) any { return &state }, AuthorizedPartyHandler: func(p string) bool { return a.parties[p] }})
 		if err != nil || (state.Status != "" && state.Status != "active") || claims.Issuer != a.issuer || claims.Subject == "" || claims.SessionID == "" || claims.Expiry == nil || claims.NotBefore == nil || claims.IssuedAt == nil || *claims.Expiry <= time.Now().Unix() {
-			log.Print("[AUTH] denied: JWT signature, claims or instance verification failed")
+			slog.Info("Denied: JWT signature, claims or instance verification failed", "component", "auth")
 			deny(w, r, http.StatusUnauthorized)
 			return
 		}
@@ -219,12 +219,12 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 		if !admin {
 			allowed, err := a.store.Approved(ctx, emails)
 			if err != nil {
-				log.Print("[ERROR] auth approval lookup failed")
+				slog.Error("Auth approval lookup failed", "component", "auth")
 				deny(w, r, http.StatusServiceUnavailable)
 				return
 			}
 			if !allowed {
-				log.Print("[AUTH] denied: no approved verified email")
+				slog.Info("Denied: no approved verified email", "component", "auth")
 				deny(w, r, http.StatusForbidden)
 				return
 			}
@@ -233,14 +233,14 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			u, err := url.Parse(origin)
 			if err != nil || !a.parties[origin] || u.Host != r.Host {
-				log.Print("[AUTH] denied: cookie mutation origin mismatch")
+				slog.Info("Denied: cookie mutation origin mismatch", "component", "auth")
 				deny(w, r, http.StatusForbidden)
 				return
 			}
 		}
 		if admin && cacheMiss {
 			if err := a.store.RecordAdminEmails(ctx, adminEmails); err != nil {
-				log.Print("[ERROR] auth verified admin email persistence failed")
+				slog.Error("Auth verified admin email persistence failed", "component", "auth")
 			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, principal{Admin: admin, UserID: identity.userID})))
@@ -249,10 +249,10 @@ func (a *Access) Protect(next http.Handler) http.Handler {
 
 func clerkFailureStatus(err error) int {
 	if clerkNotFound(err) {
-		log.Print("[AUTH] denied: Clerk session or user not found")
+		slog.Info("Denied: Clerk session or user not found", "component", "auth")
 		return http.StatusUnauthorized
 	}
-	log.Print("[ERROR] auth Clerk lookup unavailable")
+	slog.Error("Auth Clerk lookup unavailable", "component", "auth")
 	return http.StatusServiceUnavailable
 }
 

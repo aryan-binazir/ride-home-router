@@ -1,7 +1,8 @@
 package handlers
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/routefeedback"
@@ -21,7 +22,7 @@ func (h *Handler) collectsReviewerNotes(r *http.Request) bool {
 	}
 	settings, err := h.DB.Settings().Get(r.Context())
 	if err != nil {
-		log.Printf("[FEEDBACK] settings read failed: err=%v", err)
+		slog.Error("Settings read failed", "component", "feedback", "error", fmt.Sprint(err))
 		return false
 	}
 	if !settings.CollectReviewerNotes {

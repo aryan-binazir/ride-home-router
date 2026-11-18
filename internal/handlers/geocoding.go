@@ -3,7 +3,7 @@ package handlers
 import (
 	"fmt"
 	"html"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/httpx"
@@ -18,11 +18,16 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := strings.TrimSpace(r.URL.Query().Get("address"))
-	//nolint:gosec // G706: the query is logged only as a numeric length.
-	log.Printf("[HTTP] GET /api/v1/address-search: outcome=started query_len=%d", len(query))
+	slog.Info("Address search started",
+		"component", "http",
+		"method", "GET",
+		"path", "/api/v1/address-search",
+		"outcome", "started",
+		"query_len", len(query),
+	)
 
 	if len(query) < 4 {
-		log.Printf("[HTTP] GET /api/v1/address-search: query too short, returning empty HTML")
+		slog.Info("Query too short, returning empty HTML", "component", "http", "method", "GET", "path", "/api/v1/address-search")
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)
 		return
@@ -30,7 +35,7 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 
 	results, err := h.Geocoder.Search(r.Context(), query, 5)
 	if err != nil {
-		log.Print("[ERROR] Failed to search addresses")
+		slog.Error("Failed to search addresses")
 		h.setHTMXToast(w, geocodingErrorMessage(err), toastTypeError)
 		w.Header().Set(httpx.HeaderContentType, httpx.MediaTypeHTML)
 		w.WriteHeader(http.StatusOK)
@@ -49,8 +54,12 @@ func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	results = uniqueResults
 
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] GET /api/v1/address-search: results_count=%d", len(results))
+	slog.Info("Address search completed",
+		"component", "http",
+		"method", "GET",
+		"path", "/api/v1/address-search",
+		"results_count", len(results),
+	)
 
 	h.renderTemplate(w, "address_suggestions.html", results)
 }

@@ -1,9 +1,8 @@
 package handlers
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
@@ -37,8 +36,7 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 		return
 	}
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to confirm participant address: id=%d err=%s", id, logutil.SafeString(err.Error()))
+		slog.Error("Failed to confirm participant address", "id", id, "error", err.Error())
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -46,8 +44,7 @@ func (h *Handler) HandleConfirmParticipantAddress(w http.ResponseWriter, r *http
 		h.handleInternalError(w, r, err)
 		return
 	}
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Confirmed participant address: id=%d", id)
+	slog.Info("Confirmed participant address", "component", "http", "id", id)
 	if !h.isHTMX(r) {
 		response, err := participantRoster.responseWithLabels(h.DB, r.Context(), participant)
 		if err != nil {
@@ -86,8 +83,7 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err != nil {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[ERROR] Failed to confirm driver address: id=%d err=%s", id, logutil.SafeString(err.Error()))
+		slog.Error("Failed to confirm driver address", "id", id, "error", err.Error())
 		if h.isHTMX(r) {
 			h.renderError(w, r, err)
 			return
@@ -95,8 +91,7 @@ func (h *Handler) HandleConfirmDriverAddress(w http.ResponseWriter, r *http.Requ
 		h.handleInternalError(w, r, err)
 		return
 	}
-	//nolint:gosec // G706: request-derived values on this log line are parsed numeric IDs or counts.
-	log.Printf("[HTTP] Confirmed driver address: id=%d", id)
+	slog.Info("Confirmed driver address", "component", "http", "id", id)
 	if !h.isHTMX(r) {
 		response, err := driverRoster.responseWithLabels(h.DB, r.Context(), driver)
 		if err != nil {

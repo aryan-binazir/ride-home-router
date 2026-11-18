@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
@@ -344,7 +344,7 @@ func (h *Handler) renderImportReviewPage(w http.ResponseWriter, r *http.Request,
 	if view.Geocoding {
 		configured, err := h.DB.Settings().GoogleMapsKeyConfigured(r.Context())
 		if err != nil {
-			log.Print("[IMPORT] Unable to check address lookup configuration")
+			slog.Info("Unable to check address lookup configuration", "component", "import")
 		} else if !configured {
 			view.Warnings = append(view.Warnings, "Address lookup is not configured. Ask an administrator to add the Google Maps key in Settings. This import will resume automatically.")
 		}
@@ -520,7 +520,7 @@ func (h *Handler) renderImportCommitted(w http.ResponseWriter, r *http.Request, 
 		view.DriverList, err = (rosterReader{db: h.DB}).drivers(r)
 		view.HasList = err == nil
 		if err != nil {
-			log.Printf("[ERROR] Failed to refresh driver list after import: err=%v", err)
+			slog.Error("Failed to refresh driver list after import", "error", fmt.Sprint(err))
 		}
 	} else {
 		view.ListElementID = "participants-list"
@@ -528,7 +528,7 @@ func (h *Handler) renderImportCommitted(w http.ResponseWriter, r *http.Request, 
 		view.ParticipantList, err = (rosterReader{db: h.DB}).participants(r)
 		view.HasList = err == nil
 		if err != nil {
-			log.Printf("[ERROR] Failed to refresh participant list after import: err=%v", err)
+			slog.Error("Failed to refresh participant list after import", "error", fmt.Sprint(err))
 		}
 	}
 

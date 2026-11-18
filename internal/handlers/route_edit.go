@@ -2,11 +2,10 @@ package handlers
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/routesession"
 	"strconv"
 )
@@ -73,10 +72,14 @@ func (h *Handler) moveParticipants(w http.ResponseWriter, r *http.Request, sessi
 		return
 	}
 	if len(moves) == 1 {
-		log.Printf("[EDIT] Moved participant %d from route %d to route %d", moves[0].ParticipantID, moves[0].FromRouteIndex, moves[0].ToRouteIndex)
+		slog.Info("Moved participant",
+			"component", "edit",
+			"participant_id", moves[0].ParticipantID,
+			"from_route", moves[0].FromRouteIndex,
+			"to_route", moves[0].ToRouteIndex,
+		)
 	} else {
-		//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-		log.Printf("[EDIT] Applied %d participant moves in batch for session %s", len(moves), logutil.SafeString(sessionID))
+		slog.Info("Applied participant moves in batch", "component", "edit", "moves", len(moves), "session_id", sessionID)
 	}
 	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
@@ -100,7 +103,7 @@ func (h *Handler) swapDrivers(w http.ResponseWriter, r *http.Request, sessionID 
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	log.Printf("[EDIT] Swapped drivers between routes %d and %d", routeIndex1, routeIndex2)
+	slog.Info("Swapped drivers between routes", "component", "edit", "first_route", routeIndex1, "second_route", routeIndex2)
 	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 
@@ -114,8 +117,7 @@ func (h *Handler) HandleResetRoutes(w http.ResponseWriter, r *http.Request) {
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	//nolint:gosec // G706: every request-derived string on this log line is escaped with logutil.SafeString.
-	log.Printf("[EDIT] Reset routes for session %s", logutil.SafeString(id))
+	slog.Info("Reset routes for session", "component", "edit", "session_id", id)
 	if h.isHTMX(r) {
 		view := h.buildTimedRouteResultsView(snapshot, h.routeTimings(r.Context(), snapshot, snapshot.ChangedRouteIndexes))
 		view.IsEditing = true
@@ -144,7 +146,7 @@ func (h *Handler) addDriver(w http.ResponseWriter, r *http.Request, sessionID st
 		h.handleRouteSessionError(w, r, err)
 		return
 	}
-	log.Printf("[EDIT] Added unused driver %d to routes", driverID)
+	slog.Info("Added unused driver to routes", "component", "edit", "driver_id", driverID)
 	h.writeRouteSession(w, r, snapshot, snapshot.ChangedRouteIndexes)
 }
 

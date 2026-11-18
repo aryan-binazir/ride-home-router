@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
 	"ride-home-router/internal/orderedroute"
@@ -100,7 +100,7 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 			for _, index := range wanted {
 				timings[index] = RouteTiming{Status: timingFailed, Message: messageTimingsFailed}
 			}
-			log.Printf("[ROUTES] timings requested=%d measured=0 outcome=budget_exhausted", len(wanted))
+			slog.Info("Measure route timings", "component", "routes", "measured", 0, "outcome", "budget_exhausted", "requested", len(wanted))
 			return timings
 		}
 		if reserved := deadline.Add(-measurementReserve); reserved.Before(measurementDeadline) {
@@ -123,7 +123,7 @@ func (h *Handler) routeTimings(ctx context.Context, snapshot routesession.Snapsh
 		timings[result.Index] = RouteTiming{Status: timingMeasured, Route: &route}
 		measured++
 	}
-	log.Printf("[ROUTES] timings requested=%d measured=%d", len(wanted), measured)
+	slog.Info("Measure route timings", "component", "routes", "requested", len(wanted), "measured", measured)
 	return timings
 }
 

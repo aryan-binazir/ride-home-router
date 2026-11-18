@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"ride-home-router/internal/distance"
@@ -245,21 +245,38 @@ func (c *Client) computeRoute(ctx context.Context, key string, points []models.C
 	started := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[ROUTES] measure outcome=request_failed duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Info("Measure ordered route",
+			"component", "routes",
+			"outcome", "request_failed",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &redactedTransportError{cause: unwrapURLError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[ROUTES] measure outcome=http_error status=%d duration=%s", resp.StatusCode, time.Since(started).Round(time.Millisecond))
+		slog.Info("Measure ordered route",
+			"component", "routes",
+			"outcome", "http_error",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, &StatusError{Status: resp.StatusCode}
 	}
 	var decoded computeRoutesResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit)).Decode(&decoded); err != nil {
-		log.Printf("[ROUTES] measure outcome=decode_failed duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Info("Measure ordered route",
+			"component", "routes",
+			"outcome", "decode_failed",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, errors.New("orderedroute: malformed provider response")
 	}
 	if len(decoded.Routes) != 1 || len(decoded.Routes[0].Legs) != len(points)-1 {
-		log.Printf("[ROUTES] measure outcome=unexpected_shape duration=%s", time.Since(started).Round(time.Millisecond))
+		slog.Info("Measure ordered route",
+			"component", "routes",
+			"outcome", "unexpected_shape",
+			"duration", time.Since(started).Round(time.Millisecond),
+		)
 		return nil, errors.New("orderedroute: provider returned an unexpected number of legs")
 	}
 	legs := make([]Leg, len(points)-1)
@@ -270,7 +287,12 @@ func (c *Client) computeRoute(ctx context.Context, key string, points []models.C
 		}
 		legs[i] = Leg{DistanceMeters: leg.DistanceMeters, DurationSecs: seconds}
 	}
-	log.Printf("[ROUTES] measure outcome=success legs=%d duration=%s", len(legs), time.Since(started).Round(time.Millisecond))
+	slog.Info("Measure ordered route",
+		"component", "routes",
+		"outcome", "success",
+		"legs", len(legs),
+		"duration", time.Since(started).Round(time.Millisecond),
+	)
 	return legs, nil
 }
 

@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/distance"
@@ -18,7 +19,6 @@ import (
 	"ride-home-router/internal/handlers"
 	"ride-home-router/internal/httpx"
 	"ride-home-router/internal/importer"
-	"ride-home-router/internal/logutil"
 	"ride-home-router/internal/orderedroute"
 	"ride-home-router/internal/postgres"
 	"ride-home-router/internal/routesession"
@@ -150,22 +150,22 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 			err := job(ctx)
 			cancel()
 			if err != nil && cleanupCtx.Err() == nil {
-				log.Printf("[%s] Cleanup failed: %v", name, err)
+				slog.Error("Cleanup failed", "component", name, "error", fmt.Sprint(err))
 			}
 		}
 		workflowTicker := time.NewTicker(5 * time.Minute)
 		defer workflowTicker.Stop()
 		rosterTicker := time.NewTicker(24 * time.Hour)
 		defer rosterTicker.Stop()
-		run("ROSTER", db.PurgeDeletedRoster)
+		run("roster", db.PurgeDeletedRoster)
 		for {
 			select {
 			case <-cleanupCtx.Done():
 				return
 			case <-workflowTicker.C:
-				run("WORKFLOW", db.CleanupWorkflows)
+				run("workflow", db.CleanupWorkflows)
 			case <-rosterTicker.C:
-				run("ROSTER", db.PurgeDeletedRoster)
+				run("roster", db.PurgeDeletedRoster)
 			}
 		}
 	}()
@@ -196,13 +196,13 @@ func (s *Server) Start() (string, error) {
 		return "", err
 	}
 	s.httpServer.Handler = recoverMiddleware(securityHeadersMiddleware(requestSecurityMiddleware(allowlist, s.httpServer.Handler)))
-	log.Printf("Starting server on %s", actualAddr)
+	slog.Info("Starting server", "address", actualAddr)
 	s.serveDone = make(chan struct{})
 
 	go func() {
 		defer close(s.serveDone)
 		if err := s.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("Server error: %v", err)
+			slog.Error("Server error", "error", fmt.Sprint(err))
 			s.serveErrors <- err
 		}
 	}()
@@ -317,11 +317,13 @@ func setupRoutes(handler *handlers.Handler, staticFS fs.FS) *http.ServeMux {
 
 	staticSubFS, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		log.Fatalf("failed to create static sub-filesystem: %v", err)
+		slog.Error("Failed to create static sub-filesystem", "error", fmt.Sprint(err))
+		os.Exit(1)
 	}
 	staticHandler, err := staticFileHandler(staticSubFS)
 	if err != nil {
-		log.Fatalf("failed to hash static files: %v", err)
+		slog.Error("Failed to hash static files", "error", fmt.Sprint(err))
+		os.Exit(1)
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler))
 
@@ -586,7 +588,7 @@ func recoverMiddleware(next http.Handler) http.Handler {
 			if value != nil {
 				// Partial responses cannot be repaired; let net/http abort them.
 				if value != http.ErrAbortHandler {
-					log.Printf("[PANIC] %v\n%s", value, debug.Stack())
+					slog.Error("Recovered HTTP panic", "component", "http", "panic", fmt.Sprint(value), "stack", string(debug.Stack()))
 				}
 				if !lrw.written && value != http.ErrAbortHandler {
 					for key := range lrw.Header() {
@@ -601,7 +603,13 @@ func recoverMiddleware(next http.Handler) http.Handler {
 				}
 				lrw.statusCode = http.StatusInternalServerError
 			}
-			log.Printf("%s %s %d %v", logutil.SafeString(r.Method), logutil.SafeString(r.URL.Path), lrw.statusCode, time.Since(start))
+			slog.Info("HTTP request completed",
+				"component", "http",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", lrw.statusCode,
+				"duration", time.Since(start),
+			)
 			if value != nil {
 				panic(http.ErrAbortHandler)
 			}

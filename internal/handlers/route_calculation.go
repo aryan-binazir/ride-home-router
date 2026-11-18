@@ -3,7 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/geocoding"
 	"ride-home-router/internal/models"
@@ -155,7 +156,7 @@ func (c *routeCalculation) calculate(ctx context.Context, input routeCalculation
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
 		if cleanupErr := c.sessions.DeleteContext(cleanupCtx, session.ID); cleanupErr != nil {
-			log.Printf("[ERROR] Delete canceled route session: %v", cleanupErr)
+			slog.Error("Delete canceled route session", "error", fmt.Sprint(cleanupErr))
 		}
 		return routeCalculationOutcome{Kind: routeCalculationRouteFailure, Err: err}
 	}
@@ -241,5 +242,10 @@ func (c *routeCalculation) refreshCoordinates(ctx context.Context, participants 
 		})
 	}
 	wg.Wait()
-	log.Printf("[GEOCODING] refresh addresses=%d refreshed=%d failed=%d", len(order), refreshed.Load(), failed.Load())
+	slog.Info("Refresh addresses",
+		"component", "geocoding",
+		"addresses", len(order),
+		"refreshed", refreshed.Load(),
+		"failed", failed.Load(),
+	)
 }

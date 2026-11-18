@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -38,7 +39,7 @@ func (h *Handler) HandleReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	status := "ready"
 	code := http.StatusOK
 	if err := h.readinessProbe.check(r, h.DB.ReadinessCheck); err != nil {
-		log.Printf("[ERROR] Readiness check failed: err=%v", err)
+		slog.Error("Readiness check failed", "error", fmt.Sprint(err))
 		status = "not_ready"
 		code = http.StatusServiceUnavailable
 	}
