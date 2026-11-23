@@ -72,14 +72,18 @@ func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
 
 	groups := groupParticipantsByAddress(participants)
 
-	members := map[int64]int{}
-	for index, group := range groups {
+	var got [][]int64
+	for _, group := range groups {
+		var ids []int64
 		for _, member := range group.members {
-			members[member.ID] = index
+			ids = append(ids, member.ID)
 		}
+		slices.Sort(ids)
+		got = append(got, ids)
 	}
-	if len(groups) != 2 || members[1] != members[2] || members[3] == members[1] {
-		t.Fatalf("want Alice and Bob together and the fifth-decimal neighbor apart, got %d groups: %v", len(groups), members)
+	slices.SortFunc(got, slices.Compare)
+	if want := [][]int64{{1, 2}, {3}}; !slices.EqualFunc(got, want, slices.Equal[[]int64]) {
+		t.Fatalf("groups = %v, want %v", got, want)
 	}
 }
 
