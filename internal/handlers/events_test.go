@@ -764,3 +764,47 @@ func TestHandleCreateEvent_AllEmptyRoutesReturnsSafeMessage(t *testing.T) {
 		t.Fatalf("message = %q, want %q", response.Error.Message, messageGenericInternalError)
 	}
 }
+
+func TestHandleListEvents_HTMXRendersHTMLAndIncludesMigratedEvents(t *testing.T) {
+	handler, _ := newTestEventHandler(t, true)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleListEvents(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
+		t.Fatalf("expected HTML response, got %q", got)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "legacy event") {
+		t.Fatalf("expected migrated legacy event to be rendered, got %q", body)
+	}
+}
+
+func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
+	handler, store := newTestEventHandler(t, false)
+	event := createTestEvent(t, store, "2026-03-14", "current event")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events/"+int64ToString(event.ID), nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleGetEvent(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Native Detail") {
+		t.Fatalf("expected native detail rendering, got %q", body)
+	}
+	if !strings.Contains(body, "Final Leg 300") {
+		t.Fatalf("expected native detail to include final leg metrics, got %q", body)
+	}
+}

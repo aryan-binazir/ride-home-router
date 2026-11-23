@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/models"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -487,4 +488,67 @@ func TestMatrixMissingLedgerFailsClosedButCacheRemainsAvailable(t *testing.T) {
 	if err != nil || got.DistanceMeters != 42 || calls != 0 {
 		t.Fatalf("got=%+v err=%v calls=%d", got, err, calls)
 	}
+}
+
+func TestGoogleCalculator_BatchesDestinationsUnderElementLimit(t *testing.T) {
+	requests := 0
+	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var captured googleMatrixRequest
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(captured.Origins)*len(captured.Destinations) > googleRouteMatrixMaxElements {
+			t.Fatalf("request elements = %d, exceeds %d", len(captured.Origins)*len(captured.Destinations), googleRouteMatrixMaxElements)
+		}
+		for i := range captured.Destinations {
+			_, _ = w.Write([]byte(`{"originIndex":0,"destinationIndex":` + intToString(i) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
+		}
+	})
+
+	destinations := make([]models.Coordinates, 700)
+	for i := range destinations {
+		destinations[i] = models.Coordinates{Lat: 36 + float64(i)*0.001, Lng: -79}
+	}
+	if _, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, destinations); err != nil {
+		t.Fatalf("GetDistancesFromPoint() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
+
+func TestGoogleCalculator_GetDistanceMatrixBatchesOriginDestinationBlocks(t *testing.T) {
+	requests := 0
+	calc, _ := newTestGoogleCalculator(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var captured googleMatrixRequest
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		elements := len(captured.Origins) * len(captured.Destinations)
+		if elements > googleRouteMatrixMaxElements {
+			t.Fatalf("request elements = %d, exceeds %d", elements, googleRouteMatrixMaxElements)
+		}
+		for originIndex := range captured.Origins {
+			for destIndex := range captured.Destinations {
+				_, _ = w.Write([]byte(`{"originIndex":` + strconv.Itoa(originIndex) + `,"destinationIndex":` + strconv.Itoa(destIndex) + `,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":100,"duration":"10s"}` + "\n"))
+			}
+		}
+	})
+
+	points := make([]models.Coordinates, 30)
+	for i := range points {
+		points[i] = models.Coordinates{Lat: 35 + float64(i)*0.001, Lng: -79}
+	}
+	if _, err := calc.GetDistanceMatrix(context.Background(), points); err != nil {
+		t.Fatalf("GetDistanceMatrix() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2 matrix block requests", requests)
+	}
+}
+
+func intToString(v int) string {
+	return strconv.Itoa(v)
 }

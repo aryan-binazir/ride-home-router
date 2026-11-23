@@ -636,3 +636,31 @@ func TestWriteImportStoreErrorStatuses(t *testing.T) {
 		})
 	}
 }
+
+func TestImportHTTPCancel(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	upload := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
+	uploadRecorder := httptest.NewRecorder()
+	handler.HandleCreateImport(uploadRecorder, upload)
+	id := decodeImportSnapshot(t, uploadRecorder).ID
+
+	cancelRecorder := httptest.NewRecorder()
+	handler.HandleImportSession(cancelRecorder, newImportRequest(http.MethodDelete, "/api/v1/imports/"+id, nil))
+	if cancelRecorder.Code != http.StatusNoContent || cancelRecorder.Body.Len() != 0 {
+		t.Fatalf("cancel response = status %d body=%q", cancelRecorder.Code, cancelRecorder.Body.String())
+	}
+
+	getRecorder := httptest.NewRecorder()
+	handler.HandleImportSession(getRecorder, newImportRequest(http.MethodGet, "/api/v1/imports/"+id, nil))
+	if getRecorder.Code != http.StatusNotFound {
+		t.Fatalf("get-after-cancel status = %d, want %d", getRecorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestImportSnapshotIncludesFileWarnings(t *testing.T) {
+	const warning = "file-level warning"
+	snapshot := newImportSnapshotJSON(importer.Snapshot{Grid: importer.Grid{Warnings: []string{warning}}})
+	if len(snapshot.Warnings) != 1 || snapshot.Warnings[0] != warning {
+		t.Fatalf("snapshot warnings = %#v", snapshot.Warnings)
+	}
+}

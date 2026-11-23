@@ -1227,3 +1227,69 @@ func TestHandleCalculateRoutes_HTMXRendersRouteTimeMetadataAndParentCopyButton(t
 		t.Fatalf("session.RouteTime = %q, want %q", session.RouteTime, "18:30")
 	}
 }
+
+func TestHandleCalculateRoutesWithOrgVehicles_ShortageRendersHTMLWithoutWarningToast(t *testing.T) {
+	handler, store := newTestRouteHandler(t)
+	ctx := context.Background()
+
+	participant, err := store.Participants().Create(ctx, &models.Participant{Name: "Rider", Address: "1 Rider Rd", Lat: 40.1, Lng: -73.9})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	driver, err := store.Drivers().Create(ctx, &models.Driver{Name: "Driver", Address: "2 Driver Rd", Lat: 40.2, Lng: -73.8, VehicleCapacity: 1})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	location, err := store.ActivityLocations().Create(ctx, &models.ActivityLocation{Name: "Gym", Address: "3 Event Ave", Lat: 42, Lng: -75})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+	van, err := store.OrganizationVehicles().Create(ctx, &models.OrganizationVehicle{Name: "Blue Van", Capacity: 2})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+	handler.Router = &captureRouter{err: &routing.ErrRoutingFailed{
+		Reason:            "still short",
+		UnassignedCount:   1,
+		TotalCapacity:     2,
+		TotalParticipants: 3,
+	}}
+
+	form := url.Values{}
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Set("activity_location_id", int64ToString(location.ID))
+	form.Set("route_time", "18:30")
+	form.Set("mode", "dropoff")
+	form.Set("org_vehicle_"+int64ToString(driver.ID), int64ToString(van.ID))
+	for _, htmx := range []bool{true, false} {
+		t.Run(fmt.Sprintf("htmx=%t", htmx), func(t *testing.T) {
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/routes/calculate-with-org-vehicles", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if htmx {
+				req.Header.Set("HX-Request", "true")
+			}
+			rr := httptest.NewRecorder()
+
+			handler.HandleCalculateRoutesWithOrgVehicles(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+			}
+			if got := rr.Header().Get("HX-Trigger"); got != "" {
+				t.Fatalf("HX-Trigger = %q, want no warning toast", got)
+			}
+			body := rr.Body.String()
+			for _, fragment := range []string{
+				`class="capacity-shortage-container"`,
+				"Not enough seats",
+				`name="participant_ids" value="` + int64ToString(participant.ID) + `"`,
+				`name="driver_ids" value="` + int64ToString(driver.ID) + `"`,
+			} {
+				if !strings.Contains(body, fragment) {
+					t.Fatalf("expected capacity shortage HTML to contain %q, body=%q", fragment, body)
+				}
+			}
+		})
+	}
+}

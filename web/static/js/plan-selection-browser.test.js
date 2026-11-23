@@ -42,7 +42,7 @@ const search=kind=>{const input=document.getElementById(kind+'-search');input.va
 `;
         const controls = ['participants', 'drivers'].map(kind => `<input id="${kind}-search" data-filter-role="search" data-list-id="${kind}-selection" oninput="filterSelectList(this,'${kind}-selection')"><button type="button" id="${kind}-all" onclick="selectAll${kind === 'drivers' ? 'Drivers' : 'Participants'}()">Select all matching</button><button type="button" class="label-filter-chip" data-list-id="${kind}-selection" data-label-id="7" onclick="toggleLabelFilter(this)">Label 7</button><button type="button" id="${kind}-filters" onclick="clearPlannerFilters('${kind}-selection')">Clear filters</button><div id="${kind}-mount"></div>`).join('');
         fs.writeFileSync(file, `<!doctype html><html class="planner-restoring"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fs.readFileSync(path.join(__dirname, "../css/style.css"), "utf8")}</style></head><body>
-<script>${setup}</script><form id="event-form"><div id="event-activity-location-select"><select name="activity_location_id" ${location ? 'data-on-demand="true"' : ''}><option value="">Choose</option><option value="1">School</option></select></div><input name="route_time" value="18:30"><input type="radio" name="mode" value="dropoff" checked><input type="radio" name="mode" value="pickup">${controls}<button type="button" onclick="clearSelections()" id="clear">Clear all</button><button type="button" id="calculate-btn">Calculate</button></form><span id="participants-selected-count">0</span><span id="drivers-selected-count">0</span><span id="drivers-selected-seats">0</span><span id="selection-stats"></span><strong data-picker-summary="seats">0</strong><div id="results-section"></div><template id="results-empty-state-template">Empty</template><dialog id="route-editor-dialog"><div id="route-editor"></div></dialog><pre id="evidence">pending</pre>
+<script>${setup}</script><div class="main"><form id="event-form"><div id="event-activity-location-select"><select name="activity_location_id" ${location ? 'data-on-demand="true"' : ''}><option value="">Choose</option><option value="1">School</option></select></div><input name="route_time" value="18:30"><input type="radio" name="mode" value="dropoff" checked><input type="radio" name="mode" value="pickup">${controls}<button type="button" onclick="clearSelections()" id="clear">Clear all</button><button type="button" id="calculate-btn">Calculate</button></form><span id="participants-selected-count">0</span><span id="drivers-selected-count">0</span><span id="drivers-selected-seats">0</span><span id="selection-stats"></span><strong data-picker-summary="seats">0</strong><div id="results-section"></div><template id="results-empty-state-template">Empty</template><dialog id="route-editor-dialog"><div id="route-editor"></div></dialog></div><pre id="evidence">pending</pre>
 <script>for(const kind of ['participants','drivers'])document.getElementById(kind+'-mount').innerHTML=picker(kind,['1','2']);</script>
 ${['htmx.min.js', 'editors.js', 'event-planner.js'].map(name => `<script>${fs.readFileSync(path.join(__dirname, name), 'utf8')}</script>`).join('')}
 <script>addEventListener('load',async()=>{try{${scenario}\ndocument.getElementById('evidence').textContent=JSON.stringify({...out,errors,width:innerWidth});}catch(error){document.getElementById('evidence').textContent=JSON.stringify({error:String(error),stack:error.stack});}});</script></body></html>`);
@@ -67,8 +67,10 @@ function restoreScenario({failure = '', order = false, cancel = '', malformed = 
     return `
 const starts=requests.map(r=>r.url);
 const until=async predicate=>{for(let n=0;n<300;n++){if(predicate())return;await wait(10);}throw Error('restore did not settle');};
-const snapshot=()=>({participants:selected('participants'),drivers:selected('drivers'),van:document.getElementById('van-assignment-1')?.value,stats:stats(),location:document.querySelector('select[name="activity_location_id"]').value,mode:document.querySelector('input[name="mode"]:checked').value,time:document.querySelector('input[name="route_time"]').value,inert:document.getElementById('event-form').inert,disabled:document.getElementById('calculate-btn').disabled,draft:saved(),active:localStorage.getItem('ride-home-router:active-session:v2'),toasts:[...document.querySelectorAll('.toast-message')].map(e=>e.textContent),html:document.getElementById('results-section').innerHTML});
-let earlyVisible=false;
+const snapshot=()=>({participants:selected('participants'),drivers:selected('drivers'),van:document.getElementById('van-assignment-1')?.value,stats:stats(),location:document.querySelector('select[name="activity_location_id"]').value,mode:document.querySelector('input[name="mode"]:checked').value,time:document.querySelector('input[name="route_time"]').value,inert:document.getElementById('event-form').inert,disabled:document.getElementById('calculate-btn').disabled,draft:saved(),active:localStorage.getItem('ride-home-router:active-session:v2'),toasts:[...document.querySelectorAll('.toast-message')].map(e=>e.textContent),saveDisabled:document.querySelector('[data-session-action="save"]')?.disabled,visibility:getComputedStyle(document.getElementById('event-form')).visibility,html:document.getElementById('results-section').innerHTML});
+const activeKey='ride-home-router:active-session:v2';
+const veil=()=>({restoring:document.documentElement.classList.contains('planner-restoring'),visibility:getComputedStyle(document.getElementById('event-form')).visibility,routes:!!document.querySelector('.route-card')});
+let earlyVisible=false,held=null,cleared=null;
 const observed=new Set();let cancelled=false;
 const poll=setInterval(()=>{
  for(const request of requests){
@@ -76,29 +78,32 @@ const poll=setInterval(()=>{
   const kind=request.url.includes('routes/session')?'session':request.url.split('/').at(-1);
   const delays=${JSON.stringify(order ? {'location-editor':90,participants:60,drivers:30,session:0,'vehicle-assignments':20} : {})};
   setTimeout(async()=>{
-   if(kind==='session'&&${JSON.stringify(cancel)}&&!cancelled){
+   if(kind==='session'&&${JSON.stringify(!order)}){
     await until(()=>!document.getElementById('event-form').inert);
+    await wait(100);held=veil();
+   }
+   if(kind==='session'&&${JSON.stringify(cancel)}&&!cancelled){
     cancelled=true;
-    if(${JSON.stringify(cancel)}==='clear')clearSelections();
+    if(${JSON.stringify(cancel)}==='clear'){clearSelections();cleared={draft:saved(),active:localStorage.getItem(activeKey)};}
     else if(${JSON.stringify(cancel)}==='input'){const time=document.querySelector('input[name="route_time"]');time.value='20:30';time.dispatchEvent(new Event('change',{bubbles:true}));}
     else document.body.dispatchEvent(new CustomEvent('htmx:beforeRequest',{bubbles:true,detail:{elt:document.getElementById('calculate-btn'),xhr:{}}}));
     if(request.options.signal.aborted){request.reject(new DOMException('Aborted','AbortError'));return;}
    }
    if(kind===${JSON.stringify(failure)}&&${JSON.stringify(!malformed && status === 200)}){request.reject(Error('offline'));return;}
    let html=kind==='location-editor'?'<div id="event-activity-location-select"><select name="activity_location_id" data-on-demand="true"><option value="">Choose</option><option value="1">School</option></select></div>'
-    :kind==='participants'?picker('participants',['1','2'],['1'])
-    :kind==='drivers'?picker('drivers',['2'],['1'],{'1':'9'})
+    :kind==='participants'?picker('participants',['1','2'],request.values.getAll('participant_ids'))
+    :kind==='drivers'?picker('drivers',['2'],request.values.getAll('driver_ids'),Object.fromEntries([...request.values].filter(([name])=>name.startsWith('org_vehicle_')).map(([name,value])=>[name.slice(12),value])))
     :kind==='vehicle-assignments'?'<div>'+vehicle('1','9',12)+'</div>'
     :'<div class="routes-container" data-session-id="s1"><section class="route-card">Restored routes</section><button data-session-action="save">Save</button></div>';
    if(kind===${JSON.stringify(failure)}&&${JSON.stringify(malformed)})html='<div>wrong fragment</div>';
-   if(kind===${JSON.stringify(failure)}&&${status}!==200)request.resolve({ok:false,status:${status},headers:new Headers(),text:async()=>'Restore rejected'});
+   if(kind===${JSON.stringify(failure)}&&${status}!==200)request.resolve({ok:${status >= 200 && status < 300},status:${status},headers:new Headers(),text:async()=>'Restore rejected'});
    else respond(request,html);
   },delays[kind]||0);
  }
  if(document.documentElement.classList.contains('planner-restoring')&&document.querySelector('.route-card'))earlyVisible=true;
 },1);
 await until(()=>!document.documentElement.classList.contains('planner-restoring'));await wait(150);clearInterval(poll);
-const out={final:snapshot(),earlyVisible,starts,aborted:requests.filter(r=>r.options.signal?.aborted).map(r=>r.url.split('?')[0])};`;
+const out={final:snapshot(),earlyVisible,held,cleared,starts,aborted:requests.filter(r=>r.options.signal?.aborted).map(r=>r.url.split('?')[0])};`;
 }
 
 for (const options of [
@@ -111,14 +116,26 @@ for (const options of [
 ]) {
     test(`draft/session restore ${JSON.stringify(options)}`, {skip: !browser}, () => {
         const session = {id:'s1',fingerprint:options.mismatch?'different inputs':restoreFingerprint};
-        const {final, starts, aborted, earlyVisible} = run(390, restoreScenario(options), {draft: restoreDraft, location: true, paged: options.paged !== false, session});
+        const {final, starts, aborted, earlyVisible, held, cleared} = run(390, restoreScenario(options), {draft: restoreDraft, location: true, paged: options.paged !== false, session});
         const routesShown = final.html.includes('Restored routes');
         assert.equal(earlyVisible, false);
         assert.equal(final.inert, false);
+        assert.equal(final.visibility, 'visible');
+        if (!options.order) assert.deepEqual(held, {restoring: true, visibility: 'hidden', routes: false}, 'planner stays hidden while the session response is pending');
         if (options.paged !== false) assert.deepEqual(starts.map(url=>url.split('?')[0]), ['/api/v1/planner/location-editor','/api/v1/planner/participants','/api/v1/planner/drivers','/api/v1/routes/session']);
         if (options.cancel) {
             assert.ok(aborted.includes('/api/v1/routes/session'));
             assert.equal(routesShown, false);
+            if (options.cancel === 'clear') {
+                assert.deepEqual(cleared, {draft: null, active: null});
+                assert.deepEqual([final.participants, final.drivers, final.location, final.mode, final.active], [[], [], '', 'dropoff', null]);
+                assert.deepEqual([final.draft.participantIds, final.draft.driverIds, final.draft.vanAssignments, final.draft.activityLocationId], [[], [], {}, '']);
+            } else {
+                const routeTime = options.cancel === 'input' ? '20:30' : '19:15';
+                assert.deepEqual([final.participants, final.drivers, final.van, final.location, final.mode, final.time], [['1'], ['1'], '9', '1', 'pickup', routeTime]);
+                assert.deepEqual(final.draft, {...restoreDraft, routeTime});
+                if (options.cancel === 'input') assert.equal(final.active, null);
+            }
         } else if (options.failure === 'session') {
             const expired = options.status !== undefined && options.status !== 500;
             assert.deepEqual([final.participants, final.drivers, final.van, final.disabled], [['1'], ['1'], '9', false]);
@@ -139,6 +156,7 @@ for (const options of [
             assert.deepEqual(final.toasts, []);
             assert.equal(final.active, options.mismatch ? null : JSON.stringify(session));
             assert.equal(final.html.includes('Plan changed'), !!options.mismatch);
+            assert.equal(final.saveDisabled, !!options.mismatch);
         }
     });
 }

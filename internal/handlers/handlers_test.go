@@ -112,3 +112,17 @@ func TestNoSwapConflictIncludesReadableMessage(t *testing.T) {
 		t.Fatalf("response: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestInternalErrorContractDoesNotLeak(t *testing.T) {
+	h := &Handler{}
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", nil)
+	r.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	h.renderError(w, r, errors.New(`ERROR: relation "x" does not exist (SQLSTATE 42P01)`))
+	if strings.Contains(w.Body.String(), "SQLSTATE") {
+		t.Fatalf("internal error leaked: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("HX-Trigger"), "showToast") {
+		t.Fatal("missing toast")
+	}
+}

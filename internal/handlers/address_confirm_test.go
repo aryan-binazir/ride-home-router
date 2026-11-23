@@ -215,3 +215,61 @@ func TestRosterConfirmationRetainsFilteredPage(t *testing.T) {
 		})
 	}
 }
+
+func TestRosterConfirmationLeavingFilterClampsPage(t *testing.T) {
+	for _, kind := range []string{"participants", "drivers"} {
+		t.Run(kind, func(t *testing.T) {
+			h, store := newTestManagementHandler(t)
+			var id int64
+			for i := range 51 {
+				id = seedRosterReadPerson(t, store, kind, fmt.Sprintf("Person %03d", i), "Typed Maple Road")
+			}
+			if kind == "participants" {
+				p, err := store.Participants().GetByID(t.Context(), id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p.MatchedAddress, p.AddressMatch = "Confirmed Oak Road", models.AddressMatchGuessed
+				if _, err := store.Participants().Update(t.Context(), p); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				d, err := store.Drivers().GetByID(t.Context(), id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				d.MatchedAddress, d.AddressMatch = "Confirmed Oak Road", models.AddressMatchGuessed
+				if _, err := store.Drivers().Update(t.Context(), d); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := "/api/v1/" + kind + "/" + strconv.FormatInt(id, 10)
+			form := url.Values{"search": {" Maple "}, "offset": {"50"}}
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path+AddressConfirmSuffix, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("HX-Request", "true")
+			response := httptest.NewRecorder()
+			confirm, get := h.HandleConfirmParticipantAddress, h.HandleGetParticipant
+			if kind == "drivers" {
+				confirm, get = h.HandleConfirmDriverAddress, h.HandleGetDriver
+			}
+			confirm(response, req)
+			body := response.Body.String()
+			if response.Code != http.StatusOK || !strings.Contains(body, `data-search-query="Maple" data-offset="0"`) || strings.Contains(body, "Person 050") || strings.Contains(body, `data-page="prev"`) || strings.Contains(body, `data-page="next"`) {
+				t.Fatalf("confirmation must remove changed match and clamp page: %d %s", response.Code, body)
+			}
+			if count := strings.Count(body, `data-row="`+strings.TrimSuffix(kind, "s")+`-`); count != 50 {
+				t.Fatalf("visible rows = %d; want 50", count)
+			}
+			persisted := httptest.NewRecorder()
+			get(persisted, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+			var person struct {
+				Address      string              `json:"address"`
+				AddressMatch models.AddressMatch `json:"address_match"`
+			}
+			if err := json.Unmarshal(persisted.Body.Bytes(), &person); err != nil || persisted.Code != http.StatusOK || person.Address != "Confirmed Oak Road" || person.AddressMatch != models.AddressMatchConfirmed {
+				t.Fatalf("confirmed record = %s, %v", persisted.Body.String(), err)
+			}
+		})
+	}
+}

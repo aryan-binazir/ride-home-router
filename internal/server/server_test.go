@@ -701,3 +701,24 @@ func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T
 		t.Fatalf("empty path body = %q, want %q", emptyRec.Body.String(), serverMessageNotFound+"\n")
 	}
 }
+
+func TestRequestBodyMiddlewareRejectsOversizedBody(t *testing.T) {
+	called := false
+	handler := requestBodyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"http://localhost:8080/write",
+		strings.NewReader(strings.Repeat("x", int(maxRequestBodyBytes)+1)),
+	)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge || called {
+		t.Fatalf("status = %d, called = %v; want 413 and handler not called", rec.Code, called)
+	}
+}

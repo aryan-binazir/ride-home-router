@@ -400,3 +400,20 @@ func TestMemberPreferencePreservesConcurrentAdminSettings(t *testing.T) {
 		t.Fatalf("cleared=%+v err=%v", got, err)
 	}
 }
+
+func TestSharedLayoutOffersHeaderSignOut(t *testing.T) {
+	handler, _ := newTestPageHandler(t)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	headerEnd := strings.Index(body, "</header>")
+	signOut := strings.Index(body, "data-sign-out")
+	if headerEnd < 0 || signOut < 0 || signOut > headerEnd {
+		t.Fatal("shared layout must place sign-out in the header")
+	}
+}

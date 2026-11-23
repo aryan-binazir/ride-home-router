@@ -1396,6 +1396,30 @@ for (const failure of ['network', 'body', 'server']) {
     });
 }
 
+test('uncertain edits discard queued actions, block submit, and survive plan changes', async () => {
+    let reject;
+    const form = createSaveForm();
+    const harness = createRouteSessionHarness({ getLiveForm: () => form, request: () => new Promise((_, fail) => { reject = fail; }) });
+    const owner = harness.orchestrator;
+    const first = owner.add(1);
+    const queued = owner.add(2);
+    assert.equal(owner.save(form), true);
+    reject(new Error('response lost'));
+    assert.equal(await first, false);
+    assert.equal(await queued, false);
+    await settleEdits();
+    owner.planChanged({ status: 'stale', sessionId: 'session-a' });
+    owner.planChanged({ status: 'current', sessionId: 'session-a' });
+    assert.equal(owner.hasPending(), true);
+    assert.equal(owner.save(form), true);
+    await settleEdits();
+    assert.equal(form.submitCount, 0);
+    assert.equal(harness.sent.length, 1);
+    assert.equal(await owner.add(3), false);
+    harness.setActiveSessionId('session-b');
+    assert.equal(owner.hasPending(), false);
+});
+
 test('failed timing reads and replaced-session failures do not lock the installed plan', async () => {
     const timing = createRouteSessionHarness({ request: async () => { throw new Error('timings unavailable'); } });
     assert.equal(await timing.orchestrator.timings(0), false);

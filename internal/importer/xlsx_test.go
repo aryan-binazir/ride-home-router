@@ -511,3 +511,16 @@ func addXLSXMergedCells(t *testing.T, data []byte, entryName string, count int) 
 		return bytes.Replace(contents, []byte(`</worksheet>`), []byte(merges.String()+`</worksheet>`), 1)
 	})
 }
+
+func TestXLSXOneNonEmptySheetIsSelected(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+		if _, err := f.NewSheet("Empty"); err != nil {
+			t.Fatalf("NewSheet() error = %v", err)
+		}
+	})
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	if err != nil || grid.Len() != 1 {
+		t.Fatalf("Parse() grid=%v err=%v", grid, err)
+	}
+}

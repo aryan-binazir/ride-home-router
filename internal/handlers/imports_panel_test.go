@@ -374,3 +374,19 @@ func TestImportPreviewRendersFileWarnings(t *testing.T) {
 		t.Fatalf("preview did not render file warning: %s", body)
 	}
 }
+
+func TestImportPanelWorksheetPicker(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "roster.xlsx", twoSheetWorkbook(t), importer.KindParticipant, "")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+	assertPanelFragment(t, recorder)
+
+	body := recorder.Body.String()
+	for _, want := range []string{"Choose a worksheet", `value="Sheet1"`, `value="Second"`, "Use this sheet", `form="import-upload-form"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sheet fragment missing %q: %s", want, body)
+		}
+	}
+}

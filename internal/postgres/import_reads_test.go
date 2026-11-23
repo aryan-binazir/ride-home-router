@@ -1,6 +1,8 @@
 package postgres_test
 
 import (
+	"context"
+	"errors"
 	"ride-home-router/internal/database"
 	"ride-home-router/internal/postgres/postgrestest"
 	"testing"
@@ -61,5 +63,42 @@ func TestImportSummaryKeepsPendingRowsRunningWithoutJobs(t *testing.T) {
 	summary, err := db.ImportJobs().Summary(ctx, "pending")
 	if err != nil || !summary.Running || summary.Done != 0 || summary.Total != 0 || summary.SelectedCount != 1 {
 		t.Fatalf("pending summary=%+v err=%v", summary, err)
+	}
+}
+
+func TestImportRowsByIndicesReturnsOnlyRequestedRows(t *testing.T) {
+	db := postgrestest.Open(t)
+	ctx := t.Context()
+	if err := db.Workflows().Create(ctx, "import", "subset", []byte(`{}`), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	err := db.Workflows().Transact(ctx, "import", "subset", time.Hour, func(_ *database.WorkflowRecord, w database.WorkflowWrites) error {
+		return w.StageImport(ctx, "subset", []database.ImportRow{
+			{Index: 0, Data: []byte(`{"Name":"First"}`)},
+			{Index: 1, Data: []byte(`{"Name":"Unrelated"}`)},
+			{Index: 2, Data: []byte(`{"Name":"Third"}`)},
+		}, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.ImportJobs().RowsByIndices(ctx, "subset", []int{2, 0})
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("subset=%+v err=%v", rows, err)
+	}
+	if rows[0].Index != 0 || rows[1].Index != 2 {
+		t.Fatalf("unexpected rows: %+v", rows)
+	}
+	if _, err := db.ImportJobs().RowsByIndices(ctx, "subset", []int{0, 8}); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("missing row: %v", err)
+	}
+	rows, err = db.ImportJobs().RowsByIndices(ctx, "subset", nil)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("empty selection=%+v err=%v", rows, err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := db.ImportJobs().RowsByIndices(canceled, "subset", []int{0}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation: %v", err)
 	}
 }
