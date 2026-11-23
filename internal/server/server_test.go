@@ -722,3 +722,17 @@ func TestRequestBodyMiddlewareRejectsOversizedBody(t *testing.T) {
 		t.Fatalf("status = %d, called = %v; want 413 and handler not called", rec.Code, called)
 	}
 }
+
+func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/open-url", strings.NewReader(`{"url":"https://maps.google.com"}`))
+	request.Host = "localhost:8080"
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: the browser client opens URLs itself", recorder.Code, http.StatusNotFound)
+	}
+}

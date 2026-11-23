@@ -429,3 +429,16 @@ func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
 		t.Fatalf("driver mapping should offer capacity: %s", body)
 	}
 }
+
+func TestImportPanelAmbiguousMappingWarns(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "participants.csv", "name,full name,address\nAlex,Alex Ruiz,1 Main St\n", importer.KindParticipant, "")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+	assertPanelFragment(t, recorder)
+
+	if body := recorder.Body.String(); !strings.Contains(body, "Multiple columns look like Name — pick one.") {
+		t.Fatalf("expected ambiguity warning: %s", body)
+	}
+}
