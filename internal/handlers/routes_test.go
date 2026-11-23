@@ -1586,6 +1586,25 @@ func TestCountUsedOrgVehicles_IgnoresUnusedOrDuplicateRoutes(t *testing.T) {
 	}
 }
 
+func TestHandleGetRouteSession_DeletedSessionReturnsNoContent(t *testing.T) {
+	handler, _ := newTestRouteHandler(t)
+
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ"}, RouteTime: "18:30", Mode: "dropoff"})
+	if err := handler.RouteSession.DeleteContext(context.Background(), session.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id="+session.ID, nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	handler.HandleGetRouteSession(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for deleted session, got %d", w.Code)
+	}
+}
+
 func TestHandleGetRouteSession_ValidSession(t *testing.T) {
 	handler, _ := newTestRouteHandler(t)
 

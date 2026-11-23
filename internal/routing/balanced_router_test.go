@@ -65,15 +65,21 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 }
 
 func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
-	alice := &models.Participant{ID: 1, Name: "Alice", Lat: 40.123450, Lng: -74.123450}
-	sameAfterRounding := &models.Participant{ID: 2, Name: "Bob", Lat: 40.123454, Lng: -74.123454}
-	adjacent := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123460, Lng: -74.123450}
+	alice := &models.Participant{ID: 1, Name: "Alice", Lat: 40.123410, Lng: -74.123410}
+	sameAfterRounding := &models.Participant{ID: 2, Name: "Bob", Lat: 40.123414, Lng: -74.123414}
+	adjacent := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123420, Lng: -74.123410}
 	participants := []*models.Participant{alice, sameAfterRounding, adjacent}
 
 	groups := groupParticipantsByAddress(participants)
 
-	if len(groups) != 2 {
-		t.Errorf("expected Alice and Bob together and the fifth-decimal neighbor apart, got %d groups", len(groups))
+	members := map[int64]int{}
+	for index, group := range groups {
+		for _, member := range group.members {
+			members[member.ID] = index
+		}
+	}
+	if len(groups) != 2 || members[1] != members[2] || members[3] == members[1] {
+		t.Fatalf("want Alice and Bob together and the fifth-decimal neighbor apart, got %d groups: %v", len(groups), members)
 	}
 }
 

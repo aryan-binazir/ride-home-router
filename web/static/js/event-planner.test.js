@@ -22,7 +22,8 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
     const makeInput = (value, userEdited) => ({
         value,
         dataset: userEdited ? { userEdited: '1' } : {},
-        addEventListener() {},
+        listeners: [],
+        addEventListener(type, fn) { this.listeners.push([type, fn]); },
     });
     const serverDated = makeInput('2026-03-15', false);
     const edited = makeInput('2026-03-20', true);
@@ -31,6 +32,8 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
     assert.equal(applyLocalEventDate(scope, new Date(2026, 2, 14, 23, 30)), 2);
     assert.equal(serverDated.value, '2026-03-14');
     assert.equal(edited.value, '2026-03-20');
+    serverDated.listeners.find(([type]) => type === 'input')[1]();
+    assert.equal(serverDated.dataset.userEdited, '1');
 });
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
@@ -46,7 +49,8 @@ test('installRouteResults installs HTML before processing and performs all resul
     const dateInput = {
         value: 'server-date',
         dataset: {},
-        addEventListener() {},
+        listeners: [],
+        addEventListener(type, fn) { this.listeners.push([type, fn]); },
     };
     const target = {
         set innerHTML(html) { installedHtml = html; },
@@ -75,6 +79,8 @@ test('installRouteResults installs HTML before processing and performs all resul
     assert.equal(installedHtml, '<form>routes</form>');
     assert.equal(processedTarget, target);
     assert.notEqual(dateInput.value, 'server-date');
+    dateInput.listeners.find(([type]) => type === 'input')[1]();
+    assert.equal(dateInput.dataset.userEdited, '1');
     assert.equal(etaRefreshes, 1);
 });
 

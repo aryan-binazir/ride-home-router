@@ -203,7 +203,7 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 					var response struct {
 						LabelIDs []int64 `json:"label_ids"`
 					}
-					if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil || len(response.LabelIDs) != 0 {
+					if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil || response.LabelIDs == nil || len(response.LabelIDs) != 0 {
 						t.Fatalf("cleared response label_ids = %v, err=%v", response.LabelIDs, err)
 					}
 				}
