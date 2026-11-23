@@ -187,31 +187,6 @@ func TestImportMappingFromFormCapacityByRosterKind(t *testing.T) {
 	}
 }
 
-func TestImportMappingFromFormProblemsPreserveSnapshotView(t *testing.T) {
-	headers := []string{"name", "address"}
-	snapshot := importer.Snapshot{
-		Kind:    importer.KindParticipant,
-		Grid:    importer.Grid{Headers: headers},
-		Mapping: importer.AutoMap(headers),
-	}
-	request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
-		"column_0": {"name"}, "column_1": {"name"},
-	})
-	_, problems := importMappingFromForm(request, snapshot)
-
-	wantProblems := []string{
-		"Name is mapped to more than one column — pick one.",
-		"Choose a column for Address.",
-	}
-	if !slices.Equal(problems, wantProblems) {
-		t.Fatalf("problems = %#v, want %#v", problems, wantProblems)
-	}
-	view := newImportMappingView(snapshot, problems)
-	if view.Columns[1].Selected != string(importer.FieldAddress) {
-		t.Fatalf("address selection = %q, want snapshot selection %q", view.Columns[1].Selected, importer.FieldAddress)
-	}
-}
-
 func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)

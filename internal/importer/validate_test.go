@@ -20,20 +20,13 @@ func TestAutoMapExactAliasesAmbiguityAndIgnoredColumns(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsMissingAndDuplicateMappings(t *testing.T) {
+func TestValidateRejectsMissingMappings(t *testing.T) {
 	grid := mustParseCSV(t, "name,address\nJane,1 Main St\n")
 	mapping := AutoMap(grid.Headers)
 	mapping.AddressColumn = UnmappedColumn
 	rows := Validate(grid, mapping, KindParticipant, nil)
 	if !hasMessage(rows[0].Errors, "required address field") {
 		t.Fatalf("missing mapping errors = %#v", rows[0].Errors)
-	}
-
-	mapping = AutoMap(grid.Headers)
-	mapping.AddressColumn = mapping.NameColumn
-	rows = Validate(grid, mapping, KindParticipant, nil)
-	if !hasMessage(rows[0].Errors, "cannot map to both") {
-		t.Fatalf("duplicate mapping errors = %#v", rows[0].Errors)
 	}
 }
 

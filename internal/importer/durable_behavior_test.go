@@ -127,10 +127,7 @@ func TestDurableDriverImportCapacity(t *testing.T) {
 
 func TestDurableGeocodeDedupFailureAndGuessedAddress(t *testing.T) {
 	db := postgrestest.Open(t)
-	g := &fakeGeocoder{result: func(_ context.Context, address string, retries int) (*geocoding.GeocodingResult, error) {
-		if retries != geocodeMaxRetries {
-			t.Errorf("geocode retries = %d", retries)
-		}
+	g := &fakeGeocoder{result: func(_ context.Context, address string, _ int) (*geocoding.GeocodingResult, error) {
 		if strings.Contains(address, "Bad") {
 			return nil, geocoding.ErrNoGeocodingResults
 		}

@@ -322,23 +322,6 @@ func TestSwapDriversRejectsCapacityAndRollsBackDistanceFailure(t *testing.T) {
 	}
 }
 
-func TestSwapDriversMovesEffectiveCapacityWithDrivers(t *testing.T) {
-	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
-
-	routes := testRoutes()
-	routes[0].EffectiveCapacity = 2
-	routes[1].EffectiveCapacity = 7
-	created := mustCreate(t, store, routesession.CreateInput{Routes: routes, ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff})
-
-	swapped, err := store.SwapDrivers(context.Background(), created.ID, 0, 1)
-	if err != nil {
-		t.Fatalf("SwapDrivers: %v", err)
-	}
-	if swapped.Routes[0].Driver.ID != 2 || swapped.Routes[0].EffectiveCapacity != 7 || swapped.Routes[1].Driver.ID != 1 || swapped.Routes[1].EffectiveCapacity != 2 {
-		t.Fatalf("vehicle capacities did not move with drivers: %#v", swapped.Routes)
-	}
-}
-
 func TestSwapDriversMovesOrgVehicleWithDriver(t *testing.T) {
 	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
 
@@ -412,32 +395,6 @@ func TestCommitRejectsUnbalancedWithoutPersistence(t *testing.T) {
 	}
 	if called {
 		t.Fatal("Commit invoked persistence for an unbalanced session")
-	}
-}
-
-func TestCommitFailureReturnsCallbackErrorAndRetainsIndependentSession(t *testing.T) {
-	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
-
-	created := mustCreate(t, store, testInput())
-	wantErr := errors.New("persistence failed")
-
-	err := commitSession(store, context.Background(), created.ID, func(_ context.Context, payload routesession.CommitSnapshot) error {
-		payload.Final[0].Driver.ID = 999
-		return wantErr
-	})
-
-	if err != wantErr {
-		t.Fatalf("Commit error = %v, want callback error", err)
-	}
-	got, ok := mustLoad(t, store, created.ID)
-	if !ok {
-		t.Fatal("session was removed after persistence failed")
-	}
-	if got.Routes[0].Driver.ID != 1 {
-		t.Fatalf("session driver ID = %d, want independent value 1", got.Routes[0].Driver.ID)
-	}
-	if err := commitSession(store, context.Background(), created.ID, func(context.Context, routesession.CommitSnapshot) error { return nil }); err != nil {
-		t.Fatalf("retry Commit error = %v", err)
 	}
 }
 

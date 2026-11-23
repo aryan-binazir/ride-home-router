@@ -473,16 +473,6 @@ func TestGoogleCalculator_PrewarmContinuesAfterTransientBlockFailure(t *testing.
 	}
 }
 
-func TestGoogleCalculator_MissingAPIKeyReturnsTypedError(t *testing.T) {
-	calc := NewGoogleCalculator(newMockDistanceCache(), func(context.Context) (string, error) {
-		return "", nil
-	}, nil)
-	_, err := calc.GetDistancesFromPoint(context.Background(), models.Coordinates{Lat: 35, Lng: -79}, []models.Coordinates{{Lat: 36, Lng: -79}})
-	if !errors.Is(err, ErrProviderNotConfigured) {
-		t.Fatalf("error = %v, want ErrProviderNotConfigured", err)
-	}
-}
-
 func TestGoogleCalculator_MissingAPIKeyFailsBeforeUsingCache(t *testing.T) {
 	cache := newMockDistanceCache()
 

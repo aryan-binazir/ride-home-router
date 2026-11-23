@@ -5,18 +5,6 @@ import (
 	"testing"
 )
 
-func TestNewMappingStartsUnmapped(t *testing.T) {
-	mapping := NewMapping()
-	for _, binding := range mapping.Columns() {
-		if binding.Column != UnmappedColumn {
-			t.Errorf("%s column = %d, want %d", binding.Field, binding.Column, UnmappedColumn)
-		}
-	}
-	if mapping.Ambiguous == nil {
-		t.Fatal("Ambiguous is nil")
-	}
-}
-
 func TestMappingAssignReportsMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name        string

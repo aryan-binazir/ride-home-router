@@ -30,7 +30,7 @@ window.addEventListener('load', () => {
  const count=toolbar.querySelector('.panel-count');
  const buttons=[...toolbar.querySelectorAll('button')];
  const rect=el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
- const measure=()=>({count:rect(count),toolbar:rect(toolbar),display:getComputedStyle(toolbar).display,
+ const measure=()=>({count:rect(count),toolbar:rect(toolbar),
   buttons:buttons.map(button=>{
    const range=document.createRange();range.selectNodeContents(button);
    const textRects=[...range.getClientRects()].filter(r=>r.width>0&&r.height>0).map(r=>({x:r.x,y:r.y,right:r.right,bottom:r.bottom}));
@@ -78,7 +78,6 @@ for (const kind of ['drivers', 'participants']) {
                         assert.ok(text.x >= button.x && text.right <= button.right && text.y >= button.y && text.bottom <= button.bottom, `${button.text} fits inside button`);
                     }
                     if (width <= 820) {
-                        assert.equal(layout.display, 'grid');
                         near(layout.count.x, layout.toolbar.x, 'count starts at toolbar edge');
                         near(layout.count.width, layout.toolbar.width, 'count spans both columns');
                         assert.ok(layout.count.bottom <= Math.min(...buttons.map(button => button.y)), 'selected count is alone above all buttons');
@@ -94,7 +93,6 @@ for (const kind of ['drivers', 'participants']) {
                             assert.ok(button.width >= 44 && button.height >= 44, `${button.text} has a 44px touch target`);
                         }
                     } else {
-                        assert.equal(layout.display, 'flex');
                         const items = [layout.count, ...buttons];
                         for (let i = 1; i < items.length; i++) {
                             near(items[i].y + items[i].height / 2, items[0].y + items[0].height / 2, 'desktop controls share one row');

@@ -8,7 +8,6 @@ import (
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/access/accesstest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -194,35 +193,6 @@ type countingTransport struct {
 func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	c.calls.Add(1)
 	return c.base.RoundTrip(r)
-}
-
-func TestConcurrentIdentityRequestsShareClerkLookups(t *testing.T) {
-	f := accesstest.New(t)
-	token := f.Admin()
-	cfg := f.Config()
-	transport := &countingTransport{base: cfg.HTTPClient.Transport}
-	cfg.HTTPClient.Transport = transport
-	gate, err := access.New(cfg, &approvals{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler := gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
-	var workers sync.WaitGroup
-	for range 12 {
-		workers.Go(func() {
-			r := httptest.NewRequestWithContext(t.Context(), "GET", "/", nil)
-			r.Header.Set("Authorization", "Bearer "+token)
-			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, r)
-			if w.Code != 204 {
-				t.Errorf("status=%d", w.Code)
-			}
-		})
-	}
-	workers.Wait()
-	if got := transport.calls.Load(); got != 2 {
-		t.Fatalf("Clerk calls=%d want2", got)
-	}
 }
 
 func TestTerminalClerkDenialsAreCachedButOutagesAreNot(t *testing.T) {

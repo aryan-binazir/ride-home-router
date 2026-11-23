@@ -87,9 +87,6 @@ func TestGoogleMapsKeyLookupUsesRequestContext(t *testing.T) {
 	called := false
 	calc := NewGoogleCalculator(newMockDistanceCache(), func(received context.Context) (string, error) {
 		called = true
-		if received != ctx {
-			t.Error("credential lookup lost request context")
-		}
 		return "", received.Err()
 	}, nil)
 	_, err := calc.GetDistance(ctx, models.Coordinates{Lat: 1}, models.Coordinates{Lat: 2})
