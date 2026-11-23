@@ -67,13 +67,13 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
 	alice := &models.Participant{ID: 1, Name: "Alice", Lat: 40.123450, Lng: -74.123450}
 	sameAfterRounding := &models.Participant{ID: 2, Name: "Bob", Lat: 40.123454, Lng: -74.123454}
-	beyondRounding := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123550, Lng: -74.123550}
-	participants := []*models.Participant{alice, sameAfterRounding, beyondRounding}
+	adjacent := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123460, Lng: -74.123450}
+	participants := []*models.Participant{alice, sameAfterRounding, adjacent}
 
 	groups := groupParticipantsByAddress(participants)
 
 	if len(groups) != 2 {
-		t.Errorf("expected 2 groups, got %d", len(groups))
+		t.Errorf("expected Alice and Bob together and the fifth-decimal neighbor apart, got %d groups", len(groups))
 	}
 }
 

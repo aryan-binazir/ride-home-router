@@ -88,12 +88,13 @@ type rosterTestGeocoder struct {
 	stubGeocoder
 	addresses []string
 	ctx       context.Context
+	retries   int
 	cancel    context.CancelFunc
 }
 
-func (g *rosterTestGeocoder) GeocodeWithRetry(ctx context.Context, address string, _ int) (*geocoding.GeocodingResult, error) {
+func (g *rosterTestGeocoder) GeocodeWithRetry(ctx context.Context, address string, retries int) (*geocoding.GeocodingResult, error) {
 	g.addresses = append(g.addresses, address)
-	g.ctx = ctx
+	g.ctx, g.retries = ctx, retries
 	if g.cancel != nil {
 		g.cancel()
 		return nil, ctx.Err()
@@ -134,7 +135,7 @@ func TestRosterEditorChangedAddressAndFailedEdit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(provider.addresses) != 1 || provider.addresses[0] != addressWithOnlyTrailingSpace || provider.ctx != ctx {
+			if len(provider.addresses) != 1 || provider.addresses[0] != addressWithOnlyTrailingSpace || provider.ctx != ctx || provider.retries != 3 {
 				t.Fatalf("provider = %#v", provider)
 			}
 			if kind == "participant" && (participant.Lat != 42 || participant.Lng != -71) {

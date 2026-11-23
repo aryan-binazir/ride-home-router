@@ -46,9 +46,12 @@ func TestHandleIndexPage_RouteOptionsRenderInsideFormBeforeActionBar(t *testing.
 	}
 }
 
-func TestRosterPages_RenderBulkToolbarTargetTable(t *testing.T) {
+func TestRosterPages_RenderBulkToolbarAndTargetTable(t *testing.T) {
 	handler, store := newTestPageHandler(t)
 	ctx := context.Background()
+	if _, err := store.Labels().Create(ctx, &models.Label{Name: "Youth"}); err != nil {
+		t.Fatalf("create label: %v", err)
+	}
 	if _, err := store.Participants().Create(ctx, &models.Participant{Name: "Pat Rider", Address: "1 Main St", Lat: 35.9, Lng: -79.0}); err != nil {
 		t.Fatalf("create participant: %v", err)
 	}
@@ -73,7 +76,13 @@ func TestRosterPages_RenderBulkToolbarTargetTable(t *testing.T) {
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status = %d", rr.Code)
 			}
-			if !strings.Contains(rr.Body.String(), `id="`+tc.tbody+`"`) {
+			body := rr.Body.String()
+			for _, want := range []string{`class="bulk-toolbar"`, ">Select visible<", ">Clear selection<"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("expected %s in the rendered roster page", want)
+				}
+			}
+			if !strings.Contains(body, `id="`+tc.tbody+`"`) {
 				t.Fatalf("expected %s to render so the toolbar buttons have rows to act on", tc.tbody)
 			}
 		})

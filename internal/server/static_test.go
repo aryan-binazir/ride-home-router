@@ -30,6 +30,9 @@ func TestStaticCachingMatchesFileServer(t *testing.T) {
 			return nil
 		}
 		versioned := web.AssetURL(name)
+		if !strings.HasPrefix(versioned, "/static/"+name+"?v=") {
+			t.Fatalf("AssetURL(%q) = %q, want a versioned URL for that file", name, versioned)
+		}
 		cases := []struct {
 			name, method, target, byteRange string
 			cache                           bool
