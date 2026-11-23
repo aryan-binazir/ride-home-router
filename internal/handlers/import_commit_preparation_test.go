@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -163,5 +164,87 @@ func TestImportPanelCommitAcknowledgesSaveWhenRefreshFails(t *testing.T) {
 				t.Fatalf("saved import: %+v %v", snapshot, err)
 			}
 		})
+	}
+}
+
+func TestImportPanelCommitPreservesErrorPrecedence(t *testing.T) {
+	databaseURL := postgrestest.DatabaseURL(t)
+	db := postgrestest.OpenURL(t, databaseURL)
+	pause := make(chan struct{})
+	geocoder := &importTestGeocoder{pause: pause}
+	store := importer.NewPersistentStore(t.Context(), geocoder, db, db.Workflows(), db.ImportJobs())
+	t.Cleanup(store.Close)
+	h := &Handler{DB: db, Geocoder: geocoder, ImportSession: store, Renderer: loadEmbeddedTemplates(t)}
+	mapping := startImportPanelSession(t, h, "name,address\nMapping,1 Main St\n", importer.KindParticipant)
+	pending := startImportPanelSession(t, h, "name,address\nPending,1 Main St\n", importer.KindParticipant)
+	mapped := httptest.NewRecorder()
+	h.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+pending+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
+	assertPanelFragment(t, mapped)
+	expired := startImportPanelSession(t, h, "name,address\nExpired,1 Main St\n", importer.KindParticipant)
+	conn, err := pgx.Connect(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(t.Context(), `UPDATE workflow_sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE kind='import' AND id=$1`, expired); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ name, id, body, message string }{
+		{"missing malformed", "0123456789abcdef0123456789abcdef", "selected=%zz", "That import expired"},
+		{"expired malformed", expired, "selected=%zz", "That import expired"},
+		{"mapping malformed", mapping, "selected=%zz", "That request could not be read"},
+		{"pending malformed", pending, "selected=%zz", "That request could not be read"},
+		{"mapping invalid page", mapping, "page_selection=1&visible=0&selected=0", "Choose valid rows"},
+		{"pending invalid page", pending, "page_selection=1&visible=0&visible=1&selected=0", "Choose valid rows"},
+		{"pending malformed index", pending, "page_selection=1&visible=oops", "Choose valid rows"},
+		{"pending selected outside page", pending, "page_selection=1&visible=0&selected=1", "Choose valid rows"},
+		{"pending valid page", pending, "page_selection=1&visible=0&selected=0", "Addresses are still being checked"},
+		{"mapping valid form", mapping, "", "That import changed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			live := tt.id == mapping || tt.id == pending
+			if live {
+				if _, err := conn.Exec(t.Context(), `UPDATE workflow_sessions SET expires_at=clock_timestamp()+interval '1 minute' WHERE kind='import' AND id=$1`, tt.id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/imports/"+tt.id+"/commit?view=panel", strings.NewReader(tt.body))
+			req.Host = "localhost:8080"
+			req.Header.Set("HX-Request", "true")
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			response := httptest.NewRecorder()
+			h.HandleImportSession(response, req)
+			assertPanelFragment(t, response)
+			if !strings.Contains(response.Body.String(), tt.message) {
+				t.Fatalf("expected %q: %s", tt.message, response.Body.String())
+			}
+			if live {
+				var renewed bool
+				if err := conn.QueryRow(t.Context(), `SELECT expires_at>clock_timestamp()+interval '2 minutes' FROM workflow_sessions WHERE kind='import' AND id=$1`, tt.id).Scan(&renewed); err != nil || !renewed {
+					t.Fatalf("failed commit did not renew sliding expiry: renewed=%t err=%v", renewed, err)
+				}
+			}
+		})
+	}
+	close(pause)
+	waitForImportHTTPGeocoding(t, h, pending)
+	saved := httptest.NewRecorder()
+	h.HandleImportSession(saved, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+pending+"/commit?view=panel", url.Values{"selected": {"0"}}))
+	assertPanelFragment(t, saved)
+	for _, tt := range []struct{ body, message string }{
+		{"selected=%zz", "That request could not be read"},
+		{"page_selection=1&visible=0&selected=0", "Choose valid rows"},
+		{"", "already been saved"},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/imports/"+pending+"/commit?view=panel", strings.NewReader(tt.body))
+		req.Host = "localhost:8080"
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		h.HandleImportSession(response, req)
+		assertPanelFragment(t, response)
+		if !strings.Contains(response.Body.String(), tt.message) {
+			t.Fatalf("consumed: expected %q: %s", tt.message, response.Body.String())
+		}
 	}
 }

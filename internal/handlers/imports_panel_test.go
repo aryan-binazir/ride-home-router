@@ -390,3 +390,42 @@ func TestImportPanelWorksheetPicker(t *testing.T) {
 		}
 	}
 }
+
+func TestImportPanelCommitConflictRendersServerMessage(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
+
+	mapping := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{
+		"column_0": {"name"}, "column_1": {"address"},
+	})
+	handler.HandleImportSession(httptest.NewRecorder(), mapping)
+	waitForImportHTTPGeocoding(t, handler, id)
+
+	commit := func() *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.HandleImportSession(recorder, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", url.Values{"selected": {"0"}}))
+		return recorder
+	}
+	if body := commit().Body.String(); !strings.Contains(body, "1 imported") {
+		t.Fatalf("first commit = %s", body)
+	}
+
+	retry := commit()
+	assertPanelFragment(t, retry)
+	if body := retry.Body.String(); !strings.Contains(body, "That import has already been saved. Refresh the roster to see it.") {
+		t.Fatalf("retry should show the conflict message: %s", body)
+	}
+}
+
+func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "drivers.csv", "name,address,passenger capacity\nAlex,1 Main St,4\n", importer.KindDriver, "")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+	assertPanelFragment(t, recorder)
+
+	if body := recorder.Body.String(); !strings.Contains(body, "Passenger capacity (excluding driver)") {
+		t.Fatalf("driver mapping should offer capacity: %s", body)
+	}
+}

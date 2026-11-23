@@ -1488,3 +1488,21 @@ test('manual route edits reach the server in order and keep handoffs locked unti
     assert.equal(app.saveButton.disabled, false);
     assert.equal(app.previewButton.disabled, false);
 });
+
+test('Plan changes cancel queued moves and Clear resolves queued manual actions', async () => {
+    let finish;
+    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1);
+    owner.planChanged({ status: 'stale', sessionId: 'session-a' });
+    assert.equal(owner.hasPending(), false);
+    assert.equal(harness.sent.length, 0);
+    const active = owner.add(10);
+    const queued = owner.swap(0, 1);
+    owner.clear();
+    assert.equal(await queued, false);
+    assert.equal(owner.hasPending(), true);
+    finish({ ok: true, text: async () => 'active' });
+    await active; await settleEdits();
+    assert.equal(owner.hasPending(), false);
+});
