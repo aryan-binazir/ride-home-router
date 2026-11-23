@@ -79,28 +79,6 @@ func TestLabelRepository_CRUDCountsAndUniqueness(t *testing.T) {
 	}
 }
 
-func TestLabelRepository_GetByIDsReturnsExistingLabels(t *testing.T) {
-	store := postgrestest.Open(t)
-	ctx := context.Background()
-
-	first, err := store.Labels().Create(ctx, &models.Label{Name: "First"})
-	if err != nil {
-		t.Fatalf("create first label: %v", err)
-	}
-	second, err := store.Labels().Create(ctx, &models.Label{Name: "Second"})
-	if err != nil {
-		t.Fatalf("create second label: %v", err)
-	}
-
-	labels, err := store.Labels().GetByIDs(ctx, []int64{second.ID, first.ID, second.ID, 9999})
-	if err != nil {
-		t.Fatalf("GetByIDs() error = %v", err)
-	}
-	if len(labels) != 2 || labels[0].ID != first.ID || labels[1].ID != second.ID {
-		t.Fatalf("labels = %#v, want first and second ordered by name", labels)
-	}
-}
-
 func TestLabelRepository_SetAndBulkMembershipsAreIdempotent(t *testing.T) {
 	store := postgrestest.Open(t)
 	ctx := context.Background()

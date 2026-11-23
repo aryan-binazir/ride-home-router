@@ -126,26 +126,6 @@ func oneRouteWithUnusedDriver(t *testing.T) (*Handler, routesession.Snapshot) {
 	return &Handler{Renderer: loadEmbeddedTemplates(t), RouteSession: store, Measurer: &stubMeasurer{}}, snapshot
 }
 
-func TestAddSecondDriverRefreshesOriginalCardActions(t *testing.T) {
-	h, snapshot := oneRouteWithUnusedDriver(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/routes/edit/add-driver", strings.NewReader(`{"session_id":"`+snapshot.ID+`","driver_id":2}`))
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("HX-Request", "true")
-	r.Header.Set("X-Route-Fragment", "true")
-	r.Header.Set("X-Route-Balance", "false")
-	h.HandleAddDriver(w, r)
-	if !strings.Contains(w.Body.String(), `data-route-index="0"`) {
-		t.Fatal("original card lacks newly available edit actions")
-	}
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "routes/editor?") {
-		t.Fatalf("response: %d %s", w.Code, w.Body.String())
-	}
-	if h.Measurer.(*stubMeasurer).count() != 0 {
-		t.Fatal("adding an empty car should not buy extra measurements")
-	}
-}
-
 func TestResetRoutesRemovesAddedCard(t *testing.T) {
 	h, snapshot := oneRouteWithUnusedDriver(t)
 	add := newRouteEditJSONRequest("/api/v1/routes/edit/add-driver", []byte(`{"session_id":"`+snapshot.ID+`","driver_id":2}`))

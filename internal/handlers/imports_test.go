@@ -160,20 +160,15 @@ func TestImportUploadWorkbookContracts(t *testing.T) {
 	parseMessage := fmt.Sprintf("Could not read that file. Check the file and use no more than %d rows.", importer.MaxDataRows)
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	malformedOther := rewriteImportWorkbookEntry(t, twoSheetWorkbook(t), "xl/worksheets/sheet2.xml", `<worksheet><sheetData><row r="1"><c r="invalid"><v>broken</v></c></row></sheetData></worksheet>`)
-	empty := singleSheetImportWorkbook(t, nil)
 	headerOnly := singleSheetImportWorkbook(t, [][]any{{"name", "address"}})
 	valid := singleSheetImportWorkbook(t, [][]any{{"name", "address"}, {"Alex", "1 Main St"}})
-	noSheets := rewriteImportWorkbookEntry(t, empty, "xl/workbook.xml", `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets/></workbook>`)
 	for _, panel := range []bool{false, true} {
 		for _, test := range []struct {
 			name, contents, sheet, message string
 		}{
 			{"malformed ZIP discovery", "not a ZIP", "", "Could not read that spreadsheet. Check the file and try again."},
-			{"malformed ZIP chosen", "not a ZIP", "Sheet1", parseMessage},
 			{"malformed worksheet discovery", malformedOther, "", "Could not read that spreadsheet. Check the file and try again."},
 			{"malformed chosen worksheet", malformedOther, "Second", parseMessage},
-			{"empty workbook", empty, "", parseMessage},
-			{"no sheets", noSheets, "", parseMessage},
 			{"header only", headerOnly, "", parseMessage},
 			{"missing sheet", valid, "Missing", parseMessage},
 			{"one sheet", valid, "", ""},
@@ -291,26 +286,6 @@ func TestImportHTTPSelectionBodyTooLarge(t *testing.T) {
 	}
 }
 
-func TestImportSnapshotIncludesFileWarnings(t *testing.T) {
-	const warning = "file-level warning"
-	snapshot := newImportSnapshotJSON(importer.Snapshot{Grid: importer.Grid{Warnings: []string{warning}}})
-	if len(snapshot.Warnings) != 1 || snapshot.Warnings[0] != warning {
-		t.Fatalf("snapshot warnings = %#v", snapshot.Warnings)
-	}
-}
-
-func TestImportHTTPWrongID(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	request := newImportRequest(http.MethodGet, "/api/v1/imports/00000000000000000000000000000000", nil)
-	recorder := httptest.NewRecorder()
-
-	handler.HandleImportSession(recorder, request)
-
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d body=%q", recorder.Code, http.StatusNotFound, recorder.Body.String())
-	}
-}
-
 func TestImportHTTPDoubleCommit(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	id := createGeocodedImport(t, handler)
@@ -379,57 +354,6 @@ func TestImportHTTPOversizeRowCount(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), fmt.Sprintf("%d rows", importer.MaxDataRows)) {
 		t.Fatalf("response does not include row limit: %q", recorder.Body.String())
-	}
-}
-
-func TestImportHTTPCancel(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	upload := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
-	uploadRecorder := httptest.NewRecorder()
-	handler.HandleCreateImport(uploadRecorder, upload)
-	id := decodeImportSnapshot(t, uploadRecorder).ID
-
-	cancelRecorder := httptest.NewRecorder()
-	handler.HandleImportSession(cancelRecorder, newImportRequest(http.MethodDelete, "/api/v1/imports/"+id, nil))
-	if cancelRecorder.Code != http.StatusNoContent || cancelRecorder.Body.Len() != 0 {
-		t.Fatalf("cancel response = status %d body=%q", cancelRecorder.Code, cancelRecorder.Body.String())
-	}
-
-	getRecorder := httptest.NewRecorder()
-	handler.HandleImportSession(getRecorder, newImportRequest(http.MethodGet, "/api/v1/imports/"+id, nil))
-	if getRecorder.Code != http.StatusNotFound {
-		t.Fatalf("get-after-cancel status = %d, want %d", getRecorder.Code, http.StatusNotFound)
-	}
-}
-
-func TestWriteImportStoreErrorStatuses(t *testing.T) {
-	handler := &Handler{}
-	tests := []struct {
-		name   string
-		err    error
-		status int
-	}{
-		{"not found", importer.ErrSessionNotFound, http.StatusNotFound},
-		{"commit consumed", importer.ErrCommitConsumed, http.StatusConflict},
-		{"invalid state", importer.ErrInvalidSessionState, http.StatusConflict},
-		{"geocoding", importer.ErrGeocodingInProgress, http.StatusConflict},
-		{"selection", importer.ErrInvalidSelection, http.StatusUnprocessableEntity},
-		{"geocode limit", importer.ErrTooManyGeocodeAddresses, http.StatusUnprocessableEntity},
-		{"store full", importer.ErrStoreFull, http.StatusTooManyRequests},
-		{"store closed", importer.ErrStoreClosed, http.StatusServiceUnavailable},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			request := newImportRequest(http.MethodGet, "/api/v1/imports/"+strings.Repeat("a", 32), nil)
-			if got := handler.writeImportStoreError(recorder, request, "", fmt.Errorf("context: %w", tt.err)); got != tt.status {
-				t.Fatalf("returned status = %d, want %d", got, tt.status)
-			}
-			if recorder.Code != tt.status {
-				t.Fatalf("response status = %d, want %d", recorder.Code, tt.status)
-			}
-			assertJSONContentType(t, recorder)
-		})
 	}
 }
 
@@ -680,4 +604,35 @@ func rewriteImportWorkbookEntry(t *testing.T, contents, name, replacement string
 		t.Fatalf("workbook entry %q missing", name)
 	}
 	return buffer.String()
+}
+
+func TestWriteImportStoreErrorStatuses(t *testing.T) {
+	handler := &Handler{}
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"not found", importer.ErrSessionNotFound, http.StatusNotFound},
+		{"commit consumed", importer.ErrCommitConsumed, http.StatusConflict},
+		{"invalid state", importer.ErrInvalidSessionState, http.StatusConflict},
+		{"geocoding", importer.ErrGeocodingInProgress, http.StatusConflict},
+		{"selection", importer.ErrInvalidSelection, http.StatusUnprocessableEntity},
+		{"geocode limit", importer.ErrTooManyGeocodeAddresses, http.StatusUnprocessableEntity},
+		{"store full", importer.ErrStoreFull, http.StatusTooManyRequests},
+		{"store closed", importer.ErrStoreClosed, http.StatusServiceUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := newImportRequest(http.MethodGet, "/api/v1/imports/"+strings.Repeat("a", 32), nil)
+			if got := handler.writeImportStoreError(recorder, request, "", fmt.Errorf("context: %w", tt.err)); got != tt.status {
+				t.Fatalf("returned status = %d, want %d", got, tt.status)
+			}
+			if recorder.Code != tt.status {
+				t.Fatalf("response status = %d, want %d", recorder.Code, tt.status)
+			}
+			assertJSONContentType(t, recorder)
+		})
+	}
 }

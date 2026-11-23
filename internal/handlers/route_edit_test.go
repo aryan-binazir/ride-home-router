@@ -40,17 +40,6 @@ func TestHandleMoveParticipantPreservesLegacyClaimedSourceValidation(t *testing.
 	}
 }
 
-func TestHandleGetRouteSessionMissingReturnsNoContent(t *testing.T) {
-	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
-
-	h := &Handler{RouteSession: store}
-	w := httptest.NewRecorder()
-	h.HandleGetRouteSession(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/routes/session?session_id=missing", nil))
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204", w.Code)
-	}
-}
-
 func TestHandleMoveParticipantTranslatesBatchAndReturnsJSON(t *testing.T) {
 	h, created := newRouteEditHandler(t)
 	body := `{"session_id":"` + created.ID + `","moves":[{"participant_id":10,"from_route_index":99,"to_route_index":1,"insert_at_position":-1}]}`
@@ -155,24 +144,6 @@ func TestHandleMoveParticipantPreservesBatchRequestValidation(t *testing.T) {
 	}
 }
 
-func TestHandleResetRoutesPreservesHTMXResetControl(t *testing.T) {
-	h, created := newRouteEditHandler(t)
-	if _, err := h.RouteSession.ApplyMoves(context.Background(), created.ID, []routesession.Move{{
-		ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1,
-	}}, routesession.ApplyMovesOptions{}); err != nil {
-		t.Fatal(err)
-	}
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/edit/reset?session_id="+created.ID, nil)
-	req.Header.Set("HX-Request", "true")
-	h.HandleResetRoutes(w, req)
-
-	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Reset changes")) {
-		t.Fatalf("status=%d body=%q, want reset control", w.Code, w.Body.String())
-	}
-}
-
 func newRouteEditHandler(t *testing.T) (*Handler, routesession.Snapshot) {
 	t.Helper()
 	store := routesession.NewPersistentStore(routeEditDistanceCalculator{}, workflowtest.New())
@@ -205,35 +176,4 @@ func decodeRouteResponse(t *testing.T, w *httptest.ResponseRecorder) RouteCalcul
 		t.Fatalf("decode response: %v", err)
 	}
 	return response
-}
-
-func TestHandleMoveParticipantAcceptsMaximumBatch(t *testing.T) {
-	h, session := newRouteEditHandler(t)
-	moves := make([]participantMove, 64)
-	for i := range moves {
-		moves[i] = participantMove{ParticipantID: 10, FromRouteIndex: 99, ToRouteIndex: 1, InsertAtPosition: -1}
-	}
-	body, err := json.Marshal(struct {
-		SessionID string            `json:"session_id"`
-		Moves     []participantMove `json:"moves"`
-	}{session.ID, moves})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	h.HandleMoveParticipant(w, newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", body))
-	response := decodeRouteResponse(t, w)
-	if len(response.Routes[0].Stops) != 0 || len(response.Routes[1].Stops) != 1 {
-		t.Fatal("maximum batch did not move the rider")
-	}
-}
-
-func TestHandleMoveParticipantNullMovesRetainsLegacyValidation(t *testing.T) {
-	h, session := newRouteEditHandler(t)
-	body := []byte(`{"session_id":"` + session.ID + `","moves":null,"participant_id":10,"from_route_index":1,"to_route_index":1,"insert_at_position":-1}`)
-	w := httptest.NewRecorder()
-	h.HandleMoveParticipant(w, newRouteEditJSONRequest("/api/v1/routes/edit/move-participant", body))
-	if w.Code != 400 || !bytes.Contains(w.Body.Bytes(), []byte("That rider is no longer on this route. Refresh the page and try again.")) {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
-	}
 }

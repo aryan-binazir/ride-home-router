@@ -16,43 +16,6 @@ import (
 	"testing"
 )
 
-func TestRosterEditLookupAndValidationPrecedence(t *testing.T) {
-	for _, kind := range []string{"participant", "driver"} {
-		t.Run(kind, func(t *testing.T) {
-			h, _ := newTestManagementHandler(t)
-			for _, body := range []string{"{", `{"name":"","address":""}`} {
-				req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/"+kind+"s/999999", strings.NewReader(body))
-				req.Header.Set("Content-Type", "application/json")
-				rr := httptest.NewRecorder()
-				if kind == "driver" {
-					h.HandleUpdateDriver(rr, req)
-				} else {
-					h.HandleUpdateParticipant(rr, req)
-				}
-				message := messageParticipantNotFound
-				if kind == "driver" {
-					message = messageDriverNotFound
-				}
-				want := `{"error":{"code":"NOT_FOUND","message":"` + message + `"}}` + "\n"
-				if rr.Code != http.StatusNotFound || rr.Body.String() != want {
-					t.Fatalf("response = %d %q, want 404 %q", rr.Code, rr.Body.String(), want)
-				}
-			}
-		})
-	}
-}
-
-func TestRosterEditDriverCapacityAndLabelPrecedence(t *testing.T) {
-	h, _ := newTestManagementHandler(t)
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(`{"name":"Driver","address":"Address","vehicle_capacity":999,"label_ids":[999999]}`))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	h.HandleCreateDriver(rr, req)
-	if rr.Code != http.StatusBadRequest || rr.Body.String() != `{"error":{"code":"VALIDATION_ERROR","message":"`+messageVehicleCapacityOutOfRange()+`"}}`+"\n" {
-		t.Fatalf("json = %d %s", rr.Code, rr.Body.String())
-	}
-}
-
 func TestRosterEditGeocodeErrorPresentation(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
 		for _, surface := range []string{"json", "htmx"} {

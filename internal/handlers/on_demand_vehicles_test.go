@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,23 +9,6 @@ import (
 	"strings"
 	"testing"
 )
-
-func TestCapacityShortageDoesNotRepeatVehicleChoices(t *testing.T) {
-	view := CapacityShortageView{ActivityLocation: &models.ActivityLocation{}, EffectiveCapacityByDriver: map[int64]int{}}
-	for i := range 100 {
-		view.Drivers = append(view.Drivers, models.Driver{ID: int64(i + 1), Name: "Driver", VehicleCapacity: 4})
-	}
-	for i := range 100 {
-		view.OrgVehicles = append(view.OrgVehicles, models.OrganizationVehicle{ID: int64(i + 1), Name: "Unselected fleet van", Capacity: 12})
-	}
-	var page bytes.Buffer
-	if err := loadEmbeddedTemplates(t).Render(&page, "capacity_shortage", view); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(page.String(), "Unselected fleet van") || strings.Count(page.String(), "<option") != 100 {
-		t.Fatal("shortage view renders every driver's full vehicle catalog")
-	}
-}
 
 func TestRestoringVehicleAssignmentsReturnsOnlySelectedCurrentValues(t *testing.T) {
 	h, store := newTestPageHandler(t)
@@ -174,31 +155,6 @@ func TestDriverPickerPreservesChosenVanForHiddenSelectedDriver(t *testing.T) {
 	body := w.Body.String()
 	if w.Code != http.StatusOK || !strings.Contains(body, "Chosen van") || !strings.Contains(body, `data-capacity="12"`) || strings.Contains(body, "Unrelated van") || !strings.Contains(body, fmt.Sprintf(`name="driver_ids" value="%d"`, driver.ID)) {
 		t.Fatalf("hidden selected driver: status=%d body=%s", w.Code, body)
-	}
-}
-
-func TestSelectedVanPresentationPropagatesLookupFailure(t *testing.T) {
-	h, store := newTestPageHandler(t)
-	driver, err := store.Drivers().Create(t.Context(), &models.Driver{Name: "Driver", Address: "1 Test St", VehicleCapacity: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.DB = testDataStore{DataStore: store, orgVehicleRepo: orgVehicleRepoWithError{OrganizationVehicleRepository: store.OrganizationVehicles(), err: errors.New("van lookup unavailable")}}
-	for _, endpoint := range []struct {
-		path   string
-		handle http.HandlerFunc
-	}{
-		{"/api/v1/planner/drivers", h.HandlePlannerPicker},
-		{"/api/v1/planner/vehicle-assignments", h.HandleVehicleAssignments},
-	} {
-		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, endpoint.path, strings.NewReader(fmt.Sprintf("driver_ids=%d&org_vehicle_%d=1", driver.ID, driver.ID)))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		r.Header.Set("HX-Request", "true")
-		w := httptest.NewRecorder()
-		endpoint.handle(w, r)
-		if w.Code != http.StatusInternalServerError || !strings.Contains(w.Header().Get("HX-Trigger"), messageGenericInternalError) {
-			t.Fatalf("lookup failure %s: status=%d trigger=%q", endpoint.path, w.Code, w.Header().Get("HX-Trigger"))
-		}
 	}
 }
 

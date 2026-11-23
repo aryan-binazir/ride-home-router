@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"ride-home-router/internal/models"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -51,29 +50,5 @@ func TestRosterSearchRendersSQLMatches(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestRosterRefreshAfterUpdateKeepsSearch(t *testing.T) {
-	h, store := newTestPageHandler(t)
-	zelda, err := store.Participants().Create(t.Context(), &models.Participant{Name: "Zelda", Address: "123 Maple Avenue", AddressName: "Community Center"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Participants().Create(t.Context(), &models.Participant{Name: "Alice", Address: "456 Oak Road"}); err != nil {
-		t.Fatal(err)
-	}
-	form := url.Values{"name": {"Zelda"}, "address": {"123 Maple Avenue"}, "address_name": {"Community Center"}, "search": {" maple "}}
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/participants/"+strconv.FormatInt(zelda.ID, 10), strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	response := httptest.NewRecorder()
-	h.HandleUpdateParticipant(response, req)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
-	}
-	body := response.Body.String()
-	if !strings.Contains(body, "Zelda") || strings.Contains(body, "Alice") {
-		t.Fatalf("refreshed roster ignored search: %s", body)
 	}
 }

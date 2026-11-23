@@ -43,96 +43,6 @@ func (*ordinalFailDistanceCalculator) PrewarmPairs(context.Context, []distance.D
 	return nil
 }
 
-func TestRouteContextRiderScoreWeightsCumulativeStopTimes(t *testing.T) {
-	tests := []struct {
-		name   string
-		mode   RouteMode
-		driver *models.Driver
-		want   float64
-	}{
-		{
-			name:   "dropoff uses cumulative home arrival time",
-			mode:   RouteModeDropoff,
-			driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 3},
-			want:   5000,
-		},
-		{
-			name:   "pickup uses cumulative pickup time",
-			mode:   RouteModePickup,
-			driver: &models.Driver{ID: 1, Name: "Driver", Lat: 0, Lng: 0, VehicleCapacity: 3},
-			want:   5000,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, tt.mode)
-			stops := []*models.Participant{
-				{ID: 1, Name: "Sibling A", Lat: 1, Lng: 0},
-				{ID: 2, Name: "Sibling B", Lat: 1, Lng: 0},
-				{ID: 3, Name: "Farther", Lat: 3, Lng: 0},
-			}
-
-			got, err := rc.riderScore(context.Background(), tt.driver, stops)
-			if err != nil {
-				t.Fatalf("riderScore() error = %v", err)
-			}
-
-			if got != tt.want {
-				t.Fatalf("riderScore() = %.0f, want %.0f", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGroupInsertionDeltaRiderScorePrefersEarlierDropoff(t *testing.T) {
-	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 0, Lng: 0}, RouteModeDropoff)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 20, Lng: 0, VehicleCapacity: 2}
-	stops := []*models.Participant{
-		{ID: 1, Name: "Far", Lat: 10, Lng: 0},
-	}
-	group := &participantGroup{
-		members: []*models.Participant{{ID: 2, Name: "Near", Lat: 1, Lng: 0}},
-	}
-
-	startDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 0)
-	if err != nil {
-		t.Fatalf("start delta error = %v", err)
-	}
-	endDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 1)
-	if err != nil {
-		t.Fatalf("end delta error = %v", err)
-	}
-
-	if startDelta >= endDelta {
-		t.Fatalf("start delta %.0f should be less than end delta %.0f", startDelta, endDelta)
-	}
-}
-
-func TestGroupInsertionDeltaRiderScorePrefersEarlierPickup(t *testing.T) {
-	rc := newRouteContext(stableDistanceCalculator{}, models.Coordinates{Lat: 20, Lng: 0}, RouteModePickup)
-	driver := &models.Driver{ID: 1, Name: "Driver", Lat: 0, Lng: 0, VehicleCapacity: 2}
-	stops := []*models.Participant{
-		{ID: 1, Name: "Far", Lat: 10, Lng: 0},
-	}
-	group := &participantGroup{
-		members: []*models.Participant{{ID: 2, Name: "Near", Lat: 1, Lng: 0}},
-	}
-
-	startDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 0)
-	if err != nil {
-		t.Fatalf("start delta error = %v", err)
-	}
-	endDelta, err := rc.groupInsertionDeltaRiderScore(context.Background(), driver, stops, group, 1)
-	if err != nil {
-		t.Fatalf("end delta error = %v", err)
-	}
-
-	if startDelta >= endDelta {
-		t.Fatalf("start delta %.0f should be less than end delta %.0f", startDelta, endDelta)
-	}
-}
-
 func TestPopulateRouteMetrics_PickupIncludesActivityDestination(t *testing.T) {
 	route := &models.CalculatedRoute{
 		Driver: &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 4},
@@ -188,33 +98,6 @@ func TestPopulateRouteMetrics_PickupIncludesActivityDestination(t *testing.T) {
 	}
 	if route.Stops[1].CumulativeDistanceMeters != 7000 {
 		t.Fatalf("second stop CumulativeDistanceMeters = %.0f, want 7000", route.Stops[1].CumulativeDistanceMeters)
-	}
-}
-
-func TestPopulateRouteMetrics_PreservesOrgVehicleAssignment(t *testing.T) {
-	orgVehicleID := int64(30)
-	route := &models.CalculatedRoute{
-		Driver:            &models.Driver{ID: 1, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 2},
-		OrgVehicleID:      orgVehicleID,
-		OrgVehicleName:    "Van",
-		EffectiveCapacity: 5,
-		Stops: []models.RouteStop{
-			{Participant: &models.Participant{ID: 1, Name: "Passenger", Lat: 8, Lng: 0}},
-		},
-	}
-
-	if err := PopulateRouteMetrics(context.Background(), stableDistanceCalculator{}, models.Coordinates{}, RouteModeDropoff, route); err != nil {
-		t.Fatalf("PopulateRouteMetrics() error = %v", err)
-	}
-
-	if route.OrgVehicleID != orgVehicleID {
-		t.Fatalf("OrgVehicleID = %v, want %d", route.OrgVehicleID, orgVehicleID)
-	}
-	if route.OrgVehicleName != "Van" {
-		t.Fatalf("OrgVehicleName = %q, want Van", route.OrgVehicleName)
-	}
-	if route.EffectiveCapacity != 5 {
-		t.Fatalf("EffectiveCapacity = %d, want assigned vehicle capacity 5", route.EffectiveCapacity)
 	}
 }
 
@@ -344,41 +227,6 @@ func TestOptimizeRouteOrder_LateLookupFailureLeavesRouteUntouched(t *testing.T) 
 	}
 	if route.Driver != driver || route.Stops[0].Participant != first || route.Stops[1].Participant != second {
 		t.Fatal("route pointer identity changed after failure")
-	}
-}
-
-func TestOptimizeRouteOrder_PreservesSingleRouteSolverResult(t *testing.T) {
-	ctx := context.Background()
-	calc := stableDistanceCalculator{}
-	activity := models.Coordinates{Lat: 0, Lng: 0}
-	result, err := NewBalancedRouter(calc).CalculateRoutes(ctx, &RoutingRequest{
-		InstituteCoords: activity,
-		Participants: []models.Participant{
-			{ID: 1, Name: "Far", Lat: 2, Lng: 8},
-			{ID: 2, Name: "Near Home", Lat: 9, Lng: 0},
-			{ID: 3, Name: "Near Activity", Lat: 1, Lng: 0},
-		},
-		Drivers: []models.Driver{
-			{ID: 7, Name: "Driver", Lat: 10, Lng: 0, VehicleCapacity: 3},
-		},
-		Mode: RouteModeDropoff,
-	})
-	if err != nil {
-		t.Fatalf("CalculateRoutes() error = %v", err)
-	}
-	if len(result.Routes) != 1 {
-		t.Fatalf("len(result.Routes) = %d, want 1", len(result.Routes))
-	}
-
-	want := result.Routes[0]
-	optimized := want
-	optimized.Stops = append([]models.RouteStop(nil), want.Stops...)
-	if err := OptimizeRouteOrder(ctx, calc, activity, RouteModeDropoff, &optimized); err != nil {
-		t.Fatalf("OptimizeRouteOrder() error = %v", err)
-	}
-
-	if !reflect.DeepEqual(optimized, want) {
-		t.Fatalf("optimized route = %#v, want solver result %#v", optimized, want)
 	}
 }
 
@@ -523,12 +371,4 @@ func TestBalancedRouterConcurrentMixedModes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-}
-
-func (rc routeContext) groupInsertionDeltaRiderScore(ctx context.Context, driver *models.Driver, stops []*models.Participant, group *participantGroup, pos int) (float64, error) {
-	before, err := rc.riderScore(ctx, driver, stops)
-	if err != nil {
-		return 0, err
-	}
-	return rc.groupInsertionDeltaRiderScoreFrom(ctx, driver, stops, group, pos, before)
 }

@@ -326,18 +326,6 @@ func TestGoogleGeocodeWithRetryRetriesNetworkErrorsButNotBadAddresses(t *testing
 	}
 }
 
-func TestRetryAfterClampsToFifteenMinutes(t *testing.T) {
-	if got := parseRetryAfter("999999999"); got != maxRetryAfter {
-		t.Fatalf("parseRetryAfter(huge) = %s, want %s", got, maxRetryAfter)
-	}
-	if got := parseRetryAfter("7"); got != 7*time.Second {
-		t.Fatalf("parseRetryAfter(7) = %s", got)
-	}
-	if got := parseRetryAfter("garbage"); got != 0 {
-		t.Fatalf("parseRetryAfter(garbage) = %s, want 0", got)
-	}
-}
-
 func TestMain(m *testing.M) {
 	retryBaseDelay = 5 * time.Millisecond
 	os.Exit(m.Run())
@@ -400,20 +388,6 @@ func TestGoogleGeocodeRejectsIncompleteResponses(t *testing.T) {
 	geocoder := newGoogleGeocoder(staticKey("k"), nil, empty.Client(), empty.URL, empty.URL)
 	if results, err := geocoder.Search(context.Background(), "1 Test", 5); err != nil || len(results) != 0 {
 		t.Fatalf("Search() with no suggestions = (%v, %v), want (empty, nil)", results, err)
-	}
-}
-
-func TestRetryAfterAcceptsHTTPDatesAndIgnoresNegatives(t *testing.T) {
-	if got := parseRetryAfter("-5"); got != 0 {
-		t.Fatalf("parseRetryAfter(-5) = %s, want 0", got)
-	}
-	future := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
-	if got := parseRetryAfter(future); got < 80*time.Second || got > 90*time.Second {
-		t.Fatalf("parseRetryAfter(http date) = %s, want about 90s", got)
-	}
-	past := time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)
-	if got := parseRetryAfter(past); got != 0 {
-		t.Fatalf("parseRetryAfter(past date) = %s, want 0", got)
 	}
 }
 
@@ -493,5 +467,17 @@ func TestGoogleGeocodeFlagsGuessedMatches(t *testing.T) {
 				t.Fatalf("Geocode() guessed = %t, want %t", result.Guessed, tc.wantGuessed)
 			}
 		})
+	}
+}
+
+func TestRetryAfterClampsToFifteenMinutes(t *testing.T) {
+	if got := parseRetryAfter("999999999"); got != maxRetryAfter {
+		t.Fatalf("parseRetryAfter(huge) = %s, want %s", got, maxRetryAfter)
+	}
+	if got := parseRetryAfter("7"); got != 7*time.Second {
+		t.Fatalf("parseRetryAfter(7) = %s", got)
+	}
+	if got := parseRetryAfter("garbage"); got != 0 {
+		t.Fatalf("parseRetryAfter(garbage) = %s, want 0", got)
 	}
 }

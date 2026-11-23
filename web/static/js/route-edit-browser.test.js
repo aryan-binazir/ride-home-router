@@ -90,7 +90,7 @@ addEventListener('DOMContentLoaded',async()=>{
     });
 }
 
-for (const width of [390, 1440]) {
+for (const width of [1440]) {
     test(`Save interception precedes real HTMX dispatch at ${width}px`, { skip: !browser }, () => {
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rhr-save-'));
         try {

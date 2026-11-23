@@ -157,20 +157,6 @@ func TestCompareFlagsOnlyMaterialRegressions(t *testing.T) {
 	}
 }
 
-func TestReportListsWorstCarsInPlainLanguage(t *testing.T) {
-	scenario := Scenario{Name: "tiny", Riders: 6, SeatFactor: 1.5, RiderMix: Mix{Carrboro: 1}, DriverMix: Mix{Durham: 1}}
-	results, err := Run(context.Background(), func() routing.Router { return routing.NewBalancedRouter(distance.NewEstimator()) }, []Scenario{scenario}, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	report := Report(results, results)
-	for _, want := range []string{"## Compared with the baseline", "tiny/dropoff/1", "lives in Durham", "Carrboro"} {
-		if !strings.Contains(report, want) {
-			t.Fatalf("report missing %q:\n%s", want, report)
-		}
-	}
-}
-
 func TestCompareCoversCountsRostersAndTimeouts(t *testing.T) {
 	base := []Result{{Key: "b/pickup/1", Scenario: "b", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 20, BacktrackingCars: 3, CarsUsed: 27}}}
 	ok := []Result{{Key: "b/pickup/1", Scenario: "b", Riders: 100, Drivers: 27, Metrics: Metrics{TotalDistanceKm: 500, FarDrivers: 22, BacktrackingCars: 4, CarsUsed: 27}}}

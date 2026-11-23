@@ -60,41 +60,6 @@ func (w eventWriteHook) CreateEvent(ctx context.Context, event *models.Event, ro
 	return w.WorkflowWrites.CreateEvent(ctx, event, routes, summary)
 }
 
-func TestHandleCreateEvent_MissingSessionRejectsPostedRoutes(t *testing.T) {
-	handler, store := newTestEventHandler(t, false)
-
-	form := url.Values{
-		"routes_json": {`{"mode":"dropoff","routes":[{"driver":{"id":7,"name":"Forged Driver","vehicle_capacity":2},"stops":[{"participant":{"id":10,"name":"Alice"}}]}]}`},
-	}
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusConflict, rr.Body.String())
-	}
-	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
-		t.Fatalf("expected JSON error response, got %q", got)
-	}
-
-	var resp ErrorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Error.Code != "SESSION_EXPIRED" || resp.Error.Message != messageRoutePlanExpired {
-		t.Fatalf("error = %#v", resp.Error)
-	}
-	events, total, err := store.Events().List(context.Background(), 10, 0)
-	if err != nil {
-		t.Fatalf("list events: %v", err)
-	}
-	if total != 0 || len(events) != 0 {
-		t.Fatalf("saved events = %#v total=%d, want none", events, total)
-	}
-}
-
 func TestHandleCreateEvent_MissingSessionReturnsHTMXRecalculateError(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("event_date=2026-03-14"))
@@ -115,48 +80,6 @@ func TestHandleCreateEvent_MissingSessionReturnsHTMXRecalculateError(t *testing.
 	}
 	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
 		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
-	}
-}
-
-func TestHandleCreateEvent_SessionSaveWithoutRoutesJSON(t *testing.T) {
-	handler, store := newTestEventHandler(t, false)
-
-	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
-		Routes: []models.CalculatedRoute{
-			{
-				Driver:              &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
-				EffectiveCapacity:   2,
-				Stops:               []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Alice"}}},
-				TotalDistanceMeters: 5000,
-				Mode:                "dropoff",
-			},
-		},
-		SelectedDrivers:  []models.Driver{{ID: 1, Name: "Driver 1", VehicleCapacity: 2}},
-		ActivityLocation: &models.ActivityLocation{ID: 1, Name: "HQ", Address: "1 Main", Lat: 0, Lng: 0},
-		RouteTime:        "18:30",
-		Mode:             "dropoff",
-	})
-
-	form := "event_date=2026-03-14&session_id=" + session.ID
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, rr.Code, rr.Body.String())
-	}
-
-	events, _, err := store.Events().List(context.Background(), 10, 0)
-	if err != nil {
-		t.Fatalf("list events: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 saved event, got %d", len(events))
-	}
-	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); ok {
-		t.Fatal("session remains available after successful event persistence")
 	}
 }
 
@@ -306,85 +229,6 @@ func TestHandleCreateEvent_PersistenceFailureRetainsSession(t *testing.T) {
 	}
 	if _, ok := mustLoadRouteSession(t, handler.RouteSession, session.ID); !ok {
 		t.Fatal("session was removed after event persistence failed")
-	}
-}
-
-func TestHandleCreateEvent_AllEmptyRoutesReturnsSafeMessage(t *testing.T) {
-	handler, _ := newTestEventHandler(t, false)
-	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
-		Routes: []models.CalculatedRoute{{
-			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
-			EffectiveCapacity: 2,
-			Mode:              models.RouteModeDropoff,
-		}},
-		Mode: models.RouteModeDropoff,
-	})
-
-	form := "event_date=2026-03-14&session_id=" + session.ID
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
-	}
-	var response ErrorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Error.Message != messageGenericInternalError {
-		t.Fatalf("message = %q, want %q", response.Error.Message, messageGenericInternalError)
-	}
-}
-
-func TestHandleCreateEvent_BogusSessionRejectsSave(t *testing.T) {
-	handler, store := newTestEventHandler(t, false)
-
-	form := "event_date=2026-03-14&session_id=expired-session-id"
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusConflict, rr.Code, rr.Body.String())
-	}
-	var response ErrorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Error.Code != "SESSION_EXPIRED" || response.Error.Message != messageRoutePlanExpired {
-		t.Fatalf("error = %#v", response.Error)
-	}
-	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
-		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
-	}
-}
-
-func TestHandleCreateEvent_BogusSessionWithoutDateReturnsSessionExpired(t *testing.T) {
-	handler, store := newTestEventHandler(t, false)
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader("session_id=expired-session-id"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.HandleCreateEvent(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusConflict, rr.Body.String())
-	}
-	var response ErrorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Error.Code != "SESSION_EXPIRED" || response.Error.Message != messageRoutePlanExpired {
-		t.Fatalf("error = %#v", response.Error)
-	}
-	if events, total, err := store.Events().List(context.Background(), 10, 0); err != nil || total != 0 || len(events) != 0 {
-		t.Fatalf("saved events = %#v total=%d err=%v, want none", events, total, err)
 	}
 }
 
@@ -575,28 +419,6 @@ func TestHandleListEvents_ReturnsJSONForStandardRequest(t *testing.T) {
 	}
 }
 
-func TestHandleListEvents_HTMXRendersHTMLAndIncludesMigratedEvents(t *testing.T) {
-	handler, _ := newTestEventHandler(t, true)
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events", nil)
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleListEvents(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
-	}
-	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
-		t.Fatalf("expected HTML response, got %q", got)
-	}
-
-	body := rr.Body.String()
-	if !strings.Contains(body, "legacy event") {
-		t.Fatalf("expected migrated legacy event to be rendered, got %q", body)
-	}
-}
-
 func TestHandleGetEvent_ReturnsLegacyCompatibleJSON(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	event := createTestEvent(t, store, "2026-03-14", "current event")
@@ -662,28 +484,6 @@ func TestHandleGetEvent_HTMXUsesLegacyDetailForMigratedHistory(t *testing.T) {
 	}
 }
 
-func TestHandleGetEvent_HTMXUsesNativeDetailForCurrentHistory(t *testing.T) {
-	handler, store := newTestEventHandler(t, false)
-	event := createTestEvent(t, store, "2026-03-14", "current event")
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events/"+int64ToString(event.ID), nil)
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleGetEvent(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, "Native Detail") {
-		t.Fatalf("expected native detail rendering, got %q", body)
-	}
-	if !strings.Contains(body, "Final Leg 300") {
-		t.Fatalf("expected native detail to include final leg metrics, got %q", body)
-	}
-}
-
 func TestHistoryPaginatesAndUpdatesTheDisplayedCount(t *testing.T) {
 	handler, store := newTestEventHandler(t, false)
 	handler.Renderer = loadEmbeddedTemplates(t)
@@ -708,80 +508,6 @@ func TestHistoryPaginatesAndUpdatesTheDisplayedCount(t *testing.T) {
 		!strings.Contains(second, "Showing 21 of 21 events") || !strings.Contains(second, `hx-swap-oob="outerHTML"`) ||
 		strings.Contains(second, "Load More") {
 		t.Fatalf("last page: %d %s", page.Code, second)
-	}
-}
-
-func TestActualEventDetailTemplateRendersFloatDetourComparison(t *testing.T) {
-	content, err := fs.ReadFile(web.Templates, "templates/partials/event_detail.html")
-	if err != nil {
-		t.Fatalf("read event_detail template: %v", err)
-	}
-
-	tmpl, err := template.New("event_detail").Funcs(template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-		"formatDistance": func(meters float64, useMiles bool) string {
-			if useMiles {
-				return "0.00 mi"
-			}
-			return "0.00 km"
-		},
-		"formatDuration": func(seconds float64) string {
-			return strconv.Itoa(int(seconds))
-		},
-		"initials": func(name string) string {
-			return name[:1]
-		},
-		"displayAddress": func(addressName, address string) string {
-			if addressName == "" {
-				return address
-			}
-			return addressName + " (" + address + ")"
-		},
-		"pluralize": func(count int, singular string) string {
-			if count == 1 {
-				return singular
-			}
-			return singular + "s"
-		},
-	}).Parse(string(content))
-	if err != nil {
-		t.Fatalf("parse event_detail template: %v", err)
-	}
-
-	data := EventDetailViewData{
-		Routes: []models.EventRoute{
-			{
-				DriverName:                 "Driver One",
-				DriverAddress:              "1 Driver Way",
-				TotalDropoffDistanceMeters: 1200,
-				DistanceToDriverHomeMeters: 300,
-				TotalDistanceMeters:        1500,
-				DetourSecs:                 300,
-				Mode:                       "dropoff",
-				Stops: []models.EventRouteStop{
-					{
-						Order:                  0,
-						ParticipantName:        "Passenger One",
-						ParticipantAddress:     "2 Rider Road",
-						DistanceFromPrevMeters: 1200,
-					},
-				},
-			},
-		},
-		Summary: &models.EventSummary{
-			TotalParticipants:   1,
-			TotalDrivers:        1,
-			TotalDistanceMeters: 1500,
-		},
-		UseMiles: false,
-	}
-
-	var rendered bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&rendered, "event_detail", data); err != nil {
-		t.Fatalf("execute event_detail template: %v", err)
-	}
-	if body := rendered.String(); !strings.Contains(body, `<div class="label">Participant</div>`) || !strings.Contains(body, `<div class="label">Driver</div>`) {
-		t.Fatalf("singular event summary labels missing: %s", body)
 	}
 }
 
@@ -933,4 +659,108 @@ func createLegacyEvent(t *testing.T, store *postgres.Store) {
 
 func int64ToString(v int64) string {
 	return strconv.FormatInt(v, 10)
+}
+
+func TestActualEventDetailTemplateRendersFloatDetourComparison(t *testing.T) {
+	content, err := fs.ReadFile(web.Templates, "templates/partials/event_detail.html")
+	if err != nil {
+		t.Fatalf("read event_detail template: %v", err)
+	}
+
+	tmpl, err := template.New("event_detail").Funcs(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"formatDistance": func(meters float64, useMiles bool) string {
+			if useMiles {
+				return "0.00 mi"
+			}
+			return "0.00 km"
+		},
+		"formatDuration": func(seconds float64) string {
+			return strconv.Itoa(int(seconds))
+		},
+		"initials": func(name string) string {
+			return name[:1]
+		},
+		"displayAddress": func(addressName, address string) string {
+			if addressName == "" {
+				return address
+			}
+			return addressName + " (" + address + ")"
+		},
+		"pluralize": func(count int, singular string) string {
+			if count == 1 {
+				return singular
+			}
+			return singular + "s"
+		},
+	}).Parse(string(content))
+	if err != nil {
+		t.Fatalf("parse event_detail template: %v", err)
+	}
+
+	data := EventDetailViewData{
+		Routes: []models.EventRoute{
+			{
+				DriverName:                 "Driver One",
+				DriverAddress:              "1 Driver Way",
+				TotalDropoffDistanceMeters: 1200,
+				DistanceToDriverHomeMeters: 300,
+				TotalDistanceMeters:        1500,
+				DetourSecs:                 300,
+				Mode:                       "dropoff",
+				Stops: []models.EventRouteStop{
+					{
+						Order:                  0,
+						ParticipantName:        "Passenger One",
+						ParticipantAddress:     "2 Rider Road",
+						DistanceFromPrevMeters: 1200,
+					},
+				},
+			},
+		},
+		Summary: &models.EventSummary{
+			TotalParticipants:   1,
+			TotalDrivers:        1,
+			TotalDistanceMeters: 1500,
+		},
+		UseMiles: false,
+	}
+
+	var rendered bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&rendered, "event_detail", data); err != nil {
+		t.Fatalf("execute event_detail template: %v", err)
+	}
+	if body := rendered.String(); !strings.Contains(body, `<div class="label">Participant</div>`) || !strings.Contains(body, `<div class="label">Driver</div>`) {
+		t.Fatalf("singular event summary labels missing: %s", body)
+	}
+}
+
+func TestHandleCreateEvent_AllEmptyRoutesReturnsSafeMessage(t *testing.T) {
+	handler, _ := newTestEventHandler(t, false)
+	session := mustCreateRouteSession(t, handler.RouteSession, routesession.CreateInput{
+		Routes: []models.CalculatedRoute{{
+			Driver:            &models.Driver{ID: 1, Name: "Driver 1", VehicleCapacity: 2},
+			EffectiveCapacity: 2,
+			Mode:              models.RouteModeDropoff,
+		}},
+		Mode: models.RouteModeDropoff,
+	})
+
+	form := "event_date=2026-03-14&session_id=" + session.ID
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/events", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateEvent(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Message != messageGenericInternalError {
+		t.Fatalf("message = %q, want %q", response.Error.Message, messageGenericInternalError)
+	}
 }

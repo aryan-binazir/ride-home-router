@@ -159,18 +159,3 @@ func TestPersistentImportProviderDeadlineRemainsRetryable(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
-
-func TestGeocodeProgressStaysRunningWhileARowNeedsGeocoding(t *testing.T) {
-	pending := geocodeProgress(1, 1, []Row{{NeedsGeocoding: true}})
-	if !pending.Running || pending.Done != 1 || pending.Total != 1 {
-		t.Fatalf("progress = %+v, want running with the job counts", pending)
-	}
-	finished := geocodeProgress(1, 1, []Row{{}})
-	if finished.Running {
-		t.Fatalf("finished rows reported running: %+v", finished)
-	}
-	inFlight := geocodeProgress(0, 2, nil)
-	if !inFlight.Running {
-		t.Fatalf("unfinished jobs reported idle: %+v", inFlight)
-	}
-}

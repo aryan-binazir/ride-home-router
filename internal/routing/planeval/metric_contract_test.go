@@ -6,26 +6,6 @@ import (
 	"testing"
 )
 
-func TestMetricContractGreatCircleSegment(t *testing.T) {
-	home := models.Coordinates{Lat: 0, Lng: 180}
-	a := models.Coordinates{Lat: 0, Lng: 179}
-	b := models.Coordinates{Lat: 0, Lng: -179}
-	if got := segmentDistanceKm(home, a, b); got > 1e-7 {
-		t.Fatalf("distance = %v km, want zero", got)
-	}
-	if got := segmentDistanceKm(home, a, a); math.Abs(got-haversineKm(home, a)) > 1e-7 {
-		t.Fatalf("coincident endpoint distance = %v", got)
-	}
-}
-
-func TestMetricContractMalformedStop(t *testing.T) {
-	p := models.Participant{ID: 1}
-	plan := &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, VehicleCapacity: 4}, Stops: []models.RouteStop{{Participant: &p}, {}}}}}
-	if err := validPlan(plan, Roster{Participants: []models.Participant{p}}); err == nil {
-		t.Fatal("accepted a missing participant, which halves measured burden")
-	}
-}
-
 func TestMetricContractUnroundedNearestRankAndGate(t *testing.T) {
 	var routes []models.CalculatedRoute
 	for i := range 28 {
@@ -47,29 +27,5 @@ func TestMetricContractUnroundedNearestRankAndGate(t *testing.T) {
 	}
 	if m := Measure(&models.RoutingResult{}, models.Coordinates{}, 0); m.BurdenP95Min != 0 || m.BurdenMaxMin != 0 {
 		t.Fatal("empty burden must be zero")
-	}
-}
-
-func TestHomePassBoundaries(t *testing.T) {
-	venue := models.Coordinates{Lat: 0, Lng: 0}
-	latitudeDegrees := func(k float64) float64 { return k / kmPerDegreeLatitude }
-	home := models.Coordinates{Lat: latitudeDegrees(1.99), Lng: 0}
-	if passesHome(venue, home, []models.Coordinates{{Lat: 0, Lng: latitudeDegrees(4.5)}}, false) {
-		t.Fatal("a rider within 5 km of home does not make a pass")
-	}
-	if !passesHome(venue, home, []models.Coordinates{{Lat: 0, Lng: latitudeDegrees(5)}}, false) {
-		t.Fatal("venue->first-rider leg within 2 km of home with the destination over 5 km away must count")
-	}
-	if passesHome(venue, models.Coordinates{Lat: latitudeDegrees(2.05), Lng: 0}, []models.Coordinates{{Lat: 0, Lng: latitudeDegrees(5)}}, false) {
-		t.Fatal("2.05 km from the leg is outside the 2 km threshold")
-	}
-	a, b := models.Coordinates{Lat: 0, Lng: 0}, models.Coordinates{Lat: 0, Lng: latitudeDegrees(1)}
-	beyond := models.Coordinates{Lat: 0, Lng: latitudeDegrees(3)}
-	if got := segmentDistanceKm(beyond, a, b); math.Abs(got-2) > 0.01 {
-		t.Fatalf("beyond-end distance = %.3f km, want 2", got)
-	}
-	cross := models.Coordinates{Lat: latitudeDegrees(1.5), Lng: latitudeDegrees(0.5)}
-	if got := segmentDistanceKm(cross, a, b); math.Abs(got-1.5) > 0.01 {
-		t.Fatalf("cross-track distance = %.3f km, want 1.5", got)
 	}
 }

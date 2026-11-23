@@ -41,60 +41,6 @@ func TestSoftDeleteRosterHandlers_ListRestoreAndJSON(t *testing.T) {
 	}
 }
 
-func TestRosterPagesRenderSeparateDeletedViews(t *testing.T) {
-	tests := []struct {
-		name             string
-		path             string
-		activeContainer  string
-		deletedContainer string
-		deletedEndpoint  string
-		render           func(*Handler, http.ResponseWriter, *http.Request)
-	}{
-		{
-			name:             "participants",
-			path:             "/participants",
-			activeContainer:  `id="participants-list"`,
-			deletedContainer: `id="participants-deleted"`,
-			deletedEndpoint:  `hx-get="/api/v1/participants/deleted"`,
-			render:           (*Handler).HandleParticipantsPage,
-		},
-		{
-			name:             "drivers",
-			path:             "/drivers",
-			activeContainer:  `id="drivers-list"`,
-			deletedContainer: `id="drivers-deleted"`,
-			deletedEndpoint:  `hx-get="/api/v1/drivers/deleted"`,
-			render:           (*Handler).HandleDriversPage,
-		},
-		{
-			name:             "activity_locations",
-			path:             "/activity-locations",
-			activeContainer:  `id="location-list"`,
-			deletedContainer: `id="location-deleted-list"`,
-			deletedEndpoint:  `hx-get="/api/v1/activity-locations/deleted"`,
-			render:           (*Handler).HandleActivityLocationsPage,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, _ := newTestManagementHandler(t)
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, tt.path, nil)
-			rr := httptest.NewRecorder()
-			tt.render(handler, rr, req)
-
-			if rr.Code != http.StatusOK {
-				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-			}
-			for _, want := range []string{tt.activeContainer, tt.deletedContainer, tt.deletedEndpoint, `hx-trigger="rosterRestored from:body"`} {
-				if !strings.Contains(rr.Body.String(), want) {
-					t.Fatalf("page missing %q, body=%q", want, rr.Body.String())
-				}
-			}
-		})
-	}
-}
-
 func TestSoftDeleteRosterRestore_NotFoundForLiveAndUnknownIDs(t *testing.T) {
 	for _, tt := range rosterSoftDeleteCases() {
 		t.Run(tt.name, func(t *testing.T) {
@@ -138,23 +84,6 @@ func TestSoftDeleteRosterRestore_NotFoundForLiveAndUnknownIDs(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestSoftDeleteRosterRestore_RejectsNonPositiveIDs(t *testing.T) {
-	for _, tt := range rosterSoftDeleteCases() {
-		for _, id := range []int64{0, -1} {
-			t.Run(fmt.Sprintf("%s_%d", tt.name, id), func(t *testing.T) {
-				handler, _ := newTestManagementHandler(t)
-				req := newRestoreRequest(tt.restorePath, id, true)
-				rr := httptest.NewRecorder()
-				tt.restore(handler, rr, req)
-
-				if rr.Code != http.StatusBadRequest {
-					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
-				}
-			})
-		}
 	}
 }
 

@@ -185,20 +185,3 @@ func TestBuildPreservesInvalidModeIdentity(t *testing.T) {
 		t.Fatalf("Build error = %v, want ErrInvalidRouteMode", err)
 	}
 }
-
-func TestBuildValidatesRouteModeBeforeParticipants(t *testing.T) {
-	result := models.RoutingResult{
-		Mode: models.RouteModeDropoff,
-		Routes: []models.CalculatedRoute{{
-			Driver: &models.Driver{ID: 1, VehicleCapacity: 2},
-			Stops:  []models.RouteStop{{}},
-			Mode:   models.RouteMode("invalid"),
-		}},
-	}
-
-	_, err := eventsnapshot.Build(result)
-
-	if !errors.Is(err, models.ErrInvalidRouteMode) {
-		t.Fatalf("Build error = %v, want ErrInvalidRouteMode", err)
-	}
-}

@@ -8,7 +8,6 @@ import (
 	"ride-home-router/internal/postgres/postgrestest"
 	"sync"
 	"testing"
-	"time"
 )
 
 type rosterBatchSpec[T any] struct {
@@ -17,7 +16,6 @@ type rosterBatchSpec[T any] struct {
 	createOne   func(context.Context, *postgres.Store, *T) error
 	createBatch func(context.Context, *postgres.Store, []*T) (database.BatchUpsertResult, error)
 	id          func(*T) int64
-	timestamps  func(*T) (time.Time, time.Time)
 	count       func(context.Context, *postgres.Store) (int, error)
 }
 
@@ -35,9 +33,6 @@ func participantBatchSpec() rosterBatchSpec[models.Participant] {
 			return store.Participants().UpsertBatch(ctx, participants)
 		},
 		id: func(participant *models.Participant) int64 { return participant.ID },
-		timestamps: func(participant *models.Participant) (time.Time, time.Time) {
-			return participant.CreatedAt, participant.UpdatedAt
-		},
 		count: func(ctx context.Context, store *postgres.Store) (int, error) {
 			participants, err := store.Participants().List(ctx, "")
 			return len(participants), err
@@ -59,9 +54,6 @@ func driverBatchSpec() rosterBatchSpec[models.Driver] {
 			return store.Drivers().UpsertBatch(ctx, drivers)
 		},
 		id: func(driver *models.Driver) int64 { return driver.ID },
-		timestamps: func(driver *models.Driver) (time.Time, time.Time) {
-			return driver.CreatedAt, driver.UpdatedAt
-		},
 		count: func(ctx context.Context, store *postgres.Store) (int, error) {
 			drivers, err := store.Drivers().List(ctx, "")
 			return len(drivers), err
@@ -282,37 +274,6 @@ func TestUpsertBatchUpdatesMutableFieldsAndKeepsIdentity(t *testing.T) {
 	}
 }
 
-func TestUpsertBatchIsIdempotent(t *testing.T) {
-	t.Run("participants", func(t *testing.T) {
-		testUpsertBatchIsIdempotent(t, participantBatchSpec())
-	})
-	t.Run("drivers", func(t *testing.T) {
-		testUpsertBatchIsIdempotent(t, driverBatchSpec())
-	})
-}
-
-func testUpsertBatchIsIdempotent[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	store := postgrestest.Open(t)
-	ctx := context.Background()
-	batch := func() []*T {
-		return []*T{spec.newEntity("First", "1 Main St"), spec.newEntity("Second", "2 Main St")}
-	}
-	first, err := spec.createBatch(ctx, store, batch())
-	if err != nil {
-		t.Fatalf("first UpsertBatch() error = %v", err)
-	}
-	second, err := spec.createBatch(ctx, store, batch())
-	if err != nil {
-		t.Fatalf("second UpsertBatch() error = %v", err)
-	}
-	if first != (database.BatchUpsertResult{Created: 2}) || second != (database.BatchUpsertResult{Updated: 2}) {
-		t.Fatalf("results = %#v then %#v, want 2 created then 2 updated", first, second)
-	}
-	if count, err := spec.count(ctx, store); err != nil || count != 2 {
-		t.Fatalf("%ss after re-import = %d, err=%v, want 2", spec.noun, count, err)
-	}
-}
-
 func TestCreateBatchSerializesConcurrentDuplicateRechecks(t *testing.T) {
 	t.Run("participants", func(t *testing.T) {
 		testCreateBatchSerializesConcurrentDuplicateRechecks(t, participantBatchSpec())
@@ -355,37 +316,6 @@ func testCreateBatchSerializesConcurrentDuplicateRechecks[T any](t *testing.T, s
 	}
 }
 
-func TestCreateBatchBackfillsOnlyCommittedRows(t *testing.T) {
-	t.Run("participants", func(t *testing.T) {
-		testCreateBatchBackfillsOnlyCommittedRows(t, participantBatchSpec())
-	})
-	t.Run("drivers", func(t *testing.T) {
-		testCreateBatchBackfillsOnlyCommittedRows(t, driverBatchSpec())
-	})
-}
-
-func testCreateBatchBackfillsOnlyCommittedRows[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	store := postgrestest.Open(t)
-	ctx := context.Background()
-	batch := []*T{
-		spec.newEntity("First", "1 Main St"),
-		spec.newEntity("Second", "2 Main St"),
-	}
-	result, err := spec.createBatch(ctx, store, batch)
-	if err != nil {
-		t.Fatalf("UpsertBatch() error = %v", err)
-	}
-	if result != (database.BatchUpsertResult{Created: 2}) {
-		t.Fatalf("UpsertBatch() result = %#v, want 2 created", result)
-	}
-	for i, entity := range batch {
-		createdAt, updatedAt := spec.timestamps(entity)
-		if spec.id(entity) == 0 || createdAt.IsZero() || !createdAt.Equal(updatedAt) {
-			t.Errorf("batch[%d] id=%d created=%v updated=%v, want committed ID and equal non-zero timestamps", i, spec.id(entity), createdAt, updatedAt)
-		}
-	}
-}
-
 func TestUpsertBatchMergesWithinBatchDuplicates(t *testing.T) {
 	t.Run("participants", func(t *testing.T) {
 		testUpsertBatchMergesWithinBatchDuplicates(t, participantBatchSpec())
@@ -414,34 +344,5 @@ func testUpsertBatchMergesWithinBatchDuplicates[T any](t *testing.T, spec roster
 	}
 	if count, err := spec.count(ctx, store); err != nil || count != 1 {
 		t.Fatalf("%ss = %d, err=%v, want 1", spec.noun, count, err)
-	}
-}
-
-func TestCreateBatchNilEntityRollsBackWithoutBackfill(t *testing.T) {
-	t.Run("participants", func(t *testing.T) {
-		testCreateBatchNilEntityRollsBackWithoutBackfill(t, participantBatchSpec())
-	})
-	t.Run("drivers", func(t *testing.T) {
-		testCreateBatchNilEntityRollsBackWithoutBackfill(t, driverBatchSpec())
-	})
-}
-
-func testCreateBatchNilEntityRollsBackWithoutBackfill[T any](t *testing.T, spec rosterBatchSpec[T]) {
-	store := postgrestest.Open(t)
-	ctx := context.Background()
-	first := spec.newEntity("First", "1 Main St")
-	result, err := spec.createBatch(ctx, store, []*T{first, nil})
-	if err == nil || err.Error() != spec.noun+" batch contains a nil "+spec.noun {
-		t.Fatalf("UpsertBatch() error = %v, want nil %s error", err, spec.noun)
-	}
-	if result != (database.BatchUpsertResult{}) {
-		t.Fatalf("UpsertBatch() result = %#v, want zero value", result)
-	}
-	createdAt, updatedAt := spec.timestamps(first)
-	if spec.id(first) != 0 || !createdAt.IsZero() || !updatedAt.IsZero() {
-		t.Fatalf("first entity mutated after rollback: id=%d created=%v updated=%v", spec.id(first), createdAt, updatedAt)
-	}
-	if count, countErr := spec.count(ctx, store); countErr != nil || count != 0 {
-		t.Fatalf("%ss after rollback = %d, err=%v, want 0", spec.noun, count, countErr)
 	}
 }

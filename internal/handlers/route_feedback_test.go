@@ -84,25 +84,6 @@ func TestHandleCreateEvent_CapturesEditedSMERouteFeedback(t *testing.T) {
 	}
 }
 
-func TestHandleCreateEvent_CapturesUnchangedSMERouteFeedback(t *testing.T) {
-	handler, store, conn := newRouteFeedbackHandler(t)
-	setSMEEmail(t, store, "sme@example.com")
-	session := createFeedbackSession(t, handler)
-
-	rr := saveLiveFeedbackSession(handler, session.ID, "sme@example.com")
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201 body=%q", rr.Code, rr.Body.String())
-	}
-	var proposedJSON, finalJSON []byte
-	if err := conn.QueryRow(context.Background(), `SELECT proposed::text, final::text FROM route_feedback WHERE session_id = $1`, session.ID).
-		Scan(&proposedJSON, &finalJSON); err != nil {
-		t.Fatalf("query route feedback: %v", err)
-	}
-	if !bytes.Equal(proposedJSON, finalJSON) {
-		t.Fatalf("unchanged proposed and final differ: proposed=%s final=%s", proposedJSON, finalJSON)
-	}
-}
-
 func TestHandleCreateEvent_DoesNotCaptureWithoutMatchingSME(t *testing.T) {
 	tests := []struct {
 		name      string

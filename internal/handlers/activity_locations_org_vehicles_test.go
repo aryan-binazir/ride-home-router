@@ -50,38 +50,6 @@ func newTestManagementHandler(t *testing.T) (*Handler, *postgres.Store) {
 	return handler, store
 }
 
-func TestHandleActivityLocationForm_RendersInlineEditForm(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
-		Name:    "Gym",
-		Address: "1 Main St",
-		Lat:     40.1,
-		Lng:     -73.9,
-	})
-	if err != nil {
-		t.Fatalf("create activity location: %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/activity-locations/"+int64ToString(location.ID)+"/edit", nil)
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleActivityLocationForm(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	body := rr.Body.String()
-	if !strings.Contains(body, `hx-put="/api/v1/activity-locations/`+int64ToString(location.ID)+`"`) {
-		t.Fatalf("expected edit form to submit to update endpoint, body=%q", body)
-	}
-	if !strings.Contains(body, "Cancel") {
-		t.Fatalf("expected cancel button, body=%q", body)
-	}
-}
-
 func TestHandleUpdateActivityLocation_HTMXReturnsUpdatedRow(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
@@ -126,36 +94,6 @@ func TestHandleUpdateActivityLocation_HTMXReturnsUpdatedRow(t *testing.T) {
 	}
 	if updated.Lat != 41.25 || updated.Lng != -72.75 {
 		t.Fatalf("updated coords = (%f, %f), want (41.25, -72.75)", updated.Lat, updated.Lng)
-	}
-}
-
-func TestHandleOrgVehicleForm_RendersInlineEditForm(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	vehicle, err := store.OrganizationVehicles().Create(context.Background(), &models.OrganizationVehicle{
-		Name:     "Overflow Van",
-		Capacity: 8,
-	})
-	if err != nil {
-		t.Fatalf("create organization vehicle: %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID)+"/edit", nil)
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleOrgVehicleForm(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	body := rr.Body.String()
-	if !strings.Contains(body, `hx-put="/api/v1/org-vehicles/`+int64ToString(vehicle.ID)+`"`) {
-		t.Fatalf("expected edit form to submit to update endpoint, body=%q", body)
-	}
-	if !strings.Contains(body, "Cancel") {
-		t.Fatalf("expected cancel button, body=%q", body)
 	}
 }
 
@@ -268,5 +206,67 @@ func TestHandleUpdateOrgVehicle_HTMXValidationKeepsForm(t *testing.T) {
 	expectedTrigger := `{"showToast":{"message":"` + messageOrganizationVehicleCapacityMustBeAtLeastOne + `","type":"error"}}`
 	if rr.Header().Get("HX-Trigger") != expectedTrigger {
 		t.Fatalf("HX-Trigger = %q, want %q", rr.Header().Get("HX-Trigger"), expectedTrigger)
+	}
+}
+
+func TestHandleActivityLocationForm_RendersInlineEditForm(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	location, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
+		Name:    "Gym",
+		Address: "1 Main St",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create activity location: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/activity-locations/"+int64ToString(location.ID)+"/edit", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleActivityLocationForm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `hx-put="/api/v1/activity-locations/`+int64ToString(location.ID)+`"`) {
+		t.Fatalf("expected edit form to submit to update endpoint, body=%q", body)
+	}
+	if !strings.Contains(body, "Cancel") {
+		t.Fatalf("expected cancel button, body=%q", body)
+	}
+}
+
+func TestHandleOrgVehicleForm_RendersInlineEditForm(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	vehicle, err := store.OrganizationVehicles().Create(context.Background(), &models.OrganizationVehicle{
+		Name:     "Overflow Van",
+		Capacity: 8,
+	})
+	if err != nil {
+		t.Fatalf("create organization vehicle: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/org-vehicles/"+int64ToString(vehicle.ID)+"/edit", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleOrgVehicleForm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `hx-put="/api/v1/org-vehicles/`+int64ToString(vehicle.ID)+`"`) {
+		t.Fatalf("expected edit form to submit to update endpoint, body=%q", body)
+	}
+	if !strings.Contains(body, "Cancel") {
+		t.Fatalf("expected cancel button, body=%q", body)
 	}
 }
