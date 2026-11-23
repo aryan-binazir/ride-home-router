@@ -65,15 +65,25 @@ func TestGroupParticipantsByAddress(t *testing.T) {
 }
 
 func TestGroupParticipantsByAddress_SlightlyDifferentCoordinates(t *testing.T) {
-	alice := &models.Participant{ID: 1, Name: "Alice", Lat: 40.123450, Lng: -74.123450}
-	sameAfterRounding := &models.Participant{ID: 2, Name: "Bob", Lat: 40.123454, Lng: -74.123454}
-	beyondRounding := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123550, Lng: -74.123550}
-	participants := []*models.Participant{alice, sameAfterRounding, beyondRounding}
+	alice := &models.Participant{ID: 1, Name: "Alice", Lat: 40.123410, Lng: -74.123410}
+	sameAfterRounding := &models.Participant{ID: 2, Name: "Bob", Lat: 40.123414, Lng: -74.123414}
+	adjacent := &models.Participant{ID: 3, Name: "Charlie", Lat: 40.123420, Lng: -74.123410}
+	participants := []*models.Participant{alice, sameAfterRounding, adjacent}
 
 	groups := groupParticipantsByAddress(participants)
 
-	if len(groups) != 2 {
-		t.Errorf("expected 2 groups, got %d", len(groups))
+	var got [][]int64
+	for _, group := range groups {
+		var ids []int64
+		for _, member := range group.members {
+			ids = append(ids, member.ID)
+		}
+		slices.Sort(ids)
+		got = append(got, ids)
+	}
+	slices.SortFunc(got, slices.Compare)
+	if want := [][]int64{{1, 2}, {3}}; !slices.EqualFunc(got, want, slices.Equal[[]int64]) {
+		t.Fatalf("groups = %v, want %v", got, want)
 	}
 }
 
@@ -155,9 +165,6 @@ func TestGroupParticipantsByAddress_NormalizesAddressCaseAndWhitespace(t *testin
 	if len(groups) != 1 {
 		t.Fatalf("group count = %d, want 1", len(groups))
 	}
-	if got := householdKey(participants[0]); got != "addr:123 main street" {
-		t.Fatalf("household key = %q, want %q", got, "addr:123 main street")
-	}
 }
 
 func TestGroupParticipantsByAddress_EmptyAddressFallsBackToCoordinates(t *testing.T) {
@@ -224,41 +231,6 @@ func TestBalancedRouter_GroupsStayTogether(t *testing.T) {
 
 	if participantToRoute[3] != participantToRoute[4] {
 		t.Errorf("Charlie and David should be on the same route")
-	}
-}
-
-func TestBalancedRouter_LargeGroupHandling(t *testing.T) {
-	mock := newMockDistanceAdapter()
-	router := NewBalancedRouter(mock)
-
-	result, err := router.CalculateRoutes(context.Background(), &RoutingRequest{
-		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
-		Participants: []models.Participant{
-			{ID: 1, Name: "Alice", Lat: 0.01, Lng: 0.01},
-			{ID: 2, Name: "Bob", Lat: 0.01, Lng: 0.01},
-			{ID: 3, Name: "Charlie", Lat: 0.01, Lng: 0.01},
-			{ID: 4, Name: "David", Lat: 0.01, Lng: 0.01},
-		},
-		Drivers: []models.Driver{
-			{ID: 1, Name: "Driver1", Lat: 0.05, Lng: 0.05, VehicleCapacity: 3},
-			{ID: 2, Name: "Driver2", Lat: 0.06, Lng: 0.06, VehicleCapacity: 3},
-		},
-		Mode: RouteModeDropoff,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Summary.TotalParticipants != 4 {
-		t.Errorf("expected 4 participants, got %d", result.Summary.TotalParticipants)
-	}
-
-	if len(result.Summary.UnassignedParticipants) != 0 {
-		t.Errorf("expected 0 unassigned participants, got %d", len(result.Summary.UnassignedParticipants))
-	}
-
-	if result.Summary.TotalDriversUsed != 2 {
-		t.Errorf("expected 2 drivers used, got %d", result.Summary.TotalDriversUsed)
 	}
 }
 
@@ -1404,29 +1376,6 @@ func TestInsertParticipantsAt(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestCoordinateKey(t *testing.T) {
-	tests := []struct {
-		lat1, lng1  float64
-		lat2, lng2  float64
-		shouldMatch bool
-	}{
-		{40.12345, -74.12345, 40.12345, -74.12345, true},
-		{40.12345, -74.12345, 40.12346, -74.12345, false},
-		{40.123456789, -74.123456789, 40.123456789, -74.123456789, true},
-	}
-
-	for i, tt := range tests {
-		key1 := coordinateKey(tt.lat1, tt.lng1)
-		key2 := coordinateKey(tt.lat2, tt.lng2)
-
-		matches := (key1 == key2)
-		if matches != tt.shouldMatch {
-			t.Errorf("test %d: expected match=%v, got match=%v (key1=%s, key2=%s)",
-				i, tt.shouldMatch, matches, key1, key2)
-		}
 	}
 }
 

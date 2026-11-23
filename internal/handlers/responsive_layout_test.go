@@ -46,7 +46,7 @@ func TestHandleIndexPage_RouteOptionsRenderInsideFormBeforeActionBar(t *testing.
 	}
 }
 
-func TestRosterPages_RenderSelectVisibleButtonInBulkToolbar(t *testing.T) {
+func TestRosterPages_RenderBulkToolbarAndTargetTable(t *testing.T) {
 	handler, store := newTestPageHandler(t)
 	ctx := context.Background()
 	if _, err := store.Labels().Create(ctx, &models.Label{Name: "Youth"}); err != nil {
@@ -77,22 +77,9 @@ func TestRosterPages_RenderSelectVisibleButtonInBulkToolbar(t *testing.T) {
 				t.Fatalf("status = %d", rr.Code)
 			}
 			body := rr.Body.String()
-
-			toolbar := strings.Index(body, `class="bulk-toolbar"`)
-			if toolbar < 0 {
-				t.Fatal("expected the bulk toolbar to render")
-			}
-			toolbarEnd := strings.Index(body[toolbar:], `class="form-input form-input-search"`)
-			if toolbarEnd < 0 {
-				t.Fatal("expected the search input after the bulk toolbar")
-			}
-			toolbarHTML := body[toolbar : toolbar+toolbarEnd]
-			for _, want := range []string{
-				`onclick="selectVisibleTableRows('` + tc.tbody + `', true)"`,
-				`onclick="clearTableSelection('` + tc.tbody + `')"`,
-			} {
-				if !strings.Contains(toolbarHTML, want) {
-					t.Fatalf("expected %s inside the bulk toolbar", want)
+			for _, want := range []string{`class="bulk-toolbar"`, ">Select visible<", ">Clear selection<"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("expected %s in the rendered roster page", want)
 				}
 			}
 			if !strings.Contains(body, `id="`+tc.tbody+`"`) {

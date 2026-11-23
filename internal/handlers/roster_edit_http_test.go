@@ -199,6 +199,14 @@ func TestRosterEditHTTPNormalizationAndLabels(t *testing.T) {
 				if rr.Code != wantStatus || len(provider.addresses) != 1 || provider.addresses[0] != "Changed address" {
 					t.Fatalf("changed address = %d calls=%v %s", rr.Code, provider.addresses, rr.Body.String())
 				}
+				if surface == "json" {
+					var response struct {
+						LabelIDs []int64 `json:"label_ids"`
+					}
+					if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil || response.LabelIDs == nil || len(response.LabelIDs) != 0 {
+						t.Fatalf("cleared response label_ids = %v, err=%v", response.LabelIDs, err)
+					}
+				}
 				assertRosterEditLabels(t, h, kind, id)
 				wantName = " Updated "
 				if kind == "participant" {

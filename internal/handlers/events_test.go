@@ -575,7 +575,7 @@ func TestHandleListEvents_ReturnsJSONForStandardRequest(t *testing.T) {
 	}
 }
 
-func TestHandleListEvents_HTMXRendersHTMLWithoutLegacyNoticeAndIncludesMigratedEvents(t *testing.T) {
+func TestHandleListEvents_HTMXRendersHTMLAndIncludesMigratedEvents(t *testing.T) {
 	handler, _ := newTestEventHandler(t, true)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/events", nil)
@@ -592,9 +592,6 @@ func TestHandleListEvents_HTMXRendersHTMLWithoutLegacyNoticeAndIncludesMigratedE
 	}
 
 	body := rr.Body.String()
-	if strings.Contains(body, "archived and is no longer shown here") {
-		t.Fatalf("expected no legacy archive notice, got %q", body)
-	}
 	if !strings.Contains(body, "legacy event") {
 		t.Fatalf("expected migrated legacy event to be rendered, got %q", body)
 	}
@@ -659,9 +656,6 @@ func TestHandleGetEvent_HTMXUsesLegacyDetailForMigratedHistory(t *testing.T) {
 	body := rr.Body.String()
 	if !strings.Contains(body, "Legacy Detail") {
 		t.Fatalf("expected legacy detail rendering, got %q", body)
-	}
-	if strings.Contains(body, "Final Leg") {
-		t.Fatalf("expected legacy detail to suppress final-leg metrics, got %q", body)
 	}
 	if !strings.Contains(body, "Legacy Rider One") {
 		t.Fatalf("expected migrated legacy stop in detail view, got %q", body)

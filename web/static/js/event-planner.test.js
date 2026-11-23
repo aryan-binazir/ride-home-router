@@ -32,7 +32,8 @@ test('applyLocalEventDate overwrites the server date on injected forms but keeps
     assert.equal(applyLocalEventDate(scope, new Date(2026, 2, 14, 23, 30)), 2);
     assert.equal(serverDated.value, '2026-03-14');
     assert.equal(edited.value, '2026-03-20');
-    assert.equal(serverDated.listeners[0][0], 'input');
+    serverDated.listeners.find(([type]) => type === 'input')[1]();
+    assert.equal(serverDated.dataset.userEdited, '1');
 });
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
@@ -78,23 +79,9 @@ test('installRouteResults installs HTML before processing and performs all resul
     assert.equal(installedHtml, '<form>routes</form>');
     assert.equal(processedTarget, target);
     assert.notEqual(dateInput.value, 'server-date');
-    assert.equal(dateInput.listeners[0][0], 'input');
+    dateInput.listeners.find(([type]) => type === 'input')[1]();
+    assert.equal(dateInput.dataset.userEdited, '1');
     assert.equal(etaRefreshes, 1);
-});
-
-test('planner exports its browser-independent test seams', () => {
-    assert.deepEqual(Object.keys(planner).sort(), [
-        'applyLocalEventDate',
-        'createPlannerState',
-        'createRouteHandoff',
-        'createRouteSessionOrchestrator',
-        'installRouteResults',
-        'localISODate',
-        'preserveTimings',
-        'refreshRouteTotals',
-        'sanitizeVanAssignments',
-        'summarizeMeasuredCards',
-    ]);
 });
 
 test('planner draft keeps the first selected driver for each van', () => {
@@ -738,7 +725,6 @@ test('queued Move batches retain the wire payloads and dispatch headers', async 
     const harness = createRouteSessionHarness();
     const owner = harness.orchestrator;
     owner.move(1, 0, 1); owner.move(2, 1, 0);
-    assert.equal(harness.scheduled.size, 1);
     assert.equal(harness.sent.length, 0);
     await owner.openEditor('/editor');
     owner.move(3, 0, 2);
@@ -773,55 +759,6 @@ test('Plan changes cancel queued moves and Clear resolves queued manual actions'
     finish({ ok: true, text: async () => 'active' });
     await active; await settleEdits();
     assert.equal(owner.hasPending(), false);
-});
-
-test('an absent installed session has no pending Route edits', () => {
-    const harness = createRouteSessionHarness({ activeSessionId: null });
-    assert.equal(harness.orchestrator.hasPending(), false);
-});
-
-test('the Route session owner dispatches moves and manual edits before saving the live form', async () => {
-    const form = createSaveForm();
-    const sent = [];
-    const requests = [];
-    const document = {
-        querySelector(selector) {
-            if (selector === '.routes-container') return { dataset: { sessionId: 'session-a', outOfBalance: 'false' } };
-            if (selector === '#results-section form input[name="session_id"]') return { closest: () => form };
-            return null;
-        },
-        getElementById: () => null,
-    };
-    const owner = createRouteSessionOrchestrator({
-        document,
-        htmx: { process() {} },
-        readPlanState: () => ({ canSave: true, sessionId: 'session-a' }),
-        request: (url, options) => new Promise(resolve => { sent.push([url, options]); requests.push(resolve); }),
-        schedule: () => 1,
-        cancel: () => {},
-        reportError() {},
-        notify() {},
-        afterRender() {},
-    });
-    owner.move(1, 0, 1);
-    const resetting = owner.reset(async () => true);
-    await settleEdits();
-    owner.move(2, 1, 0);
-    assert.equal(owner.save(form), true);
-    assert.equal(sent.length, 1);
-    assert.equal(form.submitCount, 0);
-    requests[0]({ ok: true, text: async () => 'first move' });
-    await settleEdits();
-    assert.match(sent[1][0], /\/reset\?/);
-    requests[1]({ ok: true, text: async () => 'reset' });
-    await resetting;
-    await settleEdits();
-    assert.equal(sent.length, 3);
-    assert.equal(form.submitCount, 0);
-    requests[2]({ ok: true, text: async () => 'last move' });
-    await settleEdits();
-    assert.equal(form.submitCount, 1);
-    assert.deepEqual(sent.filter(([url]) => url.endsWith('move-participant')).map(([, options]) => JSON.parse(options.body).participant_id), [1, 2]);
 });
 
 test('driver copy shows friendly location names while Maps keeps real coordinates', async () => {

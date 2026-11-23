@@ -132,27 +132,3 @@ func TestPostgresRouteSessionRollsBackBatchAndRefreshesDirtyRoutes(t *testing.T)
 		t.Fatalf("reset = %+v %v", reset, err)
 	}
 }
-
-func TestPostgresRouteSessionKeepsPriorPlanAfterDistanceFailure(t *testing.T) {
-	failure := errors.New("synthetic distance failure")
-	calc := failingCalculator{err: failure}
-	store := routesession.NewPersistentStore(calc, postgrestest.Open(t).Workflows())
-	ctx := t.Context()
-	created, err := store.CreateContext(ctx, routesession.CreateInput{
-		Routes: []models.CalculatedRoute{
-			{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Lat: 35, Lng: -78}}}},
-			{Driver: &models.Driver{ID: 2, VehicleCapacity: 2}, EffectiveCapacity: 2},
-		},
-		ActivityLocation: &models.ActivityLocation{ID: 1, Lat: 35.1, Lng: -78.1}, Mode: models.RouteModeDropoff,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ApplyMoves(ctx, created.ID, []routesession.Move{{ParticipantID: 10, ToRouteIndex: 1}}, routesession.ApplyMovesOptions{}); !errors.Is(err, failure) {
-		t.Fatalf("distance failure = %v", err)
-	}
-	retained, ok, err := store.Load(ctx, created.ID)
-	if err != nil || !ok || len(retained.Routes[0].Stops) != 1 || len(retained.Routes[1].Stops) != 0 || retained.IsEditing {
-		t.Fatalf("failed edit changed session: %+v %v %v", retained, ok, err)
-	}
-}

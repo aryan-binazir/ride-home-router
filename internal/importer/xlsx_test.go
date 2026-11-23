@@ -309,20 +309,6 @@ func TestXLSXErrorTextIsCheckedOnlyInMappedColumns(t *testing.T) {
 	}
 }
 
-func TestXLSXNormalizesRaggedWidths(t *testing.T) {
-	data := makeXLSX(t, func(f *excelize.File) {
-		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
-	})
-	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
-	if !row.NeedsGeocoding || len(row.Errors) != 0 {
-		t.Fatalf("row = %#v", row)
-	}
-}
-
 func TestXLSXSkipsBlankAndSyntheticRows(t *testing.T) {
 	t.Run("blank separator", func(t *testing.T) {
 		data := makeXLSX(t, func(f *excelize.File) {

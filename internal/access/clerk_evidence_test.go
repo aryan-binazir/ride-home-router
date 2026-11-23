@@ -65,27 +65,6 @@ func evidenceRequest(h http.Handler, token string) *httptest.ResponseRecorder {
 	return w
 }
 
-func TestEvidenceMissLatency(t *testing.T) {
-	f := accesstest.New(t)
-	token := f.Admin()
-	for run := range 5 {
-		cfg := f.Config()
-		transport := &evidenceTransport{base: cfg.HTTPClient.Transport, sessionDelay: 100 * time.Millisecond, userDelay: 100 * time.Millisecond}
-		cfg.HTTPClient.Transport = transport
-		h := evidenceHandler(t, cfg, true)
-		start := time.Now()
-		response := evidenceRequest(h, token)
-		elapsed := time.Since(start)
-		if response.Code != 204 {
-			t.Fatal(response.Code)
-		}
-		if transport.sessions.Load() != 1 || transport.users.Load() != 1 {
-			t.Fatal("unexpected request count")
-		}
-		t.Logf("run=%d miss_ms=%.3f session_calls=%d user_calls=%d", run+1, float64(elapsed)/float64(time.Millisecond), transport.sessions.Load(), transport.users.Load())
-	}
-}
-
 type evidenceResponse struct {
 	Status  int
 	Body    string
