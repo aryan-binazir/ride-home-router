@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'auth.js'), 'utf8');
 
-async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false, inlineConfig = false, authSource = source} = {}) {
+async function run({signedIn = false, status = 200, pathname = '/sign-in', configFails = false, responses = [], refreshToken = 'fresh-token', search = '', clerkFails = false, scriptFails = false, inlineConfig = false} = {}) {
     const state = {heading: {hidden: true}, email: {hidden: true, textContent: ''}, message: {textContent: ''}, retry: {hidden: true, addEventListener: () => {}}, button: {hidden: true}, requests: []};
     const clerk = {
         session: signedIn ? {getToken: async () => { state.refreshes = (state.refreshes || 0) + 1; return refreshToken; }} : null,
@@ -15,7 +15,7 @@ async function run({signedIn = false, status = 200, pathname = '/sign-in', confi
         signOut: options => { state.signOut = options; },
     };
     state.button.addEventListener = (_, callback) => { state.click = callback; };
-    await vm.runInNewContext(authSource, {
+    await vm.runInNewContext(source, {
         window: state.window = {Clerk: clerk},
         URL, Headers, Event,
         location: {pathname, search, href: 'https://app.example'+pathname+search, origin: 'https://app.example', replace: value => { state.redirect = value; }},
@@ -45,6 +45,9 @@ test('sign-in allows Google account creation and returns new accounts to the pro
     assert.equal(state.options.routing, 'hash');
     assert.equal(state.options.signUpForceRedirectUrl, '/');
     assert.equal(state.script.dataset.clerkPublishableKey, 'pk_test_fixture');
+    const inline = await run({inlineConfig: true});
+    assert.equal(inline.script.dataset.clerkPublishableKey, 'pk_test_fixture');
+    assert.deepEqual(inline.requests, []);
 });
 test('only successful backend admission redirects a signed-in user to protected data', async () => {
     assert.equal((await run({signedIn: true})).redirect, '/');
@@ -144,29 +147,3 @@ test('a speculative request shows recovery only once its caller would have sent 
     await assert.rejects(abandoned.window.authFetch('/api/v1/routes/session', {beforeRecovery: async () => { throw new Error('restore abandoned'); }}), /restore abandoned/);
     assert.equal(abandoned.recovery, undefined);
 });
-
-const before = fs.readFileSync(path.join(__dirname, '../../testdata/auth-before.js'), 'utf8');
-for (const scenario of [
-    {}, {signedIn: true}, {signedIn: true, status: 403},
-    {signedIn: true, status: 503}, {search: '?denied=1'},
-    {signedIn: true, search: '?denied=1', status: 503},
-    {configFails: true}, {clerkFails: true}, {scriptFails: true},
-    {pathname: '/participants', signedIn: true},
-    {pathname: '/participants', configFails: true},
-    {pathname: '/participants', clerkFails: true},
-    {pathname: '/participants', scriptFails: true},
-]) {
-    test(`auth output matches main: ${JSON.stringify(scenario)}`, async () => {
-        const old = await run({...scenario, authSource: before});
-        const updated = await run({...scenario, inlineConfig: !scenario.configFails});
-        const output = state => JSON.parse(JSON.stringify({
-            heading: state.heading, email: state.email, message: state.message,
-            retry: state.retry, button: state.button, options: state.options,
-            script: state.script, recovery: state.recovery, recoveryLink: state.recoveryLink,
-            redirect: state.redirect, loaded: state.loaded,
-            requests: state.requests.filter(url => url !== '/auth/config'),
-        }));
-        assert.deepEqual(output(updated), output(old));
-        assert.equal(updated.requests.includes('/auth/config'), !!scenario.configFails);
-    });
-}

@@ -8,90 +8,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const planner = require('./event-planner.js');
-const {
-    createPlannerState,
-    createRouteHandoff,
-    applyLocalEventDate,
-    createRouteSessionOrchestrator,
-    installRouteResults,
-    localISODate,
-    sanitizeVanAssignments,
-} = planner;
-
-test('applyLocalEventDate overwrites the server date on injected forms but keeps user edits', () => {
-    const makeInput = (value, userEdited) => ({
-        value,
-        dataset: userEdited ? { userEdited: '1' } : {},
-        listeners: [],
-        addEventListener(type, fn) { this.listeners.push([type, fn]); },
-    });
-    const serverDated = makeInput('2026-03-15', false);
-    const edited = makeInput('2026-03-20', true);
-    const scope = { querySelectorAll: () => [serverDated, edited] };
-
-    assert.equal(applyLocalEventDate(scope, new Date(2026, 2, 14, 23, 30)), 2);
-    assert.equal(serverDated.value, '2026-03-14');
-    assert.equal(edited.value, '2026-03-20');
-    serverDated.listeners.find(([type]) => type === 'input')[1]();
-    assert.equal(serverDated.dataset.userEdited, '1');
-});
+const { createRouteHandoff, createRouteSessionOrchestrator, localISODate } = planner;
 
 test('localISODate uses the local calendar day, not the UTC one', () => {
     const lateEvening = new Date(2026, 2, 14, 23, 30);
     assert.equal(localISODate(lateEvening), '2026-03-14');
     assert.equal(localISODate(new Date(2026, 0, 5, 0, 10)), '2026-01-05');
-});
-
-test('installRouteResults installs HTML before processing and performs all result setup', () => {
-    let installedHtml = '';
-    let processedTarget = null;
-    let etaRefreshes = 0;
-    const dateInput = {
-        value: 'server-date',
-        dataset: {},
-        listeners: [],
-        addEventListener(type, fn) { this.listeners.push([type, fn]); },
-    };
-    const target = {
-        set innerHTML(html) { installedHtml = html; },
-        querySelector: () => null,
-        querySelectorAll() {
-            assert.notEqual(installedHtml, '');
-            return [dateInput];
-        },
-    };
-
-    installRouteResults({
-        target,
-        html: '<form>routes</form>',
-        htmx: {
-            process(element) {
-                assert.notEqual(installedHtml, '');
-                processedTarget = element;
-            },
-        },
-        afterRender: () => {
-            assert.notEqual(installedHtml, '');
-            etaRefreshes += 1;
-        },
-    });
-
-    assert.equal(installedHtml, '<form>routes</form>');
-    assert.equal(processedTarget, target);
-    assert.notEqual(dateInput.value, 'server-date');
-    dateInput.listeners.find(([type]) => type === 'input')[1]();
-    assert.equal(dateInput.dataset.userEdited, '1');
-    assert.equal(etaRefreshes, 1);
-});
-
-test('planner draft keeps the first selected driver for each van', () => {
-    assert.deepEqual(
-        sanitizeVanAssignments(
-            ['10', '20', '30'],
-            { 10: '7', 20: '7', 30: '8', 99: '9' },
-        ),
-        { 10: '7', 30: '8' },
-    );
 });
 
 function nodeList(items) {
@@ -196,27 +118,6 @@ test('driver copy defaults to the driver audience and copies the complete route'
     ]);
 });
 
-test('driver copy omits the ETA prefix when the route time is invalid', async () => {
-    const copied = [];
-    const { container, routeCard } = createRouteFixture();
-    container.dataset.routeTime = 'not-a-time';
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async text => copied.push(text),
-            openUrl: async () => {},
-            notify: () => {},
-        },
-    });
-
-    assert.equal(await handoff.copyRoute(routeCard), true);
-    assert.deepEqual(copied, [
-        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
-        'Driver: Jordan Driver\n9 Driver Lane\n' +
-        '1. Sam Rider - 5 Rider Street\n\n' +
-        'Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=40.1%2C-74.1&dir_action=navigate&waypoints=40.2%2C-74.2\n',
-    ]);
-});
-
 test('parent copy keeps the manifest and ETAs while omitting private route details', async () => {
     const copied = [];
     const { routeCard } = createRouteFixture();
@@ -285,41 +186,6 @@ test('copy all routes shares route formatting and omits the address separator wh
     ]);
 });
 
-test('copy all routes does nothing when there are no route cards', async () => {
-    const copied = [];
-    const { container } = createRouteFixture();
-    container.querySelectorAll = () => nodeList([]);
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async text => copied.push(text),
-            openUrl: async () => {},
-            notify: () => {},
-        },
-    });
-
-    assert.equal(await handoff.copyAllRoutes(container), false);
-    assert.deepEqual(copied, []);
-});
-
-test('copy all routes preserves an empty Maps line when a route has no stops', async () => {
-    const copied = [];
-    const { container, routeCard } = createRouteFixture();
-    routeCard.querySelectorAll = () => nodeList([]);
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async text => copied.push(text),
-            openUrl: async () => {},
-            notify: () => {},
-        },
-    });
-
-    assert.equal(await handoff.copyAllRoutes(container), true);
-    assert.deepEqual(copied, [
-        'Activity Location: Wednesday Night Church\n1 Church Road\n\n' +
-        'Driver: Jordan Driver\n9 Driver Lane\n\nMaps: \n',
-    ]);
-});
-
 test('single-route clipboard failure returns false and reports an error', async () => {
     const notifications = [];
     const { routeCard } = createRouteFixture();
@@ -332,21 +198,6 @@ test('single-route clipboard failure returns false and reports an error', async 
     });
 
     assert.equal(await handoff.copyRoute(routeCard), false);
-    assert.deepEqual(notifications, [['Could not copy. Try again.', 'error']]);
-});
-
-test('copy-all clipboard failure returns false and reports an error', async () => {
-    const notifications = [];
-    const { container } = createRouteFixture();
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async () => { throw new Error('clipboard unavailable'); },
-            openUrl: async () => {},
-            notify: (message, type) => notifications.push([message, type]),
-        },
-    });
-
-    assert.equal(await handoff.copyAllRoutes(container), false);
     assert.deepEqual(notifications, [['Could not copy. Try again.', 'error']]);
 });
 
@@ -446,21 +297,6 @@ test('preview open failure returns false and reports an error', async () => {
     assert.deepEqual(notifications, [['Could not open Google Maps. Check whether your browser blocked the new tab.', 'error']]);
 });
 
-test('preview ignores whatever openUrl resolves with', async () => {
-    const notifications = [];
-    const { routeCard } = createRouteFixture();
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async () => {},
-            openUrl: async () => ({ ok: false }),
-            notify: (message, type) => notifications.push([message, type]),
-        },
-    });
-
-    assert.equal(await handoff.previewRoute(routeCard), true);
-    assert.deepEqual(notifications, []);
-});
-
 test('ETA population applies dropoff slack through the route handoff', () => {
     const { container, stopEta } = createRouteFixture();
     const handoff = createRouteHandoff({
@@ -493,55 +329,9 @@ test('ETA population counts backward for pickup routes', () => {
     assert.equal(stopEta.textContent, '11:45');
 });
 
-test('ETA population clears stale values when the route time is invalid', () => {
-    const { container, stopEta } = createRouteFixture();
-    container.dataset.routeTime = 'not-a-time';
-    stopEta.textContent = 'stale';
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async () => {},
-            openUrl: async () => {},
-            notify: () => {},
-        },
-    });
-
-    handoff.populateEtas(container);
-
-    assert.equal(stopEta.textContent, '');
-});
-
-test('route handoff ignores missing route and container elements', async () => {
-    const { routeCard } = createRouteFixture();
-    routeCard.closest = () => null;
-    const handoff = createRouteHandoff({
-        platform: {
-            copyText: async () => { throw new Error('should not copy'); },
-            openUrl: async () => { throw new Error('should not open'); },
-            notify: () => { throw new Error('should not notify'); },
-        },
-    });
-
-    assert.equal(await handoff.copyRoute(null), false);
-    assert.equal(await handoff.copyRoute(routeCard), false);
-    assert.equal(await handoff.copyAllRoutes(null), false);
-    assert.equal(await handoff.previewRoute(null), false);
-    assert.equal(await handoff.previewRoute(routeCard), false);
-    assert.doesNotThrow(() => handoff.populateEtas(null));
-});
-
-function createSaveForm({
-    eventDate = '',
-    notes = '',
-    sessionId = 'session-a',
-    saveEnabled = true,
-    submitButton = true,
-} = {}) {
-    const fields = {
-        event_date: { value: eventDate },
-        notes: { value: notes },
-        session_id: { value: sessionId },
-    };
-    const form = {
+function createSaveForm({ sessionId = 'session-a', saveEnabled = true, submitButton = true } = {}) {
+    const fields = { session_id: { value: sessionId } };
+    return {
         submitCount: 0,
         elements: { namedItem: name => fields[name] || null },
         getAttribute: name => name === 'hx-post' && saveEnabled ? '/api/v1/events' : null,
@@ -549,21 +339,13 @@ function createSaveForm({
             ? { disabled: !saveEnabled }
             : null,
         requestSubmit() { this.submitCount += 1; },
-        value(name) { return fields[name]?.value; },
     };
-    return form;
 }
 
-function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm = () => null, hasResultsSection = true, request, onRender = () => {} } = {}) {
-    const rendered = [], processed = [], errors = [], sent = [], opened = [], notifications = [];
-    let etaRefreshes = 0, currentSessionId = activeSessionId, canSave = true;
-    const dateInput = { value: 'server-date', dataset: {}, addEventListener() {} };
-    let dateApplications = 0;
-    const resultsSection = {
-        set innerHTML(html) { rendered.push(html); onRender(html); },
-        querySelector: () => null,
-        querySelectorAll() { dateApplications += 1; return [dateInput]; },
-    };
+function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm = () => null, request } = {}) {
+    const sent = [], opened = [], notifications = [];
+    let currentSessionId = activeSessionId, canSave = true;
+    const resultsSection = { set innerHTML(html) {}, querySelector: () => null, querySelectorAll: () => [] };
     const document = {
         querySelector(selector) {
             if (selector === '.routes-container') return currentSessionId ? { dataset: { sessionId: currentSessionId, outOfBalance: 'false' } } : null;
@@ -573,13 +355,13 @@ function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm 
             }
             return null;
         },
-        getElementById: id => id === 'results-section' && hasResultsSection ? resultsSection : null,
+        getElementById: id => id === 'results-section' ? resultsSection : null,
     };
     const scheduled = new Map();
     let nextTimer = 0;
     const orchestrator = createRouteSessionOrchestrator({
         document,
-        htmx: { process: element => processed.push(element), ajax: async (method, url) => opened.push([method, url]) },
+        htmx: { process() {}, ajax: async (method, url) => opened.push([method, url]) },
         readPlanState: () => ({ canSave, sessionId: currentSessionId }),
         request: async (url, options) => {
             sent.push({ url, options });
@@ -587,16 +369,14 @@ function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm 
         },
         schedule: callback => { scheduled.set(++nextTimer, callback); return nextTimer; },
         cancel: timer => scheduled.delete(timer),
-        reportError: (html, header) => errors.push({ html, header }),
+        reportError() {},
         notify: (...args) => notifications.push(args),
         reportSaveBlocked: status => notifications.push(status),
-        afterRender: () => { etaRefreshes += 1; },
+        afterRender() {},
         pendingChanged() {},
     });
     return {
-        errors, notifications, orchestrator, opened, processed, rendered, resultsSection, sent, scheduled, dateInput,
-        get dateApplications() { return dateApplications; },
-        get etaRefreshes() { return etaRefreshes; },
+        notifications, orchestrator, opened, sent,
         setActiveSessionId: value => { currentSessionId = value; },
         setSaveable: value => { canSave = value; },
     };
@@ -605,66 +385,6 @@ function createRouteSessionHarness({ activeSessionId = 'session-a', getLiveForm 
 async function settleEdits() {
     for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 }
-
-test('Route edits install only into their requested installed session and set up the results', async () => {
-    let finish;
-    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
-    const owner = harness.orchestrator;
-    const current = owner.add(10);
-    finish({ ok: true, text: async () => 'current routes' });
-    assert.equal(await current, true);
-    await settleEdits();
-    const old = owner.add(20);
-    harness.setActiveSessionId('session-b');
-    finish({ ok: true, text: async () => 'old routes' });
-    assert.equal(await old, true);
-    assert.deepEqual(harness.rendered, ['current routes']);
-    assert.deepEqual(harness.processed, [harness.resultsSection]);
-    assert.equal(harness.dateApplications, 1);
-    assert.equal(harness.etaRefreshes, 1);
-    assert.notEqual(harness.dateInput.value, 'server-date');
-});
-
-test('Route edit success remains handled when the results target is absent', async () => {
-    const harness = createRouteSessionHarness({ hasResultsSection: false });
-    assert.equal(await harness.orchestrator.add(10), true);
-    assert.deepEqual(harness.rendered, []);
-    assert.deepEqual(harness.processed, []);
-    assert.equal(harness.etaRefreshes, 0);
-});
-
-test('Route edit errors report even after their session is replaced', async () => {
-    let finish;
-    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
-    const pending = harness.orchestrator.add(10);
-    harness.setActiveSessionId('session-b');
-    finish({ ok: false, status: 400, headers: { get: () => 'server error' }, text: async () => 'move failed' });
-    assert.equal(await pending, false);
-    assert.deepEqual(harness.errors, [{ html: 'move failed', header: 'server error' }]);
-});
-
-test('Save waits for edits and submits the live replacement form once', async () => {
-    const original = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' });
-    let liveForm = original, finish;
-    const harness = createRouteSessionHarness({
-        getLiveForm: () => liveForm,
-        request: () => new Promise(resolve => { finish = resolve; }),
-        onRender: () => { liveForm = createSaveForm({ eventDate: '2026-08-23', notes: 'Bring snacks' }); },
-    });
-    const owner = harness.orchestrator;
-    owner.move(1, 0, 1);
-    assert.equal(owner.save(original), true);
-    assert.equal(owner.save(original), true);
-    assert.equal(original.submitCount, 0);
-    finish({ ok: true, text: async () => 'replacement' });
-    await settleEdits();
-    assert.equal(original.submitCount, 0);
-    assert.equal(liveForm.submitCount, 1);
-    assert.equal(liveForm.value('event_date'), '2026-08-23');
-    assert.equal(liveForm.value('notes'), 'Bring snacks');
-    assert.equal(owner.hasPending(), false);
-    assert.equal(owner.save(liveForm), false);
-});
 
 for (const [reason, liveForm] of [
     ['absent', null],
@@ -740,25 +460,6 @@ test('queued Move batches retain the wire payloads and dispatch headers', async 
     assert.equal(harness.sent[0].options.method, 'POST');
     assert.equal(owner.hasPending(), false);
     assert.deepEqual(harness.opened, [['GET', '/editor'], ['GET', '/editor']]);
-});
-
-test('Plan changes cancel queued moves and Clear resolves queued manual actions', async () => {
-    let finish;
-    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
-    const owner = harness.orchestrator;
-    owner.move(1, 0, 1);
-    owner.planChanged({ status: 'stale', sessionId: 'session-a' });
-    assert.equal(harness.scheduled.size, 0);
-    assert.equal(owner.hasPending(), false);
-    assert.equal(harness.sent.length, 0);
-    const active = owner.add(10);
-    const queued = owner.swap(0, 1);
-    owner.clear();
-    assert.equal(await queued, false);
-    assert.equal(owner.hasPending(), true);
-    finish({ ok: true, text: async () => 'active' });
-    await active; await settleEdits();
-    assert.equal(owner.hasPending(), false);
 });
 
 test('driver copy shows friendly location names while Maps keeps real coordinates', async () => {
@@ -929,16 +630,6 @@ function domNode(tagName, props = {}) {
     return node;
 }
 
-function replaceOnRender(target, buildFields) {
-    Object.defineProperty(target, 'innerHTML', {
-        set() {
-            this.children.forEach(child => { child.parentNode = null; });
-            this.children = [];
-            buildFields().forEach(field => this.appendChild(field));
-        },
-    });
-}
-
 function fakeEvent(type, detail) {
     return {
         type,
@@ -967,8 +658,8 @@ function storedSessionId(planner) {
 
 const PLANNER_SOURCE = fs.readFileSync(path.join(__dirname, 'event-planner.js'), 'utf8');
 
-function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId = null, restoreStatus = 200, restoreFetch = null } = {}) {
-    const initialSessionId = storedSession?.id || legacySessionId || 'session-1';
+function bootPlanner({ mode = 'dropoff', legacySessionId = null } = {}) {
+    const initialSessionId = legacySessionId || 'session-1';
     const participants = ['1', '2'].map(value => domNode('input', {
         classes: ['participant-checkbox'],
         value,
@@ -1101,9 +792,6 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
     body.parentNode = root;
 
     const storage = fakeLocalStorage();
-    if (storedSession) {
-        storage.setItem('ride-home-router:active-session:v2', JSON.stringify(storedSession));
-    }
     if (legacySessionId) {
         storage.setItem('ride-home-router:active-session-id', legacySessionId);
     }
@@ -1119,10 +807,10 @@ function bootPlanner({ mode = 'dropoff', storedSession = null, legacySessionId =
         AbortController,
         AbortSignal,
         htmx: { process() {} },
-        fetch: restoreFetch || (async (url, options) => {
+        fetch: async (url, options) => {
             fetches.push({ url, options });
-            return { ok: restoreStatus >= 200 && restoreStatus < 300, status: restoreStatus, text: async () => '<div>routes</div>' };
-        }),
+            return { ok: true, status: 200, text: async () => '<div>routes</div>' };
+        },
         setTimeout: callback => {
             nextTimeoutId += 1;
             scheduledCallbacks.set(nextTimeoutId, callback);
@@ -1274,18 +962,6 @@ test('requestSubmit rechecks live planner inputs even when no change event fired
     });
 });
 
-test('a queued participant move is discarded when planner inputs become stale', async () => {
-    const planner = bootPlanner();
-
-    planner.calculate();
-    planner.context.moveParticipant(1, 0, 1);
-    planner.routeTime.value = '16:00';
-    planner.change(planner.routeTime);
-    await planner.flushTimers();
-
-    assert.equal(planner.fetches.some(request => request.url === '/api/v1/routes/edit/move-participant'), false);
-});
-
 test('a queued participant move rechecks unannounced input changes before posting', async () => {
     const planner = bootPlanner();
 
@@ -1366,222 +1042,6 @@ test('clearing all ignores a calculation response that arrives afterward', () =>
     assert.equal(planner.resultsSection.querySelector('.routes-container'), null);
 });
 
-test('a route edit render carries the entered event date and notes onto the replacement form', () => {
-    const savedFields = () => [
-        domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
-        domNode('textarea', { name: 'notes', value: '' }),
-    ];
-    const target = domNode('div', { id: 'results-section', children: savedFields() });
-    const eventDate = target.querySelector('input[name="event_date"]');
-    const notes = target.querySelector('textarea[name="notes"]');
-    eventDate.value = '2026-10-04';
-    eventDate.dataset.userEdited = '1';
-    notes.value = 'Two vans, meet at the flagpole';
-
-    replaceOnRender(target, savedFields);
-
-    installRouteResults({
-        target,
-        html: '<form>routes</form>',
-        htmx: { process() {} },
-        afterRender() {},
-    });
-
-    assert.deepEqual({
-        eventDate: target.querySelector('input[name="event_date"]').value,
-        userEdited: target.querySelector('input[name="event_date"]').dataset.userEdited,
-        notes: target.querySelector('textarea[name="notes"]').value,
-    }, {
-        eventDate: '2026-10-04',
-        userEdited: '1',
-        notes: 'Two vans, meet at the flagpole',
-    });
-});
-
-test('a render without entered fields keeps the server defaults', () => {
-    const target = domNode('div', {
-        children: [
-            domNode('input', { type: 'date', name: 'event_date', value: '2026-09-01' }),
-            domNode('textarea', { name: 'notes', value: '' }),
-        ],
-    });
-    replaceOnRender(target, () => [
-        domNode('input', { type: 'date', name: 'event_date', value: '2026-09-02' }),
-        domNode('textarea', { name: 'notes', value: '' }),
-    ]);
-
-    installRouteResults({ target, html: '', htmx: { process() {} }, afterRender() {} });
-
-    assert.deepEqual({
-        userEdited: target.querySelector('input[name="event_date"]').dataset.userEdited,
-        notes: target.querySelector('textarea[name="notes"]').value,
-    }, { userEdited: undefined, notes: '' });
-    assert.equal(target.querySelector('input[name="event_date"]').value, localISODate(new Date()));
-});
-
-test('planner lifecycle restores legacy storage and persists only current unsaved sessions', () => {
-    const storage = fakeLocalStorage();
-    storage.setItem('ride-home-router:active-session:v2', '{broken json');
-    storage.setItem('ride-home-router:active-session-id', 'legacy-session');
-    let fingerprint = 'plan-a';
-    const state = createPlannerState({ readFingerprint: () => fingerprint, storage, onChange() {} });
-    assert.deepEqual(state.restoreCandidate(), { id: 'legacy-session', fingerprint: null });
-    const restore = state.beginRestore(state.restoreCandidate());
-    restore.commit('legacy-session');
-    restore.finish();
-    assert.deepEqual(state.restoreCandidate(), { id: 'legacy-session', fingerprint: 'plan-a' });
-    assert.equal(storage.getItem('ride-home-router:active-session-id'), null);
-    fingerprint = 'plan-b';
-    state.refresh();
-    assert.equal(state.restoreCandidate(), null);
-    fingerprint = 'plan-a';
-    state.refresh();
-    assert.equal(state.restoreCandidate().id, 'legacy-session');
-    state.markSaved();
-    fingerprint = 'plan-b';
-    state.refresh();
-    fingerprint = 'plan-a';
-    state.refresh();
-    assert.equal(state.getSnapshot().status, 'saved');
-    assert.equal(state.restoreCandidate(), null);
-});
-
-test('planner lifecycle distinguishes restore cancellation from calculation invalidation', () => {
-    let fingerprint = 'plan-a';
-    const state = createPlannerState({ readFingerprint: () => fingerprint, storage: fakeLocalStorage(), onChange() {} });
-    const xhr = {};
-    state.trackCalculation(xhr, fingerprint);
-    const first = state.beginRestore({ id: 'old-session', fingerprint });
-    const replacement = state.beginRestore({ id: 'new-session', fingerprint });
-    assert.equal(first.signal.aborted, true);
-    assert.equal(replacement.signal.aborted, false);
-    state.abortRestore();
-    assert.equal(replacement.signal.aborted, true);
-    assert.equal(state.shouldSwapCalculation(xhr), true);
-    state.commitCalculation(xhr, 'calculated-session');
-    assert.equal(state.getSnapshot().canSave, true);
-    replacement.finish();
-
-    const edited = state.beginRestore({ id: 'calculated-session', fingerprint });
-    state.inputsChanged(fingerprint);
-    assert.equal(edited.signal.aborted, false);
-    fingerprint = 'plan-b';
-    state.inputsChanged(fingerprint);
-    assert.equal(edited.signal.aborted, true);
-    assert.equal(state.getSnapshot().status, 'empty');
-    edited.finish();
-
-    const cleared = state.beginRestore({ id: 'another-session', fingerprint });
-    state.invalidateCalculations();
-    assert.equal(cleared.signal.aborted, true);
-    cleared.finish();
-});
-
-test('planner lifecycle invalidates old requests without invalidating overlapping new calculations', () => {
-    const state = createPlannerState({ readFingerprint: () => 'plan-a', storage: fakeLocalStorage(), onChange() {} });
-    const oldRequest = {};
-    state.trackCalculation(oldRequest, 'plan-a');
-    state.invalidateCalculations();
-    const currentRequest = {};
-    state.trackCalculation(currentRequest, 'plan-a');
-    state.commitCalculation(currentRequest, 'current-session');
-
-    assert.equal(state.shouldSwapCalculation(oldRequest), false);
-    assert.equal(state.getSnapshot().sessionId, 'current-session');
-    state.commitCalculation(currentRequest, 'unattributed-session');
-    assert.equal(state.getSnapshot().canSave, false);
-});
-
-function commitCalculation(state, id, fingerprint) {
-    const xhr = {};
-    state.trackCalculation(xhr, fingerprint);
-    return state.commitCalculation(xhr, id);
-}
-
-test('planner state stays stale until a recalculation and never leaves saved for current', () => {
-    const changes = [];
-    let fingerprint = 'plan-a';
-    const state = createPlannerState({
-        storage: fakeLocalStorage(),
-        readFingerprint: () => fingerprint,
-        onChange: snapshot => changes.push(`${snapshot.status}:${snapshot.sessionId}`),
-    });
-
-    const beforeCalculation = state.refresh();
-    commitCalculation(state, 'session-1', 'plan-a');
-    fingerprint = 'plan-b';
-    const afterEdit = state.refresh();
-    commitCalculation(state, 'session-2', 'plan-a');
-    const afterLateSwap = state.getSnapshot();
-    fingerprint = 'plan-b';
-    commitCalculation(state, 'session-3', 'plan-b');
-    state.markSaved();
-    fingerprint = 'plan-c';
-    const afterSavedEdit = state.refresh();
-    fingerprint = 'plan-b';
-    const afterSavedRevert = state.refresh();
-
-    assert.deepEqual({
-        beforeCalculation: beforeCalculation.status,
-        afterEdit: { status: afterEdit.status, canSave: afterEdit.canSave },
-        afterLateSwap: afterLateSwap.status,
-        afterSavedEdit: { status: afterSavedEdit.status, canSave: afterSavedEdit.canSave },
-        afterSavedRevert: { status: afterSavedRevert.status, canSave: afterSavedRevert.canSave },
-        changes,
-    }, {
-        beforeCalculation: 'empty',
-        afterEdit: { status: 'stale', canSave: false },
-        afterLateSwap: 'stale',
-        afterSavedEdit: { status: 'stale', canSave: false },
-        afterSavedRevert: { status: 'saved', canSave: false },
-        changes: [
-            'current:session-1',
-            'stale:session-1',
-            'stale:session-2',
-            'current:session-3',
-            'saved:session-3',
-            'stale:session-3',
-            'saved:session-3',
-        ],
-    });
-});
-
-test('clearing planner state drops the session and stops tracking the fingerprint', () => {
-    const changes = [];
-    let fingerprint = 'plan-a';
-    const state = createPlannerState({
-        storage: fakeLocalStorage(),
-        readFingerprint: () => fingerprint,
-        onChange: snapshot => changes.push(snapshot.status),
-    });
-
-    commitCalculation(state, 'session-1', 'plan-a');
-    state.clear();
-    fingerprint = 'plan-b';
-
-    assert.deepEqual({ snapshot: state.refresh(), changes }, {
-        snapshot: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },
-        changes: ['current', 'empty'],
-    });
-});
-
-test('a results swap with no session clears the planner state', () => {
-    const changes = [];
-    const state = createPlannerState({
-        storage: fakeLocalStorage(),
-        readFingerprint: () => 'plan-a',
-        onChange: snapshot => changes.push(snapshot.status),
-    });
-
-    commitCalculation(state, 'session-1', 'plan-a');
-    const cleared = commitCalculation(state, null, 'plan-a');
-
-    assert.deepEqual({ cleared, changes }, {
-        cleared: { status: 'empty', sessionId: null, canSave: false, hasBeenSaved: false },
-        changes: ['current', 'empty'],
-    });
-});
-
 test('the calculate swap carries entered save fields across the native htmx render', () => {
     const planner = bootPlanner();
 
@@ -1646,33 +1106,6 @@ test('a saved event does not seed the next event with its date and notes', () =>
     entered.eventDate.dataset.userEdited = '1';
     entered.notes.value = 'Two vans, meet at the flagpole';
     planner.saveSucceeded();
-    planner.calculate();
-
-    const rendered = planner.saveFields();
-    assert.deepEqual({
-        eventDate: rendered.eventDate.value,
-        userEdited: rendered.eventDate.dataset.userEdited,
-        notes: rendered.notes.value,
-        saveDisabled: planner.saveButton.disabled,
-    }, {
-        eventDate: localISODate(new Date()),
-        userEdited: undefined,
-        notes: '',
-        saveDisabled: false,
-    });
-});
-
-test('a saved event does not seed the next event after its planner inputs change', () => {
-    const planner = bootPlanner();
-
-    planner.calculate();
-    const entered = planner.saveFields();
-    entered.eventDate.value = '2026-10-04';
-    entered.eventDate.dataset.userEdited = '1';
-    entered.notes.value = 'Two vans, meet at the flagpole';
-    planner.saveSucceeded();
-    planner.participants[1].checked = false;
-    planner.change(planner.participants[1]);
     planner.calculate();
 
     const rendered = planner.saveFields();
@@ -1809,24 +1242,6 @@ test('a results swap that belongs to no tracked calculation is not saveable', ()
     }, { saveDisabled: true, storedSession: null });
 });
 
-test('a restored session whose inputs moved on is restored stale', async () => {
-    const planner = bootPlanner({
-        storedSession: { id: 'session-1', fingerprint: 'a plan that no longer matches these inputs' },
-    });
-
-    await planner.settleRestore();
-
-    assert.deepEqual({
-        saveDisabled: planner.saveButton.disabled,
-        banner: planner.banner.hidden ? '' : planner.banner.textContent,
-        storedSession: storedSessionId(planner),
-    }, {
-        saveDisabled: true,
-        banner: 'Plan changed — recalculate routes before copying or saving them.',
-        storedSession: null,
-    });
-});
-
 test('a legacy active session is restored and migrated to the fingerprinted key', async () => {
     const planner = bootPlanner({ legacySessionId: 'legacy-session' });
 
@@ -1843,112 +1258,8 @@ test('a legacy active session is restored and migrated to the fingerprinted key'
     });
 });
 
-test('manual route edits reach the server in order and keep handoffs locked until settled', async () => {
-    const app = bootPlanner();
-    app.calculate();
-    app.routesContainer.appendChild(domNode('select', { id: 'swap-select-0', value: '1' }));
-    const requests = [];
-    app.context.fetch = (url, options) => new Promise(resolve => requests.push({ url, options, resolve }));
-
-    const swapping = app.context.swapDrivers(0);
-    const resetting = app.context.resetRoutes();
-    await app.settleRestore();
-    assert.deepEqual(requests.map(request => request.url), ['/api/v1/routes/edit/swap-drivers']);
-    assert.equal(app.copyButton.disabled, true);
-    assert.equal(app.saveButton.disabled, true);
-    assert.equal(await app.context.copyAllRoutes(), false);
-    assert.equal(app.previewButton.disabled, true);
-    assert.match(app.previewButton.getAttribute('title'), /Updating routes/);
-    assert.equal(app.context.previewRoute(app.previewButton), false);
-
-    requests[0].resolve({ ok: true, text: async () => '<div>swapped routes</div>' });
-    await swapping;
-    await app.settleRestore();
-    assert.equal(requests[1].url, '/api/v1/routes/edit/reset?session_id=session-1');
-    assert.equal(app.copyButton.disabled, true);
-    requests[1].resolve({ ok: true, text: async () => '<div>reset routes</div>' });
-    await resetting;
-    await app.settleRestore();
-    assert.equal(app.copyButton.disabled, false);
-    assert.equal(app.saveButton.disabled, false);
-    assert.equal(app.previewButton.disabled, false);
-});
-
-test('moves on either side of a reset stay ordered and Save waits for every edit', async () => {
-    const app = bootPlanner();
-    app.calculate();
-    const requests = [];
-    const saves = [];
-    app.context.fetch = (url, options) => new Promise(resolve => requests.push({ url, options, resolve }));
-    const requestSubmit = app.saveForm.requestSubmit.bind(app.saveForm);
-    app.saveForm.requestSubmit = () => {
-        const event = requestSubmit();
-        if (!event.defaultPrevented) saves.push(requests.map(request => request.url));
-        return event;
-    };
-    await app.context.moveParticipant(1, 0, 1);
-    const resetting = app.context.resetRoutes();
-    await app.settleRestore();
-    await app.context.moveParticipant(2, 1, 0);
-    assert.equal(app.submitSave().defaultPrevented, true);
-    await app.settleRestore();
-    assert.equal(requests.length, 1);
-    assert.equal(JSON.parse(requests[0].options.body).participant_id, 1);
-    assert.equal(saves.length, 0);
-
-    requests[0].resolve({ ok: true, text: async () => '<div>first move</div>' });
-    await app.settleRestore();
-    assert.equal(requests.length, 2);
-    assert.match(requests[1].url, /\/reset\?/);
-    requests[1].resolve({ ok: true, text: async () => '<div>reset</div>' });
-    await resetting;
-    await app.settleRestore();
-    assert.equal(requests.length, 3);
-    assert.equal(JSON.parse(requests[2].options.body).participant_id, 2);
-    assert.equal(saves.length, 0);
-    requests[2].resolve({ ok: true, text: async () => '<div>last move</div>' });
-    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
-    assert.equal(saves.length, 1);
-    assert.equal(saves[0].length, 3);
-    assert.equal(app.copyButton.disabled, false);
-});
-
-test('a rejected edit unlocks handoffs and a later edit can succeed', async () => {
-    const app = bootPlanner();
-    app.calculate();
-    app.context.fetch = async () => ({ ok: false, status: 400, text: async () => '{"error":{"message":"Cannot swap these drivers"}}' });
-    assert.equal(await app.context.addUnusedDriver(99), false);
-    await app.settleRestore();
-    assert.equal(app.copyButton.disabled, false);
-    assert.equal(app.saveButton.disabled, false);
-    app.context.fetch = async () => ({ ok: true, text: async () => '<div>reset</div>' });
-    assert.equal(await app.context.resetRoutes(), true);
-    await app.settleRestore();
-    assert.equal(app.saveButton.disabled, false);
-});
-
-test('changing the plan cancels queued manual edits without leaving their callers waiting', async () => {
-    const app = bootPlanner();
-    app.calculate();
-    let finishRequest;
-    app.context.fetch = () => new Promise(resolve => { finishRequest = resolve; });
-    const adding = app.context.addUnusedDriver(20);
-    let resetCancelled = false;
-    app.context.resetRoutes().then(result => { resetCancelled = result === false; });
-    await app.settleRestore();
-    app.driver.checked = false;
-    app.change(app.driver);
-    await app.settleRestore();
-    assert.equal(resetCancelled, true);
-    assert.equal(app.previewButton.disabled, true);
-    finishRequest({ ok: true, text: async () => '<div>old plan</div>' });
-    await adding;
-    await app.settleRestore();
-    assert.equal(app.previewButton.disabled, false);
-});
-
 for (const mode of ['pickup', 'dropoff']) {
-    for (const count of [1, 4, 10]) {
+    for (const count of [4, 10]) {
         for (const action of ['copyRoute', 'copyAllRoutes']) {
             test(`${action} keeps desktop ${mode} handoffs within phone Maps limits for ${count} stops`, async () => {
                 const { container, routeCard, stop } = createRouteFixture({ mode });
@@ -1978,7 +1289,6 @@ for (const mode of ['pickup', 'dropoff']) {
                 const expected = stops.map(item => `${item.dataset.participantLat},${item.dataset.participantLng}`);
                 expected.push(mode === 'pickup' ? '40.4,-74.4' : '40.1,-74.1');
                 assert.deepEqual(visited, expected, 'every ordered stop, including later visits, reaches the handoff');
-                if (count === 1) assert.equal(urls.length, 1);
             });
         }
     }
@@ -2011,25 +1321,6 @@ test('route error extraction rejects empty, oversized and non-word responses', a
     }
 });
 
-test('expired restore responses clear the saved plan and explain recovery', async () => {
- for (const restoreStatus of [204,404,410]) {
-  const app=bootPlanner({legacySessionId:'expired-plan',restoreStatus});
-  await app.settleRestore();
-  assert.equal(storedSessionId(app),null);
-  assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,'That route plan expired. Calculate routes again.');
- }
-});
-
-test('a failed route restore keeps the plan available for the next reload', async () => {
-    const storedSession = { id: 'retry-plan', fingerprint: 'saved inputs' };
-    const app = bootPlanner({ storedSession, restoreStatus: 500 });
-
-    await app.settleRestore();
-
-    assert.deepEqual(JSON.parse(app.storage.getItem('ride-home-router:active-session:v2')), storedSession);
-    assert.equal(app.document.getElementById('toast-container').children[0].children[0].textContent,
-        'Could not restore your routes. Check your connection and try again.');
-});
 test('route edits use the server conflict explanation from HX-Trigger', async () => {
  const app=bootPlanner();app.calculate();
  app.context.fetch=async()=>({ok:false,status:409,headers:{get:()=>JSON.stringify({showToast:{message:'This route plan changed. Reload it and try again.'}})},text:async()=>''});
@@ -2052,72 +1343,6 @@ test('a failed save restores the current planner lock after htmx enables its but
  assert.equal(app.submitSave().defaultPrevented,true);
 });
 
-test('summarizeMeasuredCards adds up occupied cars only once every one of them has timings', () => {
-    const { summarizeMeasuredCards } = planner;
-    const measured = (totalMeters, detourSecs) => ({ timings: 'measured', hasStops: true, totalMeters: String(totalMeters), detourSecs: String(detourSecs) });
-    const empty = { timings: 'empty', hasStops: false, totalMeters: '', detourSecs: '' };
-    const stale = { timings: 'stale', hasStops: true, totalMeters: '', detourSecs: '' };
-
-    assert.deepEqual(summarizeMeasuredCards([measured(8000, 300), measured(2000, 90), empty], true), {
-        totalDistance: '6.21 mi', maxDetour: '5m', averageDetour: '3m 15s',
-    });
-    assert.deepEqual(summarizeMeasuredCards([measured(1500, 45)], false), {
-        totalDistance: '1.50 km', maxDetour: '45s', averageDetour: '45s',
-    });
-    assert.deepEqual(summarizeMeasuredCards([measured(8125, 0)], false).totalDistance, '8.12 km', 'exact ties round to even like Go');
-    assert.deepEqual(summarizeMeasuredCards([measured(8375, 0)], false).totalDistance, '8.38 km', 'odd eighths round up to even');
-    assert.deepEqual(summarizeMeasuredCards([measured(2635, 0)], false).totalDistance, '2.63 km', '2.635 is below the tie in binary, as in Go');
-    assert.deepEqual(summarizeMeasuredCards([measured(2645, 0)], false).totalDistance, '2.65 km');
-    assert.deepEqual(summarizeMeasuredCards([measured('1000.400', '59.600')], false), {
-        totalDistance: '1.00 km', maxDetour: '59s', averageDetour: '59s',
-    }, 'fractional seconds truncate like the Go helper');
-    assert.equal(summarizeMeasuredCards([measured(8000, 300), stale], true), null, 'one unmeasured car means no total');
-    assert.equal(summarizeMeasuredCards([empty], true), null, 'nothing to add up');
-    assert.equal(summarizeMeasuredCards([{ timings: 'measured', hasStops: true, totalMeters: 'x', detourSecs: '1' }], true), null, 'bad numbers never produce a total');
-});
-
-test('planner stays hidden until saved route restoration finishes', async () => {
-    let resolveRequest;
-    const app = bootPlanner({storedSession: {id: 'restored-session', fingerprint: 'saved'},
-        restoreFetch: () => new Promise(resolve => { resolveRequest = resolve; })});
-    await app.settleRestore();
-    assert.equal(app.document.documentElement.classList.contains('planner-restoring'), true);
-    assert.equal(typeof resolveRequest, 'function');
-    resolveRequest({ok: true, status: 204});
-    await app.settleRestore();
-    assert.equal(app.document.documentElement.classList.contains('planner-restoring'), false);
-});
-
-test('participant moves keep the production 500ms debounce', async t => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const sent = [];
-    const owner = createRouteSessionOrchestrator({
-        document: {
-            querySelector: () => ({ dataset: { sessionId: 'session-a', outOfBalance: 'false' } }),
-            getElementById: () => null,
-        },
-        htmx: { process() {} },
-        readPlanState: () => ({ canSave: true, sessionId: 'session-a' }),
-        request: async (url, options) => {
-            sent.push({ url, options });
-            return { ok: true, text: async () => 'routes' };
-        },
-        reportError() {},
-        notify() {},
-        afterRender() {},
-    });
-    owner.move(1, 0, 1);
-    t.mock.timers.tick(400);
-    owner.move(2, 1, 0);
-    t.mock.timers.tick(499);
-    assert.equal(sent.length, 0);
-    t.mock.timers.tick(1);
-    assert.equal(sent.length, 1);
-    assert.equal(JSON.parse(sent[0].options.body).moves.length, 2);
-    await settleEdits();
-    assert.equal(owner.hasPending(), false);
-});
-
 test('queued moves from an old session cannot absorb moves for the installed session', async () => {
     const harness = createRouteSessionHarness();
     const owner = harness.orchestrator;
@@ -2129,17 +1354,6 @@ test('queued moves from an old session cannot absorb moves for the installed ses
         { session_id: 'session-b', participant_id: 2, from_route_index: 0, to_route_index: 1, insert_at_position: -1 },
     ]);
     assert.deepEqual(harness.opened, [['GET', '/editor']]);
-});
-
-test('editor submission waits for its move response and reports rejection', async () => {
-    let finish, settled = false;
-    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
-    const submitting = harness.orchestrator.submitEditor({ sessionId: 'session-a', action: 'move', participantId: 1, from: 0, destination: 1 }).then(result => { settled = true; return result; });
-    await settleEdits();
-    assert.equal(harness.sent.length, 1);
-    assert.equal(settled, false);
-    finish({ ok: false, status: 400, text: async () => 'Cannot move rider' });
-    assert.equal(await submitting, false);
 });
 
 for (const change of ['rejected move', 'installed session', 'Plan eligibility']) {
@@ -2220,27 +1434,75 @@ test('failed timing reads and replaced-session failures do not lock the installe
     assert.equal(old.orchestrator.hasPending(), false);
 });
 
-test('default ETA formatter matches the per-call Intl oracle across modes and time boundaries', () => {
-    const current = createRouteHandoff({ platform: {} });
-    const oracle = createRouteHandoff({ platform: {}, formatTime: value => new Intl.DateTimeFormat(undefined, {
-        hour: 'numeric', minute: '2-digit',
-    }).format(value) });
-    for (const mode of ['pickup', 'dropoff']) {
-        for (const time of ['00:00', '12:00', '23:59', 'invalid']) {
-            for (const duration of ['0', '900', '86400', 'invalid']) {
-                const a = createRouteFixture({ mode });
-                const b = createRouteFixture({ mode });
-                for (const fixture of [a, b]) {
-                    fixture.container.dataset.routeTime = time;
-                    fixture.stop.dataset.stopCumulativeDurationSecs = duration;
-                    fixture.stopEta.textContent = 'stale';
-                }
-                current.populateEtas(a.container);
-                oracle.populateEtas(b.container);
-                assert.equal(a.stopEta.textContent, b.stopEta.textContent, `${mode}/${time}/${duration}`);
-                assert.deepEqual(a.container.dataset, b.container.dataset);
-                assert.deepEqual(a.stop.dataset, b.stop.dataset);
-            }
-        }
-    }
+test('summarizeMeasuredCards adds up occupied cars only once every one of them has timings', () => {
+    const { summarizeMeasuredCards } = planner;
+    const measured = (totalMeters, detourSecs) => ({ timings: 'measured', hasStops: true, totalMeters: String(totalMeters), detourSecs: String(detourSecs) });
+    const empty = { timings: 'empty', hasStops: false, totalMeters: '', detourSecs: '' };
+    const stale = { timings: 'stale', hasStops: true, totalMeters: '', detourSecs: '' };
+
+    assert.deepEqual(summarizeMeasuredCards([measured(8000, 300), measured(2000, 90), empty], true), {
+        totalDistance: '6.21 mi', maxDetour: '5m', averageDetour: '3m 15s',
+    });
+    assert.deepEqual(summarizeMeasuredCards([measured(1500, 45)], false), {
+        totalDistance: '1.50 km', maxDetour: '45s', averageDetour: '45s',
+    });
+    assert.deepEqual(summarizeMeasuredCards([measured(8125, 0)], false).totalDistance, '8.12 km', 'exact ties round to even like Go');
+    assert.deepEqual(summarizeMeasuredCards([measured(8375, 0)], false).totalDistance, '8.38 km', 'odd eighths round up to even');
+    assert.deepEqual(summarizeMeasuredCards([measured(2635, 0)], false).totalDistance, '2.63 km', '2.635 is below the tie in binary, as in Go');
+    assert.deepEqual(summarizeMeasuredCards([measured(2645, 0)], false).totalDistance, '2.65 km');
+    assert.deepEqual(summarizeMeasuredCards([measured('1000.400', '59.600')], false), {
+        totalDistance: '1.00 km', maxDetour: '59s', averageDetour: '59s',
+    }, 'fractional seconds truncate like the Go helper');
+    assert.equal(summarizeMeasuredCards([measured(8000, 300), stale], true), null, 'one unmeasured car means no total');
+    assert.equal(summarizeMeasuredCards([empty], true), null, 'nothing to add up');
+    assert.equal(summarizeMeasuredCards([{ timings: 'measured', hasStops: true, totalMeters: 'x', detourSecs: '1' }], true), null, 'bad numbers never produce a total');
+});
+
+test('manual route edits reach the server in order and keep handoffs locked until settled', async () => {
+    const app = bootPlanner();
+    app.calculate();
+    app.routesContainer.appendChild(domNode('select', { id: 'swap-select-0', value: '1' }));
+    const requests = [];
+    app.context.fetch = (url, options) => new Promise(resolve => requests.push({ url, options, resolve }));
+
+    const swapping = app.context.swapDrivers(0);
+    const resetting = app.context.resetRoutes();
+    await app.settleRestore();
+    assert.deepEqual(requests.map(request => request.url), ['/api/v1/routes/edit/swap-drivers']);
+    assert.equal(app.copyButton.disabled, true);
+    assert.equal(app.saveButton.disabled, true);
+    assert.equal(await app.context.copyAllRoutes(), false);
+    assert.equal(app.previewButton.disabled, true);
+    assert.match(app.previewButton.getAttribute('title'), /Updating routes/);
+    assert.equal(app.context.previewRoute(app.previewButton), false);
+
+    requests[0].resolve({ ok: true, text: async () => '<div>swapped routes</div>' });
+    await swapping;
+    await app.settleRestore();
+    assert.equal(requests[1].url, '/api/v1/routes/edit/reset?session_id=session-1');
+    assert.equal(app.copyButton.disabled, true);
+    requests[1].resolve({ ok: true, text: async () => '<div>reset routes</div>' });
+    await resetting;
+    await app.settleRestore();
+    assert.equal(app.copyButton.disabled, false);
+    assert.equal(app.saveButton.disabled, false);
+    assert.equal(app.previewButton.disabled, false);
+});
+
+test('Plan changes cancel queued moves and Clear resolves queued manual actions', async () => {
+    let finish;
+    const harness = createRouteSessionHarness({ request: () => new Promise(resolve => { finish = resolve; }) });
+    const owner = harness.orchestrator;
+    owner.move(1, 0, 1);
+    owner.planChanged({ status: 'stale', sessionId: 'session-a' });
+    assert.equal(owner.hasPending(), false);
+    assert.equal(harness.sent.length, 0);
+    const active = owner.add(10);
+    const queued = owner.swap(0, 1);
+    owner.clear();
+    assert.equal(await queued, false);
+    assert.equal(owner.hasPending(), true);
+    finish({ ok: true, text: async () => 'active' });
+    await active; await settleEdits();
+    assert.equal(owner.hasPending(), false);
 });

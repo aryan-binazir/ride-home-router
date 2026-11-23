@@ -138,6 +138,36 @@ func (j commitObservedJobs) RowsByIndices(ctx context.Context, id string, indice
 	return rows, err
 }
 
+func TestImportPanelCommitAcknowledgesSaveWhenRefreshFails(t *testing.T) {
+	for _, kind := range []importer.Kind{importer.KindParticipant, importer.KindDriver} {
+		t.Run(string(kind), func(t *testing.T) {
+			h, db := newImportTestHandler(t, &importTestGeocoder{})
+			id := startImportPanelSession(t, h, "name,address\nSaved,1 Main St\n", kind)
+			mapped := httptest.NewRecorder()
+			h.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
+			assertPanelFragment(t, mapped)
+			waitForImportHTTPGeocoding(t, h, id)
+			h.DB = rosterRefreshFailureStore{DataStore: db, participants: failedParticipantList{db.Participants()}, drivers: failedDriverList{db.Drivers()}, labels: db.Labels()}
+			response := httptest.NewRecorder()
+			h.HandleImportSession(response, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", url.Values{"selected": {"0", "garbage", "-1", "1"}}))
+			assertPanelFragment(t, response)
+			if !strings.Contains(response.Body.String(), "1 imported, 0 updated") || strings.Contains(response.Body.String(), `hx-swap-oob="innerHTML"`) {
+				t.Fatalf("save acknowledgment: %s", response.Body.String())
+			}
+			var trigger struct {
+				ShowToast htmxToast `json:"showToast"`
+			}
+			if err := json.Unmarshal([]byte(response.Header().Get("HX-Trigger")), &trigger); err != nil || trigger.ShowToast.Type != toastTypeSuccess {
+				t.Fatalf("save toast: %+v %v", trigger, err)
+			}
+			snapshot, ok, err := h.ImportSession.Load(t.Context(), id)
+			if err != nil || !ok || snapshot.Status != importer.StatusCommitted || snapshot.Kind != kind || snapshot.CommitResult.Created != 1 {
+				t.Fatalf("saved import: %+v %v", snapshot, err)
+			}
+		})
+	}
+}
+
 func TestImportPanelCommitPreservesErrorPrecedence(t *testing.T) {
 	databaseURL := postgrestest.DatabaseURL(t)
 	db := postgrestest.OpenURL(t, databaseURL)
@@ -217,35 +247,5 @@ func TestImportPanelCommitPreservesErrorPrecedence(t *testing.T) {
 		if !strings.Contains(response.Body.String(), tt.message) {
 			t.Fatalf("consumed: expected %q: %s", tt.message, response.Body.String())
 		}
-	}
-}
-
-func TestImportPanelCommitAcknowledgesSaveWhenRefreshFails(t *testing.T) {
-	for _, kind := range []importer.Kind{importer.KindParticipant, importer.KindDriver} {
-		t.Run(string(kind), func(t *testing.T) {
-			h, db := newImportTestHandler(t, &importTestGeocoder{})
-			id := startImportPanelSession(t, h, "name,address\nSaved,1 Main St\n", kind)
-			mapped := httptest.NewRecorder()
-			h.HandleImportSession(mapped, newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{"column_0": {"name"}, "column_1": {"address"}}))
-			assertPanelFragment(t, mapped)
-			waitForImportHTTPGeocoding(t, h, id)
-			h.DB = rosterRefreshFailureStore{DataStore: db, participants: failedParticipantList{db.Participants()}, drivers: failedDriverList{db.Drivers()}, labels: db.Labels()}
-			response := httptest.NewRecorder()
-			h.HandleImportSession(response, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", url.Values{"selected": {"0", "garbage", "-1", "1"}}))
-			assertPanelFragment(t, response)
-			if !strings.Contains(response.Body.String(), "1 imported, 0 updated") || strings.Contains(response.Body.String(), `hx-swap-oob="innerHTML"`) {
-				t.Fatalf("save acknowledgment: %s", response.Body.String())
-			}
-			var trigger struct {
-				ShowToast htmxToast `json:"showToast"`
-			}
-			if err := json.Unmarshal([]byte(response.Header().Get("HX-Trigger")), &trigger); err != nil || trigger.ShowToast.Type != toastTypeSuccess {
-				t.Fatalf("save toast: %+v %v", trigger, err)
-			}
-			snapshot, ok, err := h.ImportSession.Load(t.Context(), id)
-			if err != nil || !ok || snapshot.Status != importer.StatusCommitted || snapshot.Kind != kind || snapshot.CommitResult.Created != 1 {
-				t.Fatalf("saved import: %+v %v", snapshot, err)
-			}
-		})
 	}
 }

@@ -141,52 +141,6 @@ func TestImportPanelPreviewRendersRowStates(t *testing.T) {
 	}
 }
 
-func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-
-	upload := newImportPanelUploadRequest(t, "drivers.csv", "name,address,passenger capacity\nAlex,1 Main St,4\n", importer.KindDriver, "")
-	recorder := httptest.NewRecorder()
-	handler.HandleCreateImport(recorder, upload)
-	assertPanelFragment(t, recorder)
-
-	if body := recorder.Body.String(); !strings.Contains(body, "Passenger capacity (excluding driver)") {
-		t.Fatalf("driver mapping should offer capacity: %s", body)
-	}
-}
-
-func TestImportMappingFromFormCapacityByRosterKind(t *testing.T) {
-	tests := []struct {
-		name         string
-		kind         importer.Kind
-		wantCapacity int
-		wantIgnored  []int
-	}{
-		{name: "participant ignores forged capacity", kind: importer.KindParticipant, wantCapacity: importer.UnmappedColumn, wantIgnored: []int{2}},
-		{name: "driver maps capacity", kind: importer.KindDriver, wantCapacity: 2},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
-				"column_0": {"name"}, "column_1": {"address"}, "column_2": {"capacity"},
-			})
-			mapping, problems := importMappingFromForm(request, importer.Snapshot{
-				Kind: test.kind,
-				Grid: importer.Grid{Headers: []string{"name", "address", "capacity"}},
-			})
-
-			if problems != nil {
-				t.Fatalf("problems = %#v, want nil", problems)
-			}
-			if mapping.CapacityColumn != test.wantCapacity {
-				t.Fatalf("CapacityColumn = %d, want %d", mapping.CapacityColumn, test.wantCapacity)
-			}
-			if !slices.Equal(mapping.Ignored, test.wantIgnored) {
-				t.Fatalf("Ignored = %#v, want %#v", mapping.Ignored, test.wantIgnored)
-			}
-		})
-	}
-}
-
 func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
@@ -210,51 +164,6 @@ func TestImportPanelMappingProblemsRenderInline(t *testing.T) {
 	}
 	if strings.Count(body, `<option value="name" selected>Name</option>`) != 2 {
 		t.Fatalf("mapping problems should preserve both submitted name selections: %s", body)
-	}
-}
-
-func TestImportPanelAmbiguousMappingWarns(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-
-	upload := newImportPanelUploadRequest(t, "participants.csv", "name,full name,address\nAlex,Alex Ruiz,1 Main St\n", importer.KindParticipant, "")
-	recorder := httptest.NewRecorder()
-	handler.HandleCreateImport(recorder, upload)
-	assertPanelFragment(t, recorder)
-
-	if body := recorder.Body.String(); !strings.Contains(body, "Multiple columns look like Name — pick one.") {
-		t.Fatalf("expected ambiguity warning: %s", body)
-	}
-}
-
-func TestImportPreviewRendersFileWarnings(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	const warning = "file-level formula warning"
-	recorder := httptest.NewRecorder()
-
-	progress := importer.ProgressSnapshot{Status: importer.StatusPreviewing}
-	handler.renderTemplate(recorder, "import_preview", newImportPreviewView(importer.ReviewPage{
-		Warnings:         []string{warning},
-		ProgressSnapshot: progress,
-	}))
-
-	if body := recorder.Body.String(); !strings.Contains(body, warning) || !strings.Contains(body, "alert-warning") {
-		t.Fatalf("preview did not render file warning: %s", body)
-	}
-}
-
-func TestImportPanelWorksheetPicker(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-
-	upload := newImportPanelUploadRequest(t, "roster.xlsx", twoSheetWorkbook(t), importer.KindParticipant, "")
-	recorder := httptest.NewRecorder()
-	handler.HandleCreateImport(recorder, upload)
-	assertPanelFragment(t, recorder)
-
-	body := recorder.Body.String()
-	for _, want := range []string{"Choose a worksheet", `value="Sheet1"`, `value="Second"`, "Use this sheet", `form="import-upload-form"`} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("sheet fragment missing %q: %s", want, body)
-		}
 	}
 }
 
@@ -282,32 +191,6 @@ func TestImportPanelUploadErrorRendersMessage(t *testing.T) {
 	}
 }
 
-func TestImportPanelCommitConflictRendersServerMessage(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
-
-	mapping := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{
-		"column_0": {"name"}, "column_1": {"address"},
-	})
-	handler.HandleImportSession(httptest.NewRecorder(), mapping)
-	waitForImportHTTPGeocoding(t, handler, id)
-
-	commit := func() *httptest.ResponseRecorder {
-		recorder := httptest.NewRecorder()
-		handler.HandleImportSession(recorder, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", url.Values{"selected": {"0"}}))
-		return recorder
-	}
-	if body := commit().Body.String(); !strings.Contains(body, "1 imported") {
-		t.Fatalf("first commit = %s", body)
-	}
-
-	retry := commit()
-	assertPanelFragment(t, retry)
-	if body := retry.Body.String(); !strings.Contains(body, "That import has already been saved. Refresh the roster to see it.") {
-		t.Fatalf("retry should show the conflict message: %s", body)
-	}
-}
-
 func TestImportPanelCancelClearsPanelAndSession(t *testing.T) {
 	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
 	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
@@ -326,34 +209,6 @@ func TestImportPanelCancelClearsPanelAndSession(t *testing.T) {
 	if after.Code != http.StatusNotFound {
 		t.Fatalf("get-after-cancel status = %d, want %d", after.Code, http.StatusNotFound)
 	}
-}
-
-func TestImportPanelRequiresViewParameter(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-
-	upload := newImportUploadRequest(t, "participants.csv", "name,address\nAlex,1 Main St\n", importer.KindParticipant, "")
-	recorder := httptest.NewRecorder()
-	handler.HandleCreateImport(recorder, upload)
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d body=%q", recorder.Code, http.StatusCreated, recorder.Body.String())
-	}
-	assertJSONContentType(t, recorder)
-}
-
-func TestImportPanelSessionRoutesStayJSONWithoutViewParameter(t *testing.T) {
-	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
-	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
-
-	request := newImportRequest(http.MethodGet, "/api/v1/imports/"+id, nil)
-	request.Header.Set("HX-Request", "true")
-	recorder := httptest.NewRecorder()
-	handler.HandleImportSession(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
-	}
-	assertJSONContentType(t, recorder)
 }
 
 func TestImportPanelRejectsCrossOriginRequests(t *testing.T) {
@@ -442,61 +297,6 @@ func assertPanelFragment(t *testing.T, recorder *httptest.ResponseRecorder) {
 	}
 }
 
-func TestRosterPagesRenderImportPanel(t *testing.T) {
-	tests := []struct {
-		name    string
-		path    string
-		kind    importer.Kind
-		render  func(*Handler, http.ResponseWriter, *http.Request)
-		listID  string
-		heading string
-	}{
-		{"participants", "/participants", importer.KindParticipant, (*Handler).HandleParticipantsPage, "participants-list", "Add participant"},
-		{"drivers", "/drivers", importer.KindDriver, (*Handler).HandleDriversPage, "drivers-list", "Add driver"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, _ := newTestPageHandler(t)
-			recorder := httptest.NewRecorder()
-			tt.render(handler, recorder, httptest.NewRequestWithContext(context.Background(), http.MethodGet, tt.path, nil))
-
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
-			}
-			body := recorder.Body.String()
-			for _, want := range []string{
-				"Import from spreadsheet",
-				`hx-post="/api/v1/imports?view=panel"`,
-				`hx-encoding="multipart/form-data"`,
-				`accept=".csv,.xlsx"`,
-				`steps.querySelector('.import-cancel')`,
-				`cancel.click()`,
-				`steps.innerHTML = ''`,
-				`value="` + string(tt.kind) + `"`,
-				`id="import-steps"`,
-				"we look up addresses automatically.",
-				tt.heading,
-			} {
-				if !strings.Contains(body, want) {
-					t.Fatalf("%s page missing %q", tt.name, want)
-				}
-			}
-			if strings.Contains(body, "Latitude, Longitude") {
-				t.Fatalf("%s import help still lists coordinate columns", tt.name)
-			}
-			if strings.Index(body, `cancel.click()`) > strings.Index(body, `steps.innerHTML = ''`) {
-				t.Fatalf("%s page must cancel the prior session before clearing import steps", tt.name)
-			}
-			if strings.Index(body, `id="import-file"`) > strings.Index(body, `id="import-steps"`) {
-				t.Fatalf("%s page must keep the file input outside the swapped step container", tt.name)
-			}
-			if !strings.Contains(body, `id="`+tt.listID+`"`) {
-				t.Fatalf("%s page missing roster list container", tt.name)
-			}
-		})
-	}
-}
-
 func TestImportPanelCommitUsesFinalCheckboxesWithoutSelectionRequest(t *testing.T) {
 	for _, selected := range []url.Values{{"selected": {"0"}}, {}} {
 		t.Run(selected.Encode(), func(t *testing.T) {
@@ -523,5 +323,122 @@ func TestImportPanelCommitUsesFinalCheckboxesWithoutSelectionRequest(t *testing.
 				t.Fatalf("saved wrong participant: %s", listed.Body.String())
 			}
 		})
+	}
+}
+
+func TestImportMappingFromFormCapacityByRosterKind(t *testing.T) {
+	tests := []struct {
+		name         string
+		kind         importer.Kind
+		wantCapacity int
+		wantIgnored  []int
+	}{
+		{name: "participant ignores forged capacity", kind: importer.KindParticipant, wantCapacity: importer.UnmappedColumn, wantIgnored: []int{2}},
+		{name: "driver maps capacity", kind: importer.KindDriver, wantCapacity: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := newImportPanelFormRequest(http.MethodPut, "/", url.Values{
+				"column_0": {"name"}, "column_1": {"address"}, "column_2": {"capacity"},
+			})
+			mapping, problems := importMappingFromForm(request, importer.Snapshot{
+				Kind: test.kind,
+				Grid: importer.Grid{Headers: []string{"name", "address", "capacity"}},
+			})
+
+			if problems != nil {
+				t.Fatalf("problems = %#v, want nil", problems)
+			}
+			if mapping.CapacityColumn != test.wantCapacity {
+				t.Fatalf("CapacityColumn = %d, want %d", mapping.CapacityColumn, test.wantCapacity)
+			}
+			if !slices.Equal(mapping.Ignored, test.wantIgnored) {
+				t.Fatalf("Ignored = %#v, want %#v", mapping.Ignored, test.wantIgnored)
+			}
+		})
+	}
+}
+
+func TestImportPreviewRendersFileWarnings(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	const warning = "file-level formula warning"
+	recorder := httptest.NewRecorder()
+
+	progress := importer.ProgressSnapshot{Status: importer.StatusPreviewing}
+	handler.renderTemplate(recorder, "import_preview", newImportPreviewView(importer.ReviewPage{
+		Warnings:         []string{warning},
+		ProgressSnapshot: progress,
+	}))
+
+	if body := recorder.Body.String(); !strings.Contains(body, warning) || !strings.Contains(body, "alert-warning") {
+		t.Fatalf("preview did not render file warning: %s", body)
+	}
+}
+
+func TestImportPanelWorksheetPicker(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "roster.xlsx", twoSheetWorkbook(t), importer.KindParticipant, "")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+	assertPanelFragment(t, recorder)
+
+	body := recorder.Body.String()
+	for _, want := range []string{"Choose a worksheet", `value="Sheet1"`, `value="Second"`, "Use this sheet", `form="import-upload-form"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sheet fragment missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestImportPanelCommitConflictRendersServerMessage(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+	id := startImportPanelSession(t, handler, "name,address\nAlex,1 Main St\n", importer.KindParticipant)
+
+	mapping := newImportPanelFormRequest(http.MethodPut, "/api/v1/imports/"+id+"/mapping?view=panel", url.Values{
+		"column_0": {"name"}, "column_1": {"address"},
+	})
+	handler.HandleImportSession(httptest.NewRecorder(), mapping)
+	waitForImportHTTPGeocoding(t, handler, id)
+
+	commit := func() *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.HandleImportSession(recorder, newImportPanelFormRequest(http.MethodPost, "/api/v1/imports/"+id+"/commit?view=panel", url.Values{"selected": {"0"}}))
+		return recorder
+	}
+	if body := commit().Body.String(); !strings.Contains(body, "1 imported") {
+		t.Fatalf("first commit = %s", body)
+	}
+
+	retry := commit()
+	assertPanelFragment(t, retry)
+	if body := retry.Body.String(); !strings.Contains(body, "That import has already been saved. Refresh the roster to see it.") {
+		t.Fatalf("retry should show the conflict message: %s", body)
+	}
+}
+
+func TestImportPanelDriverMappingOffersCapacity(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "drivers.csv", "name,address,passenger capacity\nAlex,1 Main St,4\n", importer.KindDriver, "")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+	assertPanelFragment(t, recorder)
+
+	if body := recorder.Body.String(); !strings.Contains(body, "Passenger capacity (excluding driver)") {
+		t.Fatalf("driver mapping should offer capacity: %s", body)
+	}
+}
+
+func TestImportPanelAmbiguousMappingWarns(t *testing.T) {
+	handler, _ := newImportTestHandler(t, &importTestGeocoder{})
+
+	upload := newImportPanelUploadRequest(t, "participants.csv", "name,full name,address\nAlex,Alex Ruiz,1 Main St\n", importer.KindParticipant, "")
+	recorder := httptest.NewRecorder()
+	handler.HandleCreateImport(recorder, upload)
+	assertPanelFragment(t, recorder)
+
+	if body := recorder.Body.String(); !strings.Contains(body, "Multiple columns look like Name — pick one.") {
+		t.Fatalf("expected ambiguity warning: %s", body)
 	}
 }

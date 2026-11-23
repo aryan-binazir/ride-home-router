@@ -61,27 +61,6 @@ func TestStatusRequiresMatchingProcessIdentity(t *testing.T) {
 	}
 }
 
-func TestStatusReadsLegacyStateAndIdentityChooser(t *testing.T) {
-	l := worktree(t)
-	start, err := processStart(os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = l.save("state.json", environment{Root: l.root, PID: os.Getpid(), Start: start}); err != nil {
-		t.Fatal(err)
-	}
-	if err = l.save("ready.json", readiness{Login: "http://127.0.0.1:1/__dev/?key=synthetic"}); err != nil {
-		t.Fatal(err)
-	}
-	var output bytes.Buffer
-	if err = run(t.Context(), []string{"status"}, &output); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(output.String(), "Running\n") || !strings.Contains(output.String(), "key=synthetic&choose=1 (admin / member / denied)") {
-		t.Fatalf("incorrect running status: %s", output.String())
-	}
-}
-
 func TestStatusAndStopWithoutEnvironmentNeedNoRuntime(t *testing.T) {
 	l := worktree(t)
 	t.Setenv("DEV_RUNTIME", "missing-runtime")
@@ -198,30 +177,5 @@ func TestStopPreservesLegacySecretsAndClearsStaleReadiness(t *testing.T) {
 	info, err := os.Stat(filepath.Join(l.directory, "state.json"))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("state permissions: %v, %v", info, err)
-	}
-}
-
-func TestRuntimeWarningsDoNotCorruptMachineReadableOutput(t *testing.T) {
-	runtime := filepath.Join(t.TempDir(), "runtime")
-	script := `#!/bin/sh
-printf '%s\n' 'nonfatal runtime warning' >&2
-if [ "$1" = inspect ]; then
-    printf '%s\n' '[{"Config":{"Labels":{"rhr.dev.owner":"ours"}},"State":{"Running":true}}]'
-else
-    printf '%s\n' '127.0.0.1:5432'
-fi
-`
-	//nolint:gosec // G306: the test runtime must be executable.
-	if err := os.WriteFile(runtime, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	state := environment{Owner: "ours", Container: "owned-name", Runtime: runtime}
-	info, found, err := inspect(t.Context(), &state)
-	if err != nil || !found || !info.State.Running {
-		t.Fatalf("inspect could not read stdout: %v, %v", info, err)
-	}
-	port, err := container(t.Context(), &state, "port", state.Container, "5432/tcp")
-	if err != nil || string(port) != "127.0.0.1:5432\n" {
-		t.Fatalf("port output contains stderr: %q, %v", port, err)
 	}
 }

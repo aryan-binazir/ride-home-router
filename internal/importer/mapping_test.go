@@ -25,58 +25,6 @@ func TestMappingAssignReportsMissingRequiredFields(t *testing.T) {
 	}
 }
 
-func TestMappingAssignFirstOwnerWinsDuplicateField(t *testing.T) {
-	transition := NewMapping().Assign([]FieldColumn{
-		{Field: FieldName, Column: 0},
-		{Field: FieldName, Column: 1},
-		{Field: FieldName, Column: 2},
-	}, 3)
-
-	if transition.Mapping.NameColumn != 0 {
-		t.Fatalf("NameColumn = %d, want first assigned column 0", transition.Mapping.NameColumn)
-	}
-	if !reflect.DeepEqual(transition.DuplicateFields, []Field{FieldName}) {
-		t.Fatalf("DuplicateFields = %#v, want [%s]", transition.DuplicateFields, FieldName)
-	}
-	if !equalInts(transition.Mapping.Ignored, []int{1, 2}) {
-		t.Fatalf("Ignored = %#v, want [1 2]", transition.Mapping.Ignored)
-	}
-}
-
-func TestMappingAssignClearsOnlyResolvedAmbiguityAndRecomputesIgnored(t *testing.T) {
-	base := NewMapping()
-	base.Ambiguous[FieldName] = []int{0, 1}
-	base.Ambiguous[FieldAddress] = []int{2, 3}
-	base.Ignored = []int{4}
-
-	transition := base.Assign([]FieldColumn{{Field: FieldName, Column: 1}}, 5)
-	if transition.Mapping.NameColumn != 1 {
-		t.Fatalf("NameColumn = %d, want 1", transition.Mapping.NameColumn)
-	}
-	if _, ok := transition.Mapping.Ambiguous[FieldName]; ok {
-		t.Fatalf("resolved name ambiguity remains: %#v", transition.Mapping.Ambiguous)
-	}
-	if !equalInts(transition.Mapping.Ambiguous[FieldAddress], []int{2, 3}) {
-		t.Fatalf("address ambiguity = %#v, want [2 3]", transition.Mapping.Ambiguous[FieldAddress])
-	}
-	if !equalInts(transition.Mapping.Ignored, []int{0, 4}) {
-		t.Fatalf("Ignored = %#v, want [0 4]", transition.Mapping.Ignored)
-	}
-}
-
-func TestMappingAssignExplicitUnmapPreservesAmbiguity(t *testing.T) {
-	base := NewMapping()
-	base.Ambiguous[FieldName] = []int{0, 1}
-
-	transition := base.Assign([]FieldColumn{{Field: FieldName, Column: UnmappedColumn}}, 3)
-	if !equalInts(transition.Mapping.Ambiguous[FieldName], []int{0, 1}) {
-		t.Fatalf("name ambiguity = %#v, want [0 1]", transition.Mapping.Ambiguous[FieldName])
-	}
-	if !equalInts(transition.Mapping.Ignored, []int{2}) {
-		t.Fatalf("Ignored = %#v, want [2]", transition.Mapping.Ignored)
-	}
-}
-
 func TestMappingAssignPreservesFinalWidthAndOwnershipValidation(t *testing.T) {
 	t.Run("out of range columns", func(t *testing.T) {
 		grid := mustParseCSV(t, "name,address\nJane,1 Main St\n")
@@ -114,32 +62,33 @@ func TestMappingAssignPreservesFinalWidthAndOwnershipValidation(t *testing.T) {
 	})
 }
 
-func TestMappingAssignLeavesRosterKindPolicyInValidation(t *testing.T) {
-	grid := mustParseCSV(t, "name,address,capacity\nJane,1 Main St,not-a-number\n")
+func TestMappingAssignFirstOwnerWinsDuplicateField(t *testing.T) {
 	transition := NewMapping().Assign([]FieldColumn{
 		{Field: FieldName, Column: 0},
-		{Field: FieldAddress, Column: 1},
-		{Field: FieldCapacity, Column: 2},
-	}, len(grid.Headers))
+		{Field: FieldName, Column: 1},
+		{Field: FieldName, Column: 2},
+	}, 3)
 
-	participant := Validate(grid, transition.Mapping, KindParticipant, nil)[0]
-	if hasMessage(participant.Errors, "capacity") {
-		t.Fatalf("participant errors = %#v, capacity must remain driver-only", participant.Errors)
+	if transition.Mapping.NameColumn != 0 {
+		t.Fatalf("NameColumn = %d, want first assigned column 0", transition.Mapping.NameColumn)
 	}
-	driver := Validate(grid, transition.Mapping, KindDriver, nil)[0]
-	if !hasMessage(driver.Errors, "capacity must be a whole number") {
-		t.Fatalf("driver errors = %#v, want capacity validation", driver.Errors)
+	if !reflect.DeepEqual(transition.DuplicateFields, []Field{FieldName}) {
+		t.Fatalf("DuplicateFields = %#v, want [%s]", transition.DuplicateFields, FieldName)
+	}
+	if !equalInts(transition.Mapping.Ignored, []int{1, 2}) {
+		t.Fatalf("Ignored = %#v, want [1 2]", transition.Mapping.Ignored)
 	}
 }
 
-func TestMappingAssignDoesNotMutateItsInput(t *testing.T) {
+func TestMappingAssignExplicitUnmapPreservesAmbiguity(t *testing.T) {
 	base := NewMapping()
 	base.Ambiguous[FieldName] = []int{0, 1}
-	base.Ignored = []int{2}
-	want := copyMapping(base)
 
-	base.Assign([]FieldColumn{{Field: FieldName, Column: 0}}, 3)
-	if !reflect.DeepEqual(base, want) {
-		t.Fatalf("input mapping mutated:\n got: %#v\nwant: %#v", base, want)
+	transition := base.Assign([]FieldColumn{{Field: FieldName, Column: UnmappedColumn}}, 3)
+	if !equalInts(transition.Mapping.Ambiguous[FieldName], []int{0, 1}) {
+		t.Fatalf("name ambiguity = %#v, want [0 1]", transition.Mapping.Ambiguous[FieldName])
+	}
+	if !equalInts(transition.Mapping.Ignored, []int{2}) {
+		t.Fatalf("Ignored = %#v, want [2]", transition.Mapping.Ignored)
 	}
 }

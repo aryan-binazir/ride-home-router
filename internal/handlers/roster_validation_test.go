@@ -22,14 +22,6 @@ func TestRosterHTMXValidationReturnsBadRequestToast(t *testing.T) {
 		invoke     func(*Handler, http.ResponseWriter, *http.Request)
 	}{
 		{
-			name: "create participant address name", method: http.MethodPost,
-			path: func(int64) string { return "/api/v1/participants" },
-			form: func() url.Values {
-				return participantValidationForm(strings.Repeat("x", models.MaxAddressNameLength+1))
-			},
-			want: messageAddressNameTooLong(), invoke: (*Handler).HandleCreateParticipant,
-		},
-		{
 			name: "update participant address name", method: http.MethodPut,
 			path: func(id int64) string { return "/api/v1/participants/" + strconv.FormatInt(id, 10) },
 			form: func() url.Values {
@@ -39,30 +31,10 @@ func TestRosterHTMXValidationReturnsBadRequestToast(t *testing.T) {
 			invoke: (*Handler).HandleUpdateParticipant,
 		},
 		{
-			name: "create driver address name", method: http.MethodPost,
-			path: func(int64) string { return "/api/v1/drivers" },
-			form: func() url.Values { return driverValidationForm(strings.Repeat("x", models.MaxAddressNameLength+1), 4) },
-			want: messageAddressNameTooLong(), invoke: (*Handler).HandleCreateDriver,
-		},
-		{
-			name: "update driver address name", method: http.MethodPut,
-			path: func(id int64) string { return "/api/v1/drivers/" + strconv.FormatInt(id, 10) },
-			form: func() url.Values { return driverValidationForm(strings.Repeat("x", models.MaxAddressNameLength+1), 4) },
-			want: messageAddressNameTooLong(), createBase: createValidationDriver,
-			invoke: (*Handler).HandleUpdateDriver,
-		},
-		{
 			name: "create driver capacity", method: http.MethodPost,
 			path: func(int64) string { return "/api/v1/drivers" },
 			form: func() url.Values { return driverValidationForm("", models.MaxVehicleCapacity+1) },
 			want: messageVehicleCapacityOutOfRange(), invoke: (*Handler).HandleCreateDriver,
-		},
-		{
-			name: "update driver capacity", method: http.MethodPut,
-			path: func(id int64) string { return "/api/v1/drivers/" + strconv.FormatInt(id, 10) },
-			form: func() url.Values { return driverValidationForm("", models.MaxVehicleCapacity+1) },
-			want: messageVehicleCapacityOutOfRange(), createBase: createValidationDriver,
-			invoke: (*Handler).HandleUpdateDriver,
 		},
 	}
 

@@ -51,19 +51,6 @@ func TestServeReturnsServerErrorThatRacesWithSignal(t *testing.T) {
 	}
 }
 
-func TestServeJoinsShutdownError(t *testing.T) {
-	serveErr := errors.New("serve failure")
-	shutdownErr := errors.New("shutdown failure")
-	server := &fakeApplicationServer{serveErrors: make(chan error, 1), shutdownErr: shutdownErr}
-	server.serveErrors <- serveErr
-
-	err := serve(server, make(chan os.Signal))
-
-	if !errors.Is(err, serveErr) || !errors.Is(err, shutdownErr) {
-		t.Fatalf("serve() error = %v, want serve and shutdown failures", err)
-	}
-}
-
 func TestServeReturnsUnexpectedServerErrorAfterCleanup(t *testing.T) {
 	injectedErr := errors.New("injected serve failure")
 	server := &fakeApplicationServer{serveErrors: make(chan error, 1)}

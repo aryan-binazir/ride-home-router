@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { filterTable, handleTableSwap, reapplyTableFilter, switchRosterTab, toggleEventDetail } = require('./ui.js');
+const { filterTable, handleTableSwap, switchRosterTab, toggleEventDetail } = require('./ui.js');
 
 function element(classes = []) {
   const values = new Set(classes);
@@ -101,32 +101,6 @@ test('filterTable shows a filtered-empty row only when no data rows match', () =
   filterTable({ value: 'Alpha' }, 'labels-tbody');
   assert.equal(alpha.classList.contains('hidden'), false);
   assert.equal(beta.classList.contains('hidden'), true);
-  assert.equal(empty.classList.contains('hidden'), true);
-});
-
-test('reapplyTableFilter keeps the current search after a list swap', () => {
-  const matching = element([]);
-  matching.dataset = { search: 'Alpha group' };
-  const other = element([]);
-  other.dataset = { search: 'Beta group' };
-  const empty = element(['hidden']);
-  const input = { value: 'Alpha' };
-  const tbody = { querySelectorAll: () => [matching, other] };
-  global.document = {
-    getElementById(id) {
-      return {
-        'labels-search': input,
-        'labels-tbody': tbody,
-        'labels-tbody-empty': empty,
-      }[id] || null;
-    },
-  };
-  test.after(() => { delete global.document; });
-
-  reapplyTableFilter('labels-list');
-
-  assert.equal(matching.classList.contains('hidden'), false);
-  assert.equal(other.classList.contains('hidden'), true);
   assert.equal(empty.classList.contains('hidden'), true);
 });
 

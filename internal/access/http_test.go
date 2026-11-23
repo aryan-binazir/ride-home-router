@@ -45,23 +45,6 @@ func TestAccessPanelFailureRendersRetryAtServiceUnavailable(t *testing.T) {
 	}
 }
 
-func TestSignInHasAccessibleStatusAndExistingAccountSwitch(t *testing.T) {
-	fixture := accesstest.New(t)
-	gate, err := access.New(fixture.Config(), &approvals{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux := http.NewServeMux()
-	gate.Register(mux)
-	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/sign-in?denied=1", nil))
-	for _, want := range []string{`id="auth-status"`, `role="status"`, "Use another account"} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("missing %q", want)
-		}
-	}
-}
-
 func TestAdminsCardIsReadOnlyAndAdminOnly(t *testing.T) {
 	f := accesstest.New(t)
 	admin := f.Admin()
@@ -95,6 +78,23 @@ func TestAdminsCardIsReadOnlyAndAdminOnly(t *testing.T) {
 			}
 		} else if strings.Contains(body, "second@example.test") {
 			t.Fatal("admin email disclosed to non-admin")
+		}
+	}
+}
+
+func TestSignInHasAccessibleStatusAndExistingAccountSwitch(t *testing.T) {
+	fixture := accesstest.New(t)
+	gate, err := access.New(fixture.Config(), &approvals{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	gate.Register(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/sign-in?denied=1", nil))
+	for _, want := range []string{`id="auth-status"`, `role="status"`, "Use another account"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("missing %q", want)
 		}
 	}
 }

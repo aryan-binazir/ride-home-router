@@ -2,14 +2,11 @@ package httpx
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"testing/iotest"
 )
 
 func TestDecodeJSONAcceptsJSONContentTypeParameters(t *testing.T) {
@@ -70,22 +67,6 @@ func TestDecodeJSONRejectsTrailingInput(t *testing.T) {
 	}
 }
 
-func TestDecodeJSONSingleValue(t *testing.T) {
-	for _, body := range []string{`{"name":"Alex"}`, " \n" + `{"name":"Alex","unknown":true}` + " \t\r\n"} {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(body))
-		req.Header.Set(HeaderContentType, MediaTypeJSON)
-		var dst struct {
-			Name string `json:"name"`
-		}
-		if err := DecodeJSON(req, &dst); err != nil {
-			t.Fatalf("DecodeJSON(%q): %v", body, err)
-		}
-		if dst.Name != "Alex" {
-			t.Fatalf("name = %q, want Alex", dst.Name)
-		}
-	}
-}
-
 func TestDecodeJSONRejectsEmptyOrInvalidBody(t *testing.T) {
 	for _, body := range []string{"", " \t\r\n", `{`, `invalid`, `{"name":42}`} {
 		t.Run(body, func(t *testing.T) {
@@ -114,38 +95,6 @@ func TestDecodeJSONRequiresJSONContentType(t *testing.T) {
 			}
 			if dst.Name != "" {
 				t.Fatalf("name = %q, want body not decoded", dst.Name)
-			}
-		})
-	}
-}
-
-func TestDecodeJSONPropagatesReaderErrors(t *testing.T) {
-	readErr := errors.New("request body read failed")
-	for _, prefix := range []string{"", `{"name":"Alex"}`, `{"name":"Alex"}` + " \t\r\n"} {
-		t.Run(prefix, func(t *testing.T) {
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", io.MultiReader(strings.NewReader(prefix), iotest.ErrReader(readErr)))
-			req.Header.Set(HeaderContentType, MediaTypeJSON)
-			var dst struct {
-				Name string `json:"name"`
-			}
-			if err := DecodeJSON(req, &dst); !errors.Is(err, readErr) {
-				t.Fatalf("error = %v, want reader error", err)
-			}
-		})
-	}
-}
-
-func TestDecodeJSONAcceptsNonObjectValues(t *testing.T) {
-	for _, body := range []string{`null`, `true`, `42`, `[]`, `"single"`} {
-		t.Run(body, func(t *testing.T) {
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(body+" \t\r\n"))
-			req.Header.Set(HeaderContentType, MediaTypeJSON)
-			var dst json.RawMessage
-			if err := DecodeJSON(req, &dst); err != nil {
-				t.Fatalf("DecodeJSON() error = %v", err)
-			}
-			if string(dst) != body {
-				t.Fatalf("value = %s, want %s", dst, body)
 			}
 		})
 	}

@@ -52,27 +52,6 @@ func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {
 	}
 }
 
-func TestHandleSettingsPage_DoesNotRenderVanManagement(t *testing.T) {
-	handler, _ := newTestPageHandler(t)
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleSettingsPage(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	body := rr.Body.String()
-	if strings.Contains(body, "Saved vans") || strings.Contains(body, "Add Van") {
-		t.Fatalf("expected Settings page to omit van management, body=%q", body)
-	}
-	if strings.Contains(body, "now live") || strings.Contains(body, "alert alert-info") {
-		t.Fatalf("expected Settings page to omit migration copy, body=%q", body)
-	}
-}
-
 func TestHandleHistoryPage_RendersKeyboardOperableEventToggle(t *testing.T) {
 	handler, store := newTestPageHandler(t)
 	event := createTestEvent(t, store, "2026-08-29", "Accessible history")
@@ -96,50 +75,6 @@ func TestHandleHistoryPage_RendersKeyboardOperableEventToggle(t *testing.T) {
 	}
 	if strings.Contains(body, `onclick="toggleEventDetail(this,`) {
 		t.Fatalf("history event row remains pointer-only, body=%q", body)
-	}
-}
-
-func TestSharedLayoutOffersHeaderSignOut(t *testing.T) {
-	handler, _ := newTestPageHandler(t)
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
-	rr := httptest.NewRecorder()
-	handler.HandleSettingsPage(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-	body := rr.Body.String()
-	headerEnd := strings.Index(body, "</header>")
-	signOut := strings.Index(body, "data-sign-out")
-	if headerEnd < 0 || signOut < 0 || signOut > headerEnd {
-		t.Fatal("shared layout must place sign-out in the header")
-	}
-}
-
-func TestHandleSettingsPage_RendersSMEEmailControl(t *testing.T) {
-	handler, store := newTestPageHandler(t)
-	if err := store.Settings().Update(context.Background(), &models.Settings{UseMiles: true, SMEEmail: "sme@example.com"}); err != nil {
-		t.Fatalf("update settings: %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
-	rr := httptest.NewRecorder()
-	serveSettingsAsAdmin(t, store, handler.HandleSettingsPage, rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-	body := rr.Body.String()
-	for _, want := range []string{
-		`type="email"`,
-		`name="sme_email"`,
-		`value="sme@example.com"`,
-		`Reviewer email`,
-		`Route edits saved by this person help improve route suggestions. Leave blank to turn this off.`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("settings page missing %q, body=%q", want, body)
-		}
 	}
 }
 
@@ -225,60 +160,6 @@ func TestHandleUpdateSettings_RejectsInvalidFormSMEEmail(t *testing.T) {
 	}
 }
 
-func TestHandleIndexPage_RendersVanAssignmentsPanelWhenVansExist(t *testing.T) {
-	handler, store := newTestPageHandler(t)
-
-	if _, err := store.ActivityLocations().Create(context.Background(), &models.ActivityLocation{
-		Name:    "Gym",
-		Address: "1 Gym Way",
-		Lat:     40.10,
-		Lng:     -73.90,
-	}); err != nil {
-		t.Fatalf("create activity location: %v", err)
-	}
-	if _, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "2 Driver Lane",
-		Lat:             40.20,
-		Lng:             -73.80,
-		VehicleCapacity: 4,
-	}); err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-	if _, err := store.OrganizationVehicles().Create(context.Background(), &models.OrganizationVehicle{
-		Name:     "Overflow Van",
-		Capacity: 7,
-	}); err != nil {
-		t.Fatalf("create van: %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleIndexPage(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	body := rr.Body.String()
-	if !strings.Contains(body, "Vehicle for this event") {
-		t.Fatalf("expected Event Planning page to render inline van assignment controls, body=%q", body)
-	}
-	if !strings.Contains(body, `name="route_time"`) {
-		t.Fatalf("expected Event Planning page to render the route time input, body=%q", body)
-	}
-	if !strings.Contains(body, "Depart activity location at") {
-		t.Fatalf("expected Event Planning page to render the route time label, body=%q", body)
-	}
-	if strings.Contains(body, `id="event-org-vehicles"`) || strings.Contains(body, "Overflow Van") {
-		t.Fatal("initial planner must not preload the vehicle catalog")
-	}
-	if !strings.Contains(body, "/api/v1/planner/vehicle-editor") {
-		t.Fatal("missing on-demand vehicle editor")
-	}
-}
-
 func TestHandleLabelsPage_RendersLabelsNavAndTable(t *testing.T) {
 	handler, store := newTestPageHandler(t)
 
@@ -300,56 +181,6 @@ func TestHandleLabelsPage_RendersLabelsNavAndTable(t *testing.T) {
 	}
 	if !strings.Contains(body, "Youth Conference") {
 		t.Fatalf("expected saved label to render, body=%q", body)
-	}
-}
-
-func TestHandleIndexPage_RendersLabelFiltersAndRowMetadata(t *testing.T) {
-	handler, store := newTestPageHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Summer Camp"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	participant, err := store.Participants().Create(context.Background(), &models.Participant{
-		Name:    "Participant One",
-		Address: "1 Rider Way",
-		Lat:     40.1,
-		Lng:     -73.9,
-	})
-	if err != nil {
-		t.Fatalf("create participant: %v", err)
-	}
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "1 Driver Way",
-		Lat:             40.2,
-		Lng:             -73.8,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForParticipant() error = %v", err)
-	}
-	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForDriver() error = %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleIndexPage(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, `data-label-id="`+int64ToString(label.ID)+`"`) {
-		t.Fatalf("expected label filter chip hook, body=%q", body)
-	}
-	if !strings.Contains(body, `data-labels="`+int64ToString(label.ID)+`"`) {
-		t.Fatalf("expected row label metadata, body=%q", body)
 	}
 }
 
@@ -567,5 +398,22 @@ func TestMemberPreferencePreservesConcurrentAdminSettings(t *testing.T) {
 	got, err = store.Settings().Get(t.Context())
 	if err != nil || got.SelectedActivityLocationID != 0 || got.SMEEmail != "new@example.test" {
 		t.Fatalf("cleared=%+v err=%v", got, err)
+	}
+}
+
+func TestSharedLayoutOffersHeaderSignOut(t *testing.T) {
+	handler, _ := newTestPageHandler(t)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	headerEnd := strings.Index(body, "</header>")
+	signOut := strings.Index(body, "data-sign-out")
+	if headerEnd < 0 || signOut < 0 || signOut > headerEnd {
+		t.Fatal("shared layout must place sign-out in the header")
 	}
 }

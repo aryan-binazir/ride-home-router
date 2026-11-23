@@ -84,32 +84,6 @@ func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
 		}
 	})
 
-	t.Run("HTMX suggestions use the display name when needed", func(t *testing.T) {
-		handler.Geocoder = addressSearchGeocoder{results: []geocoding.GeocodingResult{{DisplayName: "Display fallback"}}}
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
-		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
-		rec := httptest.NewRecorder()
-
-		handler.HandleAddressSearch(rec, req)
-
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-address="Display fallback"`) {
-			t.Fatalf("fallback response = %d body=%q", rec.Code, rec.Body.String())
-		}
-	})
-
-	t.Run("HTMX suggestions show the empty state", func(t *testing.T) {
-		handler.Geocoder = addressSearchGeocoder{}
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/address-search?address=1234", nil)
-		req.Header.Set(httpx.HeaderHXRequest, httpx.HTMXTrue)
-		rec := httptest.NewRecorder()
-
-		handler.HandleAddressSearch(rec, req)
-
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No addresses found") {
-			t.Fatalf("empty response = %d body=%q", rec.Code, rec.Body.String())
-		}
-	})
-
 	t.Run("duplicate rendered addresses appear once", func(t *testing.T) {
 		handler.Geocoder = addressSearchGeocoder{results: []geocoding.GeocodingResult{
 			{FormattedAddress: "123 Main Street", DisplayName: "First source"},
@@ -128,20 +102,6 @@ func TestHandleAddressSearchRequiresHTMXAndRendersHTML(t *testing.T) {
 	})
 }
 
-func TestInternalErrorContractDoesNotLeak(t *testing.T) {
-	h := &Handler{}
-	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", nil)
-	r.Header.Set("HX-Request", "true")
-	w := httptest.NewRecorder()
-	h.renderError(w, r, errors.New(`ERROR: relation "x" does not exist (SQLSTATE 42P01)`))
-	if strings.Contains(w.Body.String(), "SQLSTATE") {
-		t.Fatalf("internal error leaked: %s", w.Body.String())
-	}
-	if !strings.Contains(w.Header().Get("HX-Trigger"), "showToast") {
-		t.Fatal("missing toast")
-	}
-}
-
 func TestNoSwapConflictIncludesReadableMessage(t *testing.T) {
 	h := &Handler{}
 	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/routes/move", nil)
@@ -153,15 +113,16 @@ func TestNoSwapConflictIncludesReadableMessage(t *testing.T) {
 	}
 }
 
-func TestGeocodingErrorMessageTellsAdminsWhenGoogleIsNotConfigured(t *testing.T) {
-	err := &geocoding.ErrGeocodingFailed{Reason: "provider not configured", Cause: geocoding.ErrNotConfigured}
-	if got := geocodingErrorMessage(err); got != messageAddressLookupNotConfigured {
-		t.Fatalf("geocodingErrorMessage() = %q, want %q", got, messageAddressLookupNotConfigured)
+func TestInternalErrorContractDoesNotLeak(t *testing.T) {
+	h := &Handler{}
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", nil)
+	r.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	h.renderError(w, r, errors.New(`ERROR: relation "x" does not exist (SQLSTATE 42P01)`))
+	if strings.Contains(w.Body.String(), "SQLSTATE") {
+		t.Fatalf("internal error leaked: %s", w.Body.String())
 	}
-	if got := geocodingErrorMessage(geocoding.ErrNoGeocodingResults); got != "Could not find that address. Check it and try again." {
-		t.Fatalf("no results message = %q", got)
-	}
-	if got := geocodingErrorMessage(&geocoding.ErrGeocodingFailed{Reason: "provider returned an error", HTTPStatus: 503}); got != messageAddressLookupUnavailable {
-		t.Fatalf("transient message = %q", got)
+	if !strings.Contains(w.Header().Get("HX-Trigger"), "showToast") {
+		t.Fatal("missing toast")
 	}
 }

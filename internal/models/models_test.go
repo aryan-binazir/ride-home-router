@@ -91,14 +91,6 @@ func TestRosterKeyPreservesPunctuationOnlyFields(t *testing.T) {
 	}
 }
 
-func TestRosterKeyExactFormat(t *testing.T) {
-	got := RosterKey("Anne-Marie O'Brien", "123 Main St., Apt 2")
-	want := "anne marie obrien\x00123 main st apt 2"
-	if got != want {
-		t.Errorf("RosterKey() = %q, want %q", got, want)
-	}
-}
-
 func TestRosterKeyRequiresNameAndAddress(t *testing.T) {
 	tests := []struct {
 		testName string

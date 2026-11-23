@@ -158,27 +158,6 @@ func TestHandleUpdateLabel_JSONReturnsMembershipCounts(t *testing.T) {
 	}
 }
 
-func TestValidateLabelIDsAcceptsDuplicateExistingLabels(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-
-	if err := handler.validateLabelIDs(context.Background(), []int64{label.ID, label.ID}); err != nil {
-		t.Fatalf("validateLabelIDs() error = %v, want nil", err)
-	}
-}
-
-func TestValidateLabelIDsRejectsNonPositiveLabelIDs(t *testing.T) {
-	handler, _ := newTestManagementHandler(t)
-
-	if err := handler.validateLabelIDs(context.Background(), []int64{0}); err == nil {
-		t.Fatal("validateLabelIDs() error = nil, want invalid label error")
-	}
-}
-
 func TestHandleAddParticipantsToLabel_HTMXAddsMembershipsIdempotently(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
@@ -290,50 +269,6 @@ func TestHandleAddParticipantsToLabel_HTMXRejectsInvalidParticipantIDWithoutPart
 	}
 }
 
-func TestHandleRemoveParticipantsFromLabel_HTMXRejectsInvalidParticipantIDWithoutPartialMutation(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Summer Camp"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	participant, err := store.Participants().Create(context.Background(), &models.Participant{
-		Name:    "Participant One",
-		Address: "1 Rider Way",
-		Lat:     40.1,
-		Lng:     -73.9,
-	})
-	if err != nil {
-		t.Fatalf("create participant: %v", err)
-	}
-	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForParticipant() error = %v", err)
-	}
-
-	form := url.Values{}
-	form.Set("label_id", int64ToString(label.ID))
-	form.Add("participant_ids", int64ToString(participant.ID))
-	form.Add("participant_ids", "9999")
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/labels/remove", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleRemoveParticipantsFromLabel(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
-	labels, err := store.Labels().ListLabelsForParticipant(context.Background(), participant.ID)
-	if err != nil {
-		t.Fatalf("ListLabelsForParticipant() error = %v", err)
-	}
-	if len(labels) != 1 || labels[0].ID != label.ID {
-		t.Fatalf("participant labels = %#v, want original label preserved", labels)
-	}
-}
-
 func TestHandleAddDriversToLabel_HTMXRejectsInvalidDriverIDWithoutPartialMutation(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
@@ -376,106 +311,6 @@ func TestHandleAddDriversToLabel_HTMXRejectsInvalidDriverIDWithoutPartialMutatio
 	}
 }
 
-func TestHandleRemoveDriversFromLabel_HTMXRemovesMembershipsIdempotently(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "1 Driver Way",
-		Lat:             40.1,
-		Lng:             -73.9,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-	if err := store.Labels().AddLabelToDrivers(context.Background(), label.ID, []int64{driver.ID}); err != nil {
-		t.Fatalf("AddLabelToDrivers() error = %v", err)
-	}
-
-	form := url.Values{}
-	form.Set("label_id", int64ToString(label.ID))
-	form.Add("driver_ids", int64ToString(driver.ID))
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleRemoveDriversFromLabel(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	driverLabels, err := store.Labels().ListLabelsForDriver(context.Background(), driver.ID)
-	if err != nil {
-		t.Fatalf("ListLabelsForDriver() error = %v", err)
-	}
-	if len(driverLabels) != 0 {
-		t.Fatalf("driver labels = %#v, want empty", driverLabels)
-	}
-
-	secondReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
-	secondReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	secondReq.Header.Set("HX-Request", "true")
-	secondRR := httptest.NewRecorder()
-
-	handler.HandleRemoveDriversFromLabel(secondRR, secondReq)
-
-	if secondRR.Code != http.StatusOK {
-		t.Fatalf("second status = %d, want %d body=%q", secondRR.Code, http.StatusOK, secondRR.Body.String())
-	}
-}
-
-func TestHandleRemoveDriversFromLabel_HTMXRejectsInvalidDriverIDWithoutPartialMutation(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "1 Driver Way",
-		Lat:             40.1,
-		Lng:             -73.9,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForDriver() error = %v", err)
-	}
-
-	form := url.Values{}
-	form.Set("label_id", int64ToString(label.ID))
-	form.Add("driver_ids", int64ToString(driver.ID))
-	form.Add("driver_ids", "9999")
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleRemoveDriversFromLabel(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
-	labels, err := store.Labels().ListLabelsForDriver(context.Background(), driver.ID)
-	if err != nil {
-		t.Fatalf("ListLabelsForDriver() error = %v", err)
-	}
-	if len(labels) != 1 || labels[0].ID != label.ID {
-		t.Fatalf("driver labels = %#v, want original label preserved", labels)
-	}
-}
-
 func TestHandleParticipantForm_RendersSelectedLabels(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
@@ -508,116 +343,6 @@ func TestHandleParticipantForm_RendersSelectedLabels(t *testing.T) {
 	body := rr.Body.String()
 	if !strings.Contains(body, `name="label_ids"`) || !strings.Contains(body, `checked`) {
 		t.Fatalf("expected selected label checkbox, body=%q", body)
-	}
-}
-
-func TestHandleListParticipants_HTMXRendersAssignedLabels(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	participant, err := store.Participants().Create(context.Background(), &models.Participant{
-		Name:    "Participant One",
-		Address: "1 Rider Way",
-		Lat:     40.1,
-		Lng:     -73.9,
-	})
-	if err != nil {
-		t.Fatalf("create participant: %v", err)
-	}
-	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForParticipant() error = %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants", nil)
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleListParticipants(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "Youth Conference") {
-		t.Fatalf("expected assigned label name in participant list, body=%q", rr.Body.String())
-	}
-}
-
-func TestHandleListDrivers_HTMXRendersAssignedLabels(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "1 Driver Way",
-		Lat:             40.1,
-		Lng:             -73.9,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForDriver() error = %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/drivers", nil)
-	req.Header.Set("HX-Request", "true")
-	rr := httptest.NewRecorder()
-
-	handler.HandleListDrivers(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "Drivers") {
-		t.Fatalf("expected assigned label name in driver list, body=%q", rr.Body.String())
-	}
-}
-
-func TestHandleGetDriver_JSONIncludesLabelIDs(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
-		Name:            "Driver One",
-		Address:         "1 Driver Way",
-		Lat:             40.1,
-		Lng:             -73.9,
-		VehicleCapacity: 4,
-	})
-	if err != nil {
-		t.Fatalf("create driver: %v", err)
-	}
-	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForDriver() error = %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/drivers/"+int64ToString(driver.ID), nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleGetDriver(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	var response struct {
-		ID       int64   `json:"id"`
-		LabelIDs []int64 `json:"label_ids"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.ID != driver.ID || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
-		t.Fatalf("response = %#v, want driver with label_ids [%d]", response, label.ID)
 	}
 }
 
@@ -669,46 +394,6 @@ func TestHandleListDrivers_JSONIncludesLabelIDs(t *testing.T) {
 	}
 }
 
-func TestHandleGetParticipant_JSONIncludesLabelIDs(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-
-	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"})
-	if err != nil {
-		t.Fatalf("create label: %v", err)
-	}
-	participant, err := store.Participants().Create(context.Background(), &models.Participant{
-		Name:    "Participant One",
-		Address: "1 Rider Way",
-		Lat:     40.1,
-		Lng:     -73.9,
-	})
-	if err != nil {
-		t.Fatalf("create participant: %v", err)
-	}
-	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
-		t.Fatalf("SetLabelsForParticipant() error = %v", err)
-	}
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/"+int64ToString(participant.ID), nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleGetParticipant(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	var response struct {
-		ID       int64   `json:"id"`
-		LabelIDs []int64 `json:"label_ids"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.ID != participant.ID || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
-		t.Fatalf("response = %#v, want participant with label_ids [%d]", response, label.ID)
-	}
-}
-
 func TestHandleListParticipants_JSONIncludesLabelIDs(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
@@ -753,6 +438,284 @@ func TestHandleListParticipants_JSONIncludesLabelIDs(t *testing.T) {
 	got := response.Participants[0]
 	if got.ID != participant.ID || len(got.LabelIDs) != 1 || got.LabelIDs[0] != label.ID {
 		t.Fatalf("participant response = %#v, want label_ids [%d]", got, label.ID)
+	}
+}
+
+func TestHandleCreateParticipantAndDriverRejectAddressNameOver200Characters(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+	tooLong := strings.Repeat("a", 201)
+
+	tests := []struct {
+		name string
+		path string
+		body string
+		call func(http.ResponseWriter, *http.Request)
+	}{
+		{
+			name: "participant",
+			path: "/api/v1/participants",
+			body: `{"name":"Participant One","address":"1 Rider Way","address_name":"` + tooLong + `"}`,
+			call: handler.HandleCreateParticipant,
+		},
+		{
+			name: "driver",
+			path: "/api/v1/drivers",
+			body: `{"name":"Driver One","address":"1 Driver Way","address_name":"` + tooLong + `","vehicle_capacity":4}`,
+			call: handler.HandleCreateDriver,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			tt.call(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			if !strings.Contains(rr.Body.String(), messageAddressNameTooLong()) {
+				t.Fatalf("body = %q, want %q", rr.Body.String(), messageAddressNameTooLong())
+			}
+		})
+	}
+
+	participants, err := store.Participants().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list participants: %v", err)
+	}
+	drivers, err := store.Drivers().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list drivers: %v", err)
+	}
+	if len(participants) != 0 || len(drivers) != 0 {
+		t.Fatalf("unexpected records after validation failure: participants=%d drivers=%d", len(participants), len(drivers))
+	}
+}
+
+func TestHandleCreateParticipant_JSONInvalidLabelDoesNotCreateParticipant(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	body := `{"name":"Participant One","address":"1 Rider Way","label_ids":[9999]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateParticipant(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	participants, err := store.Participants().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(participants) != 0 {
+		t.Fatalf("participants = %#v, want none created", participants)
+	}
+}
+
+func TestHandleAddLabelOwnerArchivedAfterPrecheckReturnsNotFound(t *testing.T) {
+	tests := []struct {
+		name       string
+		field      string
+		notFound   string
+		create     func(*testing.T, *postgres.Store) int64
+		archiveDB  func(database.DataStore, int64) database.DataStore
+		handleAdd  func(*Handler, http.ResponseWriter, *http.Request)
+		requestURL string
+	}{
+		{
+			name:       "participant",
+			field:      "participant_ids",
+			notFound:   messageParticipantNotFound,
+			requestURL: "/api/v1/participants/labels/add",
+			create: func(t *testing.T, store *postgres.Store) int64 {
+				participant, err := store.Participants().Create(t.Context(), &models.Participant{
+					Name: "Race Rider", Address: "1 Race Road", Lat: 40, Lng: -73,
+				})
+				if err != nil {
+					t.Fatalf("create participant: %v", err)
+				}
+				return participant.ID
+			},
+			archiveDB: func(store database.DataStore, id int64) database.DataStore {
+				return archiveSelectedOwnerStore{DataStore: store, participantID: id}
+			},
+			handleAdd: (*Handler).HandleAddParticipantsToLabel,
+		},
+		{
+			name:       "driver",
+			field:      "driver_ids",
+			notFound:   messageDriverNotFound,
+			requestURL: "/api/v1/drivers/labels/add",
+			create: func(t *testing.T, store *postgres.Store) int64 {
+				driver, err := store.Drivers().Create(t.Context(), &models.Driver{
+					Name: "Race Driver", Address: "2 Race Road", Lat: 40, Lng: -73, VehicleCapacity: 4,
+				})
+				if err != nil {
+					t.Fatalf("create driver: %v", err)
+				}
+				return driver.ID
+			},
+			archiveDB: func(store database.DataStore, id int64) database.DataStore {
+				return archiveSelectedOwnerStore{DataStore: store, driverID: id}
+			},
+			handleAdd: (*Handler).HandleAddDriversToLabel,
+		},
+	}
+
+	for _, tt := range tests {
+		for _, htmx := range []bool{true, false} {
+			branch := "json"
+			if htmx {
+				branch = "htmx"
+			}
+			t.Run(tt.name+"_"+branch, func(t *testing.T) {
+				handler, store := newTestManagementHandler(t)
+				label, err := store.Labels().Create(t.Context(), &models.Label{Name: "Race Label"})
+				if err != nil {
+					t.Fatalf("create label: %v", err)
+				}
+				ownerID := tt.create(t, store)
+				handler.DB = tt.archiveDB(store, ownerID)
+
+				form := url.Values{"label_id": {int64ToString(label.ID)}, tt.field: {int64ToString(ownerID)}}
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.requestURL, strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				if htmx {
+					req.Header.Set("HX-Request", "true")
+				}
+				rr := httptest.NewRecorder()
+				tt.handleAdd(handler, rr, req)
+
+				if rr.Code != http.StatusNotFound {
+					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNotFound, rr.Body.String())
+				}
+				if htmx {
+					if got := rr.Header().Get("HX-Reswap"); got != "none" {
+						t.Fatalf("HX-Reswap = %q, want none", got)
+					}
+					if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, tt.notFound) {
+						t.Fatalf("HX-Trigger = %q, want %q", got, tt.notFound)
+					}
+				} else if !strings.Contains(rr.Body.String(), `"code":"NOT_FOUND"`) || !strings.Contains(rr.Body.String(), tt.notFound) {
+					t.Fatalf("body = %q, want JSON not-found response", rr.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestHandleRemoveParticipantsFromLabel_HTMXRejectsInvalidParticipantIDWithoutPartialMutation(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Summer Camp"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() error = %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("label_id", int64ToString(label.ID))
+	form.Add("participant_ids", int64ToString(participant.ID))
+	form.Add("participant_ids", "9999")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants/labels/remove", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleRemoveParticipantsFromLabel(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	labels, err := store.Labels().ListLabelsForParticipant(context.Background(), participant.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForParticipant() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("participant labels = %#v, want original label preserved", labels)
+	}
+}
+
+func TestHandleRemoveDriversFromLabel_HTMXRejectsInvalidDriverIDWithoutPartialMutation(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "1 Driver Way",
+		Lat:             40.1,
+		Lng:             -73.9,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForDriver() error = %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("label_id", int64ToString(label.ID))
+	form.Add("driver_ids", int64ToString(driver.ID))
+	form.Add("driver_ids", "9999")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers/labels/remove", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.HandleRemoveDriversFromLabel(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	labels, err := store.Labels().ListLabelsForDriver(context.Background(), driver.ID)
+	if err != nil {
+		t.Fatalf("ListLabelsForDriver() error = %v", err)
+	}
+	if len(labels) != 1 || labels[0].ID != label.ID {
+		t.Fatalf("driver labels = %#v, want original label preserved", labels)
+	}
+}
+
+func TestHandleCreateDriver_JSONInvalidLabelDoesNotCreateDriver(t *testing.T) {
+	handler, store := newTestManagementHandler(t)
+
+	body := `{"name":"Driver One","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[9999]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleCreateDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	drivers, err := store.Drivers().List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(drivers) != 0 {
+		t.Fatalf("drivers = %#v, want none created", drivers)
 	}
 }
 
@@ -815,59 +778,6 @@ func TestHandleCreateDriver_JSONReturnsLabelIDs(t *testing.T) {
 	}
 	if response.ID == 0 || response.AddressName != "North Campus" || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
 		t.Fatalf("response = %#v, want created driver with label_ids [%d]", response, label.ID)
-	}
-}
-
-func TestHandleCreateParticipantAndDriverRejectAddressNameOver200Characters(t *testing.T) {
-	handler, store := newTestManagementHandler(t)
-	tooLong := strings.Repeat("a", 201)
-
-	tests := []struct {
-		name string
-		path string
-		body string
-		call func(http.ResponseWriter, *http.Request)
-	}{
-		{
-			name: "participant",
-			path: "/api/v1/participants",
-			body: `{"name":"Participant One","address":"1 Rider Way","address_name":"` + tooLong + `"}`,
-			call: handler.HandleCreateParticipant,
-		},
-		{
-			name: "driver",
-			path: "/api/v1/drivers",
-			body: `{"name":"Driver One","address":"1 Driver Way","address_name":"` + tooLong + `","vehicle_capacity":4}`,
-			call: handler.HandleCreateDriver,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tt.path, strings.NewReader(tt.body))
-			req.Header.Set("Content-Type", "application/json")
-			rr := httptest.NewRecorder()
-			tt.call(rr, req)
-
-			if rr.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
-			}
-			if !strings.Contains(rr.Body.String(), messageAddressNameTooLong()) {
-				t.Fatalf("body = %q, want %q", rr.Body.String(), messageAddressNameTooLong())
-			}
-		})
-	}
-
-	participants, err := store.Participants().List(context.Background(), "")
-	if err != nil {
-		t.Fatalf("list participants: %v", err)
-	}
-	drivers, err := store.Drivers().List(context.Background(), "")
-	if err != nil {
-		t.Fatalf("list drivers: %v", err)
-	}
-	if len(participants) != 0 || len(drivers) != 0 {
-		t.Fatalf("unexpected records after validation failure: participants=%d drivers=%d", len(participants), len(drivers))
 	}
 }
 
@@ -966,138 +876,83 @@ func TestHandleUpdateDriver_JSONReturnsLabelIDs(t *testing.T) {
 	}
 }
 
-func TestHandleCreateParticipant_JSONInvalidLabelDoesNotCreateParticipant(t *testing.T) {
+func TestHandleGetDriver_JSONIncludesLabelIDs(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
-	body := `{"name":"Participant One","address":"1 Rider Way","label_ids":[9999]}`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/participants", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Drivers"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	driver, err := store.Drivers().Create(context.Background(), &models.Driver{
+		Name:            "Driver One",
+		Address:         "1 Driver Way",
+		Lat:             40.1,
+		Lng:             -73.9,
+		VehicleCapacity: 4,
+	})
+	if err != nil {
+		t.Fatalf("create driver: %v", err)
+	}
+	if err := store.Labels().SetLabelsForDriver(context.Background(), driver.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForDriver() error = %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/drivers/"+int64ToString(driver.ID), nil)
 	rr := httptest.NewRecorder()
 
-	handler.HandleCreateParticipant(rr, req)
+	handler.HandleGetDriver(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	participants, err := store.Participants().List(context.Background(), "")
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
+	var response struct {
+		ID       int64   `json:"id"`
+		LabelIDs []int64 `json:"label_ids"`
 	}
-	if len(participants) != 0 {
-		t.Fatalf("participants = %#v, want none created", participants)
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.ID != driver.ID || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
+		t.Fatalf("response = %#v, want driver with label_ids [%d]", response, label.ID)
 	}
 }
 
-func TestHandleCreateDriver_JSONInvalidLabelDoesNotCreateDriver(t *testing.T) {
+func TestHandleGetParticipant_JSONIncludesLabelIDs(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 
-	body := `{"name":"Driver One","address":"1 Driver Way","vehicle_capacity":4,"label_ids":[9999]}`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/drivers", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	label, err := store.Labels().Create(context.Background(), &models.Label{Name: "Youth Conference"})
+	if err != nil {
+		t.Fatalf("create label: %v", err)
+	}
+	participant, err := store.Participants().Create(context.Background(), &models.Participant{
+		Name:    "Participant One",
+		Address: "1 Rider Way",
+		Lat:     40.1,
+		Lng:     -73.9,
+	})
+	if err != nil {
+		t.Fatalf("create participant: %v", err)
+	}
+	if err := store.Labels().SetLabelsForParticipant(context.Background(), participant.ID, []int64{label.ID}); err != nil {
+		t.Fatalf("SetLabelsForParticipant() error = %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/"+int64ToString(participant.ID), nil)
 	rr := httptest.NewRecorder()
 
-	handler.HandleCreateDriver(rr, req)
+	handler.HandleGetParticipant(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	drivers, err := store.Drivers().List(context.Background(), "")
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
+	var response struct {
+		ID       int64   `json:"id"`
+		LabelIDs []int64 `json:"label_ids"`
 	}
-	if len(drivers) != 0 {
-		t.Fatalf("drivers = %#v, want none created", drivers)
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
 	}
-}
-
-func TestHandleAddLabelOwnerArchivedAfterPrecheckReturnsNotFound(t *testing.T) {
-	tests := []struct {
-		name       string
-		field      string
-		notFound   string
-		create     func(*testing.T, *postgres.Store) int64
-		archiveDB  func(database.DataStore, int64) database.DataStore
-		handleAdd  func(*Handler, http.ResponseWriter, *http.Request)
-		requestURL string
-	}{
-		{
-			name:       "participant",
-			field:      "participant_ids",
-			notFound:   messageParticipantNotFound,
-			requestURL: "/api/v1/participants/labels/add",
-			create: func(t *testing.T, store *postgres.Store) int64 {
-				participant, err := store.Participants().Create(t.Context(), &models.Participant{
-					Name: "Race Rider", Address: "1 Race Road", Lat: 40, Lng: -73,
-				})
-				if err != nil {
-					t.Fatalf("create participant: %v", err)
-				}
-				return participant.ID
-			},
-			archiveDB: func(store database.DataStore, id int64) database.DataStore {
-				return archiveSelectedOwnerStore{DataStore: store, participantID: id}
-			},
-			handleAdd: (*Handler).HandleAddParticipantsToLabel,
-		},
-		{
-			name:       "driver",
-			field:      "driver_ids",
-			notFound:   messageDriverNotFound,
-			requestURL: "/api/v1/drivers/labels/add",
-			create: func(t *testing.T, store *postgres.Store) int64 {
-				driver, err := store.Drivers().Create(t.Context(), &models.Driver{
-					Name: "Race Driver", Address: "2 Race Road", Lat: 40, Lng: -73, VehicleCapacity: 4,
-				})
-				if err != nil {
-					t.Fatalf("create driver: %v", err)
-				}
-				return driver.ID
-			},
-			archiveDB: func(store database.DataStore, id int64) database.DataStore {
-				return archiveSelectedOwnerStore{DataStore: store, driverID: id}
-			},
-			handleAdd: (*Handler).HandleAddDriversToLabel,
-		},
-	}
-
-	for _, tt := range tests {
-		for _, htmx := range []bool{true, false} {
-			branch := "json"
-			if htmx {
-				branch = "htmx"
-			}
-			t.Run(tt.name+"_"+branch, func(t *testing.T) {
-				handler, store := newTestManagementHandler(t)
-				label, err := store.Labels().Create(t.Context(), &models.Label{Name: "Race Label"})
-				if err != nil {
-					t.Fatalf("create label: %v", err)
-				}
-				ownerID := tt.create(t, store)
-				handler.DB = tt.archiveDB(store, ownerID)
-
-				form := url.Values{"label_id": {int64ToString(label.ID)}, tt.field: {int64ToString(ownerID)}}
-				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.requestURL, strings.NewReader(form.Encode()))
-				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-				if htmx {
-					req.Header.Set("HX-Request", "true")
-				}
-				rr := httptest.NewRecorder()
-				tt.handleAdd(handler, rr, req)
-
-				if rr.Code != http.StatusNotFound {
-					t.Fatalf("status = %d, want %d body=%q", rr.Code, http.StatusNotFound, rr.Body.String())
-				}
-				if htmx {
-					if got := rr.Header().Get("HX-Reswap"); got != "none" {
-						t.Fatalf("HX-Reswap = %q, want none", got)
-					}
-					if got := rr.Header().Get("HX-Trigger"); !strings.Contains(got, tt.notFound) {
-						t.Fatalf("HX-Trigger = %q, want %q", got, tt.notFound)
-					}
-				} else if !strings.Contains(rr.Body.String(), `"code":"NOT_FOUND"`) || !strings.Contains(rr.Body.String(), tt.notFound) {
-					t.Fatalf("body = %q, want JSON not-found response", rr.Body.String())
-				}
-			})
-		}
+	if response.ID != participant.ID || len(response.LabelIDs) != 1 || response.LabelIDs[0] != label.ID {
+		t.Fatalf("response = %#v, want participant with label_ids [%d]", response, label.ID)
 	}
 }

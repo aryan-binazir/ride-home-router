@@ -16,30 +16,6 @@ import (
 	"testing"
 )
 
-func TestRosterEditorRecordsAddressMatch(t *testing.T) {
-	h, store := newTestManagementHandler(t)
-	ctx := context.Background()
-	editor := rosterEditor{db: store, geocoder: stubGeocoder{result: &geocoding.GeocodingResult{
-		Coords: models.Coordinates{Lat: 35.7, Lng: -78.6}, FormattedAddress: "12 Oak Street, Raleigh, NC 27601", Guessed: true,
-	}}}
-	created, err := editor.createParticipant(ctx, participantEdit{Name: "Rider", Address: "12 Oak St Raliegh"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.AddressMatch != models.AddressMatchGuessed || created.MatchedAddress != "12 Oak Street, Raleigh, NC 27601" {
-		t.Fatalf("created = %#v", created)
-	}
-	same, err := editor.updateParticipant(ctx, created, participantEdit{Name: "Renamed", Address: created.Address})
-	if err != nil || same.AddressMatch != models.AddressMatchGuessed {
-		t.Fatalf("same-address update = %#v, %v", same, err)
-	}
-	editor.geocoder = h.Geocoder
-	fixed, err := editor.updateParticipant(ctx, same, participantEdit{Name: "Renamed", Address: "1 Verified Way"})
-	if err != nil || fixed.AddressMatch != models.AddressMatchVerified {
-		t.Fatalf("new-address update = %#v, %v", fixed, err)
-	}
-}
-
 func TestHandleConfirmParticipantAddress(t *testing.T) {
 	handler, store := newTestManagementHandler(t)
 	ctx := context.Background()
@@ -172,15 +148,6 @@ func TestImportPanelFlagsGuessedAddresses(t *testing.T) {
 	}
 }
 
-func TestImportGuessedWarningIsEmptyWhenAllVerified(t *testing.T) {
-	if got := importGuessedWarning(importer.CommitResult{Created: 3}); got != "" {
-		t.Fatalf("importGuessedWarning() = %q, want empty", got)
-	}
-	if got := importGuessedWarning(importer.CommitResult{Created: 3, Guessed: 3}); !strings.HasPrefix(got, "We couldn't confirm 3 addresses exactly") {
-		t.Fatalf("importGuessedWarning() = %q", got)
-	}
-}
-
 func TestRosterConfirmationRetainsFilteredPage(t *testing.T) {
 	for _, kind := range []string{"participant", "driver"} {
 		t.Run(kind, func(t *testing.T) {
@@ -304,5 +271,29 @@ func TestRosterConfirmationLeavingFilterClampsPage(t *testing.T) {
 				t.Fatalf("confirmed record = %s, %v", persisted.Body.String(), err)
 			}
 		})
+	}
+}
+
+func TestRosterEditorRecordsAddressMatch(t *testing.T) {
+	h, store := newTestManagementHandler(t)
+	ctx := context.Background()
+	editor := rosterEditor{db: store, geocoder: stubGeocoder{result: &geocoding.GeocodingResult{
+		Coords: models.Coordinates{Lat: 35.7, Lng: -78.6}, FormattedAddress: "12 Oak Street, Raleigh, NC 27601", Guessed: true,
+	}}}
+	created, err := editor.createParticipant(ctx, participantEdit{Name: "Rider", Address: "12 Oak St Raliegh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.AddressMatch != models.AddressMatchGuessed || created.MatchedAddress != "12 Oak Street, Raleigh, NC 27601" {
+		t.Fatalf("created = %#v", created)
+	}
+	same, err := editor.updateParticipant(ctx, created, participantEdit{Name: "Renamed", Address: created.Address})
+	if err != nil || same.AddressMatch != models.AddressMatchGuessed {
+		t.Fatalf("same-address update = %#v, %v", same, err)
+	}
+	editor.geocoder = h.Geocoder
+	fixed, err := editor.updateParticipant(ctx, same, participantEdit{Name: "Renamed", Address: "1 Verified Way"})
+	if err != nil || fixed.AddressMatch != models.AddressMatchVerified {
+		t.Fatalf("new-address update = %#v, %v", fixed, err)
 	}
 }

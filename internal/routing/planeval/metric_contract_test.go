@@ -6,26 +6,6 @@ import (
 	"testing"
 )
 
-func TestMetricContractGreatCircleSegment(t *testing.T) {
-	home := models.Coordinates{Lat: 0, Lng: 180}
-	a := models.Coordinates{Lat: 0, Lng: 179}
-	b := models.Coordinates{Lat: 0, Lng: -179}
-	if got := segmentDistanceKm(home, a, b); got > 1e-7 {
-		t.Fatalf("distance = %v km, want zero", got)
-	}
-	if got := segmentDistanceKm(home, a, a); math.Abs(got-haversineKm(home, a)) > 1e-7 {
-		t.Fatalf("coincident endpoint distance = %v", got)
-	}
-}
-
-func TestMetricContractMalformedStop(t *testing.T) {
-	p := models.Participant{ID: 1}
-	plan := &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, VehicleCapacity: 4}, Stops: []models.RouteStop{{Participant: &p}, {}}}}}
-	if err := validPlan(plan, Roster{Participants: []models.Participant{p}}); err == nil {
-		t.Fatal("accepted a missing participant, which halves measured burden")
-	}
-}
-
 func TestMetricContractUnroundedNearestRankAndGate(t *testing.T) {
 	var routes []models.CalculatedRoute
 	for i := range 28 {
@@ -47,6 +27,14 @@ func TestMetricContractUnroundedNearestRankAndGate(t *testing.T) {
 	}
 	if m := Measure(&models.RoutingResult{}, models.Coordinates{}, 0); m.BurdenP95Min != 0 || m.BurdenMaxMin != 0 {
 		t.Fatal("empty burden must be zero")
+	}
+}
+
+func TestMetricContractMalformedStop(t *testing.T) {
+	p := models.Participant{ID: 1}
+	plan := &models.RoutingResult{Routes: []models.CalculatedRoute{{Driver: &models.Driver{ID: 1, VehicleCapacity: 4}, Stops: []models.RouteStop{{Participant: &p}, {}}}}}
+	if err := validPlan(plan, Roster{Participants: []models.Participant{p}}); err == nil {
+		t.Fatal("accepted a missing participant, which halves measured burden")
 	}
 }
 

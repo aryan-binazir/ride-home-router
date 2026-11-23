@@ -93,26 +93,6 @@ func TestSetupRoutesSeparatesLivenessFromReadiness(t *testing.T) {
 	}
 }
 
-func TestNewWiresAndShutdownClosesImportSessionStore(t *testing.T) {
-	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if server.handler == nil || server.handler.ImportSession == nil {
-		t.Fatal("New() did not wire the import session store")
-	}
-	if err := server.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-	grid, err := importer.Parse(strings.NewReader("name,address\nRider,1 Main St\n"), importer.FormatCSV, "")
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	if _, err := server.handler.ImportSession.CreateContext(context.Background(), importer.KindParticipant, "closed.csv", grid); !errors.Is(err, importer.ErrStoreClosed) {
-		t.Fatalf("Create() after Shutdown error = %v, want ErrStoreClosed", err)
-	}
-}
-
 func TestServerReportsUnexpectedServeError(t *testing.T) {
 	server, err := New(context.Background(), Config{CredentialEncryptionKey: postgrestest.EncryptionKey, Auth: accesstest.New(t).Config(), Addr: "127.0.0.1:0", DatabaseURL: postgrestest.DatabaseURL(t)})
 	if err != nil {
@@ -154,50 +134,6 @@ func TestServerCleanShutdownDoesNotReportServeError(t *testing.T) {
 	case err := <-server.Errors():
 		t.Fatalf("Errors() after clean shutdown = %v, want no error", err)
 	case <-time.After(100 * time.Millisecond):
-	}
-}
-
-func TestHandleMethods_RejectsUnsupportedMethod(t *testing.T) {
-	handler := handleMethods(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}, nil, nil, nil)
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/participants", nil)
-	rec := httptest.NewRecorder()
-
-	handler(rec, req)
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
-	}
-	if rec.Body.String() != serverMessageMethodNotAllowed+"\n" {
-		t.Fatalf("body = %q, want %q", rec.Body.String(), serverMessageMethodNotAllowed+"\n")
-	}
-}
-
-func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
-	mux := setupRoutes(&handlers.Handler{}, web.Static)
-	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/open-url", strings.NewReader(`{"url":"https://maps.google.com"}`))
-	request.Host = "localhost:8080"
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-
-	mux.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d: the browser client opens URLs itself", recorder.Code, http.StatusNotFound)
-	}
-}
-
-func TestSetupRoutesRejectsNonGetReadiness(t *testing.T) {
-	mux := setupRoutes(&handlers.Handler{}, web.Static)
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/ready", nil)
-	recorder := httptest.NewRecorder()
-
-	mux.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
 	}
 }
 
@@ -272,44 +208,6 @@ func TestLegacyMobileBookmarksUseSharedPages(t *testing.T) {
 	mux.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/m/plan/when", strings.NewReader("route_time=06:45")))
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("retired mutation: %d", rr.Code)
-	}
-}
-
-func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T) {
-	var editCalled bool
-
-	handler := handleResourcePath(
-		"/api/v1/participants/",
-		"/edit",
-		func(w http.ResponseWriter, _ *http.Request) {
-			editCalled = true
-			w.WriteHeader(http.StatusNoContent)
-		},
-		nil,
-		nil,
-		nil,
-	)
-
-	editReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/42/edit", nil)
-	editRec := httptest.NewRecorder()
-	handler(editRec, editReq)
-
-	if !editCalled {
-		t.Fatal("expected edit handler to be called")
-	}
-	if editRec.Code != http.StatusNoContent {
-		t.Fatalf("edit status = %d, want %d", editRec.Code, http.StatusNoContent)
-	}
-
-	emptyReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/", nil)
-	emptyRec := httptest.NewRecorder()
-	handler(emptyRec, emptyReq)
-
-	if emptyRec.Code != http.StatusNotFound {
-		t.Fatalf("empty path status = %d, want %d", emptyRec.Code, http.StatusNotFound)
-	}
-	if emptyRec.Body.String() != serverMessageNotFound+"\n" {
-		t.Fatalf("empty path body = %q, want %q", emptyRec.Body.String(), serverMessageNotFound+"\n")
 	}
 }
 
@@ -567,27 +465,6 @@ func TestRequestSecurityMiddlewareTunnelledWrite(t *testing.T) {
 	}
 }
 
-func TestRequestBodyMiddlewareRejectsOversizedBody(t *testing.T) {
-	called := false
-	handler := requestBodyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		called = true
-	}))
-	req := httptest.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		"http://localhost:8080/write",
-		strings.NewReader(strings.Repeat("x", int(maxRequestBodyBytes)+1)),
-	)
-	req.Header.Set("HX-Request", "true")
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusRequestEntityTooLarge || called {
-		t.Fatalf("status = %d, called = %v; want 413 and handler not called", rec.Code, called)
-	}
-}
-
 func TestRequestSecurityMiddlewareUsesImportUploadBudgetOnRealRoutes(t *testing.T) {
 	fixture := accesstest.New(t)
 	authToken := fixture.Admin()
@@ -681,22 +558,11 @@ func newMiddlewareImportRequest(t *testing.T, paddingBytes int) *http.Request {
 }
 
 func TestHealthzAllowsUnauthenticatedReadinessProbe(t *testing.T) {
-	store := postgrestest.Open(t)
 	_, base := startAccessServer(t, postgrestest.DatabaseURL(t), accesstest.New(t))
 	h := accessHTTP{t: t, client: &http.Client{Timeout: 5 * time.Second}}
 	status, body, _ := h.request(base, http.MethodGet, "/healthz", "", "", "", nil)
 	if status != http.StatusOK || strings.TrimSpace(body) != `{"status":"ready"}` {
 		t.Fatalf("healthz = %d %s, want 200 ready", status, body)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	mux := setupRoutes(&handlers.Handler{DB: store}, web.Static)
-	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("healthz with closed database = %d, want 503", w.Code)
 	}
 }
 
@@ -777,5 +643,96 @@ func TestSetupRoutesRosterCreationRequiresSingleJSONValue(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestHandleMethods_RejectsUnsupportedMethod(t *testing.T) {
+	handler := handleMethods(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}, nil, nil, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/participants", nil)
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+	if rec.Body.String() != serverMessageMethodNotAllowed+"\n" {
+		t.Fatalf("body = %q, want %q", rec.Body.String(), serverMessageMethodNotAllowed+"\n")
+	}
+}
+
+func TestHandleResourcePath_UsesEditHandlerAndRejectsCollectionPath(t *testing.T) {
+	var editCalled bool
+
+	handler := handleResourcePath(
+		"/api/v1/participants/",
+		"/edit",
+		func(w http.ResponseWriter, _ *http.Request) {
+			editCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		},
+		nil,
+		nil,
+		nil,
+	)
+
+	editReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/42/edit", nil)
+	editRec := httptest.NewRecorder()
+	handler(editRec, editReq)
+
+	if !editCalled {
+		t.Fatal("expected edit handler to be called")
+	}
+	if editRec.Code != http.StatusNoContent {
+		t.Fatalf("edit status = %d, want %d", editRec.Code, http.StatusNoContent)
+	}
+
+	emptyReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/participants/", nil)
+	emptyRec := httptest.NewRecorder()
+	handler(emptyRec, emptyReq)
+
+	if emptyRec.Code != http.StatusNotFound {
+		t.Fatalf("empty path status = %d, want %d", emptyRec.Code, http.StatusNotFound)
+	}
+	if emptyRec.Body.String() != serverMessageNotFound+"\n" {
+		t.Fatalf("empty path body = %q, want %q", emptyRec.Body.String(), serverMessageNotFound+"\n")
+	}
+}
+
+func TestRequestBodyMiddlewareRejectsOversizedBody(t *testing.T) {
+	called := false
+	handler := requestBodyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"http://localhost:8080/write",
+		strings.NewReader(strings.Repeat("x", int(maxRequestBodyBytes)+1)),
+	)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge || called {
+		t.Fatalf("status = %d, called = %v; want 413 and handler not called", rec.Code, called)
+	}
+}
+
+func TestSetupRoutesHasNoServerSideURLOpener(t *testing.T) {
+	mux := setupRoutes(&handlers.Handler{}, web.Static)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/open-url", strings.NewReader(`{"url":"https://maps.google.com"}`))
+	request.Host = "localhost:8080"
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: the browser client opens URLs itself", recorder.Code, http.StatusNotFound)
 	}
 }

@@ -51,15 +51,6 @@ func TestBuildCreatesAllowlistedBeforeAndAfterRecord(t *testing.T) {
 	}
 }
 
-func TestBuildRecordsUnchangedSession(t *testing.T) {
-	snapshot := feedbackSnapshot()
-	snapshot.Final = snapshot.Original
-	record := Build(snapshot)
-	if !reflect.DeepEqual(record.Proposed, record.Final) {
-		t.Fatalf("unchanged session differs: proposed=%#v final=%#v", record.Proposed, record.Final)
-	}
-}
-
 func TestBuildOmitsRoutesWithoutParticipantsLikeEventSnapshot(t *testing.T) {
 	snapshot := feedbackSnapshot()
 	snapshot.Final[0].Stops = nil

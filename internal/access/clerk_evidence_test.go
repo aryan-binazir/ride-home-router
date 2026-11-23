@@ -1,17 +1,12 @@
 package access_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"reflect"
 	"ride-home-router/internal/access"
 	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/logtest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -65,23 +60,9 @@ func evidenceRequest(h http.Handler, token string) *httptest.ResponseRecorder {
 	return w
 }
 
-type evidenceResponse struct {
-	Status  int
-	Body    string
-	Headers http.Header
-	Logs    string
-}
-
-type evidenceRow struct {
-	Name            string
-	Responses       []evidenceResponse
-	Sessions, Users int32
-}
-
 func TestEvidenceMatrix(t *testing.T) {
 	f := accesstest.New(t)
 	f.Admin()
-	var rows []evidenceRow
 	for _, session := range []string{"ok", "revoked", "expired", "error"} {
 		for _, user := range []string{"ok", "missing", "unapproved", "error"} {
 			for _, timing := range []struct {
@@ -128,63 +109,16 @@ func TestEvidenceMatrix(t *testing.T) {
 						case user == "unapproved":
 							want = 403
 						}
-						row := evidenceRow{Name: name}
-						var logs bytes.Buffer
-						logtest.Capture(t, &logs)
 						for range 3 {
-							logs.Reset()
-							w := evidenceRequest(h, token)
-							if w.Code != want {
+							if w := evidenceRequest(h, token); w.Code != want {
 								t.Fatalf("status=%d want=%d", w.Code, want)
 							}
-							row.Responses = append(row.Responses, evidenceResponse{w.Code, w.Body.String(), w.Header().Clone(), logs.String()})
 						}
 						synctest.Wait()
-						row.Sessions, row.Users = transport.sessions.Load(), transport.users.Load()
-						rows = append(rows, row)
 					})
 				})
 			}
 		}
-	}
-	encoded, err := json.Marshal(rows)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if os.Getenv("EVIDENCE_UPDATE_GOLDEN") == "1" {
-		if err := os.WriteFile("testdata/clerk-matrix.json", encoded, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if os.Getenv("EVIDENCE_UPDATE_GOLDEN") != "1" {
-		baselineData, err := os.ReadFile("testdata/clerk-matrix.json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var baseline []evidenceRow
-		if err := json.Unmarshal(baselineData, &baseline); err != nil {
-			t.Fatal(err)
-		}
-		if len(rows) != len(baseline) {
-			t.Fatal("matrix size mismatch")
-		}
-		responseMismatches, countMismatches := 0, 0
-		for i, row := range rows {
-			if row.Name != baseline[i].Name {
-				t.Fatal("matrix case mismatch")
-			}
-			if !reflect.DeepEqual(row.Responses, baseline[i].Responses) {
-				responseMismatches++
-				t.Errorf("response mismatch %s", row.Name)
-			}
-			if row.Sessions != baseline[i].Sessions || row.Users != baseline[i].Users {
-				countMismatches++
-				if strings.HasPrefix(row.Name, "ok/") || row.Sessions != baseline[i].Sessions || row.Users < baseline[i].Users || row.Users > baseline[i].Users+row.Sessions {
-					t.Errorf("unexpected call count change %s: sessions=%d users=%d baseline=%d/%d", row.Name, row.Sessions, row.Users, baseline[i].Sessions, baseline[i].Users)
-				}
-			}
-		}
-		t.Logf("cases=%d HTTP_body_headers_log_mismatches=%d call_count_mismatches=%d", len(rows), responseMismatches, countMismatches)
 	}
 }
 

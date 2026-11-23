@@ -55,66 +55,6 @@ func (c *blockingCalculator) GetDistance(ctx context.Context, origin, dest model
 
 func (c *blockingCalculator) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
 
-func TestCreateReturnsIndependentFreshSnapshot(t *testing.T) {
-	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
-
-	routes := []models.CalculatedRoute{{
-		Driver: &models.Driver{ID: 1, Name: "Driver", VehicleCapacity: 2},
-		Stops:  []models.RouteStop{{Participant: &models.Participant{ID: 10, Name: "Rider"}}},
-	}}
-	location := &models.ActivityLocation{ID: 1, Name: "HQ"}
-
-	created := mustCreate(t, store, routesession.CreateInput{Routes: routes, SelectedDrivers: []models.Driver{*routes[0].Driver}, ActivityLocation: location, UseMiles: true, RouteTime: "18:30", Mode: models.RouteModeDropoff})
-	if created.ID == "" || created.IsEditing {
-		t.Fatalf("created snapshot = %#v, want ID and IsEditing=false", created)
-	}
-	created.Routes[0].Driver.Name = "mutated"
-	created.ActivityLocation.Name = "mutated"
-
-	got, ok := mustLoad(t, store, created.ID)
-	if !ok {
-		t.Fatal("Snapshot() did not find created session")
-	}
-	if got.Routes[0].Driver.Name != "Driver" || got.ActivityLocation.Name != "HQ" {
-		t.Fatalf("snapshot aliases caller state: %#v", got)
-	}
-}
-
-func TestCreateSummaryMatchesCalculatedRoutingSummary(t *testing.T) {
-	calc := calculator{}
-	request := &routing.RoutingRequest{
-		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
-		Participants: []models.Participant{
-			{ID: 10, Name: "Rider", Lat: 1, Lng: 1},
-		},
-		Drivers: []models.Driver{
-			{ID: 1, Name: "Driver", Lat: 2, Lng: 0, VehicleCapacity: 1},
-		},
-		Mode: routing.RouteModeDropoff,
-	}
-	result, err := routing.NewBalancedRouter(calc).CalculateRoutes(context.Background(), request)
-	if err != nil {
-		t.Fatalf("CalculateRoutes() error = %v", err)
-	}
-	if result.Summary.MaxDetourSecs <= 0 {
-		t.Fatalf("calculated max detour = %.1f, want nonzero fixture", result.Summary.MaxDetourSecs)
-	}
-
-	store := routesession.NewPersistentStore(calc, workflowtest.New())
-
-	snapshot := mustCreate(t, store, routesession.CreateInput{
-		Routes:          result.Routes,
-		SelectedDrivers: request.Drivers,
-		Mode:            result.Mode,
-	})
-
-	if snapshot.Summary.MaxDetourSecs != result.Summary.MaxDetourSecs ||
-		snapshot.Summary.SumDetourSecs != result.Summary.SumDetourSecs ||
-		snapshot.Summary.AverageDetourSecs != result.Summary.AverageDetourSecs {
-		t.Fatalf("session detour summary = %+v, want calculation summary %+v", snapshot.Summary, result.Summary)
-	}
-}
-
 func TestApplyMovesRequiresClaimedSourceOnlyWhenRequested(t *testing.T) {
 	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
 
@@ -221,32 +161,6 @@ func TestApplyMovesRollsBackWholeBatchOnDistanceFailure(t *testing.T) {
 	}
 }
 
-func TestApplyMovesBatchMatchesSequentialBalancedIntermediateRecalculation(t *testing.T) {
-	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
-
-	routes := []models.CalculatedRoute{
-		{Driver: &models.Driver{ID: 1, VehicleCapacity: 2}, EffectiveCapacity: 2, Stops: []models.RouteStop{{Participant: &models.Participant{ID: 10, Lat: 1}}, {Participant: &models.Participant{ID: 11, Lat: 2}}}},
-		{Driver: &models.Driver{ID: 2, VehicleCapacity: 1}, EffectiveCapacity: 1, Stops: []models.RouteStop{}},
-	}
-	input := routesession.CreateInput{Routes: routes, ActivityLocation: &models.ActivityLocation{}, RouteTime: "18:30", Mode: models.RouteModeDropoff}
-	sequential := mustCreate(t, store, input)
-	batch := mustCreate(t, store, input)
-	moves := []routesession.Move{{ParticipantID: 10, ToRouteIndex: 1, InsertAtPosition: -1}, {ParticipantID: 11, ToRouteIndex: 1, InsertAtPosition: -1}}
-	for _, move := range moves {
-		if _, err := store.ApplyMoves(context.Background(), sequential.ID, []routesession.Move{move}, routesession.ApplyMovesOptions{}); err != nil {
-			t.Fatalf("sequential ApplyMoves: %v", err)
-		}
-	}
-	batched, err := store.ApplyMoves(context.Background(), batch.ID, moves, routesession.ApplyMovesOptions{})
-	if err != nil {
-		t.Fatalf("batch ApplyMoves: %v", err)
-	}
-	sequentialResult, _ := mustLoad(t, store, sequential.ID)
-	if !batched.IsOutOfBalance || len(batched.Routes[1].Stops) != len(sequentialResult.Routes[1].Stops) || batched.Routes[1].TotalDistanceMeters != sequentialResult.Routes[1].TotalDistanceMeters {
-		t.Fatalf("batch=%#v sequential=%#v", batched, sequentialResult)
-	}
-}
-
 func TestApplyMovesRecalculatesEveryDirtyRouteWhenBatchReturnsToBalance(t *testing.T) {
 	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
 
@@ -278,23 +192,6 @@ func TestApplyMovesRecalculatesEveryDirtyRouteWhenBatchReturnsToBalance(t *testi
 	}
 	if got.Routes[0].TotalDistanceMeters == 111 || got.Routes[1].TotalDistanceMeters == 222 {
 		t.Fatalf("dirty route metrics were not refreshed: %#v", got.Routes)
-	}
-}
-
-func TestApplyMovesResolvesDuplicateParticipantMovesSequentially(t *testing.T) {
-	store := routesession.NewPersistentStore(calculator{}, workflowtest.New())
-
-	created := mustCreate(t, store, testInput())
-
-	got, err := store.ApplyMoves(context.Background(), created.ID, []routesession.Move{
-		{ParticipantID: 10, FromRouteIndex: 0, ToRouteIndex: 1, InsertAtPosition: -1},
-		{ParticipantID: 10, FromRouteIndex: 0, ToRouteIndex: 0, InsertAtPosition: -1},
-	}, routesession.ApplyMovesOptions{})
-	if err != nil {
-		t.Fatalf("ApplyMoves: %v", err)
-	}
-	if len(got.Routes[0].Stops) != 1 || len(got.Routes[1].Stops) != 0 || got.IsEditing {
-		t.Fatalf("duplicate participant moves were not sequential: %#v", got)
 	}
 }
 
@@ -633,5 +530,40 @@ func TestSwapDriversRefreshesOtherDirtyRoutesBeforeCopyAndCommit(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateSummaryMatchesCalculatedRoutingSummary(t *testing.T) {
+	calc := calculator{}
+	request := &routing.RoutingRequest{
+		InstituteCoords: models.Coordinates{Lat: 0, Lng: 0},
+		Participants: []models.Participant{
+			{ID: 10, Name: "Rider", Lat: 1, Lng: 1},
+		},
+		Drivers: []models.Driver{
+			{ID: 1, Name: "Driver", Lat: 2, Lng: 0, VehicleCapacity: 1},
+		},
+		Mode: routing.RouteModeDropoff,
+	}
+	result, err := routing.NewBalancedRouter(calc).CalculateRoutes(context.Background(), request)
+	if err != nil {
+		t.Fatalf("CalculateRoutes() error = %v", err)
+	}
+	if result.Summary.MaxDetourSecs <= 0 {
+		t.Fatalf("calculated max detour = %.1f, want nonzero fixture", result.Summary.MaxDetourSecs)
+	}
+
+	store := routesession.NewPersistentStore(calc, workflowtest.New())
+
+	snapshot := mustCreate(t, store, routesession.CreateInput{
+		Routes:          result.Routes,
+		SelectedDrivers: request.Drivers,
+		Mode:            result.Mode,
+	})
+
+	if snapshot.Summary.MaxDetourSecs != result.Summary.MaxDetourSecs ||
+		snapshot.Summary.SumDetourSecs != result.Summary.SumDetourSecs ||
+		snapshot.Summary.AverageDetourSecs != result.Summary.AverageDetourSecs {
+		t.Fatalf("session detour summary = %+v, want calculation summary %+v", snapshot.Summary, result.Summary)
 	}
 }

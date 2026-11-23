@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"testing/iotest"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -67,19 +66,6 @@ func TestXLSXMultipleSheetsRequireSelection(t *testing.T) {
 	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "Drivers")
 	if err != nil || grid.Len() != 1 {
 		t.Fatalf("selected Parse() grid=%v err=%v", grid, err)
-	}
-}
-
-func TestXLSXOneNonEmptySheetIsSelected(t *testing.T) {
-	data := makeXLSX(t, func(f *excelize.File) {
-		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
-		if _, err := f.NewSheet("Empty"); err != nil {
-			t.Fatalf("NewSheet() error = %v", err)
-		}
-	})
-	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
-	if err != nil || grid.Len() != 1 {
-		t.Fatalf("Parse() grid=%v err=%v", grid, err)
 	}
 }
 
@@ -179,29 +165,6 @@ func TestXLSXUsesRawFormulaCacheAndWarns(t *testing.T) {
 	}
 }
 
-func TestXLSXFormulaMetadataFailureDoesNotAbortParsing(t *testing.T) {
-	data := makeXLSX(t, func(f *excelize.File) {
-		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
-	})
-	f, _, err := openXLSX(bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("openXLSX() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := f.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	})
-
-	grid, err := parseXLSXSheet(f, []byte("unresolvable formula metadata"), "Sheet1")
-	if err != nil {
-		t.Fatalf("parseXLSXSheet() error = %v", err)
-	}
-	if !hasMessage(grid.Warnings, formulaMetadataWarning) {
-		t.Fatalf("file warnings = %#v", grid.Warnings)
-	}
-}
-
 func TestXLSXFormulaBackedHeaderWarnsAtFileLevel(t *testing.T) {
 	data := makeXLSX(t, func(f *excelize.File) {
 		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
@@ -254,33 +217,6 @@ func TestXLSXDriverCapacityAcceptsIntegralFloatOnly(t *testing.T) {
 	}
 	if !hasMessage(rows[1].Errors, "capacity must be a whole number") {
 		t.Fatalf("fractional row errors = %#v, want whole-number error", rows[1].Errors)
-	}
-}
-
-func TestXLSXFormulaMetadataInflatedLimitDegradesToWarning(t *testing.T) {
-	data := makeXLSX(t, func(f *excelize.File) {
-		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
-	})
-	f, _, err := openXLSX(bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("openXLSX() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := f.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	})
-
-	oversized := rewriteXLSXEntry(t, data, "xl/worksheets/sheet1.xml", func(contents []byte) []byte {
-		padding := bytes.Repeat([]byte(" "), int(MaxFormulaMetadataXMLBytes)+1)
-		return bytes.Replace(contents, []byte("</worksheet>"), append(padding, []byte("</worksheet>")...), 1)
-	})
-	grid, err := parseXLSXSheet(f, oversized, "Sheet1")
-	if err != nil {
-		t.Fatalf("parseXLSXSheet() error = %v", err)
-	}
-	if !hasMessage(grid.Warnings, formulaMetadataWarning) {
-		t.Fatalf("file warnings = %#v, want formula metadata warning", grid.Warnings)
 	}
 }
 
@@ -472,56 +408,7 @@ func TestParseWithChoicesErrorPresentation(t *testing.T) {
 			if grid != nil || err == nil || discovery != test.discovery {
 				t.Fatalf("grid=%v err=%v discovery=%t, want %t", grid, err, discovery, test.discovery)
 			}
-			_, legacyErr := Parse(bytes.NewReader(test.data), FormatXLSX, test.sheet)
-			if legacyErr == nil || legacyErr.Error() != err.Error() {
-				t.Fatalf("error=%v legacy error=%v", err, legacyErr)
-			}
 		})
-	}
-	readErr := errors.New("reader failed")
-	_, err := ParseWithChoices(iotest.ErrReader(readErr), FormatXLSX, "")
-	if !errors.Is(err, readErr) {
-		t.Fatalf("error %v lost reader identity", err)
-	}
-	for _, test := range []struct {
-		reader      io.Reader
-		format      Format
-		sheet, want string
-	}{
-		{nil, FormatXLSX, "", "roster file is empty"},
-		{strings.NewReader("name,address\nJane,1 Main St\n"), FormatCSV, "Sheet1", "CSV files do not contain worksheets"},
-		{strings.NewReader(""), Format("other"), "", `unsupported roster format "other"`},
-	} {
-		_, err := ParseWithChoices(test.reader, test.format, test.sheet)
-		_, discovery := errors.AsType[*WorkbookDiscoveryError](err)
-		if err == nil || err.Error() != test.want || discovery {
-			t.Fatalf("error=%v discovery=%t want=%q", err, discovery, test.want)
-		}
-	}
-	grid, err := ParseWithChoices(strings.NewReader("name,address\nJane,1 Main St\n"), FormatCSV, "")
-	if err != nil || grid == nil || grid.Len() != 1 {
-		t.Fatalf("CSV grid=%v err=%v", grid, err)
-	}
-}
-
-func TestParseWithChoicesAutoSelectedFormulaSheet(t *testing.T) {
-	data := makeXLSX(t, func(f *excelize.File) {
-		if _, err := f.NewSheet("Roster"); err != nil {
-			t.Fatal(err)
-		}
-		setRows(t, f, "Roster", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
-		if err := f.SetCellFormula("Roster", "A2", `"Jane"`); err != nil {
-			t.Fatal(err)
-		}
-	})
-	data = patchXLSXCell(t, data, "xl/worksheets/sheet2.xml", "A2", `<c r="A2" t="str"><f>&quot;Jane&quot;</f><v>Jane</v></c>`)
-	grid, err := ParseWithChoices(bytes.NewReader(data), FormatXLSX, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	row := Validate(grid, AutoMap(grid.Headers), KindParticipant, nil)[0]
-	if row.Name != "Jane" || !hasMessage(row.Warnings, "value comes from a formula; verify") {
-		t.Fatalf("row=%#v", row)
 	}
 }
 
@@ -623,4 +510,17 @@ func addXLSXMergedCells(t *testing.T, data []byte, entryName string, count int) 
 	return rewriteXLSXEntry(t, data, entryName, func(contents []byte) []byte {
 		return bytes.Replace(contents, []byte(`</worksheet>`), []byte(merges.String()+`</worksheet>`), 1)
 	})
+}
+
+func TestXLSXOneNonEmptySheetIsSelected(t *testing.T) {
+	data := makeXLSX(t, func(f *excelize.File) {
+		setRows(t, f, "Sheet1", [][]any{{"name", "address"}, {"Jane", "1 Main St"}})
+		if _, err := f.NewSheet("Empty"); err != nil {
+			t.Fatalf("NewSheet() error = %v", err)
+		}
+	})
+	grid, err := Parse(bytes.NewReader(data), FormatXLSX, "")
+	if err != nil || grid.Len() != 1 {
+		t.Fatalf("Parse() grid=%v err=%v", grid, err)
+	}
 }

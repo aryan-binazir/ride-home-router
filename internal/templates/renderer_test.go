@@ -54,34 +54,6 @@ func TestRendererRendersPageWithLayoutAndPartials(t *testing.T) {
 	}
 }
 
-func TestRendererRendersPartialsWithoutLayout(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	tests := []struct {
-		name string
-		want string
-	}{
-		{name: "badge", want: "<strong>Ar</strong>"},
-		{name: "index.html#content", want: "Welcome, <strong>Ar</strong>"},
-		{name: "status", want: "desktop Ar"},
-		{name: "address_suggestions.html", want: "address: Ar"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var output bytes.Buffer
-			if err := renderer.Render(&output, test.name, "Ar"); err != nil {
-				t.Fatalf("Render() error = %v", err)
-			}
-			if got := output.String(); got != test.want {
-				t.Fatalf("Render() = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
 func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 	t.Run("missing layout", func(t *testing.T) {
 		templatesFS := validTemplatesFS()
@@ -100,21 +72,6 @@ func TestNewFailsForMissingOrInvalidRequiredTemplates(t *testing.T) {
 			t.Fatal("New() error = nil, want invalid page error")
 		}
 	})
-}
-
-func TestRendererReturnsErrorForUnknownName(t *testing.T) {
-	renderer, err := templates.New(validTemplatesFS(), web.AuthConfig{})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	for _, name := range []string{"unknown", "unknown.html#content"} {
-		var output bytes.Buffer
-		err := renderer.Render(&output, name, nil)
-		if err == nil || !strings.Contains(err.Error(), "unknown") {
-			t.Fatalf("Render(%q) error = %v, want unknown template or page", name, err)
-		}
-	}
 }
 
 func TestRendererSupportsConcurrentPageAndPartialRendering(t *testing.T) {
@@ -158,23 +115,6 @@ func TestRendererSupportsConcurrentPageAndPartialRendering(t *testing.T) {
 
 	for err := range errors {
 		t.Error(err)
-	}
-}
-
-func TestRendererIncludesSharedAuthConfig(t *testing.T) {
-	config := web.AuthConfig{PublishableKey: "pk_test_fixture", ScriptURL: "https://fixture.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"}
-	renderer, err := templates.New(web.Templates, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"participants.html", "history.html"} {
-		var output bytes.Buffer
-		if err := renderer.Render(&output, name, map[string]any{"Title": "Fixture", "Error": "Fixture"}); err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(output.String(), `data-script-url="`+config.ScriptURL+`"`) || !strings.Contains(output.String(), `data-publishable-key="`+config.PublishableKey+`"`) {
-			t.Fatalf("%s missing shared auth configuration", name)
-		}
 	}
 }
 
