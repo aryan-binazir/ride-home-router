@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 const sessionTTL = 8 * time.Hour

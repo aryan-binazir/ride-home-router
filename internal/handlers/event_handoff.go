@@ -3,10 +3,11 @@ package handlers
 import (
 	"fmt"
 	"net/url"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routesession"
 	"strings"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
 )
 
 func formatEventHandoff(snapshot routesession.CommitSnapshot, route models.CalculatedRoute, parents bool) string {

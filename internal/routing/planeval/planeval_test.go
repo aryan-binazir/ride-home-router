@@ -8,11 +8,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routing"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 func TestGenerateHonoursMixSeatsAndHouseholds(t *testing.T) {

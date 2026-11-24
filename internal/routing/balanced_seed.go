@@ -5,10 +5,11 @@ import (
 	"log/slog"
 	"maps"
 	"math"
-	"ride-home-router/internal/models"
 	"slices"
 	"sort"
 	"strconv"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func (r *BalancedRouter) bearingSweepInsertion(ctx context.Context, institute models.Coordinates, routes map[int64]*balancedRoute, driverIDs []int64, unassigned []*models.Participant) (bool, error) {

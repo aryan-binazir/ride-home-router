@@ -3,10 +3,11 @@ package postgres_test
 import (
 	"context"
 	"errors"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/postgres/postgrestest"
 	"sync"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestGoogleUsageReservesUntilTheMonthlyCeiling(t *testing.T) {

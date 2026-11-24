@@ -8,11 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"ride-home-router/internal/models"
-	"ride-home-router/web"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func TestPlannerBrowserContainment(t *testing.T) {

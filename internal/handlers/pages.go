@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"net/http"
-	"ride-home-router/internal/access"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
 )
 
 func (h *Handler) HandleIndexPage(w http.ResponseWriter, r *http.Request) {

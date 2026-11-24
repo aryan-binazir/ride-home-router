@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestHandleConfirmParticipantAddress(t *testing.T) {

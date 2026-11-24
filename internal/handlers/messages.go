@@ -3,9 +3,10 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
 	"unicode/utf8"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

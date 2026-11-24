@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
 )
 
 type storedGridRow struct {

@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 
 	"github.com/jackc/pgx/v5"
 )

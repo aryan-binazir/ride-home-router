@@ -7,15 +7,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/internal/routesession"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
 )
 
 func TestHandleVansPage_RendersNavAndSavedVans(t *testing.T) {

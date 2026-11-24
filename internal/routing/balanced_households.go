@@ -3,12 +3,13 @@ package routing
 import (
 	"context"
 	"fmt"
-	"ride-home-router/internal/models"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type participantGroup struct {

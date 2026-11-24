@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routing"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 const SolveTimeout = 30 * time.Second

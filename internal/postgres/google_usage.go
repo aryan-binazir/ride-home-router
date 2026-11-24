@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"ride-home-router/internal/database"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
 )
 
 type googleUsageRepository struct{ db *sql.DB }

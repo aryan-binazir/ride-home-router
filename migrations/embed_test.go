@@ -7,11 +7,12 @@ import (
 	"io/fs"
 	"net/url"
 	"regexp"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/migrations"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratedatabase "github.com/golang-migrate/migrate/v4/database"

@@ -1,6 +1,6 @@
 package importer
 
-import "ride-home-router/internal/models"
+import "github.com/aryan-binazir/ride-home-router/internal/models"
 
 var fieldAliases = map[Field]map[string]struct{}{
 	FieldName:        aliasSet("name", "full name", "participant", "participant name", "driver", "driver name", "person"),

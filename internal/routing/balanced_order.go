@@ -3,8 +3,9 @@ package routing
 import (
 	"context"
 	"math"
-	"ride-home-router/internal/models"
 	"slices"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func (rc routeContext) optimizeRouteOrders(ctx context.Context, routes map[int64]*balancedRoute, driverIDs []int64) error {

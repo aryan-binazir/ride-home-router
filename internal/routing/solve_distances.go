@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"math"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func prepareSolveDistances(ctx context.Context, source distance.SolveSource, req *RoutingRequest) (distance.Lookup, error) {

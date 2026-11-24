@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"ride-home-router/internal/models"
-	"ride-home-router/web"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func TestAddingSecondDriverBrowserPreservesMeasuredTimings(t *testing.T) {

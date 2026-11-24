@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestHandleUpdateDriver_JSONRejectsCapacityAboveImportLimit(t *testing.T) {

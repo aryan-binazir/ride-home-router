@@ -6,8 +6,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"ride-home-router/internal/access"
 	"strings"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
 )
 
 var googleKeyPanel = template.Must(template.New("google-key").Parse(`<section id="google-maps-key" class="card">

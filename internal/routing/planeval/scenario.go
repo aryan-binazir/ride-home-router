@@ -5,8 +5,9 @@ import (
 	"hash/fnv"
 	"math"
 	"math/rand/v2"
-	"ride-home-router/internal/models"
 	"slices"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type Region string

@@ -6,9 +6,10 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"ride-home-router/internal/templateutil"
-	"ride-home-router/web"
 	"strings"
+
+	"github.com/aryan-binazir/ride-home-router/internal/templateutil"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 var pageNames = []string{

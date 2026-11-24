@@ -3,11 +3,12 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestAuthBootstrapSharesOnlyPublicConfigAndPreservesHeaders(t *testing.T) {

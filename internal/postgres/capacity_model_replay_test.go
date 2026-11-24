@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/postgres/postgrestest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 
 	"github.com/jackc/pgx/v5"
 )

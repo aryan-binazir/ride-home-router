@@ -9,11 +9,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/logtest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/logtest"
 )
 
 func staticKey(key string) func(context.Context) (string, error) {

@@ -7,15 +7,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 type progressOnlyJobs struct {

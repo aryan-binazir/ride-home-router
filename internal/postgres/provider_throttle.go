@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"ride-home-router/internal/geocoding"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
 )
 
 const geocodingThrottle = "google_geocoding"

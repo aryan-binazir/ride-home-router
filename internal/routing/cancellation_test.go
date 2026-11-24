@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routing"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 func routingGoroutines() int {
@@ -18,7 +19,7 @@ func routingGoroutines() int {
 	n := runtime.Stack(stacks, true)
 	count := 0
 	for stack := range strings.SplitSeq(string(stacks[:n]), "\n\n") {
-		if strings.Contains(stack, "ride-home-router/internal/routing.") {
+		if strings.Contains(stack, "github.com/aryan-binazir/ride-home-router/internal/routing.") {
 			count++
 		}
 	}

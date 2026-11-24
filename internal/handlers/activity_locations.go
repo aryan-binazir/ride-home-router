@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func parseActivityLocationID(path string) (int64, error) {

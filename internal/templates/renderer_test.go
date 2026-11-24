@@ -3,12 +3,13 @@ package templates_test
 import (
 	"bytes"
 	"fmt"
-	"ride-home-router/internal/templates"
-	"ride-home-router/web"
 	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
+
+	"github.com/aryan-binazir/ride-home-router/internal/templates"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 var pageNames = []string{

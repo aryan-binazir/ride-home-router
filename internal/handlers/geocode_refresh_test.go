@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type refreshGeocoder struct {

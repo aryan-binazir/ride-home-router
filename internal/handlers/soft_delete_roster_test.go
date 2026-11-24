@@ -7,12 +7,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
 )
 
 type rosterSoftDeleteCase struct {

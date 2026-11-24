@@ -4,10 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/templates"
-	"ride-home-router/web"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/templates"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func loadEmbeddedTemplates(t *testing.T) *templates.Renderer {

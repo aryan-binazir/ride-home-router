@@ -10,15 +10,17 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
-	"ride-home-router/internal/access"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/routefeedback"
-	"ride-home-router/internal/server"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
 	_ "time/tzdata" // Pacific-time month boundaries must work on images without zoneinfo.
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/routefeedback"
+	"github.com/aryan-binazir/ride-home-router/internal/server"
 
 	"github.com/jackc/pgx/v5"
 )

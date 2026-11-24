@@ -2,7 +2,8 @@ package distance
 
 import (
 	"context"
-	"ride-home-router/internal/models"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type ErrDistanceCalculationFailed struct {

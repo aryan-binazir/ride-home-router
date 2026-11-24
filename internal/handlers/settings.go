@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
-	"ride-home-router/internal/access"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {

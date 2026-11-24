@@ -2,10 +2,11 @@ package main
 
 import (
 	"bytes"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/migrations"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/migrations"
 )
 
 func TestRunUpPrintsLatestCleanVersion(t *testing.T) {

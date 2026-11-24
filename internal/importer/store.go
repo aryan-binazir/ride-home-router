@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
 	"sync"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

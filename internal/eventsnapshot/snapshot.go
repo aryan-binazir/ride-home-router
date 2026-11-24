@@ -2,7 +2,8 @@ package eventsnapshot
 
 import (
 	"errors"
-	"ride-home-router/internal/models"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 var (

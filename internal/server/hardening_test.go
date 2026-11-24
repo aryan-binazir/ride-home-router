@@ -3,11 +3,12 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/postgres/postgrestest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestRecoveryReportsFailureAndToast(t *testing.T) {

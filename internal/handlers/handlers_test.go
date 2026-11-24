@@ -5,10 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/httpx"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
 )
 
 var errAddressSearchGeocodeUnused = errors.New("address search geocoder does not implement geocoding")

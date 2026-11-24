@@ -2,12 +2,13 @@ package routing_test
 
 import (
 	"context"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routing"
-	"ride-home-router/internal/routing/planeval"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
+	"github.com/aryan-binazir/ride-home-router/internal/routing/planeval"
 )
 
 func TestTightSeatsSeedProducesAnOrdinaryPlan(t *testing.T) {

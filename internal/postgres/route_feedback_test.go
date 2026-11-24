@@ -3,12 +3,13 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/internal/routefeedback"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/internal/routefeedback"
 
 	"github.com/jackc/pgx/v5"
 )

@@ -2,9 +2,10 @@ package postgres_test
 
 import (
 	"context"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres/postgrestest"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestParticipantAddressMatchRoundTrip(t *testing.T) {

@@ -18,7 +18,7 @@ def inventory(path):
             actions[event['Action']][(event['Package'], event['Test'])] += 1
     if not actions['run'] or actions['run'] != actions['pass'] + actions['skip']:
         raise ValueError(f'{path}: incomplete or failing test inventory')
-    allowed = {('ride-home-router/internal/routing/planeval', 'TestPlannerEvaluation')}
+    allowed = {('github.com/aryan-binazir/ride-home-router/internal/routing/planeval', 'TestPlannerEvaluation')}
     if set(actions['skip']) - allowed:
         raise ValueError(f'{path}: unexpected skips: {actions["skip"]}')
     return actions

@@ -3,11 +3,12 @@ package importer
 import (
 	"context"
 	"errors"
-	"ride-home-router/internal/database"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
 )
 
 type idleJobs struct {

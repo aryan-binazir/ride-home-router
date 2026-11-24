@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/importer"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
 )
 
 func TestImportPagingAppliesVisibleDeltasAndPollsOnlyProgress(t *testing.T) {

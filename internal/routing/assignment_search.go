@@ -3,12 +3,13 @@ package routing
 import (
 	"context"
 	"errors"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

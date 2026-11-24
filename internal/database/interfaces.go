@@ -2,8 +2,9 @@ package database
 
 import (
 	"context"
-	"ride-home-router/internal/models"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type BatchUpsertResult struct {

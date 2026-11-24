@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/logtest"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
+	"github.com/aryan-binazir/ride-home-router/internal/logtest"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

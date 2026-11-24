@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestRouteCalculation_CanceledAfterSolveDoesNotReturnSession(t *testing.T) {

@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"ride-home-router/internal/credentials"
-	"ride-home-router/internal/database"
-	"ride-home-router/migrations"
 	"strings"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/credentials"
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/migrations"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"

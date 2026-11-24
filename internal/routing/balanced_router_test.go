@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type countingSolveDistanceCalculator struct {
