@@ -3,9 +3,10 @@ package web_test
 import (
 	"bytes"
 	"html/template"
-	"ride-home-router/web"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func TestAuthHeadUsesEscapedPublicConfigAndMatchingCORS(t *testing.T) {

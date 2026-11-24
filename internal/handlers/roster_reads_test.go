@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
 )
 
 func seedRosterReadPerson(t *testing.T, store *postgres.Store, kind, name, address string) int64 {

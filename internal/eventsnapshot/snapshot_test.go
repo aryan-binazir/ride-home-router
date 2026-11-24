@@ -3,9 +3,10 @@ package eventsnapshot_test
 import (
 	"errors"
 	"reflect"
-	"ride-home-router/internal/eventsnapshot"
-	"ride-home-router/internal/models"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/eventsnapshot"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestBuildRequiresAtLeastOneNonEmptyRoute(t *testing.T) {

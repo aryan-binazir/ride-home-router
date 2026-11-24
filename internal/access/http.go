@@ -5,8 +5,9 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"ride-home-router/web"
 	"slices"
+
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func (a *Access) BrowserConfig() web.AuthConfig {

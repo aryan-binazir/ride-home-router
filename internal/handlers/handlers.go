@@ -7,15 +7,16 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/routesession"
-	"ride-home-router/internal/routing"
-	"ride-home-router/internal/templates"
 	"strconv"
 	"strings"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
+	"github.com/aryan-binazir/ride-home-router/internal/templates"
 )
 
 type Handler struct {

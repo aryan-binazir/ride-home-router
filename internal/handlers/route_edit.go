@@ -4,10 +4,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/routesession"
 	"strconv"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
 )
 
 const maxParticipantMovesPerBatch = 64

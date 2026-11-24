@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type mockDistanceCache struct {

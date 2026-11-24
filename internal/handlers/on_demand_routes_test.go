@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/database/workflowtest"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routesession"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database/workflowtest"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
 )
 
 func largeRouteFixture(t *testing.T) (*Handler, routesession.Snapshot) {

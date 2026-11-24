@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"math"
-	"ride-home-router/internal/models"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

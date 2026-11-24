@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/orderedroute"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/orderedroute"
 )
 
 type Measurer interface {

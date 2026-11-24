@@ -16,13 +16,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/internal/server"
-	"ride-home-router/migrations"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
+	"github.com/aryan-binazir/ride-home-router/internal/server"
+	"github.com/aryan-binazir/ride-home-router/migrations"
 
 	"github.com/jackc/pgx/v5"
 )

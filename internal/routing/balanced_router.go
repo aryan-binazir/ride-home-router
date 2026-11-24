@@ -3,11 +3,12 @@ package routing
 import (
 	"context"
 	"log/slog"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type BalancedRouter struct {

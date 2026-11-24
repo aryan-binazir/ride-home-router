@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/models"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestPlannerDriverPagePreservesOffPageSelectionInCompactForm(t *testing.T) {

@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"reflect"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routing"
 	"runtime"
 	"slices"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 func TestBalancedRouterSeededInvariants(t *testing.T) {

@@ -1,4 +1,4 @@
-module ride-home-router
+module github.com/aryan-binazir/ride-home-router
 
 go 1.27.4
 

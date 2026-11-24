@@ -4,10 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/handlers"
-	"ride-home-router/internal/postgres/postgrestest"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
+	"github.com/aryan-binazir/ride-home-router/internal/handlers"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 type observedUpload struct{ reads int }

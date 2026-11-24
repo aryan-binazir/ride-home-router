@@ -1,6 +1,6 @@
 package handlers
 
-import "ride-home-router/internal/models"
+import "github.com/aryan-binazir/ride-home-router/internal/models"
 
 type ActivePage string
 

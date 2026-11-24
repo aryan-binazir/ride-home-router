@@ -5,12 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access"
-	"ride-home-router/internal/access/accesstest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
 )
 
 type approvals struct {

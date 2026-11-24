@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type participantRepository struct {

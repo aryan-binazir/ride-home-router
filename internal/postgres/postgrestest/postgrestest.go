@@ -8,11 +8,12 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/migrations"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
+	"github.com/aryan-binazir/ride-home-router/migrations"
 
 	"github.com/jackc/pgx/v5"
 )

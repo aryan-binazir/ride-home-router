@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"ride-home-router/internal/models"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type routeFeedbackRepository struct {

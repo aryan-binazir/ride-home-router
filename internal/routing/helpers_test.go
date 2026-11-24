@@ -3,8 +3,9 @@ package routing
 import (
 	"context"
 	"math"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type mockDistanceAdapter struct{}

@@ -6,12 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/postgres/postgrestest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 type failingHealthStore struct {

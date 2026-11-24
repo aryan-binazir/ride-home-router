@@ -3,12 +3,13 @@ package access_test
 import (
 	"fmt"
 	"net/http"
-	"ride-home-router/internal/access/accesstest"
 	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
 )
 
 type lookupRead struct {

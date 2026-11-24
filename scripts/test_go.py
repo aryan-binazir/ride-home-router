@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 
-HANDLERS = 'ride-home-router/internal/handlers'
+HANDLERS = 'github.com/aryan-binazir/ride-home-router/internal/handlers'
 
 
 def merge_coverage(paths, destination):
@@ -84,7 +84,7 @@ def main():
                 if name and event.get('Action') == 'pass' and '/' not in name:
                     passed.add(name)
                 if name and event.get('Action') == 'skip' and not (
-                    event.get('Package') == 'ride-home-router/internal/routing/planeval' and name == 'TestPlannerEvaluation'
+                    event.get('Package') == 'github.com/aryan-binazir/ride-home-router/internal/routing/planeval' and name == 'TestPlannerEvaluation'
                 ):
                     print(f'Unexpected skipped test: {event.get("Package")}/{name}', file=sys.stderr)
                     failed = True

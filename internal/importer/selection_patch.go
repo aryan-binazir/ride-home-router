@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"ride-home-router/internal/database"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
 )
 
 func applySelectionPatch(selected []bool, patch map[int]bool) error {

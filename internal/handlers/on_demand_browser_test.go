@@ -8,12 +8,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
-	"ride-home-router/web"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func TestRouteEditorBrowserLoadsSearchesAndMovesOnDemand(t *testing.T) {

@@ -5,9 +5,10 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/httpx"
 	"strings"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
 )
 
 func (h *Handler) HandleAddressSearch(w http.ResponseWriter, r *http.Request) {

@@ -7,8 +7,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"ride-home-router/migrations"
 	"strings"
+
+	"github.com/aryan-binazir/ride-home-router/migrations"
 )
 
 func main() {

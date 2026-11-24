@@ -2,9 +2,10 @@ package routing
 
 import (
 	"context"
-	"ride-home-router/internal/models"
 	"slices"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func optimizeDriverAssignments(ctx context.Context, rc routeContext, routes map[int64]*balancedRoute, driverIDs []int64) (int, error) {

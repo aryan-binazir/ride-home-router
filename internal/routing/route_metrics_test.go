@@ -5,10 +5,11 @@ import (
 	"errors"
 	"math"
 	"reflect"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"sync"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 type stableDistanceCalculator struct{}

@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access"
-	"ride-home-router/internal/access/accesstest"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
 )
 
 type verificationApprovals struct{ access.Store }

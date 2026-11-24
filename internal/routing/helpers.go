@@ -1,6 +1,6 @@
 package routing
 
-import "ride-home-router/internal/models"
+import "github.com/aryan-binazir/ride-home-router/internal/models"
 
 func removeRange(stops []*models.Participant, start, end int) []*models.Participant {
 	result := make([]*models.Participant, 0, len(stops)-(end-start))

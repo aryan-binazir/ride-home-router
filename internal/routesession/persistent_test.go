@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/internal/routesession"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
 
 	"github.com/jackc/pgx/v5"
 )

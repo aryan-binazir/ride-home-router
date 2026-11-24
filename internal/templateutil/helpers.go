@@ -3,11 +3,12 @@ package templateutil
 import (
 	"fmt"
 	"html/template"
-	"ride-home-router/internal/models"
-	"ride-home-router/web"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 const (

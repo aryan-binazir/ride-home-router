@@ -13,14 +13,15 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

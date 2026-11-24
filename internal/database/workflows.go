@@ -3,8 +3,9 @@ package database
 import (
 	"context"
 	"errors"
-	"ride-home-router/internal/models"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 //nolint:staticcheck // This shared capacity sentinel is intentionally user-facing copy.

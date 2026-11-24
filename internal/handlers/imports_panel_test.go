@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/importer"
-	"ride-home-router/internal/models"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/importer"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestImportPanelFlowRendersFragmentsAndRefreshesRoster(t *testing.T) {

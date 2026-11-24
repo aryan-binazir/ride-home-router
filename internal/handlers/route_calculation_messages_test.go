@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func TestCalculateDistanceFailureMessages(t *testing.T) {

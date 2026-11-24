@@ -1,6 +1,6 @@
 package postgres
 
-import "ride-home-router/internal/credentials"
+import "github.com/aryan-binazir/ride-home-router/internal/credentials"
 
 func (s *Store) ConfigureCredentialEncryption(encodedKey string) error {
 	c, err := credentials.New(encodedKey)

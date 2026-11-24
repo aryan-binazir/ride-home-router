@@ -8,12 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/httpx"
-	"ride-home-router/internal/routing"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/httpx"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 type CalculateRoutesRequest struct {

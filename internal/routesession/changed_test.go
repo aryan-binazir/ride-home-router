@@ -2,11 +2,12 @@ package routesession
 
 import (
 	"context"
-	"ride-home-router/internal/database/workflowtest"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"slices"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database/workflowtest"
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func changedFixture(t *testing.T) (*Store, Snapshot) {

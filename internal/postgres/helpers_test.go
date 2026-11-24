@@ -2,9 +2,10 @@ package postgres_test
 
 import (
 	"context"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres"
 
 	"github.com/jackc/pgx/v5"
 )

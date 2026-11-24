@@ -6,13 +6,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
-	"ride-home-router/internal/access/accesstest"
-	"ride-home-router/internal/handlers"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/web"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access/accesstest"
+	"github.com/aryan-binazir/ride-home-router/internal/handlers"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/web"
 )
 
 func TestStaticCachingMatchesFileServer(t *testing.T) {

@@ -1,8 +1,9 @@
 package importer
 
 import (
-	"ride-home-router/internal/models"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

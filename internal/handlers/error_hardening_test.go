@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const internalSentinel = `ERROR: relation "x" does not exist (SQLSTATE 42P01)`

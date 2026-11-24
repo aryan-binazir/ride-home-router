@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"ride-home-router/internal/access"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/access"
 )
 
 func TestLoginRequiresExactHostAndOrigin(t *testing.T) {

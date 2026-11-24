@@ -2,11 +2,12 @@ package postgres_test
 
 import (
 	"context"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres/postgrestest"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
 )
 
 func TestEventRepositoryListAndSummaries(t *testing.T) {

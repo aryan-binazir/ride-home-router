@@ -35,9 +35,9 @@ class RunnerTest(unittest.TestCase):
             fake.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, re, sys
 args = sys.argv[1:]
-pkg = 'ride-home-router/internal/handlers'
+pkg = 'github.com/aryan-binazir/ride-home-router/internal/handlers'
 if args[0] == 'list':
-    print(pkg+'\\nride-home-router/other')
+    print(pkg+'\\ngithub.com/aryan-binazir/ride-home-router/other')
 elif '-c' in args:
     binary = pathlib.Path(args[args.index('-o')+1])
     binary.write_text("#!/bin/sh\\nprintf 'TestA\\nTestB\\nTestC\\nTestD\\nExample\\n'\\n")
@@ -48,7 +48,7 @@ else:
         pathlib.Path(profile).write_text('mode: atomic\\na.go:1.1,2.2 1 1\\n')
     selection = next((a for a in args if a.startswith('-test.run=')), None)
     names = re.findall(r'Test[A-D]|Example', selection) if selection else ['TestOther']
-    package = pkg if selection else 'ride-home-router/other'
+    package = pkg if selection else 'github.com/aryan-binazir/ride-home-router/other'
     for name in names:
         action = os.environ.get('FAKE_ACTION', 'pass') if name == 'TestC' else 'pass'
         if action == 'missing': continue

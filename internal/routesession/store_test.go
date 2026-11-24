@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"math"
-	"ride-home-router/internal/database/workflowtest"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/internal/routesession"
-	"ride-home-router/internal/routing"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database/workflowtest"
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 type calculator struct{}

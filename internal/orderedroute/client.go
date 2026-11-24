@@ -10,12 +10,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"ride-home-router/internal/distance"
-	"ride-home-router/internal/models"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/distance"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 const (

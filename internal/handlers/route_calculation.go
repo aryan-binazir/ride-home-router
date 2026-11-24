@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"ride-home-router/internal/database"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
-	"ride-home-router/internal/routesession"
-	"ride-home-router/internal/routing"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/aryan-binazir/ride-home-router/internal/database"
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
+	"github.com/aryan-binazir/ride-home-router/internal/routesession"
+	"github.com/aryan-binazir/ride-home-router/internal/routing"
 )
 
 type routeCalculationKind int

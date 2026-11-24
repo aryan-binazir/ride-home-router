@@ -3,11 +3,12 @@ package importer
 import (
 	"context"
 	"errors"
-	"ride-home-router/internal/geocoding"
-	"ride-home-router/internal/models"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/geocoding"
+	"github.com/aryan-binazir/ride-home-router/internal/models"
 )
 
 func testGrid(t *testing.T, csv string) *Grid {

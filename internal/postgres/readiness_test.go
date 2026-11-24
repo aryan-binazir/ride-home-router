@@ -1,10 +1,11 @@
 package postgres_test
 
 import (
-	"ride-home-router/internal/postgres/postgrestest"
-	"ride-home-router/migrations"
 	"strings"
 	"testing"
+
+	"github.com/aryan-binazir/ride-home-router/internal/postgres/postgrestest"
+	"github.com/aryan-binazir/ride-home-router/migrations"
 )
 
 func TestReadinessCheckRequiresLatestMigration(t *testing.T) {
