@@ -7,7 +7,7 @@ DATABASE_URL ?= $(LOCAL_DATABASE_URL)
 TEST_DATABASE_URL ?= $(LOCAL_TEST_DATABASE_URL)
 export DATABASE_URL TEST_DATABASE_URL
 
-.PHONY: help check check-unit check-branch lint verify vulncheck vet test test-unit test-verification-tools eval tla verification-mutations build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
+.PHONY: help check check-unit check-branch lint verify vulncheck vet test test-unit test-verification-tools eval tla verification-mutations release build serve clean postgres-up postgres-down psql migrate migrate-version migrate-down migrate-create
 
 help:
 	@echo "Ride Home Router"
@@ -30,6 +30,7 @@ help:
 	@echo "  make postgres-down Remove the local podman Postgres"
 	@echo "  make psql          Open psql on the local Postgres"
 	@echo "  make clean         Remove build artifacts"
+	@echo "  make release       Tag origin/main and publish a release (LEVEL=minor|major, DRY_RUN=1)"
 
 check: lint verify vulncheck vet test
 
@@ -73,6 +74,9 @@ eval:
 
 tla:
 	scripts/tla.sh
+
+release:
+	scripts/release.sh $(LEVEL) $(if $(DRY_RUN),--dry-run)
 
 build:
 	@mkdir -p bin
