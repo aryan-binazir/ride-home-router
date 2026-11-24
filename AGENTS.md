@@ -10,9 +10,7 @@ Before merging any PR, run `BROWSER_TEST_BINARY=/path/to/chrome-or-chromium make
 
 For planner-related changes, also run `make eval`. Changes covered by `verify-workflow-tla`, or to the verification gates themselves, require `make check-branch` on a clean committed head. It includes `make check`, planner evaluation, TLC and real-code guard mutations. Other changes still require `make check` as the minimum. Record commands and results in the PR. Fix failures before merging; rerun verification after changes.
 
-# Releases
-
-After each PR merges to `main`, run `make release` from an up-to-date checkout. It tags `origin/main` with the next patch version and publishes a GitHub release with notes of the PRs since the last tag. Use `make release LEVEL=minor` or `LEVEL=major` only when Ar asks for it; a `minor` or `major` label on the merged PR does the same automatically. `make release DRY_RUN=1` previews without changing anything. It is a no-op when `main`'s head is already tagged.
+- Release: after every PR merges to `main`, run `make release` (patch by default; `make release LEVEL=minor|major` only if Ar says so or the PR has that label).
 
 # Local agent environment
 
